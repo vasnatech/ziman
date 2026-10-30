@@ -1,4 +1,4 @@
-ziman: syntax error at 1:4 in tests/lang/module_attr_unknown_rejected.zm: unknown module attribute 'nonsense' (the five are 'experimental', 'deprecated', 'derive', 'repository' and 'generator')
+ziman: syntax error at 1:4 in tests/lang/module_attr_unknown_rejected.zm: unknown module attribute 'nonsense' (the four are 'experimental', 'deprecated', 'derive' and 'generator')
   |
 1 | #![nonsense]
   |    ^

@@ -1,4 +1,4 @@
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use datasource
 use db.DbError
@@ -14,7 +14,7 @@ pub struct Note {
 }
 
 // There is no `_all` in the grammar: how many rows a query answers is its return type's business.
-#[repository]
+#[derive(Repository)]
 pub fn find_all_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
 
 fn main() {

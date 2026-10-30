@@ -1,4 +1,4 @@
-#[repository]
+#[derive(Repository)]
 pub struct Note {
     id: int
 }

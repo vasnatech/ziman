@@ -1,4 +1,4 @@
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use datasource
 use db.DbError
@@ -15,7 +15,7 @@ pub struct Note {
 
 // A term that names no column of the entity, reported where it was written rather than when the
 // generated SQL reaches `eql.translate` at module initialisation.
-#[repository]
+#[derive(Repository)]
 pub fn find_by_ownr(conn: datasource.Connection, ownr: int) -> Result<[Note], DbError>
 
 fn main() {

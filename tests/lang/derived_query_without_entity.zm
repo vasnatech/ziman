@@ -3,7 +3,7 @@
 use datasource
 use db.DbError
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_owner(conn: datasource.Connection, owner: int) -> Result<[int], DbError>
 
 fn main() {

@@ -6,7 +6,7 @@
 // proposal -- would have refused this file. The feature is built on a hand-written definition
 // winning (`meta.Target.defined` exists for exactly that), so requiring the derives would have
 // contradicted it. The derives are the convenient way to supply these names, not the only one.
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use datasource
 use db.DbError

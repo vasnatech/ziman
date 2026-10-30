@@ -6,7 +6,7 @@
 // The message names the derives that write them *and* says they may be written by hand, because
 // the check is by name: `tests/lang/repository_handwritten_meta` is a repository over three
 // hand-written definitions and no derives at all.
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use datasource
 use db.DbError

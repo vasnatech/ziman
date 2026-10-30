@@ -1,5 +1,5 @@
-#![repository(Note)]
-#![repository(Other)]
+#![derive(Repository(Note))]
+#![derive(Repository(Other))]
 
 fn main() {
     print("never runs")

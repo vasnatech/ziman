@@ -1,4 +1,4 @@
-#![repository(Event)]
+#![derive(Repository(Event))]
 
 // `#[column(name: "..")]` end to end: the struct spells `start`, the database column is
 // `start_date`, and everything in between agrees.
@@ -28,10 +28,10 @@ pub struct Event {
 
 // A derived query over the overridden field: its *name* is the field's, and so is the `e.start`
 // its generated body hands to `eql`.
-#[repository]
+#[derive(Repository)]
 pub fn find_by_start(conn: datasource.Connection, start: string) -> Result<[Event], DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn delete_by_start(conn: datasource.Connection, start: string) -> Result<int, DbError>
 
 fn main() {

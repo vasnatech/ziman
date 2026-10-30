@@ -1,1 +1,4 @@
-#[repository] applies to a function, not to struct 'Note'
+ziman: syntax error at 2:5 in tests/lang/derived_query_on_a_struct.zm: #[derive(Repository)] applies to a function, not to struct 'Note' -- the module attribute '#![derive(Repository(Note))]' is what says a module is a repository over an entity
+  |
+2 | pub struct Note {
+  |     ^

@@ -4,7 +4,7 @@
 // An `Option` column's parameter is its *inner* type: `find_by_note(conn, note: string)` reads the
 // rows whose nullable note is that text, and `_is_null` is how the other side is asked for. A
 // parameter of `Option<string>` would bind NULL for None, and `note = NULL` matches no row.
-#![repository(Reading)]
+#![derive(Repository(Reading))]
 
 use datasource
 use db.DbError
@@ -21,29 +21,29 @@ pub struct Reading {
     note: Option<string>
 }
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_kind_in(conn: datasource.Connection, kind: [string]) -> Result<[Reading], DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_value_between(conn: datasource.Connection, value_from: int, value_to: int) -> Result<[Reading], DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_kind_ignore_case(conn: datasource.Connection, kind: string) -> Result<[Reading], DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_patient_id_and_kind_not(
     conn: datasource.Connection,
     patient_id: uuid.Uuid,
     kind: string
 ) -> Result<[Reading], DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn count_by_note_is_null(conn: datasource.Connection) -> Result<int, DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_note_is_not_null_order_by_value_desc(conn: datasource.Connection) -> Result<[Reading], DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_note(conn: datasource.Connection, note: string) -> Result<[Reading], DbError>
 
 fn main() {

@@ -9,7 +9,7 @@
 // verb does not pair with, and a parameter bound by the wrong name -- because they are produced at
 // three different points of the generator and all three have to come back as `Err` rather than as
 // a failure.
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use datasource
 use db.DbError
@@ -22,13 +22,13 @@ struct Note {
     body: string
 }
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_nothing_like_a_field(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn count_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_owner(conn: datasource.Connection, holder: int) -> Result<[Note], DbError>
 
 fn main() {

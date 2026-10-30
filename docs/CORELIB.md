@@ -1175,11 +1175,11 @@ pub struct Target {
     // The entity, reified from wherever it is declared: its fields are the columns, and the ones
     // carrying `#[pk]` are what addresses one row.
     entity: Decl
-    // `#![repository(Medication, label: "Medication")]`'s label -- the entity as a person says
+    // `#![derive(Repository(Medication, label: "Medication"))]`'s label -- the entity as a person says
     // it, for a `NotFound` message that reaches an API response. `None` when none was given, and
     // then the entity's own name is the label.
     label: Option<string>
-    // `#![repository(Notification, crud: false)]` makes this false: name the entity, generate
+    // `#![derive(Repository(Notification, crud: false))]` makes this false: name the entity, generate
     // none of the nine CRUD functions. A module with only derived queries wants exactly that.
     crud: bool
     // The functions this module already defines, so a generator can decline to replace one.

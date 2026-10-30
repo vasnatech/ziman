@@ -1,4 +1,4 @@
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use datasource
 use db.DbError
@@ -13,7 +13,7 @@ pub struct Note {
     body: string
 }
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError> {
     val none: [Note] = []
     return none

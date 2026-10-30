@@ -5162,3 +5162,34 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   This repository's own 55 fixtures stay on the old spelling on purpose: it still works, and they
   are the only coverage of it left until step 3, when they all have to move anyway. 1,340 fixtures.
+
+- [x] **F258** **`#![repository]` and `#[repository]` are gone: the compiler knows no annotation
+  that is a fact about a library.** (user-raised 2026-10-30: "keep going" -- step 3 of three for
+  docs/design/user-generators.md §12.4; M.)
+
+  **Twelve names left in `src/parser.c`, and every one of them changes how the language compiles,
+  loads or type-checks**: `derive`, `from`, `test`, `deprecated`, `experimental`, `generator`,
+  `thread_bound`, `thread_key`, `at_least_one`, `effectful`, `compiler_resolved`,
+  `when_unmatched`. That is the line the user drew when they said `from` can stay and `pk`,
+  `valid`, `not_blank` and `column` do not have to.
+
+  **Twenty-four this morning, twelve tonight**, in four steps: F249 took the *meanings* of the
+  field attributes, F250 their *names* (`FIELD_ATTRS` deleted), F253/F256-F258 the last domain
+  name, in two positions.
+
+  This step migrated this repository's own 30 module and 44 function attributes across 31 files,
+  deleted both parser branches, and rewrote **nine user-visible messages** that named the old
+  syntax, across `parser.c`, `derive.c` and `loader.c`.
+
+  **Messages rewritten, history not.** `docs/SYNTAX.md` and the library prose that flows into
+  `docs/CORELIB.md` name the new form, because they instruct. `docs/DESIGN.md`'s and
+  `ROADMAP.md`'s dated entries say what was true when they were written and stay as they are;
+  `derived-queries.md` gets one note at the top rather than thirteen edits inside it.
+
+  One fixture needed its *source* changed and not just its expectation:
+  `repository_annotation_no_argument.zm` was `#![repository]` with no parentheses, a shape the new
+  grammar does not have, so it asks the same question in the new spelling -- `#![derive(Repository)]`
+  with no entity.
+
+  1,340 fixtures; the sample backend type-checks and generates **byte-identically at 34,800
+  lines** against a compiler that no longer has the attribute it was written with.

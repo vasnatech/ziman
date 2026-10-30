@@ -1,4 +1,4 @@
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use datasource
 use db.DbError
@@ -15,7 +15,7 @@ pub struct Note {
 
 // Parameters bind by name. Two transposed `int`s compile in Spring Data and answer the wrong rows
 // forever; here they are this error.
-#[repository]
+#[derive(Repository)]
 pub fn find_by_id_and_owner(conn: datasource.Connection, owner: int, id: int) -> Result<[Note], DbError>
 
 fn main() {

@@ -119,7 +119,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 |---|---|
 | [`derive_row`](derive_row.md) | `#[derive(Row)]`, written in Ziman. |
 | [`derive_entity`](derive_entity.md) | `#[derive(Entity)]`, written in Ziman. |
-| [`derive_repository`](derive_repository.md) | `#![repository(Entity)]`, written in Ziman. |
+| [`derive_repository`](derive_repository.md) | `#![derive(Repository(Entity))]`, written in Ziman. |
 
 ## Graphics
 

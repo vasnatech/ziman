@@ -2,7 +2,7 @@
 // when a name is taken: `#![repository(Note)]`'s own keyed CRUD is skipped for a name the module
 // writes, and so is a derived query -- `delete` here is written out, scoped by the owner, and
 // neither generator touches it.
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use datasource
 use db.DbError
@@ -24,7 +24,7 @@ pub fn delete(conn: datasource.Connection, id: int, owner: int) -> Result<unit, 
 }
 
 // The derived form of the same thing, under its own name, which says what it is scoped by.
-#[repository]
+#[derive(Repository)]
 pub fn delete_by_id_and_owner(conn: datasource.Connection, id: int, owner: int) -> Result<unit, DbError>
 
 fn main() {

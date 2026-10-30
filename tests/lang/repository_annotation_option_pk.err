@@ -1,1 +1,4 @@
-#![repository(Note)] cannot use 'id' as a key column: it is an Option, and a key that may be absent does not address a row
+ziman: type error at 1:11 in tests/lang/repository_annotation_option_pk.zm: #![derive(Repository(Note))] cannot use 'id' as a key column: it is an Option, and a key that may be absent does not address a row
+  |
+1 | #![derive(Repository(Note))]
+  |           ^

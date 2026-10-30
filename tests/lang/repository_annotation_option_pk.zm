@@ -1,4 +1,4 @@
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use eql
 

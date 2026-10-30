@@ -1819,7 +1819,7 @@ static void canonicalize_use_path(Loader *ldr, UseDecl *u) {
     }
 }
 
-/* `#![repository(X)]`: finds X's struct and hands it to the generator.
+/* `#![derive(Repository(X))]`: finds X's struct and hands it to the generator.
  *
  * **The lookup is here and the emitting is in derive.c**, because X is in another file: at the
  * point generation runs it is the loader that knows which files are loaded, and `find_loaded` is
@@ -1843,7 +1843,7 @@ static void canonicalize_use_path(Loader *ldr, UseDecl *u) {
  *
  * `generate(d: Decl)` is the declaration kind, one call per `#[derive(X)]`.
  * `generate_module(t: Target)` and `generate_query(t: Target, f: Function)` are the module kind,
- * over a whole `#![repository(..)]`. Exporting both kinds is refused: nothing would say which
+ * over a whole `#![derive(Repository(..))]`. Exporting both kinds is refused: nothing would say which
  * one a target meant. */
 static int exports_pub_fn(Module *mod, const char *name) {
     for (int i = 0; i < mod->functions.count; i++) {
@@ -1905,7 +1905,7 @@ static int module_provides(Module *module, const char *name, int exported_only) 
     return 0;
 }
 
-/* **The three names `#![repository(E)]`'s generated code calls, checked by name before any of it
+/* **The three names `#![derive(Repository(E))]`'s generated code calls, checked by name before any of it
  * is generated.**
  *
  * Checked here because this is the one place that holds both modules -- the repository's and the
@@ -1942,7 +1942,7 @@ static void check_repository_names(Module *mod, Module *entity_module) {
         strncat(list, "'", sizeof list - strlen(list) - 1);
     }
     ziman_error("type", mod->repository_line, mod->repository_col,
-                "#![repository(%s)] generates functions that call %s, and nothing provides %s -- "
+                "#![derive(Repository(%s))] generates functions that call %s, and nothing provides %s -- "
                 "`#[derive(Row, Entity(\"<table>\"))]` on %s writes all three, or write %s by hand. "
                 "This checks for the names, not for the derives",
                 mod->repository_entity, list, n == 1 ? "it" : "them", mod->repository_entity,
@@ -1961,7 +1961,7 @@ static void link_uses(Loader *ldr, Module *mod) {
 
 static void resolve_repository(Loader *ldr, Module *mod) {
     if (mod->repository_entity == NULL) {
-        /* No entity, so nothing to generate -- except that a `#[repository]` function in such a
+        /* No entity, so nothing to generate -- except that a `#[derive(Repository)]` function in such a
          * module is a body nobody will ever write, which `generate_derived_queries` refuses by
          * name. A module with neither is the overwhelmingly common case and does nothing here. */
         generate_derived_queries(mod, NULL);
@@ -1994,7 +1994,7 @@ static void resolve_repository(Loader *ldr, Module *mod) {
         }
     }
     ziman_error("module", mod->repository_line, mod->repository_col,
-                "#![repository(%s)] names a type this module cannot see -- a repository is generated from its "
+                "#![derive(Repository(%s))] names a type this module cannot see -- a repository is generated from its "
                 "entity's own fields, so the file has to import it (use <module>.%s)",
                 mod->repository_entity, mod->repository_entity);
 }

@@ -1,1 +1,4 @@
-unknown #![repository(..)] argument 'table' (the two are 'label', the entity as a person says it, and 'crud'
+ziman: syntax error at 3:28 in tests/lang/derived_query_unknown_attribute_argument.zm: '#![derive(Repository)]' has no argument 'table' -- it takes the entity, 'label:' and 'crud:'
+  |
+3 | #![derive(Repository(Note, table: "notes"))]
+  |                            ^

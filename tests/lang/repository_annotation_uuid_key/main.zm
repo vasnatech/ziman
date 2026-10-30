@@ -1,4 +1,4 @@
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 // **This module imports no SQL converter**, which is the whole point. `uuid_to_sql` is needed only
 // by the functions `#![repository(Note)]` generates from the entity's `#[pk] id: Uuid`, so the

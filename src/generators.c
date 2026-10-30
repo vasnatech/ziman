@@ -587,7 +587,7 @@ char *ziman_generate_in_ziman(Module *module, const char *target, StructDecl *sd
 
 /* ---- the second generator kind: a module generator ----------------------------------------
  *
- * `#![repository(Entity)]`, whose input is a `meta.Target` rather than a `meta.Decl`: see
+ * `#![derive(Repository(Entity))]`, whose input is a `meta.Target` rather than a `meta.Decl`: see
  * generators.h and docs/design/meta.md §8. Everything above this line is shared with the
  * declaration kind -- the reified types, the one loaded generator program, the guard against a
  * collection landing inside a reification -- which is the argument for a second *kind* rather

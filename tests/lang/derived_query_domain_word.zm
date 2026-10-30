@@ -1,4 +1,4 @@
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use datasource
 use db.DbError
@@ -14,7 +14,7 @@ pub struct Note {
 }
 
 // `recent` is a fact about the application, not about the table. It stays hand-written.
-#[repository]
+#[derive(Repository)]
 pub fn find_recent_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
 
 fn main() {

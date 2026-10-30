@@ -1,1 +1,4 @@
-#[repository] fills a function's body from the module's entity, and this module declares none
+ziman: type error at 7:5 in tests/lang/derived_query_without_entity.zm: #[derive(Repository)] fills a function's body from the module's entity, and this module declares none -- a repository says which entity it is over with the module attribute '#![derive(Repository(Entity))]', before its first declaration
+  |
+7 | pub fn find_by_owner(conn: datasource.Connection, owner: int) -> Result<[int], DbError>
+  |     ^

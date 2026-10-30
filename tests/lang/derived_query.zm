@@ -1,7 +1,7 @@
 // A derived query is a `#[repository]` function with no body: its **name is its query**, read
 // against the entity the module is a repository over, and its return type says how many rows it
 // answers. See docs/design/derived-queries.md.
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use datasource
 use db.DbError
@@ -16,30 +16,30 @@ pub struct Note {
     body: string
 }
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
 
 // The same predicate answering one row rather than many: the cardinality is the return type's and
 // nothing in the name changes.
-#[repository]
+#[derive(Repository)]
 pub fn find_by_owner_order_by_id_desc(conn: datasource.Connection, owner: int) -> Result<Option<Note>, DbError>
 
 // `Result<E, DbError>` instead: absent is `DbError.NotFound` rather than an answer.
-#[repository]
+#[derive(Repository)]
 pub fn find_by_id_and_owner(conn: datasource.Connection, id: int, owner: int) -> Result<Note, DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn count_by_owner(conn: datasource.Connection, owner: int) -> Result<int, DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn exists_by_body(conn: datasource.Connection, body: string) -> Result<bool, DbError>
 
 // `Result<unit, ..>` deletes the one row this addresses and reports a miss; `Result<int, ..>`
 // deletes every matching row and answers how many.
-#[repository]
+#[derive(Repository)]
 pub fn delete_by_id_and_owner(conn: datasource.Connection, id: int, owner: int) -> Result<unit, DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn delete_by_owner(conn: datasource.Connection, owner: int) -> Result<int, DbError>
 
 fn main() {

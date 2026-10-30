@@ -1,4 +1,4 @@
-#![repository(Missing)]
+#![derive(Repository(Missing))]
 
 fn main() {
     print("never runs")

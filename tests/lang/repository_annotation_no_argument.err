@@ -1,1 +1,4 @@
-expected '(' and the entity this module is a repository over, found ']'
+ziman: syntax error at 1:11 in tests/lang/repository_annotation_no_argument.zm: '#![derive(Repository)]' needs the entity it is over -- '#![derive(Repository(Note))]'
+  |
+1 | #![derive(Repository)]
+  |           ^

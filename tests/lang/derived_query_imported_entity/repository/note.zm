@@ -1,14 +1,14 @@
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 use datasource
 use db.DbError
 use entity/note.Note
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_owner_order_by_id_desc(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn count_by_owner(conn: datasource.Connection, owner: int) -> Result<int, DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn delete_by_owner(conn: datasource.Connection, owner: int) -> Result<int, DbError>

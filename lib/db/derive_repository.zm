@@ -1,4 +1,4 @@
-// `#![repository(Entity)]`, written in Ziman: the CRUD every repository writes the same way.
+// `#![derive(Repository(Entity))]`, written in Ziman: the CRUD every repository writes the same way.
 //
 // **The first generator of the second kind** (docs/design/meta.md §8, decided 2026-10-29). The
 // five derives take a `meta.Decl` and are called once per declaration; this one takes a
@@ -148,7 +148,7 @@ fn key_pieces(entity: string, keys: [meta.Field]) -> Result<Keys, string> {
             // The shared emitter's own refusal names `derive(Row)`, which is not what is being
             // written here: a key column is refused as a key, at the attribute.
             return err(prelude.format(
-                "#![repository({})] cannot use '{}' as a key column: there is no conversion to SQL " \
+                "#![derive(Repository({}))] cannot use '{}' as a key column: there is no conversion to SQL " \
                     "for {} ({})",
                 entity,
                 f.name,
@@ -211,7 +211,7 @@ pub fn generate_module(t: meta.Target) -> Result<string, string> {
     // whose predicates come from their own names and may never mention the key.
     if prelude.len(keys) == 0 && t.crud {
         return err(prelude.format(
-            "#![repository({})] needs '{}' to mark at least one field #[pk] -- a repository's " \
+            "#![derive(Repository({}))] needs '{}' to mark at least one field #[pk] -- a repository's " \
                 "find, update and delete each address one row, and without a key there is nothing that " \
                 "addresses one (a module that wants the entity named without those nine says 'crud: " \
                 "false')",
@@ -222,7 +222,7 @@ pub fn generate_module(t: meta.Target) -> Result<string, string> {
     for f in keys {
         if Optional(_) = f.type {
             return err(prelude.format(
-                "#![repository({})] cannot use '{}' as a key column: it is an Option, and a key " \
+                "#![derive(Repository({}))] cannot use '{}' as a key column: it is an Option, and a key " \
                     "that may be absent does not address a row",
                 entity,
                 f.name
@@ -897,7 +897,7 @@ fn key_text_expr(t: meta.Type, expr: string) -> Option<string> {
 
 // The message a derived query's `NotFound` carries: `"Medication not found: <id>"` when the
 // predicate addresses the entity's key and the key renders, `"Medication not found"` when it does
-// not. The label is `#![repository(E, label: "..")]`'s, or the entity's own name when none was
+// not. The label is `#![derive(Repository(E, label: ".."))]`'s, or the entity's own name when none was
 // given -- a generator cannot work it out, which is the whole reason the attribute takes one.
 //
 // The shape is `<label> not found: <id>` because that is what the application this was adopted in

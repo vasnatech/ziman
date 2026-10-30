@@ -3,7 +3,7 @@
 > **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
-`#![repository(Entity)]`, written in Ziman: the CRUD every repository writes the same way.
+`#![derive(Repository(Entity))]`, written in Ziman: the CRUD every repository writes the same way.
 
 **The first generator of the second kind** (docs/design/meta.md §8, decided 2026-10-29). The
 five derives take a `meta.Decl` and are called once per declaration; this one takes a

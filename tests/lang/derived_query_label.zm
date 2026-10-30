@@ -4,7 +4,7 @@
 //
 // It is read by the two forms that answer `DbError.NotFound` -- `find` returning `Result<E, ..>`
 // and `delete` returning `Result<unit, ..>` -- and by nothing else.
-#![repository(VitalSign, label: "Vital sign")]
+#![derive(Repository(VitalSign, label: "Vital sign"))]
 
 use datasource
 use db.DbError
@@ -19,14 +19,14 @@ pub struct VitalSign {
     reading: int
 }
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_id_and_patient_id(
     conn: datasource.Connection,
     id: uuid.Uuid,
     patient_id: uuid.Uuid
 ) -> Result<VitalSign, DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn delete_by_id_and_patient_id(
     conn: datasource.Connection,
     id: uuid.Uuid,
@@ -34,7 +34,7 @@ pub fn delete_by_id_and_patient_id(
 ) -> Result<unit, DbError>
 
 // No term addresses the key, so there is no id to name and the message is the label alone.
-#[repository]
+#[derive(Repository)]
 pub fn find_by_patient_id_and_reading(
     conn: datasource.Connection,
     patient_id: uuid.Uuid,

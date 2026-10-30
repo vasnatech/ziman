@@ -5,7 +5,7 @@
 // account, an `update` on an audit row, a keyed `delete` for rows never addressed by id. This is
 // the per-module opt-out that lets them name their entity anyway; it is not a per-function one,
 // which docs/design/derived-queries.md §8.4 refused and still refuses.
-#![repository(Note, label: "Note", crud: false)]
+#![derive(Repository(Note, label: "Note", crud: false))]
 
 use datasource
 use db.DbError
@@ -19,13 +19,13 @@ pub struct Note {
     body: string
 }
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn find_by_id_and_owner(conn: datasource.Connection, id: int, owner: int) -> Result<Note, DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn delete_by_owner(conn: datasource.Connection, owner: int) -> Result<int, DbError>
 
 fn main() {

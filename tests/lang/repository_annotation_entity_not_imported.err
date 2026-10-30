@@ -1,1 +1,4 @@
-#![repository(Missing)] names a type this module cannot see -- a repository is generated from its entity's own fields, so the file has to import it (use <module>.Missing)
+ziman: module error at 1:11 in tests/lang/repository_annotation_entity_not_imported.zm: #![derive(Repository(Missing))] names a type this module cannot see -- a repository is generated from its entity's own fields, so the file has to import it (use <module>.Missing)
+  |
+1 | #![derive(Repository(Missing))]
+  |           ^

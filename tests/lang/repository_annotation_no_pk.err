@@ -1,1 +1,4 @@
-#![repository(Note)] needs 'Note' to mark at least one field #[pk] -- a repository's find, update and delete each address one row, and without a key there is nothing that addresses one
+ziman: type error at 1:11 in tests/lang/repository_annotation_no_pk.zm: #![derive(Repository(Note))] needs 'Note' to mark at least one field #[pk] -- a repository's find, update and delete each address one row, and without a key there is nothing that addresses one (a module that wants the entity named without those nine says 'crud: false')
+  |
+1 | #![derive(Repository(Note))]
+  |           ^

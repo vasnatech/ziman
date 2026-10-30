@@ -1,4 +1,4 @@
-#![repository(Note)]
+#![derive(Repository(Note))]
 
 // `#![repository(Note)]` generates the CRUD whose body the entity decides, and leaves alone any
 // name the file writes itself -- here `delete`, which is scoped by the owner.

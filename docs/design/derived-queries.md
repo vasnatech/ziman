@@ -1,6 +1,14 @@
 # Derived queries: a repository function's name is its query
 
 Status: **built, 2026-10-28.** Everything below is implemented as written; §10 records the
+
+> **The spelling changed on 2026-10-30** (§12.4 of user-generators.md): `#![repository(E, label:,
+> crud:)]` is `#![derive(Repository(E, label:, crud:))]` and `#[repository]` is
+> `#[derive(Repository)]`. Everything below describes the same feature -- the migration was a
+> rename with the sample backend's 34,800 generated lines byte-identical across it -- and the old
+> spelling is gone, which is what took the last annotation name the compiler knew that was a fact
+> about a library rather than about the language. Mentions of the old form below are history and
+> are left as written.
 handful of decisions the design left to the implementation and what each one chose. Written first
 because the name grammar is the part that has to be right before any of it is worth writing, and
 because the corpus that decides the grammar already exists and can be counted rather than guessed

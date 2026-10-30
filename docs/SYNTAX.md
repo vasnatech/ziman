@@ -1875,7 +1875,7 @@ The bundled generators carry it -- `lib/core/derive_ord.zm` is `#![generator(Ord
 **nothing dispatches on it yet**: `#[derive(X)]` is still a fixed set of names in the compiler,
 and closing that is the work `docs/design/user-generators.md` describes.
 
-`#![repository(Entity)]` says the module is a repository over that entity, and generates the CRUD
+`#![derive(Repository(Entity))]` says the module is a repository over that entity, and generates the CRUD
 functions whose body the entity decides: `insert`, `update`, `find`, `find_or_error`, `exists`,
 `delete`, `find_all`, `count_all` and `delete_all`. The entity is required, and the only other
 thing the attribute takes is `label:` -- everything else a generated function needs is already
@@ -1891,7 +1891,7 @@ guarantee. The trade is that the file does not say which of its functions are ge
 `--emit-derived` prints them and names each one it skipped, and `--api` on the module names the
 attribute, since reading one file cannot reach the entity in another.
 
-`#![repository(Medication, label: "Medication")]` adds the entity's name **as a person says it**,
+`#![derive(Repository(Medication, label: "Medication"))]` adds the entity's name **as a person says it**,
 and nothing else reads it: the `DbError.NotFound` a derived query raises when it answers one row
 and finds none. It is an argument because it is not a fact about the struct --
 `MedicationRefillLog` is "Medication refill log" to a reader and `VitalSign` is "Vital sign", and
@@ -1899,7 +1899,7 @@ no rule gets both right from the type name. Without it the entity's own name is 
 is `"<label> not found: <id>"` when the query's predicate addresses the entity's key and that key
 renders as text (a `Uuid`, a number, a string), and `"<label> not found"` when it does not.
 
-`#![repository(Notification, crud: false)]` names the module's entity and generates **none** of the
+`#![derive(Repository(Notification, crud: false))]` names the module's entity and generates **none** of the
 nine. A derived query (below) needs only the naming half of this attribute, and a module whose
 table should not have a generated `delete_all(conn)` -- an audit log, a users table -- can now say
 so and still derive its queries. It is a per-module statement, not a list of which generated names
@@ -1908,14 +1908,14 @@ are wanted: the entity's own decisions stay beside the struct.
 An entity with no `#[pk]` field is an error: every one of the keyed functions addresses one row, and
 without a key nothing does -- unless `crud: false`, where none of them is generated and so none
 needs a key. So is a `#[pk]` field of an `Option` type, and a second
-`#![repository(..)]` in the same file -- one module, one entity.
+`#![derive(Repository(..))]` in the same file -- one module, one entity.
 
-`#[repository]`, the declaration-level form, goes on a **bodyless `pub fn` whose name is its
+`#[derive(Repository)]`, the declaration-level form, goes on a **bodyless `pub fn` whose name is its
 query**. The keyed CRUD above is every query an entity decides on its own; this is for the rest,
 and the name is the whole specification:
 
 ```ziman
-#![repository(VitalSign)]
+#![derive(Repository(VitalSign))]
 
 use datasource
 use db.DbError
@@ -1931,17 +1931,17 @@ pub struct VitalSign {
 }
 
 // Every vital sign of one patient, highest reading first.
-#[repository]
+#[derive(Repository)]
 pub fn find_by_patient_id_order_by_reading_desc(conn: datasource.Connection, patient_id: Uuid) -> Result<[VitalSign], DbError>
 
 // One row, scoped by its owner: another patient's row is DbError.NotFound, not forbidden.
-#[repository]
+#[derive(Repository)]
 pub fn find_by_id_and_patient_id(conn: datasource.Connection, id: Uuid, patient_id: Uuid) -> Result<VitalSign, DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn count_by_patient_id(conn: datasource.Connection, patient_id: Uuid) -> Result<int, DbError>
 
-#[repository]
+#[derive(Repository)]
 pub fn delete_by_patient_id(conn: datasource.Connection, patient_id: Uuid) -> Result<int, DbError>
 ```
 
@@ -1993,7 +1993,7 @@ names the struct.
 Everything else about the function is checked before any SQL exists, and reported at the line the
 function was written on: a term naming no column (listing the ones the entity has), a name with
 two readings (showing both, rather than preferring one), a verb and return type that do not pair,
-and `#[repository]` in a module with no `#![repository(..)]`. A name the grammar cannot read --
+and `#[derive(Repository)]` in a module with no `#![derive(Repository(..))]`. A name the grammar cannot read --
 `find_recent_by_patient_id`, `find_page_by_patient_id`, anything whose words are about the
 application rather than about the table -- is written out by hand, where a hand-written body wins
 as it does over the keyed CRUD. `--emit-derived` prints what each one became: one private
