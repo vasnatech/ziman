@@ -65,6 +65,10 @@ static void load_generators(void) {
     loader_set_overrides(NULL, NULL, 0);
     typecheck(m);
     ziman_init_module_globals(m);
+    /* **Kept alive past the next program's start** (F247). The generator program is cached for the
+     * process, so its globals outlive the `g_global_env` that built them -- and the collector roots
+     * only the current one. */
+    ziman_keep_globals(m->globals);
     ziman_errors_end_nested(outer_errors);
     g_generators = m;
 }

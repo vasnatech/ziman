@@ -4786,7 +4786,7 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   the message overridden, not `#[not_blank]` -- a difference the conversion only found because an
   attribute forces the question.
 
-- [ ] **F247** **`ziman test a.zm b.zm` fails when more than one file loads a deriving module.**
+- [x] **F247** **`ziman test a.zm b.zm` fails when more than one file loads a deriving module.**
   (found 2026-10-29 while running the North Star's unit tests two files at a time; S.)
 
   `ziman test src/test/unit/service_test.zm src/test/unit/mapper_test.zm` reports
@@ -4806,9 +4806,34 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   **It is not a curiosity: it blocks a `#[derive(..)]` declaration in `tests/stdlib/` entirely**
   (found 2026-10-30 adding `#[valid]`'s tests). `make lib-tests` -- which `make check-fast` runs --
   passes every file in that directory to one `ziman test`, so the first deriving struct there fails
-  with `'capacity$default$16' is read before it is initialised`. Those tests had to move to
-  `tests/lang`, one program per fixture. So `make check` *does* see this now, by way of what it
-  refuses to let anyone write.
+  with `'capacity$default$16' is read before it is initialised`.
+
+  **Fixed 2026-10-30 (user-raised: "fix F247"; S).** It was one slot holding two programs.
+
+  `g_global_env` is a single static, and **the generator program is a program**: `load_generators`
+  builds it once per process and initialises its globals through `ziman_init_module_globals`, which
+  sets `g_global_env`. The next user program's `interpret_tests` replaces that slot. So deriving in
+  the *second* file ran the cached generator's functions against the *first* file's env, where none
+  of the generator's own module vals or parameter defaults exist -- hence a missing
+  `capacity$default$N`, which is `mutable_array_new`'s omitted `capacity` hoisted to a module-level
+  val by `param_default_key`.
+
+  `ziman_call_in_module` already saved and restored `g_program` around a cross-program call. **It
+  did not save the env**, and that is the whole bug. `Module` carries a `globals` field now, set by
+  each of the three places a program's globals are built, and a call into a module runs against the
+  env that module was initialised with.
+
+  **That alone turned a clean error into a segfault**, which is worth recording: `gc_mark_interpreter_roots`
+  roots the *current* `g_global_env` and nothing else, so the generator program's env was being
+  collected the moment a user program started. Holding a pointer to it was worse than not having
+  one. So `ziman_keep_globals` keeps the envs that outlive their program reachable, and the mark
+  phase walks them -- two entries, because the only thing that needs it is the generator program.
+
+  The regression test is `make lib-tests` itself: `tests/stdlib/validate_test.zm` carries two
+  `#[derive(Validate)]` declarations now (`#[valid]`'s own tests, moved back from `tests/lang`),
+  and the whole directory runs in one invocation -- **418 tests**, where the first deriving
+  declaration used to fail the gate. The two- and three-file repros also pass under `--gc-stress`,
+  which is the flag that would have found the collection bug on its own.
 
 - [x] **F249** **The compiler stops reading what a field attribute means.** (user-raised
   2026-10-30: "lets fix pk and valid"; M.)

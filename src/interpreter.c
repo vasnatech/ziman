@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "gc_env_roots.h"
 #include "bignum.h"
 #include "decimal.h"
 #include "derive.h"
@@ -129,6 +130,29 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s);
  * never mutated afterward, so concurrent reads from a `spawn`ed thread
  * are safe with no locking. */
 static Env *g_global_env = NULL;
+
+/* Global envs that have to stay alive after `g_global_env` has moved on.
+ *
+ * **One slot, two programs** (F247). The generator program `src/generators.c` loads is cached for
+ * the process, and its globals are built by `ziman_init_module_globals` into `g_global_env` --
+ * which the next user program replaces. `gc_mark_interpreter_roots` roots only the *current*
+ * `g_global_env`, so the generators' own env became unreachable the moment a program ran, and the
+ * next derive read freed memory. Keeping the pointer on `Module.globals` without this was the
+ * difference between a clean "read before it is initialised" and a segfault.
+ *
+ * Small and fixed: the only thing that needs it is the generator program, and a second entry is
+ * there so that a second cached program does not need this comment rewritten. */
+#define KEPT_GLOBALS_MAX 4
+static Env *g_kept_globals[KEPT_GLOBALS_MAX];
+static int g_kept_globals_count = 0;
+
+void ziman_keep_globals(Env *env) {
+    if (env == NULL) return;
+    for (int i = 0; i < g_kept_globals_count; i++) {
+        if (g_kept_globals[i] == env) return;
+    }
+    if (g_kept_globals_count < KEPT_GLOBALS_MAX) g_kept_globals[g_kept_globals_count++] = env;
+}
 
 /* If `fn`'s last parameter is variadic, collapses `args`/`argc` (the raw
  * values a call site evaluated, one per written-out argument) down to
@@ -1808,6 +1832,8 @@ static int eval_try_unwrap(Module *module, Env *env, Expr *e, Value *unwrapped, 
 static void mark_this_threads_roots(const Arena *a, void *ctx) {
     (void)ctx;
     gc_mark_interpreter_roots(a, g_global_env, t_defer_envs, t_defer_env_count, t_env_pool, t_env_pool_count);
+    /* The cached generator program's globals, which `g_global_env` no longer points at. */
+    for (int i = 0; i < g_kept_globals_count; i++) gc_mark_env_chain(a, g_kept_globals[i]);
     /* See spawn_thread_entry's own comment on t_pending_handler: a spawned thread's pending
      * on_error handler, for as long as it might still be needed, is reachable through nothing else
      * this function already walks. */
@@ -2467,6 +2493,7 @@ Value native_call_closure(Value fn, Value *args, int argc, int line, int col) {
 void ziman_init_module_globals(Module *module) {
     g_program = module;
     g_global_env = env_new(NULL);
+    module->globals = g_global_env;
     /* The frame `interpret` gives module initialisation, for the two reasons recorded there. */
     ziman_push_frame("<module initialisation>", NULL, 0, 0);
     ziman_set_frame_env(g_global_env);
@@ -2491,10 +2518,16 @@ int ziman_call_in_module(Module *module, const char *name, Value *args, int argc
         *out_error = boundary.raw != NULL ? boundary.raw : boundary.message;
         return 0;
     }
+    /* **The env as well as the program** (F247). `module->globals` is what this module's own
+     * initialisation built; without swapping it in, a call into the generator program resolves its
+     * globals -- including every parameter default -- in whichever program's env ran last. */
     Module *saved = g_program;
+    Env *saved_env = g_global_env;
     g_program = module;
+    if (module->globals != NULL) g_global_env = module->globals;
     *out = call_function(module, fn, args, argc, 0, fn->line, fn->col);
     g_program = saved;
+    g_global_env = saved_env;
     ziman_thread_boundary_leave();
     return 1;
 }
@@ -2502,6 +2535,7 @@ int ziman_call_in_module(Module *module, const char *name, Value *args, int argc
 void interpret(Module *module) {
     g_program = module;
     g_global_env = env_new(NULL);
+    module->globals = g_global_env;
     /* **Module initialisation gets a frame of its own**, where it had none: nothing has been called
      * yet, so `t_frame_count` was 0 and every nested scope opened by a global initialiser ran
      * without one. Two separate things needed it, and only the first was visible.
@@ -2604,6 +2638,7 @@ static int run_one_test(Module *module, FunctionDecl *fn, Value *args, int argc,
 void interpret_tests(Module *module, const char *file_label, int *out_run, int *out_failed) {
     g_program = module;
     g_global_env = env_new(NULL);
+    module->globals = g_global_env;
     /* The same frame `interpret` gives module initialisation, for the same two reasons. */
     ziman_push_frame("<module initialisation>", NULL, 0, 0);
     ziman_set_frame_env(g_global_env);

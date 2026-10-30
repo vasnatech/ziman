@@ -1139,6 +1139,19 @@ typedef struct {
     int repository_no_crud;
     int repository_line;
     int repository_col;
+    /* The global `Env` this module's own initialisation built, or NULL before it has run.
+     *
+     * **Two programs live in one process** -- the user's, and the generator program
+     * `src/generators.c` loads -- and `g_global_env` is one slot, so whichever initialised last
+     * owned it. `ziman_call_in_module` saved and restored `g_program` and not this, which is the
+     * whole of F247: `ziman test a.zm b.zm` loaded the generators while deriving `a`, ran `a`
+     * (replacing the env), then derived `b` through the cached generator program -- whose
+     * functions then looked up their own parameter defaults in `a`'s env and found nothing
+     * ("'capacity$default$4' is read before it is initialised"). A call into a module now runs
+     * against the globals that module was initialised with.
+     *
+     * An opaque pointer: `Env` is the interpreter's and nothing in the AST layer reads it. */
+    struct Env *globals;
 } Module;
 
 /* Constructors. All AST nodes are heap-allocated and never freed --

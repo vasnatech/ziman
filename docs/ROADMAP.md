@@ -1263,6 +1263,88 @@ from source.
 
 ## Larger, needs its own design pass
 
+- **Module-level vals are initialised in file order, and that is a constraint on the program.**
+  (Raised while fixing F247, 2026-10-30. `src/interpreter.c`'s `init_param_defaults` recommends one
+  answer; this entry argues for a different one.)
+
+  ```ziman
+  val greeting = decorated("one")              // runs first
+
+  fn decorated(text: string) -> string {
+      return concat(prefix, text)
+  }
+
+  val prefix = "p:"                             // not initialised when decorated() reads it
+  ```
+
+  > `'prefix' is read before it is initialised: module-level vals are initialised in file order,
+  > and this one is reached by an initialiser that runs earlier -- move 'prefix' above the val
+  > whose initialiser uses it`
+
+  Pinned by `tests/lang/global_val_read_before_initialised`, and it **segfaulted** until
+  2026-10-26: the type checker proves the name resolves, so the only route to a NULL binding is a
+  val that resolves and has no value yet, and `EXPR_IDENT` returned `b->value` without looking.
+  The message is the fix for the crash, not for the problem.
+
+  There is a **second eager pass** beside it. `init_param_defaults` hoists every omitted
+  parameter's default to a module-level binding and runs *before* `init_global_vals`, because a
+  val's initialiser can reach a function that relies on one: `pub val iso_date_format =
+  datetime_format_of("yyyy-MM-dd")` calls `mutable_array_new<T>()` with both parameters omitted,
+  and the other order crashed. Its own comment records **the half that ordering does not address**
+  -- a default expression referencing a global val -- as unhit only because every default in the
+  codebase today is a self-contained literal (`20`, `2.0`). So there are two passes, a fixed order
+  between them, and a known gap in the pair. 288 module-level vals in `lib/`, 317 in the sample
+  backend.
+
+  ### The fix the source recommends, and why this entry does not
+
+  `init_param_defaults` says the real answer is **evaluating globals lazily, on first reference,
+  rather than two fixed eager passes**. That removes the constraint rather than reporting it, and it
+  closes the gap: a default referencing a val and a val referencing a default both just work.
+
+  But `g_global_env`'s own comment names the invariant it would cost:
+
+  > Built once, before `main` runs, from a single thread; never mutated afterward, so concurrent
+  > reads from a `spawn`ed thread are safe with no locking.
+
+  Lazy initialisation makes the global env **mutable after `main` starts**, so every global read
+  from a spawned thread needs synchronisation, or every lazy slot needs a once-guard. That is a
+  real cost paid by every program to fix an ordering mistake in a few, and it is the kind of change
+  that turns a data race into the next bug of this family rather than the last. Two smaller costs
+  follow it: an initialiser with observable effects runs at a less predictable time, and one that
+  is never referenced never runs at all.
+
+  ### What this entry recommends instead: initialise in dependency order
+
+  Keep initialisation **eager, single-threaded and before `main`** -- so the env stays immutable
+  and the threading invariant holds -- and stop using *file order* to decide it. Build the
+  dependency graph among module-level vals and hoisted parameter defaults, topologically sort it,
+  and initialise in that order. The type checker already resolves every name in every initialiser,
+  which is the information the graph needs.
+
+  What that buys:
+
+  * **The file-order constraint disappears**, which is the actual complaint.
+  * **The two passes become one.** No fixed order between defaults and vals, and the "unaddressed
+    half" is addressed by construction rather than by nothing having hit it yet.
+  * **A better error for the case that is genuinely impossible.** "read before it is initialised --
+    move it" becomes "these vals form a cycle: `a` → `tag` → `a`", which names a program that
+    cannot be initialised in any order rather than one whose author put a line in the wrong place.
+  * **No runtime cost at all.** The work is a sort at load time; a global read stays a slot read
+    with no guard and no branch.
+
+  What it gives up: the initialisation order stops being the order a reader sees in the file, which
+  matters for an initialiser with side effects. The honest answer is that a module-level val whose
+  initialiser has observable effects is already relying on something the language has never
+  promised, and a cycle error is the only case where any of this is visible.
+
+  **To settle before building**: whether the graph is built in `typecheck` (which has the resolved
+  names) or in the loader; whether a cycle is a type error or a load error; and whether the
+  hoisted defaults keep their own pass as a *stage* of the sort or merge into it entirely. F247's
+  fix is unaffected either way -- that was one env slot holding two programs, not an ordering
+  question.
+
+
 - **`meta`, redesigned.** Designed in [docs/design/meta.md](design/meta.md), not built. The
   derives-in-Ziman port is finished and what it left behind is `meta`, grown one field at a time
   by whichever generator needed it next. Two halves. The **model** gains what `derive(Entity)` and

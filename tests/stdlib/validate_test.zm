@@ -176,12 +176,55 @@ fn with_message_replaces_the_text_and_not_the_rule() {
 
 // ---------------------------------------------------------------- cascading
 //
-// `#[valid]`'s tests are **not here**, and that is F247's fault rather than a choice: `make
-// lib-tests` runs every file in this directory in one `ziman test` invocation, and a
-// `#[derive(..)]` struct in the second program loaded fails with "'capacity$default$16' is read
-// before it is initialised". So this directory cannot hold a deriving declaration at all today.
+// These were in tests/lang until F247 was fixed: `make lib-tests` passes every file in this
+// directory to one `ziman test`, and a `#[derive(..)]` declaration in the second program loaded
+// failed with "'capacity$default$N' is read before it is initialised" -- the generator program is
+// cached for the process and its globals were resolved in whichever program ran last. So this
+// directory could not hold a deriving declaration at all. It can now, and these two are the proof.
 //
-// They live in tests/lang/derive_validate_cascade (the generated text) and
-// tests/lang/derive_validate_cascade_runs (the paths, the per-element indices, the camelCase of a
-// nested field name, and that an empty list breaks the outer rule and cascades into nothing),
-// where each fixture is its own program.
+// The generated *text* is still pinned by tests/lang/derive_validate_cascade; what belongs here is
+// the claim the library makes about a cascade -- that it reports a **different field**, so one
+// message per field is not broken by it.
+
+#[derive(Validate)]
+struct TestIngredient {
+    #[not_blank]
+    name: string
+
+    #[positive]
+    quantity_multiplier: float
+}
+
+#[derive(Validate)]
+struct TestRecipe {
+    #[not_blank]
+    name: string
+
+    #[not_empty]
+    #[valid]
+    ingredients: [TestIngredient]
+}
+
+#[test]
+fn a_cascade_reports_each_element_under_its_own_index() {
+    val bad = TestIngredient { name: "", quantity_multiplier: 1.0 }
+    val found = test_recipe_violations(TestRecipe { name: "Bread", ingredients: [bad, bad, bad] })
+    test.assert_len(3, found)
+    test.assert_eq("ingredients[0].name", found[0].field)
+    test.assert_eq("ingredients[1].name", found[1].field)
+    test.assert_eq("ingredients[2].name", found[2].field)
+    test.assert_eq("must not be blank", found[0].message)
+}
+
+#[test]
+fn a_cascaded_field_name_is_the_wire_name() {
+    // `quantity_multiplier` is `quantityMultiplier` in the path, computed by the *nested*
+    // generator exactly as `#[derive(Json)]` computes a key -- so a path is readable by the client
+    // that sent it.
+    val found = test_recipe_violations(TestRecipe {
+        name: "Bread",
+        ingredients: [TestIngredient { name: "flour", quantity_multiplier: 0.0 }]
+    })
+    test.assert_len(1, found)
+    test.assert_eq("ingredients[0].quantityMultiplier", found[0].field)
+}

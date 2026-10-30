@@ -18,6 +18,10 @@ void interpret(Module *module);
  * load begins, and `interpret` replaces its environment when the user program runs. */
 void ziman_init_module_globals(Module *module);
 
+/* Keeps `env` reachable for the collector after `g_global_env` has moved to another program's.
+ * Called for a program whose globals are cached across runs -- the generator program. */
+void ziman_keep_globals(struct Env *env);
+
 /* Calls `name` in `module`, which must already have been through `ziman_init_module_globals`.
  * Answers 1 and writes `*out`, or 0 and `*out_error` when the function is missing or the call
  * fails at run time -- caught rather than fatal, because a generator's bug must be reported
