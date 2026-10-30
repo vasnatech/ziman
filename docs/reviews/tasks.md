@@ -4688,3 +4688,95 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   nobody reads is a promise that cannot be taken back.
 
   1,318 fixtures.
+
+- [x] **F246** **Validation from annotations: `#[derive(Validate)]`, the rules it calls, and one
+  service converted.** (user-raised, 2026-10-29: "check jakarta.validadtion package in Java. lets
+  build a validation lib using annotations. lets design it first." then "lets build it. honest
+  message, convert one service"; L. Full reasoning in docs/design/validation.md.)
+
+  Stages 1-3 of the design's staging landed in **one commit on purpose**: stage 1 alone leaves
+  eight attribute names that parse and do nothing, which is the `#[deprecated]` trap the parser's
+  own table was written to argue against.
+
+  **Every rule is an ordinary function, and the generator writes calls.** `lib/core/validate.zm`
+  holds `not_blank`, `not_empty`, `email`, `one_of`, `size_at_least`/`_at_most`/`_between`,
+  `at_least`, `at_most`, `positive` and `matches`; `lib/core/derive_validate.zm` writes
+  `<snake>_violations(v) -> [validate.Violation]` and nothing else. No message text is in generated
+  code, so a person can call a rule and `tests/stdlib/validate_test.zm` can test one -- 17 units,
+  every message pinned, two of them the ones the North Star's Python suite asserts byte for byte.
+
+  **A rule answers the message it would report, or `None`.** Not a bool: the message belongs with
+  the rule that knows why it failed.
+
+  **`Option<T>` is how a field says absence is allowed.** Every rule that can apply to one has an
+  `Option` overload that passes when the value is absent -- Jakarta's semantics, where `@Size` on a
+  null is valid and only `@NotNull` rejects one. That is what makes **one** `#[one_of]` replace the
+  North Star's `not_one_of`, `optional_not_one_of` *and* `list_not_one_of`: 52 of its 106
+  hand-written rule uses are this one rule split by the type of the field. The type decides
+  optionality, the attribute decides the rule -- and Jakarta has no constraint for "one of a word
+  list" at all.
+
+  **One honest message, chosen by the user.** `#[size(min: 8)]` with no maximum says "size must be
+  at least 8" where Java prints "size must be between 8 and 2147483647", `Integer.MAX_VALUE` being
+  its annotation default. That is why `size_at_least`, `size_at_most` and `size_between` are three
+  functions and not one taking two bounds: a sentinel for "no maximum" is exactly the thing that
+  leaked.
+
+  **`#[email]` is Hibernate's `EmailValidator` ported** from the North Star's own `is_email`, which
+  reimplemented it deliberately so that a port of a Spring backend rejects exactly the addresses
+  Spring rejects -- `user@localhost` passes, `a_b.c` passes, and being stricter would be the same
+  class of divergence as being looser. Diffing the two over 38 addresses found no differences, and
+  two more that **crash the original**: `substring(value, at + 1, byte_len(value))` cuts the domain
+  with a byte count where `substring` indexes characters, so `üser@exämple.com` raised "substring
+  index out of bounds" (a 500 on `PUT /api/patients/me`) where Hibernate answers true. Fixed in the
+  backend with two test cases pinning it.
+
+  **One violation per field**, the first rule that failed: the response is a map keyed by field
+  name and cannot carry a second, so a field with several constraints goes through `validate.first`
+  rather than pushing twice. The key is the **wire** name -- `newPassword`, not `new_password` --
+  computed by `meta.camel_case`, because getting it from anywhere else is the same class of bug as
+  the column override.
+
+  Every constraint also takes `message:`, as every Jakarta constraint does; `validate.with_message`
+  is what the generated code wraps the rule in, so the rule still decides *whether* and the author
+  decides what is said.
+
+  **A constraint on a field it cannot read is refused against the field.** The call it would have
+  written lives in generated text, and "no overload of validate.not_blank takes an int" is a worse
+  place to learn the attribute is on the wrong field. The generator carries what each constraint
+  accepts for that reason alone.
+
+  Nine refusal fixtures -- five from the generator (wrong type, `#[size]` bounding nothing, no
+  constrained field, an enum, a generic struct) and four from the attribute grammar (an unknown
+  name listing the whole table, an argument of the wrong kind, a missing required one, a positional
+  one where the arguments are named). 1,329 fixtures.
+
+  **Stage 4: body measurements converted** (in the backend repo), message for message, with
+  `src/test/unit/validation_test.zm` pinning it -- including that two broken fields still report
+  two. The word lists moved to the model module with the struct, since that is the scope the
+  generated code reads them in; the service kept its two `not_one_of` calls, which check a `?type=`
+  query parameter and so have no field to sit on. `service.broken_rules` is the one translation
+  from `validate.Violation` to this application's `FieldError`: a library that answered `FieldError`
+  would have the dependency upside down.
+
+  `#[pattern(regex:)]` is still the ninth attribute and still arrives when something needs it, but
+  the *rule* is here already (`validate.matches`), `regex` being a bundled module. An unreadable
+  pattern is a violation naming the pattern, not a crash.
+
+- [ ] **F247** **`ziman test a.zm b.zm` fails when more than one file loads a deriving module.**
+  (found 2026-10-29 while running the North Star's unit tests two files at a time; S.)
+
+  `ziman test src/test/unit/service_test.zm src/test/unit/mapper_test.zm` reports
+
+      module error: the generator for 'Json' failed: 'capacity$default$8' is read before it is
+      initialised: module-level vals are initialised in file order, and this one is reached by an
+      initialiser that runs earlier
+
+  against a struct in a module the *second* file loads. Each file alone is fine, and swapping the
+  order moves the error, so it is the second load that breaks: a synthesised default-argument val
+  from the first program is still in scope when the second one's generated code is spliced.
+
+  **It predates F246** -- it reproduces on the commit before it, on files that have nothing to do
+  with validation -- and the North Star's own runner hides it by giving `ziman test` one file per
+  invocation, which is also why `make check` has never seen it. Worth a fixture of two files run
+  together.

@@ -254,8 +254,18 @@ is told*.
 3. ✅ **`lib/core/derive_validate.zm`**: `#[derive(Validate)]`, generating calls into (2) and
    nothing else. `tests/lang/derive_validate.out` pins the generated text; five refusal fixtures
    pin what it will not generate, and four more pin the attribute grammar.
-4. **One service converted**, message-for-message, with its tests unchanged — the proof. Next.
-5. Then the rest, or not, as (4) advises.
+4. ✅ **One service converted**: `body-measurements`, message for message. Its two rules were
+   `not_one_of("type", ..)` and `optional_not_one_of("interpretation", ..)` — the same rule twice,
+   split by whether the field may be absent — and they are one `#[one_of]` each now, the field's
+   type saying the rest. The word lists moved to the model module with the struct, since that is
+   the scope the generated code reads them in. `service.broken_rules` is the one translation from
+   `validate.Violation` to the application's `FieldError`. `src/test/unit/validation_test.zm` pins
+   the messages, including that a request breaking two fields still reports two.
+5. Then the rest, or not, as (4) advises. **What (4) advises:** the conversion took four edits and
+   removed more than it added, and the two `not_one_of` calls it kept are both on a query
+   parameter — which is the shape to watch for in the other 22 services, since an attribute needs a
+   field to sit on. The one thing it cost is that a word list has to live beside the struct rather
+   than beside the service, which reads as the better place anyway.
 
 `#[pattern(regex:)]` is still the ninth and still arrives when something needs it — but the *rule*
 is already there (`validate.matches`), since `regex` is a bundled module and the function cost a

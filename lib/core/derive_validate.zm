@@ -269,8 +269,7 @@ fn violations(d: meta.Decl, fields: [meta.Field]) -> Result<string, string> {
             ]))
         }
     }
-    val found = snapshot(checks)
-    if len(found) == 0 {
+    if len(checks) == 0 {
         return err(prelude.format(
             "derive(Validate) on '{}' has no constrained field -- it would answer an empty list " \
                 "whatever it was given; write a constraint such as '#[not_blank]' on a field, or drop " \
@@ -281,6 +280,6 @@ fn violations(d: meta.Decl, fields: [meta.Field]) -> Result<string, string> {
     return template.render(sheet, "violations", [
         template.text("snake", d.snake_name),
         template.text("self", meta.type_text(d)),
-        template.rows("checks", found)
+        template.rows("checks", snapshot(checks))
     ])
 }
