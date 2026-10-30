@@ -2334,6 +2334,21 @@ static int param_accepts(Type pattern, Type actual, const TypeParamList *tps, Ty
 }
 
 /* The parameter at `i`, counting a variadic tail as covering every position from its own index on. */
+/* Which of `fn`'s parameters call-position `pos` is talking about. A named call lists its
+ * arguments in whatever order the caller found readable, and parameter names are per-declaration,
+ * so this is the one part of selection that has to be answered candidate by candidate. A
+ * declaration with no parameter of that name is simply not a candidate -- the same judgement
+ * `canonicalize_named_args` makes as "has no parameter named 'x'", made early enough to narrow a
+ * set instead of being reported against the one declaration that happened to be chosen. */
+static int ovl_arg_param_index(const FunctionDecl *fn, const Expr *e, int pos) {
+    char **names = e->as.call.arg_names;
+    if (names == NULL) return pos;
+    for (int j = 0; j < fn->params.count; j++) {
+        if (strcmp(names[pos], fn->params.items[j].name) == 0) return j;
+    }
+    return -1;
+}
+
 static int ovl_param_at(const FunctionDecl *fn, int i, Type *out) {
     if (fn->params.count == 0) return 0;
     int last = fn->params.count - 1;
@@ -2343,10 +2358,40 @@ static int ovl_param_at(const FunctionDecl *fn, int i, Type *out) {
     return 0;
 }
 
-static int ovl_arity_fits(const FunctionDecl *fn, int argc) {
+/* How few arguments a *named* call to `fn` can carry, mirroring `canonicalize_named_args`: there,
+ * a parameter left unnamed is filled in only when it is `Option<T>` (with its default if it has
+ * one, else `None`), and anything else is "missing required argument". Counted over the whole list,
+ * not just a trailing run, because a named call may skip any of them. A trailing variadic
+ * parameter reads "nothing given" as zero elements, so it is not required either -- unless
+ * `#[at_least_one]`, where that reading is exactly what is being refused. */
+static int ovl_min_named_arity(const FunctionDecl *fn) {
+    int n = fn->params.count;
+    int variadic = n > 0 && fn->params.items[n - 1].is_variadic;
+    int required = 0;
+    for (int i = 0; i < n; i++) {
+        if (variadic && i == n - 1 && !fn->variadic_at_least_one) continue;
+        if (!is_option_type(fn->params.items[i].type)) required++;
+    }
+    return required;
+}
+
+/* **An omittable parameter counts here, not just a variadic one** (F239). The non-variadic arm
+ * read `argc == n`, so a named call that resolved perfectly well against one declaration stopped
+ * resolving the moment a second existed: `verify(token: t, key: k)` against two four-parameter
+ * declarations with two `Option`s each was "no declaration of 'verify' takes 2 argument(s)",
+ * listing both candidates as taking four. Named calls already discriminate by type correctly, out
+ * of order included -- it was only this gate, which runs before any of that.
+ *
+ * `named` decides which rule applies, because omission is a named-call feature: a *partial*
+ * positional call stays exactly as strict as `canonicalize_named_args` leaves it, and must, or
+ * `f(1)` would go from choosing `f(a: int)` to ambiguous the moment an `f(a: int, b: Option<T>)`
+ * joined the set. `f()` is the one call with no syntax to tell the two apart, and canonicalize
+ * reads it as "named, everything omitted", so this does too. */
+static int ovl_arity_fits(const FunctionDecl *fn, int argc, int named) {
     int n = fn->params.count;
     int variadic = n > 0 && fn->params.items[n - 1].is_variadic;
     if (variadic) return argc >= n - 1;
+    if (named) return argc <= n && argc >= ovl_min_named_arity(fn);
     return argc == n;
 }
 
@@ -2401,9 +2446,10 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
     int argc = e->as.call.args.count;
 
     /* step 2: arity */
+    int named = e->as.call.arg_names != NULL || argc == 0;
     int keep = 0;
     for (int i = 0; i < r->live_count; i++) {
-        if (ovl_arity_fits(r->live[i], argc)) r->live[keep++] = r->live[i];
+        if (ovl_arity_fits(r->live[i], argc, named)) r->live[keep++] = r->live[i];
     }
     if (keep == 0) { r->live_count = 0; r->eliminated_at = 0; r->outcome = OVL_NO_MATCH; return; }
     r->live_count = keep;
@@ -2419,7 +2465,9 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
         for (int i = 0; i < r->live_count; i++) {
             FunctionDecl *f = r->live[i];
             Type pattern;
-            if (!ovl_param_at(f, pos, &pattern)) continue;
+            int pidx = ovl_arg_param_index(f, e, pos);
+            if (pidx < 0) continue;
+            if (!ovl_param_at(f, pidx, &pattern)) continue;
             int ok;
             if (deferred) {
                 ok = ovl_shape_allows(arg, pattern);
@@ -2440,8 +2488,8 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
                  * was refused as "expects Map<K, V> or a builder, found [Map<string, int>]" the
                  * moment `merge`'s in-place members became variadic (2026-10-22), for an argument
                  * the chosen declaration then accepted perfectly well. */
-                if (!ok && pos == f->params.count - 1 && pos == argc - 1
-                    && f->params.items[pos].is_variadic) {
+                if (!ok && pidx == f->params.count - 1 && pos == argc - 1
+                    && f->params.items[pidx].is_variadic) {
                     memset(binds, 0, sizeof binds);
                     memset(bound, 0, (size_t)n * sizeof bound[0]);
                     ok = param_accepts(type_array(pattern), actual, &f->type_params, binds, bound);
@@ -2596,6 +2644,7 @@ static int overload_expected_types(const OverloadResolution *all, int pos, char 
 }
 
 static int ovl_min_arity(const FunctionDecl *f);
+static int ovl_is_variadic(const FunctionDecl *f);
 
 static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char *name) {
     OverloadResolution r;
@@ -2616,10 +2665,18 @@ static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char
          * the moment `merge`'s in-place members became variadic (2026-10-22): they are a
          * `MutableMap` either way and differ only in the tail.
          *
-         * Same sentence the ordinary path gives, so one rule reads one way. */
+         * Same sentence the ordinary path gives, so one rule reads one way.
+         *
+         * **`ovl_is_variadic` is part of the test, not an implied property of it** (F239). While
+         * the variadic arm was the only one that kept a short candidate, "every candidate is
+         * short" meant "every candidate is variadic" for free, and this read the floor without
+         * asking. Named omission keeps short candidates too, so `pick(a: 1)` against two
+         * `pick(a: int, b: Option<T>)` -- not a variadic parameter in sight -- was told its last
+         * parameter was variadic and needed a value. */
         int all_short = r.live_count > 0;
         for (int i = 0; i < r.live_count && all_short; i++) {
-            if (ovl_min_arity(r.live[i]) <= e->as.call.args.count) all_short = 0;
+            if (!ovl_is_variadic(r.live[i])) all_short = 0;
+            else if (ovl_min_arity(r.live[i]) <= e->as.call.args.count) all_short = 0;
         }
         if (all_short) {
             ziman_error("type", e->line, e->col,
@@ -2644,6 +2701,47 @@ static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char
                         "argument %d carries no type of its own to choose between them%s\n  = give it one: "
                         "bind it to a typed val first, or annotate it",
                         name, open_at, list);
+        }
+        /* **The undecided argument may be one that is not there** (F239). "Name the argument to
+         * choose" is the right escape when every argument was given and two of them read alike,
+         * and useless advice when what the candidates differ in is a parameter the call left out:
+         * `pick(a: 1)` against two `pick(a: int, b: Option<T>)` has named everything it passed
+         * and still cannot choose. So look for a parameter that every live candidate declares,
+         * the call did not give, and the candidates do not agree on the type of -- that is the
+         * discriminator, by construction -- and ask for it by name. */
+        const char *omitted = NULL;
+        if (e->as.call.arg_names != NULL || e->as.call.args.count == 0) {
+            FunctionDecl *first = r.live[0];
+            for (int q = 0; q < first->params.count && omitted == NULL; q++) {
+                const char *pname = first->params.items[q].name;
+                int given = 0;
+                for (int i = 0; i < e->as.call.args.count && !given; i++) {
+                    if (e->as.call.arg_names != NULL
+                        && strcmp(e->as.call.arg_names[i], pname) == 0) given = 1;
+                }
+                if (given) continue;
+                int differs = 0, in_all = 1;
+                for (int i = 1; i < r.live_count && in_all; i++) {
+                    int found = 0;
+                    for (int w = 0; w < r.live[i]->params.count; w++) {
+                        if (strcmp(r.live[i]->params.items[w].name, pname) != 0) continue;
+                        found = 1;
+                        if (!type_equals(r.live[i]->params.items[w].type, first->params.items[q].type)) {
+                            differs = 1;
+                        }
+                        break;
+                    }
+                    if (!found) in_all = 0;
+                }
+                if (in_all && differs) omitted = pname;
+            }
+        }
+        if (omitted != NULL) {
+            ziman_error("type", e->line, e->col,
+                        "'%s' is ambiguous here -- more than one declaration accepts these arguments, and "
+                        "'%s' was left out, which is the parameter they differ in%s\n"
+                        "  = pass '%s' to choose, or give these two different names",
+                        name, omitted, list, omitted);
         }
         ziman_error("type", e->line, e->col,
                     "'%s' is ambiguous here -- more than one declaration accepts these arguments%s\n"
@@ -2781,6 +2879,20 @@ static int ovl_is_variadic(const FunctionDecl *f) {
 
 /* The smallest argument count at which `a` and `b` are both callable and no position tells them
  * apart, or -1 when every shared arity has a distinguishing position. */
+/* **The floor is the parameter count, deliberately, and not the named-call floor** (F239). The
+ * gate asks whether every call can tell two declarations apart, and omission makes that
+ * literally false for a set the library is built out of: `positive(value: Option<int>)` and
+ * `positive(value: Option<float>)` both accept `positive()`, where there is no argument left to
+ * choose by. Probing from the named floor duly reported them -- and would have forced four
+ * honestly-named `positive` declarations (F167-F202) to be renamed to satisfy a check, which is
+ * the tail wagging the dog.
+ *
+ * So the invariant is the narrower one it can actually keep: every call *that gives its
+ * arguments* can tell the declarations apart. A call that omits an optional parameter and is
+ * thereby undecided is a call-site matter with a call-site message and a call-site escape, the
+ * same as any other ambiguity -- not a defect in the declarations. The cost is that this says
+ * nothing about such a call, so an ambiguity only omission can reach is found by making it, not
+ * at the declaration; `overload_omitted_ambiguous_rejected` is that call, pinned. */
 static int ovl_indistinguishable_at(const FunctionDecl *a, const FunctionDecl *b) {
     int lo_a = ovl_min_arity(a), lo_b = ovl_min_arity(b);
     int lo = lo_a > lo_b ? lo_a : lo_b;

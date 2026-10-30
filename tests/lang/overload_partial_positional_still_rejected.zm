@@ -1,0 +1,16 @@
+// F239's guard. Omission is a *named*-call feature, so only named calls get the looser arity
+// rule: `shape(1, 2)` gives two positional arguments to a set whose declarations take one and
+// three, and that is as much an error inside an overload set as it is on its own
+// (named_args_partial_positional_still_rejected). The named form of the same call,
+// `shape(a: 1, c: 2)`, is in named_args_overload_omitted and resolves.
+fn shape(a: int) -> string {
+    return "one"
+}
+
+fn shape(a: int, b: Option<string>, c: int) -> string {
+    return "three"
+}
+
+fn main() {
+    print(shape(1, 2))
+}

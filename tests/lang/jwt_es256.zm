@@ -58,7 +58,7 @@ fn main() {
     show("an expired token", jwt.verify_at(token, public_pem, 4000000000, 0))
 
     // Named checks work over a PEM key too.
-    show("a wrong issuer", jwt.verify_claims_pem(
+    show("a wrong issuer", jwt.verify_claims(
         token: token,
         public_key_pem: public_pem,
         issuer: "someone-else"
@@ -81,7 +81,7 @@ fn main() {
     show("an ES256 token against a secret", jwt.verify(token, to_bytes("a shared secret of some length")))
 
     // Pinning still works, and now says something within the family.
-    show("pinned to HS256 while being ES256", jwt.verify_claims_pem(
+    show("pinned to HS256 while being ES256", jwt.verify_claims(
         token: token,
         public_key_pem: public_pem,
         algorithm: "HS256"

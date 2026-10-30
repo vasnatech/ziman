@@ -657,7 +657,7 @@ pub fn verify_at(
 
 pub fn verify_claims(
 
-pub fn verify_claims_pem(
+pub fn verify_claims(
 
 pub fn subject(claims: Json) -> Option<string>
 

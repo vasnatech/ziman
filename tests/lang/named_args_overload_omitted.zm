@@ -1,0 +1,46 @@
+// F239. A named call that omits optional parameters, against a *set* of declarations rather than
+// one. Before the arity gate learned about omittable parameters, each of these calls resolved
+// perfectly well while `verify` had a single declaration and stopped resolving the moment the
+// second one existed -- "no declaration of 'verify' takes 2 argument(s)", listing two candidates
+// that each take four.
+fn verify(token: string, key: string, now: Option<int>, leeway: Option<int> = 30) -> string {
+    return concat("str key=", key, " leeway=", str(Option.unwrap_Some(leeway)))
+}
+
+fn verify(token: string, key: int, now: Option<int>, leeway: Option<int> = 30) -> string {
+    return concat("int key=", str(key), " leeway=", str(Option.unwrap_Some(leeway)))
+}
+
+fn main() {
+    // Two of four given, and the set is told apart by the type of `key`.
+    print(verify(token: "t", key: "k"))
+    print(verify(token: "t", key: 7))
+
+    // Named arguments are in whatever order read best, so selection has to go by name and not by
+    // position: taken positionally, `7` would be matched against `token: string` and no
+    // declaration would accept it.
+    print(verify(key: 7, token: "t"))
+
+    // An omitted parameter still takes its default rather than None.
+    print(verify(token: "t", key: "k", leeway: 5))
+
+    // A *middle* parameter omitted, which only a named call can do, and a set whose members have
+    // different parameter counts. `shape(a: 1, c: 2)` names a parameter the one-parameter
+    // declaration does not have, so selection drops that candidate by name before comparing a
+    // single type; written positionally the same two arguments match neither declaration
+    // (overload_partial_positional_still_rejected).
+    print(shape(a: 1))
+    print(shape(a: 1, c: 2))
+}
+
+fn shape(a: int) -> string {
+    return "one"
+}
+
+fn shape(a: int, b: Option<string>, c: int) -> string {
+    var shown = "none"
+    if Option.is_Some(b) {
+        shown = Option.unwrap_Some(b)
+    }
+    return concat("three b=", shown)
+}

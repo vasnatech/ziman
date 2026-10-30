@@ -1,0 +1,16 @@
+// F239's cost, pinned. Once a named call may omit an `Option<T>`, two declarations the checker
+// calls distinguishable -- these differ in `b`'s type, and `pick(a: 1, b: "s")` picks one -- can
+// still be reached by a call that leaves out the parameter they differ in. That call is
+// genuinely undecided, so it is refused here rather than at the declarations: the set is fine,
+// this one call is not, and the message says which argument would settle it.
+fn pick(a: int, b: Option<string>) -> string {
+    return "string"
+}
+
+fn pick(a: int, b: Option<int>) -> string {
+    return "int"
+}
+
+fn main() {
+    print(pick(a: 1))
+}

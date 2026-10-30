@@ -4458,12 +4458,13 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   optional parameters does not resolve against an overload set**: adding a second `verify_claims`
   broke every such call, `tests/lang/jwt_claims` included, with "no declaration takes 3
   argument(s)". So the PEM form is `verify_claims_pem` rather than a third overload. `verify` and
-  `verify_at` are called positionally and overload cleanly.
+  `verify_at` are called positionally and overload cleanly. (F239 closed the gap on 2026-10-30 and
+  `verify_claims_pem` is now a second `verify_claims`.)
 
   1,311 fixtures.
 
-- [ ] **F239** **A named call that omits optional parameters cannot resolve against an overload
-  set.** (found by F238; S-M; needs the user, since it is a type-checker change.)
+- [x] **F239** **A named call that omits optional parameters cannot resolve against an overload
+  set.** (found by F238; done 2026-10-30; S-M.)
 
   `jwt.verify_claims(token: t, key: k, now: n)` resolves while `verify_claims` is one declaration
   with five further `Option` parameters. Add a second declaration differing only in one
@@ -4478,9 +4479,50 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   used together. The workaround in `jwt` is a second name (`verify_claims_pem`), which is a cost
   this would remove.
 
-  Not attempted here: it is `check_call`'s resolution order in `src/typecheck.c`, it affects every
-  overload set rather than one module, and the `overload-sets-check` gate's notion of "told apart
-  by some call" may need to account for named-with-omissions too.
+  **It was one line, and it was a bug rather than a design choice**, so it did not need the user
+  after all. `ovl_arity_fits` -- step 2 of `overload_resolve`, which culls candidates before any
+  type is compared -- read `argc == params.count`. Named calls already discriminated by type
+  correctly; only this gate was wrong. It now takes a `named` flag and, for a named call, accepts
+  `argc` between `ovl_min_named_arity` (the count of parameters that are not `Option<T>`, which is
+  exactly what `canonicalize_named_args` fills in) and the parameter count. A *partial positional*
+  call stays as strict as it ever was, and must: `f(1)` would otherwise go from choosing
+  `f(a: int)` to ambiguous the moment an `f(a: int, b: Option<T>)` joined the set
+  (`tests/lang/overload_partial_positional_still_rejected`).
+
+  **Fixing the gate exposed that selection was name-blind**, which had been invisible because the
+  gate refused these calls first. Steps 3 and 4 matched call position against *parameter* position,
+  so `verify(key: 1, token: "t")` compared `1` against `token: string` and no declaration accepted
+  it. `ovl_arg_param_index` now maps the two per candidate, and a declaration with no parameter of
+  that name is dropped from the set -- the same judgement `canonicalize_named_args` makes as "has
+  no parameter named 'x'", made early enough to narrow a set rather than be reported against
+  whichever declaration happened to be chosen. That elimination is what lets the two `verify_claims`
+  below tell themselves apart.
+
+  **Two further messages had quietly assumed the old gate.** `overload_pick`'s "every candidate is
+  short" branch inferred "every candidate is variadic" for free, since the variadic arm used to be
+  the only one that kept a short candidate alive -- so `pick(a: 1)` against two
+  `pick(a: int, b: Option<T>)` was told its last parameter was variadic and needed a value. And an
+  ambiguity's escape, "name the argument to choose", is useless when what the candidates differ in
+  is a parameter the call *left out*; it now looks for that parameter and asks for it by name
+  (`tests/lang/overload_omitted_ambiguous_rejected`).
+
+  **The `overload-sets-check` gate's notion did need looking at, and the answer was to leave it.**
+  Probing from the named floor rather than the parameter count duly reported
+  `validate.positive(value: Option<int>)` against `positive(value: Option<float>)`: `positive()`
+  reaches both and has no argument left to choose by, so the invariant "every call can tell them
+  apart" is now literally false for a set the library is built out of. Keeping the stricter probe
+  would have forced four honestly-named `positive` declarations (F167-F202) to be renamed to
+  satisfy a check. So the invariant is the narrower one it can keep -- every call *that gives its
+  arguments* -- and an ambiguity only omission can reach is found by making the call, with the
+  message above, not at the declaration.
+
+  **F238's workaround is gone**, which is the point: `verify_claims_pem` is a second
+  `verify_claims`, and the parameter a caller names chooses the family (`key:` the secret form,
+  `public_key_pem:` the PEM one) exactly as the type does for the positional `verify`/`verify_at`
+  pair. `tests/lang/jwt_es256` and `jwt_claims` produce byte-identical output across the rename.
+
+  Evidence: 1,347 fixtures (three new), 420 library tests, the North Star's 64 suites / 2,670
+  checks, and `--emit-derived serve.zm` byte-identical at 34,801 lines.
 
 - [x] **F240** **The expression language's open decisions, closed -- except the one that is the
   user's.** (docs/design/expressions.md §17; done 2026-10-29; S.)

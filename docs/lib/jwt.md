@@ -262,10 +262,8 @@ that is meant never to expire; `issuer`, when given, must be the token's `iss` (
 there is none); and `audience`, when given, must be the token's `aud` -- a string, or one of an array of strings
 (`WrongAudience`, or `MissingClaim("aud")`). An `exp` or `nbf` that is not a number is `Malformed` whatever `require_exp` says.
 
-### `verify_claims_pem`
-
 ```
-pub fn verify_claims_pem(
+pub fn verify_claims(
     token: string,
     public_key_pem: string,
     leeway_seconds: Option<int>,
@@ -281,13 +279,14 @@ pub fn verify_claims_pem(
 can use. A credential is the case that wants `issuer`/`audience` most, since the point of
 publishing a verifying key is that several parties hold it.
 
-**Why the name differs from `verify`/`verify_at`, which are overloaded on the key's type.** Those
-are called positionally and overload cleanly. This one is called by name with most of its
-`Option` parameters left out -- `verify_claims(token: t, key: k, now: n)` -- and **a named call
-that omits optional parameters does not resolve against an overload set**: adding a second
-`verify_claims` made every existing such call fail with "no declaration takes 3 argument(s)",
-including `tests/lang/jwt_claims`. That is a gap in overload resolution rather than a fact about
-JWTs (recorded 2026-10-29), so this takes a name of its own instead of waiting for it.
+**This was `verify_claims_pem` until F239.** A named call that omitted optional parameters did
+not resolve against an overload set, so declaring a second `verify_claims` broke every existing
+`verify_claims(token: t, key: k, now: n)` with "no declaration takes 3 argument(s)" -- a gap in
+overload resolution rather than a fact about JWTs, and this carried a name of its own to work
+around it while `verify`/`verify_at`, which are called positionally, overloaded cleanly. With
+the gap closed the name is the key's own: `key:` reaches the secret form and
+`public_key_pem:` reaches this one, so the parameter a caller names chooses the family, exactly
+as the type does for the positional pair.
 
 ### `subject`
 
