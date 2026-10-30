@@ -6,7 +6,7 @@
 `#[derive(Entity)]`, written in Ziman: the column list an entity's queries name, and -- when
 the attribute carries a table -- the table name and the `eql.Entity` metamodel beside it.
 
-**The last of the five, and the first to read `Decl.arg` and a field attribute.** Everything
+**The last of the five, and the first to read a derive argument and a field attribute.** Everything
 it needs that the other four did not is what steps 3 of docs/design/meta.md added: the string
 in `#[derive(Entity("medications"))]`, and `#[pk]` as an entry in a field's `attrs`.
 

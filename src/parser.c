@@ -188,6 +188,62 @@ static void skip_newlines(Parser *p) {
     while (match(p, TOK_NEWLINE)) {}
 }
 
+/* `(a: 1, b: "s", c: name)` after an attribute's name, into `one`. Shared by a **field**
+ * attribute and a **derive target**, which are the same shape -- a name that may carry named
+ * arguments -- and were two parsers until 2026-10-30: a target took one bare string
+ * (`#[derive(Entity("patients"))]`) and nothing else, so `#[derive(Endpoint(method: POST, path:
+ * "/orders"))]` could not be written at all. docs/design/user-generators.md §5b asked for one
+ * grammar; this is it.
+ *
+ * `name: value` when an identifier is followed by a colon, a lone value otherwise -- which is
+ * `value:` by convention, so `#[min(8)]` is `#[min(value: 8)]` and `#[derive(Entity("patients"))]`
+ * is `Entity(value: "patients")`. A value is a string, a whole number or a name, and which it was
+ * **written as** is recorded: the lexer takes the quotes off a string, so `#[min("8")]` and
+ * `#[min(8)]` arrive with the same text and only the kind tells them apart. */
+static void parse_attr_args(Parser *p, FieldAttr *one, int line, int col) {
+    FieldAttrArg args[8];
+    int argc = 0;
+    if (match(p, TOK_LPAREN)) {
+        skip_newlines(p);
+        for (;;) {
+            if (argc == 8) {
+                ziman_error("syntax", line, col, "'#[%s]' has more than eight arguments", one->name);
+            }
+            FieldAttrArg arg;
+            memset(&arg, 0, sizeof arg);
+            Token *first = cur(p);
+            arg.line = first->line;
+            arg.col = first->col;
+            if (check(p, TOK_IDENT) && check_ahead(p, 1, TOK_COLON)) {
+                Token *arg_name = expect(p, TOK_IDENT, "an argument name");
+                expect(p, TOK_COLON, "':'");
+                arg.name = dup_token_text(arg_name);
+            } else {
+                arg.name = "value";
+            }
+            Token *value = cur(p);
+            if (check(p, TOK_STRING_LIT) || check(p, TOK_INT_LIT) || check(p, TOK_IDENT)) {
+                arg.kind = check(p, TOK_STRING_LIT) ? "string" : check(p, TOK_INT_LIT) ? "int" : "name";
+                advance_tok(p);
+                arg.value = dup_token_text(value);
+            } else {
+                ziman_error("syntax", value->line, value->col,
+                            "an attribute argument is a string, a whole number or a name");
+            }
+            args[argc++] = arg;
+            skip_newlines(p);
+            if (!match(p, TOK_COMMA)) break;
+            skip_newlines(p);
+        }
+        expect(p, TOK_RPAREN, "')'");
+    }
+    if (argc > 0) {
+        one->args = ziman_xmalloc(sizeof(FieldAttrArg) * (size_t)argc);
+        for (int i = 0; i < argc; i++) one->args[i] = args[i];
+        one->arg_count = argc;
+    }
+}
+
 static Type parse_type(Parser *p);
 
 /* `"<" type { "," type } ">"` -- a generic type's explicit type
@@ -2494,52 +2550,7 @@ static StructDecl *parse_struct_decl(Parser *p) {
             one.name = dup_token_text(attr);
             one.line = attr->line;
             one.col = attr->col;
-            FieldAttrArg args[8];
-            int argc = 0;
-            if (match(p, TOK_LPAREN)) {
-                skip_newlines(p);
-                for (;;) {
-                    if (argc == 8) {
-                        ziman_error("syntax", attr->line, attr->col,
-                                    "'#[%s]' has more than eight arguments", one.name);
-                    }
-                    FieldAttrArg arg;
-                    memset(&arg, 0, sizeof arg);
-                    Token *first = cur(p);
-                    arg.line = first->line;
-                    arg.col = first->col;
-                    /* `name: value` when an identifier is followed by a colon; a lone value
-                     * otherwise, which is `value:` by convention. */
-                    if (check(p, TOK_IDENT) && check_ahead(p, 1, TOK_COLON)) {
-                        Token *arg_name = expect(p, TOK_IDENT, "an argument name");
-                        expect(p, TOK_COLON, "':'");
-                        arg.name = dup_token_text(arg_name);
-                    } else {
-                        arg.name = "value";
-                    }
-                    Token *value = cur(p);
-                    if (check(p, TOK_STRING_LIT) || check(p, TOK_INT_LIT) || check(p, TOK_IDENT)) {
-                        arg.kind = check(p, TOK_STRING_LIT) ? "string"
-                                 : check(p, TOK_INT_LIT) ? "int"
-                                 : "name";
-                        advance_tok(p);
-                        arg.value = dup_token_text(value);
-                    } else {
-                        ziman_error("syntax", value->line, value->col,
-                                    "an attribute argument is a string, a whole number or a name");
-                    }
-                    args[argc++] = arg;
-                    skip_newlines(p);
-                    if (!match(p, TOK_COMMA)) break;
-                    skip_newlines(p);
-                }
-                expect(p, TOK_RPAREN, "')'");
-            }
-            if (argc > 0) {
-                one.args = ziman_xmalloc(sizeof(FieldAttrArg) * (size_t)argc);
-                for (int i = 0; i < argc; i++) one.args[i] = args[i];
-                one.arg_count = argc;
-            }
+            parse_attr_args(p, &one, attr->line, attr->col);
             /* **Pushed without being read or judged.** Whether the name and its arguments are
              * legal is decided once per module, after the generators have loaded and can say
              * which attributes exist -- `ziman_check_field_attributes` in src/derive.c. */
@@ -2731,17 +2742,20 @@ typedef struct {
     int effectful;                   /* `#[effectful]` was among them */
     int compiler_resolved;           /* `#[compiler_resolved]` was among them */
     int repository;                  /* `#[repository]` was among them: a derived query (src/derive.c) */
-    char **args;                     /* parallel to `names`: a target's string argument, or NULL */
+    /* Parallel to `names`: each target as a `FieldAttr` -- its own name and its named arguments,
+     * read by the same `parse_attr_args` a field attribute goes through. `arg_count` is 0 for a
+     * target written bare. */
+    FieldAttr *args;
 } DeriveList;
 
-static void derive_list_push(DeriveList *list, char *name, char *arg) {
+static void derive_list_push(DeriveList *list, FieldAttr target) {
     if (list->count == list->capacity) {
         list->capacity = list->capacity == 0 ? 4 : list->capacity * 2;
         list->names = ziman_xrealloc(list->names, sizeof(char *) * (size_t)list->capacity);
-        list->args = ziman_xrealloc(list->args, sizeof(char *) * (size_t)list->capacity);
+        list->args = ziman_xrealloc(list->args, sizeof(FieldAttr) * (size_t)list->capacity);
     }
-    list->args[list->count] = arg;
-    list->names[list->count++] = name;
+    list->args[list->count] = target;
+    list->names[list->count++] = (char *)target.name;
 }
 
 /* `#[at_least_one]` says the variadic parameter needs an argument. Refused on a function that has
@@ -2865,13 +2879,19 @@ static DeriveList parse_attributes(Parser *p) {
                      * in. Optional, because the same target without it still writes the column
                      * list -- see src/derive.c -- and 18 of the 21 entities in the North Star
                      * application wanted exactly that before the table came here. */
-                    char *target_arg = NULL;
-                    if (match(p, TOK_LPAREN)) {
-                        Token *text = expect(p, TOK_STRING_LIT, "a string -- derive(Entity(\"table\")) names a table");
-                        target_arg = dup_token_text(text);
-                        expect(p, TOK_RPAREN, "')'");
-                    }
-                    if (is_derive) derive_list_push(&derives, dup_token_text(arg), target_arg);
+                    /* **A target's arguments go through the same reader a field attribute's do.**
+                     * It took one bare string until 2026-10-30, which only `Entity` read
+                     * (`#[derive(Row, Entity("patients"))]` names the table) -- so
+                     * `#[derive(Endpoint(method: POST, path: "/orders"))]` could not be written.
+                     * The bare form still works and arrives as one argument named `value`, which
+                     * is `#[min(8)]`'s convention. See docs/design/user-generators.md §5b. */
+                    FieldAttr target;
+                    memset(&target, 0, sizeof target);
+                    target.name = dup_token_text(arg);
+                    target.line = arg->line;
+                    target.col = arg->col;
+                    parse_attr_args(p, &target, arg->line, arg->col);
+                    if (is_derive) derive_list_push(&derives, target);
                 } while (match(p, TOK_COMMA));
                 expect(p, TOK_RPAREN, "')'");
             } else if (item_name->length == 12 && strncmp(item_name->start, "thread_bound", 12) == 0) {

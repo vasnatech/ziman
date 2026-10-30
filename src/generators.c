@@ -273,7 +273,7 @@ static Value reify_variant(EnumVariant *v, int line, int col) {
     return call_meta("payload_variant", args, 2, line, col);
 }
 
-static Value reify_decl(StructDecl *sd, EnumDecl *ed, const char *arg, int line, int col) {
+static Value reify_decl(StructDecl *sd, EnumDecl *ed, const FieldAttr *attr, int line, int col) {
     const char *name = sd != NULL ? sd->name : ed->name;
     TypeParamList *params = sd != NULL ? &sd->type_params : &ed->type_params;
     int count = sd != NULL ? sd->fields.count : ed->variants.count;
@@ -291,12 +291,17 @@ static Value reify_decl(StructDecl *sd, EnumDecl *ed, const char *arg, int line,
     Value args[5];
     args[0] = value_string(ziman_xstrdup(plain_name(name)));
     args[1] = value_string(ziman_pascal_to_snake(plain_name(name)));
-    if (arg != NULL) {
-        Value a[1] = {value_string(ziman_xstrdup(arg))};
-        args[2] = call_meta("some_arg", a, 1, line, col);
-    } else {
-        args[2] = call_meta("no_arg", NULL, 0, line, col);
+    /* The target's own arguments, through the same `meta.attr_arg` a field attribute's go
+     * through -- name, text as written, and which kind it was written as. */
+    int targc = attr != NULL ? attr->arg_count : 0;
+    Value *targs = ziman_xmalloc(sizeof(Value) * (size_t)(targc > 0 ? targc : 1));
+    for (int i = 0; i < targc; i++) {
+        Value pair[3] = {value_string(ziman_xstrdup(attr->args[i].name)),
+                         value_string(ziman_xstrdup(attr->args[i].value)),
+                         value_string(ziman_xstrdup(attr->args[i].kind))};
+        targs[i] = call_meta("attr_arg", pair, 3, line, col);
     }
+    args[2] = array_of(targs, targc);
     args[3] = array_of(names, params->count);
     args[4] = array_of(members, count);
     return call_meta(sd != NULL ? "struct_decl" : "enum_decl", args, 5, line, col);
@@ -398,7 +403,7 @@ const ZimanAttrSpec *ziman_generator_attr_specs(int *count) {
     return g_attr_specs;
 }
 
-char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, const char *arg, int line, int col) {
+char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, const FieldAttr *attr, int line, int col) {
     if (!ziman_has_ziman_generator(target)) return NULL;
     /* **Captured before anything else runs.** Loading the generator program and then running it
      * both set the error file to a generator's own module, and the declaration being derived is
@@ -429,7 +434,7 @@ char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, 
      * The guard ends before the generator runs: `decl` is that call's argument, so from there it
      * is a parameter in the callee's environment and a root like any other. */
     native_gc_unsafe_enter();
-    Value decl = reify_decl(sd, ed, arg, line, col);
+    Value decl = reify_decl(sd, ed, attr, line, col);
     native_gc_unsafe_leave();
     char *fn = generate_name_for(target);
     char what[96];
@@ -471,9 +476,9 @@ static Value reify_target(const ZimanTarget *t, int line, int col) {
     Value label;
     if (t->label != NULL) {
         Value a[1] = {value_string(ziman_xstrdup(t->label))};
-        label = call_meta("some_arg", a, 1, line, col);
+        label = call_meta("some_label", a, 1, line, col);
     } else {
-        label = call_meta("no_arg", NULL, 0, line, col);
+        label = call_meta("no_label", NULL, 0, line, col);
     }
     Value args[4] = {reify_decl(t->entity, NULL, NULL, line, col), label, value_bool(t->crud),
                      array_of(defined, t->defined_count)};

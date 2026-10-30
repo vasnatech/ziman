@@ -2,7 +2,7 @@
 // reflect Scalars
 //   snake_name='scalars'
 //   type_params=[]
-//   arg=none
+//   args=[]
 //   struct, fields=7
 //   field[0] name='a' attrs=[]
 //   field[0].type int
@@ -22,7 +22,7 @@
 // reflect Collections
 //   snake_name='collections'
 //   type_params=[]
-//   arg=none
+//   args=[]
 //   struct, fields=4
 //   field[0] name='items' attrs=[]
 //   field[0].type array
@@ -44,7 +44,7 @@
 // reflect Flat
 //   snake_name='flat'
 //   type_params=[T]
-//   arg=none
+//   args=[]
 //   struct, fields=4
 //   field[0] name='r' attrs=[]
 //   field[0].type result
@@ -63,7 +63,7 @@
 // reflect Qualified
 //   snake_name='qualified'
 //   type_params=[]
-//   arg=none
+//   args=[]
 //   struct, fields=4
 //   field[0] name='bare' attrs=[]
 //   field[0].type named name='Uuid' args=0
@@ -79,7 +79,7 @@
 // reflect Generic
 //   snake_name='generic'
 //   type_params=[T, U]
-//   arg=none
+//   args=[]
 //   struct, fields=2
 //   field[0] name='one' attrs=[]
 //   field[0].type var name='T'
@@ -91,7 +91,7 @@
 // reflect Keyed
 //   snake_name='keyed'
 //   type_params=[]
-//   arg='widgets'
+//   args=[value=widgets:string]
 //   struct, fields=3
 //   field[0] name='tenant' attrs=[pk]
 //   field[0].type named name='Uuid' args=0
@@ -103,7 +103,7 @@
 // reflect Mixed
 //   snake_name='mixed'
 //   type_params=[]
-//   arg=none
+//   args=[]
 //   enum, variants=4
 //   variant[0] name='None'
 //   variant[1] name='Int'
@@ -117,7 +117,7 @@
 // reflect Wrapper
 //   snake_name='wrapper'
 //   type_params=[T]
-//   arg=none
+//   args=[]
 //   enum, variants=3
 //   variant[0] name='Empty'
 //   variant[1] name='Held'

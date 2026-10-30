@@ -26,14 +26,14 @@ fn variant(name: string, payload: bool) -> meta.Variant {
 
 fn main() {
     val none: [string] = []
-    val point = meta.struct_decl("Point", "point", meta.no_arg(), none, [member("x"), member("y")])
+    val point = meta.struct_decl("Point", "point", meta.no_args(), none, [member("x"), member("y")])
     print(unwrap(derive_ord.generate(point)))
-    val boxed = meta.struct_decl("Box", "box", meta.no_arg(), ["T", "U"], [member("first"), member("second")])
+    val boxed = meta.struct_decl("Box", "box", meta.no_args(), ["T", "U"], [member("first"), member("second")])
     print(unwrap(derive_ord.generate(boxed)))
     val shape = meta.enum_decl(
         "Shape",
         "shape",
-        meta.no_arg(),
+        meta.no_args(),
         none,
         [variant("Dot", false), variant("Line", true), variant("Area", false)]
     )

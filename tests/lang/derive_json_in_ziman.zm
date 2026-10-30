@@ -30,7 +30,7 @@ fn opt(t: meta.Type) -> meta.Type {
 }
 fn main() {
     val none: [string] = []
-    val d = meta.struct_decl("Wide", "wide", meta.no_arg(), none, [
+    val d = meta.struct_decl("Wide", "wide", meta.no_args(), none, [
         f("id", meta.named_type("uuid.Uuid", [])),
         f("count", meta.int_type()),
         f("ratio", meta.float_type()),
@@ -50,7 +50,7 @@ fn main() {
     // converter call, a payload that is a scalar written inline, and no payload at all. The
     // opener/closer dance -- `if`, `} else if`, `} else`, and the brace the last arm leaves open --
     // is what this text is really checking, since it is spread across two templates and a flag.
-    val e = meta.enum_decl("Shape", "shape", meta.no_arg(), none, [
+    val e = meta.enum_decl("Shape", "shape", meta.no_args(), none, [
         meta.payload_variant("Circle", meta.named_type("time.Instant", [])),
         meta.payload_variant("Square", meta.float_type()),
         meta.unit_variant("Point")

@@ -4980,3 +4980,44 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   real result), `user-generators.md` (partly built, saying **which** half -- a project still cannot
   write a derive of its own), and a first status line for `validation.md` and `column-override.md`,
   which had none. Verified by reintroducing the staleness and watching the gate fail.
+
+- [x] **F253** **A derive target and a field attribute are one parser; `Decl.arg` becomes
+  `args`.** (user-raised 2026-10-30: "2" -- the first half of docs/design/user-generators.md §5b;
+  M.)
+
+  A target took **one bare string** and nothing else -- `#[derive(Entity("patients"))]`, the only
+  use in existence -- so `#[derive(Endpoint(method: POST, path: "/orders"))]`, the shape the user
+  asked §5b for, could not be written at all. Field attributes had carried named arguments with
+  kinds since F245.
+
+  `parse_attr_args` is now the one reader for both, and `meta.Decl.arg: Option<string>` is
+  `args: [AttrArg]`:
+
+      #[derive(Reflect(method: POST, path: "/orders", retries: 3))]
+      //   args=[method=POST:name, path=/orders:string, retries=3:int]
+
+  **The kind is the part that matters.** The lexer takes the quotes off a string, so
+  `Entity("patients")` and `Entity(patients)` arrive with the same text and only `kind` tells them
+  apart -- which is why `meta.decl_attr_arg` answers the whole argument and not just its value.
+  `meta.decl_arg(d)` is the convenience for the lone `value` argument, which is where a bare one
+  lands (`#[min(8)]`'s convention).
+
+  **A refusal had to be re-homed rather than kept.** The parser rejected `#[derive(Entity(patients))]`
+  -- a bare word reads like a type name -- and the generic reader accepts it as kind `name`. That
+  check is `derive_entity.zm`'s now, which is where §5b says it belongs, and the message names both
+  spellings. `derive_entity_table_not_a_string` failing is what caught it.
+
+  **`Target.label` is not a derive argument**, and conflating the two broke 24 fixtures before
+  `no_label`/`some_label` were separated from `no_args`: a label is one optional string a *module*
+  attribute carries, which is what an `Option` is for.
+
+  §12's own ordering was wrong about this step, and the entry now says so: it claimed the grammar
+  "needs (2)'s `use`-list walk and nothing else", which is true of a *user* generator declaring its
+  target's spec and not of the grammar, so this shipped before (2). §12.1 was stale too -- the
+  bridge it listed as outstanding shipped in F225-F229.
+
+  1,336 fixtures; the North Star's derived output byte-identical at 34,800 lines.
+
+  **What is left of §5b** is the larger half: `use`-list discovery, so a target name resolves
+  through the importing module's `use` list instead of a `strcmp` over seven, and then
+  `#![repository(E)]`/`#[repository]` migrating onto `derive`.

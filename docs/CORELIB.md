@@ -1037,9 +1037,17 @@ pub fn result_type(ok: Type, err: Type) -> Type
 
 pub fn func_type(params: [Type], returns: Type) -> Type
 
-pub fn no_arg() -> Option<string> { return Option<string>.None }
+pub fn no_label() -> Option<string> { return Option<string>.None }
 
-pub fn some_arg(value: string) -> Option<string> { return Option<string>.Some(value) }
+pub fn some_label(value: string) -> Option<string> { return Option<string>.Some(value) }
+
+pub fn no_args() -> [AttrArg]
+
+pub fn decl_arg(d: Decl) -> Option<string>
+
+pub fn decl_arg(d: Decl, name: string) -> Option<string>
+
+pub fn decl_attr_arg(d: Decl, name: string) -> Option<AttrArg>
 
 pub fn named_type(name: string, args: [Type]) -> Type
 
@@ -1089,13 +1097,19 @@ pub enum Body {
 }
 
 pub struct Decl {
-    // The argument the derive was written with: `#[derive(Entity("medications"))]` gives
-    // `Some("medications")`, and a target written bare gives `None`.
+    // The arguments the derive was written with, in source order.
     //
     // **On the declaration rather than a second parameter to `generate`.** Four generators
     // already take one parameter and exactly one target takes an argument; an argument *about*
     // the declaration belongs on it rather than beside it.
-    arg: Option<string>
+    //
+    // **A list of named arguments, not one string** (2026-10-30, user-generators.md §5b). It was
+    // `arg: Option<string>`, because `Entity` was the only target that took anything and took one
+    // bare table name -- which meant `#[derive(Endpoint(method: POST, path: "/orders"))]` could
+    // not be written at all. A target now goes through the same reader a field attribute does, so
+    // `#[derive(Entity("medications"))]` is one argument named `value` (`#[min(8)]`'s convention)
+    // and `decl_arg(d)` is how a generator asks for it.
+    args: [AttrArg]
     // The declaration's own name, as written: `LocalDate`.
     name: string
     // The same name in the spelling generated functions use: `local_date`, so a generator writes

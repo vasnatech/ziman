@@ -322,9 +322,13 @@ path: "/orders")` needs a name, a value and a *kind* per argument, which is exac
 `FIELD_ATTRS` already uses for fields. So this is the same upgrade §5a needs, applied one position
 up:
 
-* `meta.Decl.arg: Option<string>` becomes `args: [meta.AttrArg]`, which `meta.Field.attrs` already
-  carries for fields. `#[derive(Entity("medications"))]` keeps working as one unnamed argument
-  under the name `value`, which is the convention `#[min(8)]` already follows.
+* ~~`meta.Decl.arg: Option<string>` becomes `args: [meta.AttrArg]`~~ **DONE 2026-10-30 (F253)**,
+  which `meta.Field.attrs` already carried for fields. `#[derive(Entity("medications"))]` keeps
+  working as one unnamed argument under the name `value`, the convention `#[min(8)]` follows, and
+  `meta.decl_arg(d)` is how a generator asks for it. `meta.decl_attr_arg` answers the whole
+  argument for a generator that cares *how* it was written -- which `derive_entity` does, since
+  the lexer takes the quotes off a string and only `kind` separates `Entity("patients")` from
+  `Entity(patients)`.
 * A generator declares its target's argument spec the way §5a has it declare its field attributes
   — one `pub val`, one grammar, read after the module loads.
 * Validation defers past module loading for the same reason and with the same guarantee: the spec
@@ -473,15 +477,28 @@ load-bearing.
 
 ## 12. What is left before building
 
-1. **The bridge, which this shares with the bundled five** and which is the larger half: a C
-   function building a `meta.Decl` value (`struct_obj_new` is the primitive, and no native builds
-   a struct today), and per-generator-module initialisation as §6 describes.
+1. ~~**The bridge, which this shares with the bundled five**~~ **DONE 2026-10-28** (F225-F229),
+   which is why §11 says "partly built": `reify_decl` in `src/generators.c` builds a `meta.Decl`
+   and `load_generators` does §6's per-generator-module initialisation. This step said it was "the
+   larger half" and it was; it shipped as part of the derives-in-Ziman port rather than as part of
+   this document, which is why it sat here reading as outstanding until 2026-10-30.
 2. **Then `#![generator(X)]` and `use`-list discovery**, which is small once the bridge exists --
    the lookup is `resolve_repository`'s walk with a different attribute.
-3. **Then the attribute grammar, once, for both positions** (§5a and §5b): `check_field_attribute`
-   deferred past module loading, `meta.attr_spec`, the collision rule, and `meta.Decl.arg` becoming
-   `args: [meta.AttrArg]`. One grammar serves a generator's field attributes and its target's own
-   arguments, and it needs (2)'s `use`-list walk and nothing else.
+3. ~~**Then the attribute grammar, once, for both positions**~~ **DONE 2026-10-30** (F250, F253).
+   `check_field_attribute` deferred past module loading and `meta.attr_spec` shipped as F250, and
+   `meta.Decl.arg` became `args: [meta.AttrArg]` as F253 -- one `parse_attr_args` now reads a field
+   attribute and a derive target, which were two parsers.
+
+   **This step said it "needs (2)'s `use`-list walk and nothing else", and it did not.** That was
+   true of the part a *user* generator needs -- declaring the spec for its own target's arguments,
+   which requires discovery -- and not of the grammar, which stands alone. So it was built before
+   (2) rather than after. The collision rule and the per-module keying are still outstanding and do
+   wait on (2).
+
+   One thing it moved rather than removed: the parser refused `#[derive(Entity(patients))]`,
+   because a bare word reads like a type name. The generic reader accepts it as kind `name`, so
+   `derive_entity.zm` carries that refusal now -- which is where §5b says it belongs, the parser
+   having no opinion about what `Entity` means.
 4. **Then `#![repository(E)]` and `#[repository]` become `derive` targets** (§5b), which is what
    takes the last domain name out of the compiler. It is last because it is a migration of a
    working feature rather than a new one, and because it is the proof that the mechanism carries

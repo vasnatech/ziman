@@ -23,7 +23,7 @@ fn opt(t: meta.Type) -> meta.Type {
 
 fn decl(name: string, snake: string, members: [meta.Field]) -> meta.Decl {
     val none: [string] = []
-    return meta.struct_decl(name, snake, meta.no_arg(), none, members)
+    return meta.struct_decl(name, snake, meta.no_args(), none, members)
 }
 
 fn main() {

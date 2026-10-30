@@ -29,13 +29,13 @@ fn pk(name: string) -> meta.Field {
 
 fn main() {
     print(unwrap(derive_entity.generate(
-        meta.struct_decl("Note", "note", meta.some_arg("notes"), none, [pk("id"), f("body")]))))
+        meta.struct_decl("Note", "note", [meta.attr_arg("value", "notes", "string")], none, [pk("id"), f("body")]))))
     print(unwrap(derive_entity.generate(
-        meta.struct_decl("Tenancy", "tenancy", meta.some_arg("tenancies"), none,
+        meta.struct_decl("Tenancy", "tenancy", [meta.attr_arg("value", "tenancies", "string")], none,
             [pk("tenant"), pk("id"), f("label")]))))
     print(unwrap(derive_entity.generate(
-        meta.struct_decl("Keyless", "keyless", meta.some_arg("keyless"), none, [f("a"), f("b")]))))
+        meta.struct_decl("Keyless", "keyless", [meta.attr_arg("value", "keyless", "string")], none, [f("a"), f("b")]))))
     // Written bare: the column list is the whole output.
     print(unwrap(derive_entity.generate(
-        meta.struct_decl("Bare", "bare", meta.no_arg(), none, [f("x")]))))
+        meta.struct_decl("Bare", "bare", meta.no_args(), none, [f("x")]))))
 }

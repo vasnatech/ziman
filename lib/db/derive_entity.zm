@@ -1,7 +1,7 @@
 // `#[derive(Entity)]`, written in Ziman: the column list an entity's queries name, and -- when
 // the attribute carries a table -- the table name and the `eql.Entity` metamodel beside it.
 //
-// **The last of the five, and the first to read `Decl.arg` and a field attribute.** Everything
+// **The last of the five, and the first to read a derive argument and a field attribute.** Everything
 // it needs that the other four did not is what steps 3 of docs/design/meta.md added: the string
 // in `#[derive(Entity("medications"))]`, and `#[pk]` as an entry in a field's `attrs`.
 //
@@ -122,10 +122,27 @@ fn entity(d: meta.Decl, fields: [meta.Field]) -> Result<string, string> {
     ])
     // Written bare, the column list is the whole output: there is no table to name and no
     // metamodel to build without one.
-    if None = d.arg {
+    // **The table has to be written as a string.** A bare word reads like a type name --
+    // `Entity(patients)` could plausibly mean a struct called `patients` -- and `src/parser.c`
+    // refused it until 2026-10-30, when a target's arguments became the generic kind-carrying
+    // list every field attribute uses. The refusal belongs here now: the parser has no opinion
+    // about what `Entity` means.
+    if Some(one) = meta.decl_attr_arg(d, "value") {
+        if one.kind != "string" {
+            return err(prelude.format(
+                "derive(Entity) names a table with a string, and '{}' is written as a {} -- " \
+                    "derive(Entity(\"{}\")) is the table, where derive(Entity({})) reads like a type",
+                one.value,
+                one.kind,
+                one.value,
+                one.value
+            ))
+        }
+    }
+    if None = meta.decl_arg(d) {
         return ok(columns)
     }
-    val table = unwrap(d.arg)
+    val table = unwrap(meta.decl_arg(d))
     // `keyed_entity` when any field carries `#[pk]` and `entity` when none does, so an entity
     // with no key says so in the call rather than carrying an empty list that reads like an
     // oversight. More than one `#[pk]` is a compound key, in field order.

@@ -98,11 +98,13 @@ pub fn generate(d: meta.Decl) -> Result<string, string> {
     push(out, concat("// reflect ", d.name, "\n"))
     push(out, concat("//   snake_name='", d.snake_name, "'\n"))
     push(out, concat("//   type_params=[", join(separator: ", ", pieces: d.type_params), "]\n"))
-    if Some(arg) = d.arg {
-        push(out, concat("//   arg='", arg, "'\n"))
-    } else {
-        push(out, concat("//   arg=none\n"))
+    // Every argument the target was written with, as it was written -- `args=[]` for a bare one.
+    // It printed a single `arg=` until 2026-10-30, when a target stopped taking one bare string.
+    val written = mutable_array_new<string>()
+    for one in d.args {
+        push(written, concat(one.name, "=", one.value, ":", one.kind))
     }
+    push(out, concat("//   args=[", join(separator: ", ", pieces: snapshot(written)), "]\n"))
     switch d.body {
         Struct(fields) {
             push(out, concat("//   struct, fields=", str(prelude.len(fields)), "\n"))

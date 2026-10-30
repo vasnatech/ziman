@@ -214,20 +214,60 @@ pub fn result_type(ok: Type, err: Type) -> Type
 pub fn func_type(params: [Type], returns: Type) -> Type
 ```
 
-### `no_arg`
+### `no_label`
 
 ```
-pub fn no_arg() -> Option<string> { return Option<string>.None }
+pub fn no_label() -> Option<string> { return Option<string>.None }
 ```
 
 The derive's argument, or its absence. Two constructors because the C cannot build an
 `Option` without knowing its layout, which is the thing this boundary exists to avoid.
+`Target.label`'s two cases. These are **not** derive arguments -- a label is one optional string
+a module attribute carries, which is exactly what an `Option` is -- so they stayed when
+`Decl.arg` became a list (§5b).
 
-### `some_arg`
+### `some_label`
 
 ```
-pub fn some_arg(value: string) -> Option<string> { return Option<string>.Some(value) }
+pub fn some_label(value: string) -> Option<string> { return Option<string>.Some(value) }
 ```
+
+### `no_args`
+
+```
+pub fn no_args() -> [AttrArg]
+```
+
+No arguments, for a target written bare -- `meta.no_args()` rather than an empty literal, since
+`[]` cannot say what it holds.
+
+### `decl_arg`
+
+```
+pub fn decl_arg(d: Decl) -> Option<string>
+```
+
+The one unnamed argument a target was written with, as `#[derive(Entity("medications"))]` has
+it: the argument called `value`, which is where `parse_attr_args` puts a lone value.
+
+```
+pub fn decl_arg(d: Decl, name: string) -> Option<string>
+```
+
+A named argument of the derive: `#[derive(Endpoint(method: POST))]` answers `Some("POST")` for
+`"method"`.
+
+### `decl_attr_arg`
+
+```
+pub fn decl_attr_arg(d: Decl, name: string) -> Option<AttrArg>
+```
+
+The whole argument rather than its text, for a generator that cares **how it was written**: the
+lexer takes the quotes off a string, so `Entity("patients")` and `Entity(patients)` arrive with
+the same value and only `kind` tells them apart. The parser used to make that distinction for
+`Entity` alone; a target's arguments have no spec of their own yet, so the generator that cares
+is the one that checks (user-generators.md §5b).
 
 ### `named_type`
 
@@ -328,13 +368,19 @@ runtime check it had to remember to write.
 
 ```
 pub struct Decl {
-    // The argument the derive was written with: `#[derive(Entity("medications"))]` gives
-    // `Some("medications")`, and a target written bare gives `None`.
+    // The arguments the derive was written with, in source order.
     //
     // **On the declaration rather than a second parameter to `generate`.** Four generators
     // already take one parameter and exactly one target takes an argument; an argument *about*
     // the declaration belongs on it rather than beside it.
-    arg: Option<string>
+    //
+    // **A list of named arguments, not one string** (2026-10-30, user-generators.md §5b). It was
+    // `arg: Option<string>`, because `Entity` was the only target that took anything and took one
+    // bare table name -- which meant `#[derive(Endpoint(method: POST, path: "/orders"))]` could
+    // not be written at all. A target now goes through the same reader a field attribute does, so
+    // `#[derive(Entity("medications"))]` is one argument named `value` (`#[min(8)]`'s convention)
+    // and `decl_arg(d)` is how a generator asks for it.
+    args: [AttrArg]
     // The declaration's own name, as written: `LocalDate`.
     name: string
     // The same name in the spelling generated functions use: `local_date`, so a generator writes
@@ -451,7 +497,7 @@ pub fn payload_variant(name: string, payload: Type) -> Variant
 pub fn struct_decl(
     name: string,
     snake_name: string,
-    arg: Option<string>,
+    args: [AttrArg],
     type_params: [string],
     fields: [Field]
 ) -> Decl
@@ -463,7 +509,7 @@ pub fn struct_decl(
 pub fn enum_decl(
     name: string,
     snake_name: string,
-    arg: Option<string>,
+    args: [AttrArg],
     type_params: [string],
     variants: [Variant]
 ) -> Decl

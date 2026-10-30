@@ -1,1 +1,4 @@
-expected a string -- derive(Entity("table")) names a table
+ziman: type error at 6:5 in tests/lang/derive_entity_table_not_a_string.zm: derive(Entity) names a table with a string, and 'patients' is written as a name -- derive(Entity("patients")) is the table, where derive(Entity(patients)) reads like a type
+  |
+6 | pub struct P {
+  |     ^

@@ -2,7 +2,7 @@
 // reflect Event
 //   snake_name='event'
 //   type_params=[]
-//   arg=none
+//   args=[]
 //   struct, fields=6
 //   field[0] name='id' attrs=[pk]
 //   field[0].type int
