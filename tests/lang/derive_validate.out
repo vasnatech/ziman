@@ -34,3 +34,18 @@ pub fn measurement_violations(v: Measurement) -> [validate.Violation] {
     return snapshot(found)
 }
 
+// derive(Validate) for 'Login'
+pub fn login_violations(v: Login) -> [validate.Violation] {
+    val found = mutable_array_new<validate.Violation>()
+    if Some(message) = validate.not_blank(v.username) {
+        push(found, validate.violation("username", message))
+    }
+    if Some(message) = validate.first([
+        validate.not_blank(v.new_password),
+        validate.size_at_least(v.new_password, 8)
+    ]) {
+        push(found, validate.violation("newPassword", message))
+    }
+    return snapshot(found)
+}
+

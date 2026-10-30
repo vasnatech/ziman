@@ -20,18 +20,9 @@
 use meta
 use template
 
-// What it writes, for
-//
-//     #[derive(Validate)]
-//     struct Login {
-//         #[not_blank]
-//         username: string
-//         #[not_blank]
-//         #[size(min: 8)]
-//         new_password: string
-//     }
-//
-// is
+// What it writes for a `Login` whose `username` carries `#[not_blank]` and whose `new_password`
+// carries `#[not_blank]` and `#[size(min: 8)]` -- the declaration is in
+// `tests/lang/derive_validate.zm`, which pins this text:
 //
 //     pub fn login_violations(v: Login) -> [validate.Violation] {
 //         val found = mutable_array_new<validate.Violation>()

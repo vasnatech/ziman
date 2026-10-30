@@ -38,3 +38,15 @@ struct Measurement {
 fn main() {
     print(1)
 }
+
+// The worked example in `lib/core/derive_validate.zm`'s own comment, pinned here -- that comment is
+// a copy of generated text and `make template-example-check` holds it to this fixture.
+#[derive(Validate)]
+struct Login {
+    #[not_blank]
+    username: string
+
+    #[not_blank]
+    #[size(min: 8)]
+    new_password: string
+}
