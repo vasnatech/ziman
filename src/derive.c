@@ -505,57 +505,6 @@ static void import_field_converters(Module *module, const char *suffix, Type t, 
     for (int i = 0; i < t.type_args.count; i++) import_field_converters(module, suffix, t.type_args.items[i], line, col);
 }
 
-/* The struct a `#[valid]` field cascades into: `Ingredient` for `[Ingredient]`,
- * `Option<Ingredient>` and `Option<[Ingredient]>` alike. NULL for a type that is not one, which
- * `derive_validate.zm` refuses by name with the field's type in the message. */
-static const char *cascade_struct_name(Type t) {
-    /* **The `Option` test comes first**, and tries both kinds: a field type is provisionally a
-     * TY_STRUCT until the loader reclassifies it (see ast.h), so `Option<Address>` reaches here
-     * named "Option" with one type argument and would otherwise cascade into `option_violations`. */
-    for (int guard = 0; guard < 3; guard++) {
-        const char *name = t.kind == TY_STRUCT ? t.struct_name : t.kind == TY_ENUM ? t.enum_name : NULL;
-        if (name != NULL && strcmp(bare_name_of(name), "Option") == 0 && t.type_args.count == 1) {
-            t = t.type_args.items[0];
-            continue;
-        }
-        if (t.kind == TY_STRUCT) return bare_name_of(t.struct_name);
-        if (t.kind == TY_ARRAY && t.elem != NULL) {
-            t = *t.elem;
-            continue;
-        }
-        return NULL;
-    }
-    return NULL;
-}
-
-/* `#[valid]` on a field whose type has no `<snake>_violations` in scope.
- *
- * **By name, not by derive** -- the rule F243 settled: a nested type whose function is written by
- * hand will do, and a type in another module needs its `_violations` imported exactly as
- * `#[derive(Json)]` needs its `_to_json`. Without this the generated call is reported as
- * "call to undefined function 'plain_violations'", which names the symptom and not the cause. */
-static void check_cascade_targets(Module *module, StructDecl *sd) {
-    for (int fi = 0; fi < sd->fields.count; fi++) {
-        const Param *f = &sd->fields.items[fi];
-        int cascades = 0;
-        for (int ai = 0; ai < f->attrs.count; ai++) {
-            if (strcmp(f->attrs.items[ai].name, "valid") == 0) cascades = 1;
-        }
-        if (!cascades) continue;
-        const char *nested = cascade_struct_name(f->type);
-        if (nested == NULL) continue; /* the generator's own refusal says what the type must be */
-        char *fn = fmt_str("%s_violations", pascal_to_snake(nested));
-        if (module_binds_name(module, fn)) continue;
-        /* Deriving it on this same declaration cannot happen -- a field's type is another
-         * declaration -- so the only fix is on that type or an import. */
-        ziman_error("syntax", sd->line, sd->col,
-                    "'#[valid]' on '%s.%s' needs `%s` -- it validates the nested value by calling it: "
-                    "add derive(Validate) to '%s', write `%s` yourself, or import it if '%s' is "
-                    "another module's",
-                    sd->name, f->name, fn, nested, fn, nested);
-    }
-}
-
 static void import_for_derive(Module *module, const char *target, int line, int col) {
     if (strcmp(target, "Json") == 0) {
         /* The scalar converters keep their `<type>_to_json` names -- that is the derive naming
@@ -676,11 +625,17 @@ void generate_repository_functions(Module *module, StructDecl *sd, const char *e
         ensure_named_import(module, entity_module, fmt_str("%s_to_params", snake), line, col);
         ensure_named_import(module, entity_module, fmt_str("%s_from_row", snake), line, col);
     }
+    /* **Every field, not just the `#[pk]` ones.** This loop used to skip a field whose `is_pk` was
+     * unset, which made `#[pk]` the fourth annotation the compiler knew the meaning of -- and for
+     * nothing it could not get structurally: which fields are keys is `meta.keys_of`'s answer, in
+     * the generator, and C was duplicating that reading to decide imports. Importing a converter
+     * for every field type is a superset of what the keys need, costs an unused `use` at worst
+     * (`ensure_named_import` skips a name the module already binds), and leaves C with no opinion
+     * about the attribute. The derived-query loop below was already written this way. */
     for (int i = 0; i < sd->fields.count; i++) {
         Param *f = &sd->fields.items[i];
-        if (!f->is_pk) continue;
         import_field_converters(module, "sql", f->type, line, col);
-        /* The key's own type has to be nameable in the signature, which is a different import from
+        /* A key's own type has to be nameable in the signature, which is a different import from
          * its converter: `delete(conn, id: Uuid)` needs `Uuid` as well as `to_sql`. */
         if (f->type.kind == TY_STRUCT || f->type.kind == TY_ENUM) {
             const char *tn = f->type.kind == TY_STRUCT ? f->type.struct_name : f->type.enum_name;
@@ -830,13 +785,12 @@ static void generate_one_derived_query(Module *module, StructDecl *sd, FunctionD
     for (int i = 0; i < sd->fields.count; i++) {
         import_field_converters(module, "sql", sd->fields.items[i].type, fn->line, fn->col);
         /* `uuid.format(id)` is what a `NotFound` message carries for a `Uuid` key, and that call
-         * needs the module rather than the type. Keyed on the field being a `#[pk]` of that type,
-         * which is as close as a structural rule gets to "a query that renders its key". */
-        if (sd->fields.items[i].is_pk) {
-            Type kt = sd->fields.items[i].type;
-            if (is_option_type_here(kt)) kt = kt.type_args.items[0];
-            if (type_is_named_here(kt, "Uuid")) ensure_module_import(module, "uuid", fn->line, fn->col);
-        }
+         * needs the module rather than the type. **Any `Uuid` field, not any `Uuid` key**: the
+         * comment here used to say that keying on `#[pk]` was "as close as a structural rule gets",
+         * and a type is closer -- it is a superset, and it does not ask C what an attribute means. */
+        Type kt = sd->fields.items[i].type;
+        if (is_option_type_here(kt)) kt = kt.type_args.items[0];
+        if (type_is_named_here(kt, "Uuid")) ensure_module_import(module, "uuid", fn->line, fn->col);
     }
     (void)entity;
 
@@ -950,10 +904,14 @@ void generate_derived_functions(Module *module) {
                                  generated_in_ziman("Entity", sd, NULL, derive_arg(sd, d), sd->line, sd->col),
                                  sd->line, sd->col, label);
             } else if (is_validate) {
-                /* A struct with no field has no constraint either, so the generator's own refusal
-                 * ("no constrained field") covers that. What `Validate` does need in scope is one
-                 * name per `#[valid]` field -- the nested type's own `_violations`. */
-                check_cascade_targets(module, sd);
+                /* **No per-attribute check here, deliberately.** This read `#[valid]` to require
+                 * the nested type's `<snake>_violations` in scope, which bought a better message
+                 * ("add derive(Validate) to 'Plain'") at the price of the compiler knowing what a
+                 * field attribute means -- the fourth such name, and the one with the least excuse.
+                 * What is left is the generic report: the generated call does not resolve, and it
+                 * is raised at this declaration naming the generator and the missing function. The
+                 * good message comes back for free when a generator can declare the names its
+                 * output needs (docs/design/user-generators.md §5b). */
                 parse_and_splice(module, generated_in_ziman("Validate", sd, NULL, derive_arg(sd, d), sd->line, sd->col),
                                  sd->line, sd->col, label);
             } else if (is_ord) {

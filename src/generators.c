@@ -226,10 +226,11 @@ static Value reify_type(Type t, int line, int col) {
 
 /* A field's attributes, with their arguments -- the whole list the parser read, in source order.
  *
- * **The parser's list rather than the two fields beside it.** `Param` carries `is_pk` and
- * `column_name` for the C that wants one question answered, and `attrs` for this: a generator sees
- * every attribute it was given, including ones no C code reads (`#[one_of]`, `#[size]`), which is
- * what lets a constraint be a generator's business rather than the compiler's. */
+ * **The parser's list, which is now the only copy.** `Param` carried `is_pk` and `column_name`
+ * beside it until 2026-10-30, for the C that wanted one question answered rather than a list
+ * walked. Nothing in `src/` reads an attribute's meaning any more: a generator sees every
+ * attribute it was given and decides, which is what lets a constraint be a library's business
+ * rather than the compiler's. */
 static Value reify_field(const Param *f, int line, int col) {
     Value *attrs = ziman_xmalloc(sizeof(Value) * (size_t)(f->attrs.count > 0 ? f->attrs.count : 1));
     for (int i = 0; i < f->attrs.count; i++) {

@@ -1,4 +1,4 @@
-ziman: syntax error at 13:1 in tests/lang/derive_validate_cascade_needs_violations.zm: '#[valid]' on 'E.home' needs `plain_violations` -- it validates the nested value by calling it: add derive(Validate) to 'Plain', write `plain_violations` yourself, or import it if 'Plain' is another module's
+ziman: type error at 18:1 in tests/lang/derive_validate_cascade_needs_violations.zm (in derive(Validate) for 'E'): call to undefined function 'plain_violations'
    |
-13 | struct E {
+18 | struct E {
    | ^

@@ -2330,6 +2330,11 @@ fn main() {
   puts the marked fields in the metamodel as `keys`, in field order. An unknown field attribute is
   refused rather than ignored, and a function parameter cannot carry one, since field attributes
   are read in the struct-field loop and nowhere else.
+  **No part of the compiler reads what it means.** The parser checks the name and its arguments
+  against one table and hands the whole list to `meta.Field.attrs`; deciding which fields are keys
+  is `meta.keys_of`'s job, in the generator. That was not true until 2026-10-30 -- `#[pk]` and
+  `#[column]` were pulled out of the list and read by `src/derive.c` to decide a repository's
+  imports -- and the same now goes for every validation constraint and for `#[valid]`.
   `keys` is **empty when nothing is marked**, which means "no key was declared" and not "the first
   column". A reader that addresses a single row refuses an empty `keys` by name rather than
   guessing -- the guess would have been right for all 27 entities in the North Star application,

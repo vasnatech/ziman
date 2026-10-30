@@ -290,6 +290,16 @@ up:
 `repository` from both of its positions. **Twelve remain, and not one of them is a library or
 domain name:**
 
+> **Partly done, 2026-10-30.** The eleven field attributes are still *named* in `FIELD_ATTRS` --
+> that is §5a's work -- but the compiler no longer reads what any of them **mean**. `#[pk]` and
+> `#[column]` were pulled out of the attribute list into `Param.is_pk`/`column_name` and read by
+> `src/derive.c` to decide a repository's imports; `#[valid]` was read to require a nested
+> `_violations` in scope. All three reads are gone: importing a converter for every field type is a
+> superset of what the keys need, the `uuid` import keys on the *type* rather than on a key, and the
+> `#[valid]` requirement is reported by the generated call that does not resolve. `Param` carries
+> nothing but the generic list now. The North Star's 34,800 lines of derived output are
+> byte-identical across the change.
+
 `derive`, `from`, `test`, `deprecated`, `experimental`, `generator`, `thread_bound`, `thread_key`,
 `at_least_one`, `effectful`, `compiler_resolved`, `when_unmatched`.
 

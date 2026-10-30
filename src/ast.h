@@ -614,35 +614,22 @@ typedef struct {
     /* A lambda parameter written without a type (`fn(n) { ... }`); the type
      * checker fills `type` in from the function type the lambda is used as. */
     int type_omitted;
-    /* `#[pk]` on a **struct field**: this column is part of the row's key.
-     *
-     * Only a field can carry it -- the attribute is read in the struct-field loop and nowhere
-     * else, so a function parameter cannot have one, which is why this lives on the shared `Param`
-     * without meaning anything there. More than one field may be marked, which is how a compound
-     * key is spelled; `#[derive(Entity("t"))]` puts them in the metamodel as `keys`, in field
-     * order. See docs/ROADMAP.md's "Code generation from annotations". */
-    int is_pk;
     /* Every attribute written on this **struct field**, with its arguments, in source order.
      *
-     * **The general list is for the boundary and the two fields below are for the compiler.**
-     * `meta.Field.attrs` is built from this one, so a generator sees every attribute and its
-     * arguments; `is_pk` and `column_name` are read directly by `src/derive.c` and
-     * `src/loader.c`, which want one question answered rather than a list walked. The parser fills
-     * all three as it reads, so they cannot disagree.
+     * **This list is the whole of it, and the compiler reads none of it.** `meta.Field.attrs` is
+     * built from it, so a generator sees every attribute and its arguments; nothing in `src/`
+     * asks what any of them *mean*. It did until 2026-10-30, through two fields that sat beside
+     * this one -- `is_pk` and `column_name`, filled by the parser and read by `src/derive.c` to
+     * decide which imports a repository needs. Both are gone: which fields are keys is
+     * `meta.keys_of`'s answer in the generator, and C importing a converter for every field type
+     * is a superset of what the keys need. Only a field can carry an attribute at all -- they are
+     * read in the struct-field loop and nowhere else -- so this list is always empty on a function
+     * parameter, which is why it lives on the shared `Param` without meaning anything there.
      *
      * An argument's value is **the text as written** -- `"start_date"` without its quotes, `8`,
      * `type_words` -- because the compiler hands text over and the generator decides what it
      * means, which is what `Decl.arg` already does for `#[derive(Entity("medications"))]`. */
     FieldAttrList attrs;
-    /* `#[column(name: "start_date")]` on a **struct field**: the column this field is stored in,
-     * when it is not the field's own name. NULL for the overwhelmingly common case, where the two
-     * are the same.
-     *
-     * **The same-name case stays an identity rather than becoming a mapping of one entry**, which
-     * is what `eql.zm` says its column list is built on, and what keeps a query, a `from_row` and
-     * a derived query's name all spelling the field. A field with an override is paired for `eql`
-     * and nowhere else; see docs/design/column-override.md. */
-    const char *column_name;
 } Param;
 
 typedef struct {

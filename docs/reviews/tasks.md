@@ -4809,3 +4809,40 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   with `'capacity$default$16' is read before it is initialised`. Those tests had to move to
   `tests/lang`, one program per fixture. So `make check` *does* see this now, by way of what it
   refuses to let anyone write.
+
+- [x] **F249** **The compiler stops reading what a field attribute means.** (user-raised
+  2026-10-30: "lets fix pk and valid"; M.)
+
+  Three reads, all gone:
+
+  * **`#[pk]`, twice in `src/derive.c`.** A repository's imports were chosen by looping over fields
+    whose `is_pk` was set -- the key's `to_sql` converter and the key type's own name -- and a
+    derived query imported `uuid` for a `Uuid` *key*. Both are structural now: a converter for
+    **every** field type, which is a superset of what the keys need, and the `uuid` import keyed on
+    the field's **type**. That second comment used to say keying on `#[pk]` was "as close as a
+    structural rule gets"; a type is closer, and it does not ask the compiler what an attribute
+    means.
+  * **`#[column]`, nowhere.** `Param.column_name` was already **write-only** -- the parser filled
+    it, `ast.h` and `generators.c` both claimed `src/derive.c` read it, and nothing did. `eql` does
+    that work in Ziman off `meta.Field.attrs`.
+  * **`#[valid]`, in `check_cascade_targets`.** It read the attribute off each field, walked the
+    type to the nested struct and required `<snake>_violations` in scope. That bought a better
+    message -- "add derive(Validate) to 'Plain'" -- at the price of the compiler knowing what a
+    field attribute means, and it was the newest of the three, added the same day. Deleted, with
+    the trade written into the fixture: what is left names the file, the declaration, the generator
+    and the missing function, and is the same report any generator gets for any unresolved call.
+    The good message returns for free when a generator can declare the names its output needs
+    (user-generators.md §5b).
+
+  **`Param` carries nothing but the generic list now**, and the only field-attribute names left in
+  `src/` are the eleven in `FIELD_ATTRS` -- the *grammar*, which is what §5a makes extensible. A
+  grep for any of them outside that table finds three unrelated hits (`math.min`, and `len`/`size`
+  in two did-you-mean suggestions).
+
+  **The North Star's derived output is byte-identical across the change: 34,800 lines.** Which is
+  also where the measurement got fixed -- that figure was 12,542 until today, because every
+  equivalence check in this work used `--emit-derived main.zm`, and `main.zm` does not import
+  `serve.zm`, the module that loads `routes.zm` and with it most of the application. **About a third
+  of the derived code was outside every byte-identical claim made for F244 and F246.** Those
+  changes were verified by the test suites, which is what actually caught the two dead imports
+  F246's cleanup left; the `--emit-derived` diff was weaker evidence than it was presented as.

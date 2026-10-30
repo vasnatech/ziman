@@ -1127,7 +1127,7 @@ static Expr *parse_primary(Parser *p) {
             for (;;) {
                 Token *name = expect(p, TOK_IDENT, "a parameter name");
                 require_lower_start(name, "a parameter name");
-                Param param = {dup_token_text(name), type_scalar(TY_VOID), 0, NULL, NULL, name->line, name->col, 0, 0, {NULL, 0, 0}, NULL};
+                Param param = {dup_token_text(name), type_scalar(TY_VOID), 0, NULL, NULL, name->line, name->col, 0, {NULL, 0, 0}};
                 if (match(p, TOK_COLON)) param.type = parse_type(p);
                 else param.type_omitted = 1;
                 param_list_push(&fn->params, param);
@@ -1569,7 +1569,7 @@ static Expr *field_accessor_lambda(Parser *p, const char *type_name, Token *at) 
     fn->name = (char *)"lambda";
     fn->line = at->line;
     fn->col = at->col;
-    Param param = {(char *)"$x", type_struct(type_name), 0, NULL, NULL, at->line, at->col, 0, 0, {NULL, 0, 0}, NULL};
+    Param param = {(char *)"$x", type_struct(type_name), 0, NULL, NULL, at->line, at->col, 0, {NULL, 0, 0}};
     param_list_push(&fn->params, param);
     fn->return_type = type_scalar(TY_VOID);
     fn->return_omitted = 1;
@@ -2295,7 +2295,7 @@ static ParamList parse_params(Parser *p) {
                 default_expr = parse_expr(p);
                 default_key = param_default_key(param_name->start, param_name->length);
             }
-            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col, 0, 0, {NULL, 0, 0}, NULL};
+            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col, 0, {NULL, 0, 0}};
             param_list_push(&params, param);
             skip_newlines(p);
             if (!match(p, TOK_COMMA)) break;
@@ -2669,8 +2669,6 @@ static StructDecl *parse_struct_decl(Parser *p) {
          * with one obvious argument read the way a reader of Bean Validation expects. */
         FieldAttrList field_attrs;
         memset(&field_attrs, 0, sizeof field_attrs);
-        int field_is_pk = 0;
-        const char *field_column = NULL;
         while (check(p, TOK_HASH)) {
             expect(p, TOK_HASH, "'#'");
             expect(p, TOK_LBRACKET, "'['");
@@ -2726,10 +2724,10 @@ static StructDecl *parse_struct_decl(Parser *p) {
                 for (int i = 0; i < argc; i++) one.args[i] = args[i];
                 one.arg_count = argc;
             }
+            /* Checked against the table and then **pushed without being read**: the parser decides
+             * whether an attribute is spelled correctly and the generator decides what it means.
+             * Two names used to be pulled out here as well, `pk` and `column`; see ast.h. */
             check_field_attribute(&one);
-            /* The two the compiler itself reads; see ast.h's note on why both exist. */
-            if (strcmp(one.name, "pk") == 0) field_is_pk = 1;
-            if (strcmp(one.name, "column") == 0) field_column = field_attr_arg(&one, "name");
             field_attr_list_push(&field_attrs, one);
             expect(p, TOK_RBRACKET, "']'");
             skip_newlines(p);
@@ -2739,7 +2737,7 @@ static StructDecl *parse_struct_decl(Parser *p) {
         expect(p, TOK_COLON, "':'");
         Type field_type = parse_type(p);
         if (sd->type_params.count > 0) reclassify_type_params(&field_type, &sd->type_params);
-        Param field = {dup_token_text(field_name), field_type, 0, NULL, NULL, field_name->line, field_name->col, 0, field_is_pk, field_attrs, field_column};
+        Param field = {dup_token_text(field_name), field_type, 0, NULL, NULL, field_name->line, field_name->col, 0, field_attrs};
         param_list_push(&sd->fields, field);
         skip_newlines(p);
     }
