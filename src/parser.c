@@ -3023,10 +3023,19 @@ static void parse_module_attributes(Parser *p, Module *module) {
                 /* `Repository` is the one target this knows how to seat today, and it seats it by
                  * writing what `#![derive(Repository(..))]` writes. A target with no seat is refused
                  * rather than ignored, which is the rule every other attribute here follows. */
+                /* **Not an allowlist, which is what the first wording implied.** A declaration
+                 * target is resolved through the `use` list and can be a project's own (F254); a
+                 * *module* target cannot, and the reason is not discovery -- it is that
+                 * `meta.Target` is entity-shaped (`entity: Decl`, `crud`, `label`), so there is
+                 * nothing decided for a module generator to *receive*. See §5c of
+                 * docs/design/user-generators.md for the shape that would settle it. */
                 if (strcmp(claim.name, "Repository") != 0) {
                     ziman_error("syntax", target->line, target->col,
-                                "'#![derive(%s)]' is not a module generator this compiler can seat "
-                                "-- the only one is 'Repository'", claim.name);
+                                "'#![derive(%s)]' cannot be seated: a module generator of your own "
+                                "is not supported yet -- `meta.Target` carries an entity, so there "
+                                "is nothing for one to receive. 'Repository' is the only module "
+                                "generator, and a declaration target (`#[derive(%s)]` on a struct) "
+                                "can be your own", claim.name, claim.name);
                 }
                 const char *entity = NULL;
                 for (int ai = 0; ai < claim.arg_count; ai++) {

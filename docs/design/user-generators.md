@@ -1,16 +1,14 @@
 # A derive a project can write itself
 
-Status: **partly built.** Two pieces are in: `#![generator(X)]` is parsed, checked and carried by
-every generator (§11, 2026-10-28), and **§5a's field attributes shipped 2026-10-30** -- each
-generator declares its own set, `src/parser.c`'s `FIELD_ATTRS` is deleted, and `#[pattern(regex:)]`
-was added afterwards with no compiler change at all (F250, F251). What is **not** built is the half
-that makes any of it reachable by a project: the bridge and `use`-list discovery (§12.1-2), §5a's
-per-module keying, and §5b. So a project still cannot write a derive of its own. This line said
-"design only. Nothing below is built." until 2026-10-30. Written because the five generators that
-exist
-are now Ziman (`lib/core/derive_*.zm`) and nothing calls them: the question *"what links
-`#[derive(Properties)]` to `derive_properties.zm`?"* has no answer yet, and answering it for the
-bundled five and for a project's own derive is the same question.
+Status: **built, except a module generator of a project's own.** `#![generator(X)]` is parsed and
+carried by every generator (§11); §5a's field attributes work, declared by each generator and keyed
+per importing module (F250, F261); `#[derive(X)]` resolves through the `use` list, so **a project
+can write its own derive** (F254); its target takes named typed arguments (F253); and
+`#![repository]`/`#[repository]` are gone, `derive` being the only target mechanism (F256-F258).
+
+What is **not** built is `#![derive(X(..))]` naming a project's own *module* generator -- §5c says
+why: `meta.Target` is the repository idea reified, so there is nothing decided for a generic one to
+receive, and nothing is asking. §12.5's `--lsp` measurement is also outstanding.
 
 ## 1. What exists today
 
@@ -397,6 +395,52 @@ that are facts about the language, and none that are facts about a library.**
    declaration being derived when what is derived is the *file*. Keeping one word holds C's
    vocabulary to one entry; a second word (`#![generated_from(..)]`) reads better and costs C a
    name. Not decided.
+
+## 5c. A module generator of a project's own, and why it is not built
+
+`#[derive(Csv)]` on a struct can be a project's own (§3, built as F254). `#![derive(Csv(..))]` on a
+module cannot, and **the reason is not discovery** -- which is what the first refusal implied by
+saying "the only one is 'Repository'", as though the compiler kept an allowlist.
+
+The reason is that there is **nothing decided for a module generator to receive**:
+
+```ziman
+struct Target {
+    entity: Decl            // the struct the module is a repository over
+    label: Option<string>   // "Vital sign", for a 404 body
+    crud: bool
+    defined: [string]
+}
+```
+
+`meta.Target` is the *repository idea* reified. A project's module generator -- handlers from
+routes, a client from an interface, whatever it is -- has no entity, and handing it one would bake
+`Repository`'s shape into the mechanism. Which is the same mistake as a domain name in the
+compiler, wearing a different hat: F258 took `repository` out of the parser's vocabulary, and
+seating every module generator on an entity would put the *idea* back where the name used to be.
+
+**The shape that would settle it**, written down so the decision is available rather than guessed
+at later:
+
+```ziman
+struct ModuleTarget {
+    args: [AttrArg]         // `#![derive(Csv(table: "customers"))]`, as a declaration target has
+    functions: [Function]   // the module's bodyless functions, the ones to fill
+    defined: [string]       // what the module declares, so a generator skips a hand-written name
+}
+```
+
+`generate_module(m: ModuleTarget)` for the declarations it adds, `generate_query(m, f)` per
+bodyless function -- the two entry points that already exist, with their input generalised.
+
+**And `Repository` would then be asymmetric, which is the part worth knowing before starting.** It
+needs its entity *resolved* -- `find_loaded` plus the struct, which only the loader can do -- so
+either `ModuleTarget` keeps an `Option<Decl>` that one generator fills and the rest ignore (a field
+nobody reads, which `meta.md` argues against), or `Repository` keeps a specialised input and there
+are two kinds of module generator after all. Neither is obviously right, and nothing is asking:
+**no module generator but `Repository` exists or has been requested.** So this is a designed
+decision rather than a built feature, by the same reasoning §5b's own open questions were left
+open.
 
 ## 6. Initialisation and ordering, which is the real cost
 

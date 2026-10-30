@@ -5258,3 +5258,34 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   check asks once per module and only when one carries a field attribute at all.
 
   1,344 fixtures; the North Star byte-identical at 34,800 lines.
+
+- [x] **F262** **Module-generator discovery: the refusal says the real reason, and §5c says what
+  would settle it.** (user-raised 2026-10-30, item 4 of six; XS, and deliberately not the feature.)
+
+  `#[derive(Csv)]` on a struct can be a project's own (F254). `#![derive(Csv(..))]` on a module
+  cannot, and **the reason is not discovery** -- which is what my own first wording implied:
+
+      '#![derive(Csv)]' is not a module generator this compiler can seat -- the only one is 'Repository'
+
+  That reads as an allowlist the compiler keeps by design. The truth is that there is **nothing
+  decided for a module generator to receive**: `meta.Target` is `{ entity: Decl, label, crud,
+  defined }` -- the repository idea reified. A project's module generator has no entity, and
+  handing it one would bake `Repository`'s shape into the mechanism, which is the same mistake as a
+  domain name in the compiler wearing a different hat. F258 took `repository` out of the parser's
+  vocabulary; seating every module generator on an entity would put the *idea* back where the name
+  used to be.
+
+  So the message now says that, and §5c of user-generators.md carries the shape that would settle
+  it -- `ModuleTarget { args, functions, defined }`, with the two existing entry points generalised
+  -- **and the asymmetry worth knowing before starting**: `Repository` needs its entity *resolved*,
+  which only the loader can do, so either `ModuleTarget` keeps an `Option<Decl>` that one generator
+  fills and the rest ignore (a field nobody reads, which meta.md argues against) or `Repository`
+  keeps a specialised input and there are two kinds of module generator after all.
+
+  **Not built, and the reason is the same one that stopped item 2**: nothing is asking. No module
+  generator but `Repository` exists or has been requested, and designing `ModuleTarget` for a
+  hypothetical one is the speculative plumbing this codebase's own comments argue against -- "a
+  field nobody reads is a promise that cannot be taken back". The decision is written down so it is
+  available rather than re-derived.
+
+  The document's status line is accurate now: built, except this.
