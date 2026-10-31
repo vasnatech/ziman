@@ -1130,9 +1130,15 @@ pub fn attr_with(name: string, args: [AttrArg]) -> Attr
 pub struct AttrSpec {
     name: string
     args: string
+    // Which declaration may carry it: `"field"` for a struct field, `"function"` for a function.
+    // A string rather than an enum to match the rest of this type -- `args` is itself a little
+    // grammar in a string, and `AttrArg.kind` is text for the reason its own comment gives.
+    on: string
 }
 
 pub fn attr_spec(name: string, args: string) -> AttrSpec
+
+pub fn attr_spec(name: string, args: string, on: string) -> AttrSpec
 
 pub fn attr_arg(name: string, value: string, kind: string) -> AttrArg
 
@@ -1169,6 +1175,10 @@ pub struct Function {
     name: string
     params: [Param]
     returns: Type
+    // Attributes written on it -- `#[route(method: GET, path: "/api/me/things")]` -- exactly as
+    // `Field.attrs` carries a field's. The compiler reads none of them; it only checks that some
+    // generator this module imports declared the name for this position (`attr_spec`'s `on`).
+    attrs: [Attr]
 }
 
 pub struct Target {
@@ -1190,7 +1200,11 @@ pub struct Target {
 
 pub fn param(name: string, type: Type) -> Param
 
-pub fn function(name: string, params: [Param], returns: Type) -> Function
+pub fn function(name: string, params: [Param], returns: Type, attrs: [Attr]) -> Function
+
+pub fn fn_has_attr(f: Function, name: string) -> bool
+
+pub fn fn_attr_arg(f: Function, attr: string, arg: string) -> Option<string>
 
 pub fn target(entity: Decl, label: Option<string>, crud: bool, defined: [string]) -> Target
 

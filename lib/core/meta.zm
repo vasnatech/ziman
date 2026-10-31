@@ -282,10 +282,21 @@ pub fn attr_with(name: string, args: [AttrArg]) -> Attr {
 pub struct AttrSpec {
     name: string
     args: string
+    // Which declaration may carry it: `"field"` for a struct field, `"function"` for a function.
+    // A string rather than an enum to match the rest of this type -- `args` is itself a little
+    // grammar in a string, and `AttrArg.kind` is text for the reason its own comment gives.
+    on: string
 }
 
+// A field attribute, which is what an attribute was until 2026-10-31 -- so the two-argument form
+// keeps that meaning and the generators that already call it are untouched.
 pub fn attr_spec(name: string, args: string) -> AttrSpec {
-    return AttrSpec { name: name, args: args }
+    return AttrSpec { name: name, args: args, on: "field" }
+}
+
+// An attribute on some other declaration: `attr_spec("route", "method:name,path:string", "function")`.
+pub fn attr_spec(name: string, args: string, on: string) -> AttrSpec {
+    return AttrSpec { name: name, args: args, on: on }
 }
 
 pub fn attr_arg(name: string, value: string, kind: string) -> AttrArg {
@@ -527,6 +538,10 @@ pub struct Function {
     name: string
     params: [Param]
     returns: Type
+    // Attributes written on it -- `#[route(method: GET, path: "/api/me/things")]` -- exactly as
+    // `Field.attrs` carries a field's. The compiler reads none of them; it only checks that some
+    // generator this module imports declared the name for this position (`attr_spec`'s `on`).
+    attrs: [Attr]
 }
 
 // One `#![derive(Repository(Entity))]`, as its generator sees it.
@@ -561,8 +576,35 @@ pub fn param(name: string, type: Type) -> Param {
     return Param { name: name, type: type }
 }
 
-pub fn function(name: string, params: [Param], returns: Type) -> Function {
-    return Function { name: name, params: params, returns: returns }
+pub fn function(name: string, params: [Param], returns: Type, attrs: [Attr]) -> Function {
+    return Function { name: name, params: params, returns: returns, attrs: attrs }
+}
+
+// Whether `f` carries `#[<name>]`, whatever arguments it was written with -- `has_attr`'s
+// counterpart for a function.
+pub fn fn_has_attr(f: Function, name: string) -> bool {
+    for a in f.attrs {
+        if a.name == name {
+            return true
+        }
+    }
+    return false
+}
+
+// `#[<attr>(<arg>: ...)]`'s value on a function, or `None` when the attribute or the argument is
+// absent -- the counterpart of `attr_arg_of` for a field.
+pub fn fn_attr_arg(f: Function, attr: string, arg: string) -> Option<string> {
+    for a in f.attrs {
+        if a.name != attr {
+            continue
+        }
+        for one in a.args {
+            if one.name == arg {
+                return Option<string>.Some(one.value)
+            }
+        }
+    }
+    return Option<string>.None
 }
 
 pub fn target(entity: Decl, label: Option<string>, crud: bool, defined: [string]) -> Target {

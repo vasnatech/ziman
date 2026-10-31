@@ -393,11 +393,18 @@ static int is_whole_number(const char *text) {
 static const ZimanAttrSpec *g_specs = NULL;
 static int g_spec_count = 0;
 
-static const char *field_attr_spec(const char *name) {
+/* Which declaration a spec is for. NULL means a field: the only position attributes had before
+ * 2026-10-31, so a generator that does not say means what it has always meant. */
+static int spec_is_for(const ZimanAttrSpec *spec, const char *position) {
+    const char *on = spec->on != NULL ? spec->on : "field";
+    return strcmp(on, position) == 0;
+}
+
+static const char *field_attr_spec(const char *name, const char *position) {
     int n = g_spec_count;
     const ZimanAttrSpec *specs = g_specs;
     for (int i = 0; i < n; i++) {
-        if (strcmp(specs[i].name, name) == 0) return specs[i].args;
+        if (strcmp(specs[i].name, name) == 0 && spec_is_for(&specs[i], position)) return specs[i].args;
     }
     return NULL;
 }
@@ -431,28 +438,44 @@ static char *field_attr_spec_text(const char *spec) {
 }
 
 /* The names a field may carry, in the order the generators declare them, for the refusal. */
-static char *field_attr_names(void) {
+static char *field_attr_names(const char *position) {
     int count = g_spec_count;
     const ZimanAttrSpec *specs = g_specs;
     size_t n = 1;
     for (int i = 0; i < count; i++) n += strlen(specs[i].name) + 2;
     char *out = ziman_xmalloc(n);
     out[0] = '\0';
+    int shown = 0;
     for (int i = 0; i < count; i++) {
-        if (i > 0) strcat(out, ", ");
+        if (!spec_is_for(&specs[i], position)) continue;
+        if (shown++ > 0) strcat(out, ", ");
         strcat(out, specs[i].name);
     }
+    if (shown == 0) out[0] = '\0';   /* the caller words the empty case; see check_field_attribute */
     return out;
 }
 
 /* Checks one attribute against its spec: the name exists, every argument it was given is one the
  * spec names and of the right kind, and every argument the spec requires was given. */
-static void check_field_attribute(const FieldAttr *a) {
-    const char *spec = field_attr_spec(a->name);
+static void check_field_attribute(const FieldAttr *a, const char *position) {
+    const char *spec = field_attr_spec(a->name, position);
     if (spec == NULL) {
+        /* Reported against the position it was written in, which is the whole point of the spec
+         * carrying one: `#[not_blank]` on a function and `#[route]` on a field are each a name
+         * that exists, in a place it does not. */
+        const char *where = strcmp(position, "field") == 0 ? "struct field" : position;
+        char *known = field_attr_names(position);
+        if (*known == '\0') {
+            /* Nothing is declared for this position at all, so "takes one of: " has nothing to
+             * follow it. The useful thing to say is which generator would have to declare it. */
+            ziman_error("syntax", a->line, a->col,
+                        "unknown %s attribute '%s' -- no generator this module imports declares an "
+                        "attribute a %s may carry, so add the `use` for the generator that does",
+                        position, a->name, where);
+        }
         ziman_error("syntax", a->line, a->col,
-                    "unknown field attribute '%s' -- a struct field takes one of: %s",
-                    a->name, field_attr_names());
+                    "unknown %s attribute '%s' -- a %s takes one of: %s",
+                    position, a->name, where, known);
         return;
     }
     /* Every argument given is named by the spec, and is of the kind it says. */
@@ -562,6 +585,14 @@ void ziman_check_field_attributes(Module *module) {
             }
         }
     }
+    /* **A function's attributes are checked by the same pass**, since 2026-10-31: the question is
+     * identical -- does any generator this module imports declare this name -- and answering it in
+     * two places would be two answers. Without this a misspelled `#[rout(..)]` on a function would
+     * be accepted and silently read by nobody, which is exactly the hole F259 closed for every
+     * other position. */
+    for (int i = 0; i < module->functions.count && !any; i++) {
+        if (module->functions.items[i]->attrs.count > 0) any = 1;
+    }
     if (!any) return;
     int count = 0;
     /* **Per module** (§5a): the bundled generators' attributes plus the ones declared by every
@@ -577,8 +608,12 @@ void ziman_check_field_attributes(Module *module) {
         StructDecl *sd = module->structs.items[i];
         for (int f = 0; f < sd->fields.count; f++) {
             const FieldAttrList *attrs = &sd->fields.items[f].attrs;
-            for (int a = 0; a < attrs->count; a++) check_field_attribute(&attrs->items[a]);
+            for (int a = 0; a < attrs->count; a++) check_field_attribute(&attrs->items[a], "field");
         }
+    }
+    for (int i = 0; i < module->functions.count; i++) {
+        const FieldAttrList *attrs = &module->functions.items[i]->attrs;
+        for (int a = 0; a < attrs->count; a++) check_field_attribute(&attrs->items[a], "function");
     }
     g_specs = NULL;
     g_spec_count = 0;

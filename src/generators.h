@@ -67,6 +67,9 @@ char *ziman_generate_query_in_ziman(const ZimanTarget *t, FunctionDecl *fn, int 
 typedef struct {
     const char *name;
     const char *args;
+    /* Which declaration may carry it: "field" or "function". NULL when the generator's `attributes()`
+     * did not say, which means a field -- the only position there was before 2026-10-31. */
+    const char *on;
 } ZimanAttrSpec;
 
 /* Every field attribute the loaded generators declare, collected once. Loads the generators, so

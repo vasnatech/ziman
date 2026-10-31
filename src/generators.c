@@ -493,6 +493,7 @@ static void collect_attr_specs_from(const char *mod) {
         if (one.type == NULL || one.type->kind != TY_STRUCT || one.as.st == NULL) continue;
         char *name = NULL;
         char *args = NULL;
+        char *on = NULL;
         for (int f = 0; f < one.as.st->count; f++) {
             const char *fname = one.as.st->field_names[f];
             Value v = one.as.st->fields[f];
@@ -501,11 +502,13 @@ static void collect_attr_specs_from(const char *mod) {
              * environment owns, and this table outlives the call. `copy_string`'s own comment. */
             if (strcmp(fname, "name") == 0) name = copy_string(v);
             if (strcmp(fname, "args") == 0) args = copy_string(v);
+            if (strcmp(fname, "on") == 0) on = copy_string(v);
         }
         if (name == NULL || args == NULL) continue;
         g_attr_specs = ziman_xrealloc(g_attr_specs, (size_t)(g_attr_spec_count + 1) * sizeof *g_attr_specs);
         g_attr_specs[g_attr_spec_count].name = name;
         g_attr_specs[g_attr_spec_count].args = args;
+        g_attr_specs[g_attr_spec_count].on = on;
         g_attr_spec_count++;
     }
 }
@@ -786,6 +789,30 @@ char *ziman_generate_in_ziman(Module *module, const char *target, StructDecl *sd
 
 /* A signature without its body, as `meta.Function`. The types are the source's own spelling,
  * which is what a generated body has to repeat: self-qualification runs after generation. */
+/* Attributes as `meta.Attr`s, shared by a field and a function -- the same `#[name(args)]` read by
+ * the same `parse_attr_args`, so reifying it twice would be two answers to one question. */
+static Value reify_attrs(const FieldAttrList *attrs, int line, int col) {
+    Value *out = ziman_xmalloc(sizeof(Value) * (size_t)(attrs->count > 0 ? attrs->count : 1));
+    for (int i = 0; i < attrs->count; i++) {
+        const FieldAttr *one = &attrs->items[i];
+        Value *args = ziman_xmalloc(sizeof(Value) * (size_t)(one->arg_count > 0 ? one->arg_count : 1));
+        for (int a = 0; a < one->arg_count; a++) {
+            Value pair[3] = {value_string(ziman_xstrdup(one->args[a].name)),
+                             value_string(ziman_xstrdup(one->args[a].value)),
+                             value_string(ziman_xstrdup(one->args[a].kind))};
+            args[a] = call_meta("attr_arg", pair, 3, line, col);
+        }
+        if (one->arg_count == 0) {
+            Value a[1] = {value_string(ziman_xstrdup(one->name))};
+            out[i] = call_meta("attr", a, 1, line, col);
+        } else {
+            Value a[2] = {value_string(ziman_xstrdup(one->name)), array_of(args, one->arg_count)};
+            out[i] = call_meta("attr_with", a, 2, line, col);
+        }
+    }
+    return array_of(out, attrs->count);
+}
+
 static Value reify_function(FunctionDecl *fn, int line, int col) {
     Value *params = ziman_xmalloc(sizeof(Value) * (size_t)(fn->params.count > 0 ? fn->params.count : 1));
     for (int i = 0; i < fn->params.count; i++) {
@@ -793,10 +820,11 @@ static Value reify_function(FunctionDecl *fn, int line, int col) {
                       reify_type(fn->params.items[i].type, line, col)};
         params[i] = call_meta("param", a, 2, line, col);
     }
-    Value args[3] = {value_string(ziman_xstrdup(fn->name != NULL ? fn->name : "")),
+    Value args[4] = {value_string(ziman_xstrdup(fn->name != NULL ? fn->name : "")),
                      array_of(params, fn->params.count),
-                     reify_type(fn->return_type, line, col)};
-    return call_meta("function", args, 3, line, col);
+                     reify_type(fn->return_type, line, col),
+                     reify_attrs(&fn->attrs, line, col)};
+    return call_meta("function", args, 4, line, col);
 }
 
 /* **The entity is reified by `reify_decl`, the same function the five derives go through.** A

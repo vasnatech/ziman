@@ -736,6 +736,13 @@ typedef struct {
     /* A lambda written without `->`: its return type comes from the function
      * type it is used as, or else from its final expression. */
     int return_omitted;
+    /* Attributes this compiler does not interpret, written on the function and read by whichever
+     * generator declared them: `#[route(method: GET, path: "/api/me/things")]`. The exact
+     * counterpart of `Field.attrs`, and like it **the compiler reads none of it** -- the names are
+     * checked against what the module's generators declare (`ziman_check_decl_attributes`) and the
+     * contents reach `meta.Function.attrs`. A function is the only declaration that may carry one;
+     * a struct's own go through its derive target's arguments instead (user-generators.md §5a). */
+    FieldAttrList attrs;
     /* `#[deprecated]` / `#[deprecated("use X instead")]`: calling or referring to this function
      * from *another* module is a `--lint` warning, carrying `deprecated_message` when one was
      * given. Same-module use is deliberately silent -- the author of the thing already knows.

@@ -417,6 +417,10 @@ pub fn attr_with(name: string, args: [AttrArg]) -> Attr
 pub struct AttrSpec {
     name: string
     args: string
+    // Which declaration may carry it: `"field"` for a struct field, `"function"` for a function.
+    // A string rather than an enum to match the rest of this type -- `args` is itself a little
+    // grammar in a string, and `AttrArg.kind` is text for the reason its own comment gives.
+    on: string
 }
 ```
 
@@ -437,6 +441,15 @@ and an empty string for an attribute that takes none. The kinds are `string`, `i
 ```
 pub fn attr_spec(name: string, args: string) -> AttrSpec
 ```
+
+A field attribute, which is what an attribute was until 2026-10-31 -- so the two-argument form
+keeps that meaning and the generators that already call it are untouched.
+
+```
+pub fn attr_spec(name: string, args: string, on: string) -> AttrSpec
+```
+
+An attribute on some other declaration: `attr_spec("route", "method:name,path:string", "function")`.
 
 ### `attr_arg`
 
@@ -598,6 +611,10 @@ pub struct Function {
     name: string
     params: [Param]
     returns: Type
+    // Attributes written on it -- `#[route(method: GET, path: "/api/me/things")]` -- exactly as
+    // `Field.attrs` carries a field's. The compiler reads none of them; it only checks that some
+    // generator this module imports declared the name for this position (`attr_spec`'s `on`).
+    attrs: [Attr]
 }
 ```
 
@@ -646,8 +663,26 @@ pub fn param(name: string, type: Type) -> Param
 ### `function`
 
 ```
-pub fn function(name: string, params: [Param], returns: Type) -> Function
+pub fn function(name: string, params: [Param], returns: Type, attrs: [Attr]) -> Function
 ```
+
+### `fn_has_attr`
+
+```
+pub fn fn_has_attr(f: Function, name: string) -> bool
+```
+
+Whether `f` carries `#[<name>]`, whatever arguments it was written with -- `has_attr`'s
+counterpart for a function.
+
+### `fn_attr_arg`
+
+```
+pub fn fn_attr_arg(f: Function, attr: string, arg: string) -> Option<string>
+```
+
+`#[<attr>(<arg>: ...)]`'s value on a function, or `None` when the attribute or the argument is
+absent -- the counterpart of `attr_arg_of` for a field.
 
 ### `target`
 

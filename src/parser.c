@@ -2755,6 +2755,14 @@ typedef struct {
      * read by the same `parse_attr_args` a field attribute goes through. `arg_count` is 0 for a
      * target written bare. */
     FieldAttr *args;
+    /* **An attribute the compiler does not interpret**, kept rather than refused since 2026-10-31:
+     * `#[route(method: GET, path: "/api/me/things")]` means nothing to this parser and everything
+     * to the generator that declared it. Collected here because the declaration it belongs to is
+     * not known yet -- only a *function* may carry one, and that is decided below once the next
+     * token is in hand; on anything else the chain still reports the unknown name. The same shape
+     * a field attribute has, read by the same `parse_attr_args`, because it is the same idea in a
+     * second position (docs/design/user-generators.md §5a). */
+    FieldAttrList extra;
 } DeriveList;
 
 static void derive_list_push(DeriveList *list, FieldAttr target) {
@@ -2932,11 +2940,19 @@ static DeriveList parse_attributes(Parser *p) {
                  * chain; one with arguments was read by the `is_derive && match(TOK_LPAREN)`
                  * branch below and thrown away, which is how `#[drive(Json)]` -- the typo that
                  * actually happens -- compiled to a struct that derived nothing. */
-                ziman_error("syntax", item_name->line, item_name->col,
-                            "unknown attribute '%.*s' -- a declaration takes one of: derive, test, "
-                            "deprecated, thread_bound, thread_key, at_least_one, effectful, "
-                            "compiler_resolved, when_unmatched (and a field takes its own set)",
-                            item_name->length, item_name->start);
+                /* Not one of the nine, so it is a generator's -- read it and carry it. The name
+                 * is checked against what the module's generators actually declare, after loading
+                 * (`ziman_check_decl_attributes`), which is where a field attribute's name is
+                 * checked too: the parser cannot know what `use` lines will bring. A declaration
+                 * that cannot carry one at all is still refused below, by position. */
+                FieldAttr one = {0};
+                one.name = dup_token_text(item_name);
+                one.line = item_name->line;
+                one.col = item_name->col;
+                /* `parse_attr_args` matches its own `(` and accepts none, so the bare
+                 * `#[effectful]`-shaped form needs no special case here. */
+                parse_attr_args(p, &one, item_name->line, item_name->col);
+                field_attr_list_push(&derives.extra, one);
             }
         } while (match(p, TOK_COMMA));
         expect(p, TOK_RBRACKET, "']'");
@@ -3130,6 +3146,17 @@ Module *parse(TokenList tokens) {
                             "'#![derive(Repository(%s))]' is what says a module is a repository over an entity",
                             sd->name, sd->name);
             }
+            if (derives.extra.count > 0) {
+                /* The closed set still speaks here, and must: this is where `#[drive(Json)]`
+                 * lands, and "unknown attribute" is what tells its author it is a typo.
+                 * Only a function may carry a generator's own attribute, so naming that
+                 * is the extra sentence rather than the whole message (F259). */
+                ziman_error("syntax", derives.extra.items[0].line, derives.extra.items[0].col,
+                            "unknown attribute '%s' -- a struct takes one of: derive, deprecated, thread_bound, thread_key "
+                            "(and a field takes its own set). A generator's own attribute goes on a "
+                            "function, where the generator that declares it can read it",
+                            derives.extra.items[0].name);
+            }
             sd->deprecated = derives.deprecated;
             sd->deprecated_message = derives.deprecated_message;
             struct_list_push(&module->structs, sd);
@@ -3150,6 +3177,17 @@ Module *parse(TokenList tokens) {
             }
             if (derives.repository) {
                 ziman_error("syntax", ed->line, ed->col, "#[derive(Repository)] applies to a function, not to enum '%s'", ed->name);
+            }
+            if (derives.extra.count > 0) {
+                /* The closed set still speaks here, and must: this is where `#[drive(Json)]`
+                 * lands, and "unknown attribute" is what tells its author it is a typo.
+                 * Only a function may carry a generator's own attribute, so naming that
+                 * is the extra sentence rather than the whole message (F259). */
+                ziman_error("syntax", derives.extra.items[0].line, derives.extra.items[0].col,
+                            "unknown attribute '%s' -- an enum takes one of: derive, deprecated "
+                            "(and a field takes its own set). A generator's own attribute goes on a "
+                            "function, where the generator that declares it can read it",
+                            derives.extra.items[0].name);
             }
             ed->deprecated = derives.deprecated;
             ed->deprecated_message = derives.deprecated_message;
@@ -3203,6 +3241,17 @@ Module *parse(TokenList tokens) {
             if (derives.is_test) {
                 ziman_error("syntax", v->line, v->col, "#[test] applies to a function, not to a val ('%s')", v->name);
             }
+            if (derives.extra.count > 0) {
+                /* The closed set still speaks here, and must: this is where `#[drive(Json)]`
+                 * lands, and "unknown attribute" is what tells its author it is a typo.
+                 * Only a function may carry a generator's own attribute, so naming that
+                 * is the extra sentence rather than the whole message (F259). */
+                ziman_error("syntax", derives.extra.items[0].line, derives.extra.items[0].col,
+                            "unknown attribute '%s' -- a val takes one of: deprecated "
+                            "(and a field takes its own set). A generator's own attribute goes on a "
+                            "function, where the generator that declares it can read it",
+                            derives.extra.items[0].name);
+            }
             v->deprecated = derives.deprecated;
             v->deprecated_message = derives.deprecated_message;
             global_val_list_push(&module->vals, v);
@@ -3214,6 +3263,7 @@ Module *parse(TokenList tokens) {
             fn->deprecated = derives.deprecated;
             fn->deprecated_message = derives.deprecated_message;
             fn->when_unmatched = derives.when_unmatched;
+            fn->attrs = derives.extra;
             apply_at_least_one(fn, &derives);
             apply_effectful(fn, &derives);
             apply_compiler_resolved(fn, &derives);
