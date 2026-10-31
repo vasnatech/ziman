@@ -6,11 +6,14 @@
 // decoder, which encoder, or what the JSON functions are called.
 #![derive(Routes)]
 
+use codec.json_decoder
+use codec.json_encoder
+use codec.json_list_encoder
 use derive_routes
-use endpoint
 use http
 use model
 use server
+use server.uuid_param
 use uuid.Uuid
 use wiring.Ctx
 use wiring.Principal

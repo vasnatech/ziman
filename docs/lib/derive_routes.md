@@ -19,8 +19,8 @@ own table. One attribute per handler replaces about ten lines of `server.Endpoin
 secured is whether its second parameter is a `Principal`; whether its input is in the path or
 the body is whether it takes a `Uuid` or a struct; and those three facts choose one of
 `server`'s eight handler constructors. The answer's encoder comes from the return type -- a
-`[T]` takes `endpoint.list_encoder`, a `unit` takes none at all, anything else takes
-`endpoint.json_encoder`. The decoder and encoder *functions* are named from the types as the
+`[T]` takes `json_list_encoder`, a `unit` takes none at all, anything else takes
+`json_encoder` -- `codec`'s. The decoder and encoder *functions* are named from the types as the
 source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all, so
 `model.order_request_from_json` is `#[derive(Json)]`'s own convention read backwards.
 
@@ -38,9 +38,10 @@ source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all,
 
 **What the application must have in scope where this is spliced**: `Ctx` (its context type),
 `api` (its `server.Api`, which says how its own error type renders), the `who` function each
-route names, and `use endpoint` for the decoders and encoders. Those are the four things this
-module cannot know, and emitting them as bare names is what keeps it from inventing a
-vocabulary for an application's error type -- see docs/design/user-generators.md §5c.
+route names, and the four names below from `codec` and `server` -- `json_decoder`,
+`json_encoder`, `json_list_encoder`, `uuid_param`. They are emitted bare rather than qualified
+so that an application is free to bring them in by per-name import, and so that this module
+invents no vocabulary for an application's error type (user-generators.md §5c).
 
 `use derive_routes` -- or `use derive_routes.Name` to bring one item in bare.
 

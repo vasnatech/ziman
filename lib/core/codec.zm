@@ -1,0 +1,297 @@
+// A value as bytes, in a named media type, and back: the typed `Encoder`/`Decoder` pair and the
+// `Format`s they can be built from.
+//
+// **This is serialization, not HTTP**, which is why it is here. The pair lived in
+// `lib/http/server/` until 2026-10-31 and could only be reached by something building an endpoint
+// -- so a command-line tool with a `--format` flag, a job writing a file, or a queue payload had
+// to write its own. Nothing in either type mentions a request or a response; what *is* HTTP is
+// choosing between several of them from an `Accept` header, and that stayed in `server`.
+//
+// **`Json` is the pivot, and it has to be.** Ziman has no runtime reflection, so there is no
+// `encode(value, SomeType)` that inspects a value at run time -- the Java interface this is
+// answering to passes a `Class` token for exactly that and cannot be translated. What ziman has
+// instead is `#[derive(Json)]`, which gives every type a `<snake>_to_json` and
+// `<snake>_from_json` at compile time; `encoder_of` takes one of those and a `Format`, and that
+// composition is what "the same value in any of five media types" means here. The type is checked
+// where the encoder is built rather than hoped for at run time.
+//
+// A format that is not a tree -- a PDF, a spreadsheet -- is not a `Format` and should not be bent
+// into one: build its `Encoder` with `encoder` directly, from whatever writes it.
+use csv
+use json
+use json.Json
+use mime
+use ndjson
+use toml
+use yaml
+
+// How to decode bytes of type `media` into an `I`. An `Err` message is for whoever asked -- the
+// HTTP server answers it 400 -- so it names what was wrong with the input rather than how.
+pub struct Decoder<I> {
+    media: mime.MediaType
+    decode: fn([byte]) -> Result<I, string>
+}
+
+// How to encode an `O` as `media`.
+pub struct Encoder<O> {
+    media: mime.MediaType
+    encode: fn(O) -> [byte]
+}
+
+// A tree format: its media type, and the two directions over `Json`.
+//
+// **`format` answers a `Result` even for the three formats that cannot fail.** `toml.format` can
+// (a table cannot hold every tree a JSON document can), and a `Format` whose shape changed with
+// the format would not be one type. The infallible ones wrap in `ok`, which costs nothing and
+// keeps one signature.
+pub struct Format {
+    // What to call it to a person: `JSON`, not `application/json`. The media type is the wire's
+    // name for a format and a poor word for a message -- "malformed application/json" reads as
+    // machinery where "malformed JSON" reads as a sentence. The Java interface this answers to
+    // draws the same distinction, `MediaType.name()` beside `mimeType()`.
+    name: string
+    media: mime.MediaType
+    parse: fn(string) -> Result<Json, string>
+    format: fn(Json) -> Result<string, string>
+}
+
+pub fn format_of(
+    name: string,
+    media: mime.MediaType,
+    parse: fn(string) -> Result<Json, string>,
+    format: fn(Json) -> Result<string, string>
+) -> Format {
+    return Format { name: name, media: media, parse: parse, format: format }
+}
+
+pub fn json_format() -> Format {
+    return Format {
+        name: "JSON",
+        media: mime.application_json(),
+        parse: fn(text: string) -> Result<Json, string> { return json.parse(text) },
+        format: fn(j: Json) -> Result<string, string> { return ok(json.format(j)) }
+    }
+}
+
+pub fn yaml_format() -> Format {
+    return Format {
+        name: "YAML",
+        media: mime.application_yaml(),
+        parse: fn(text: string) -> Result<Json, string> { return yaml.parse(text) },
+        format: fn(j: Json) -> Result<string, string> { return ok(yaml.format(j)) }
+    }
+}
+
+pub fn toml_format() -> Format {
+    return Format {
+        name: "TOML",
+        media: mime.application_toml(),
+        parse: fn(text: string) -> Result<Json, string> { return toml.parse(text) },
+        format: fn(j: Json) -> Result<string, string> { return toml.format(j) }
+    }
+}
+
+// Newline-delimited JSON. `parse` answers the array of documents as one `JArray`, so that a reader
+// sees the same shape the other formats give; `ndjson.parse` itself answers `[Json]`.
+pub fn ndjson_format() -> Format {
+    return Format {
+        name: "NDJSON",
+        media: mime.application_ndjson(),
+        parse: fn(text: string) -> Result<Json, string> {
+            return switch ndjson.parse(text) {
+                Ok(items) { ok(Json.JArray(items)) }
+                Err(message) { err(message) }
+            }
+        },
+        format: fn(j: Json) -> Result<string, string> {
+            if JArray(items) = j {
+                return ok(ndjson.format(items))
+            }
+            return err("ndjson is a sequence of documents, so it writes an array and nothing else")
+        }
+    }
+}
+
+// CSV, which is a table rather than a tree: `csv.format` accepts the `Json` shapes it can flatten
+// and refuses the rest, which is why this one's `Result` is load-bearing.
+pub fn csv_format() -> Format {
+    return Format {
+        name: "CSV",
+        media: mime.text_csv(),
+        parse: fn(text: string) -> Result<Json, string> { return csv.parse(text) },
+        format: fn(j: Json) -> Result<string, string> { return csv.format(j) }
+    }
+}
+
+// Every format, for looking one up by media type or listing what `--format` takes. JSON first,
+// which is the one to pick when a client expresses no preference.
+pub fn formats() -> [Format] {
+    return [json_format(), yaml_format(), toml_format(), ndjson_format(), csv_format()]
+}
+
+// **Which formats can write which shape is a fact about the format**, so it belongs here rather
+// than in a message at encode time. Three sets, and they are not nested:
+//
+//   * `tree_formats` writes a lone object. NDJSON is a sequence of documents and CSV is a table,
+//     so neither can.
+//   * `sequence_formats` writes an array. TOML cannot: a document is a table at the top.
+//   * `formats` is everything, for looking one up by media type.
+//
+// Found by offering all five for both shapes and reading what came back: NDJSON and CSV refused
+// the object, and TOML refused the array.
+pub fn tree_formats() -> [Format] {
+    return [json_format(), yaml_format(), toml_format()]
+}
+
+pub fn sequence_formats() -> [Format] {
+    return [json_format(), yaml_format(), ndjson_format(), csv_format()]
+}
+
+// The format whose media type matches `media`, or `None`. Compared by `mime.essence`, so a
+// `Content-Type: application/json; charset=utf-8` finds the JSON format -- the parameters are not
+// part of which format it is.
+pub fn format_for(media: mime.MediaType) -> Option<Format> {
+    for f in formats() {
+        if mime.essence(f.media) == mime.essence(media) {
+            return Option<Format>.Some(f)
+        }
+    }
+    return Option<Format>.None
+}
+
+// ---- building a typed pair -------------------------------------------------------------------
+
+// A decoder for bodies of `media`, from their bytes.
+pub fn decoder<I>(media: mime.MediaType, decode: fn([byte]) -> Result<I, string>) -> Decoder<I> {
+    return Decoder<I> { media: media, decode: decode }
+}
+
+// A decoder for bodies of `media` that are text: the bytes are turned into a string first (an
+// `Err` when they hold a NUL byte) and `decode` reads that.
+pub fn text_decoder<I>(media: mime.MediaType, decode: fn(string) -> Result<I, string>) -> Decoder<I> {
+    val go = decode
+    return Decoder<I> {
+        media: media,
+        decode: fn(data: [byte]) -> Result<I, string> {
+            return switch bytes_to_string(data) {
+                Ok(text) { go(text) }
+                Err(reason) { err(format("the input is not text ({})", reason)) }
+            }
+        }
+    }
+}
+
+// An encoder for `media`, to bytes.
+pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O> {
+    return Encoder<O> { media: media, encode: encode }
+}
+
+// An encoder for `media` whose output is text.
+pub fn text_encoder<O>(media: mime.MediaType, encode: fn(O) -> string) -> Encoder<O> {
+    val write = encode
+    return Encoder<O> {
+        media: media,
+        encode: fn(value: O) -> [byte] { return to_bytes(write(value)) }
+    }
+}
+
+// **The composition this module exists for**: a type's own derived `to_json`, plus a format, is an
+// encoder for that type in that format. `#[derive(Json)]` wrote the first half, so offering a
+// value as YAML or CSV is one call rather than a closure spelled out per type and per format.
+//
+// A format that refuses the tree -- CSV given something it cannot flatten -- fails when the value
+// is encoded, not when the encoder is built, because only then is there a tree to judge. The
+// message is the format's own.
+pub fn encoder_of<O>(f: Format, to_json: fn(O) -> Json) -> Encoder<O> {
+    val write = to_json
+    val as_text = f.format
+    return Encoder<O> {
+        media: f.media,
+        encode: fn(value: O) -> [byte] {
+            return switch as_text(write(value)) {
+                Ok(text) { to_bytes(text) }
+                // The encoder's own signature cannot fail, so a refusal becomes the body. It is
+                // the honest thing to send: the status is already 200 by the time encoding runs,
+                // and a silent empty body would say nothing at all.
+                Err(message) { to_bytes(format(
+                    "cannot write this value as {}: {}",
+                    f.name,
+                    message
+                )) }
+            }
+        }
+    }
+}
+
+// The same for a list, which is what a collection endpoint answers.
+pub fn list_encoder_of<O>(f: Format, to_json: fn(O) -> Json) -> Encoder<[O]> {
+    val write = to_json
+    return encoder_of<[O]>(f, fn(items: [O]) -> Json { return Json.JArray(map(items, write)) })
+}
+
+// A decoder from a type's own derived `from_json`.
+pub fn decoder_of<I>(f: Format, from_json: fn(Json) -> Result<I, string>) -> Decoder<I> {
+    val read = from_json
+    val as_tree = f.parse
+    val label = f.name
+    return text_decoder<I>(f.media, fn(text: string) -> Result<I, string> {
+        return switch as_tree(text) {
+            // Distinguished on purpose: input that is not this format at all, and input that is
+            // the format but not this model, are different mistakes and only the first is worth
+            // naming the parser's own message for.
+            Ok(tree) { read(tree) }
+            Err(message) { err(concat("malformed ", label, ": ", message)) }
+        }
+    })
+}
+
+// Every format that can write a lone value, as encoders for one type: what an endpoint lists when
+// it is happy to answer in whichever the client prefers.
+pub fn encoders_of<O>(to_json: fn(O) -> Json) -> [Encoder<O>] {
+    val write = to_json
+    val out = mutable_array_new<Encoder<O>>()
+    for f in tree_formats() {
+        push(out, encoder_of<O>(f, write))
+    }
+    return snapshot(out)
+}
+
+// The same for a list: NDJSON and CSV join, TOML drops out.
+pub fn list_encoders_of<O>(to_json: fn(O) -> Json) -> [Encoder<[O]>] {
+    val write = to_json
+    val out = mutable_array_new<Encoder<[O]>>()
+    for f in sequence_formats() {
+        push(out, list_encoder_of<O>(f, write))
+    }
+    return snapshot(out)
+}
+
+// ---- JSON, which is the common case and worth its own names ----------------------------------
+
+pub fn json_decoder<I>(from_json: fn(Json) -> Result<I, string>) -> Decoder<I> {
+    return decoder_of<I>(json_format(), from_json)
+}
+
+pub fn json_encoder<O>(to_json: fn(O) -> Json) -> Encoder<O> {
+    return encoder_of<O>(json_format(), to_json)
+}
+
+pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]> {
+    return list_encoder_of<O>(json_format(), to_json)
+}
+
+// A bare JSON number as the whole output, which is what a count endpoint answers: Spring returns a
+// `Long` there rather than an object, and a client reading it wants the scalar.
+pub fn count_encoder() -> Encoder<int> {
+    return encoder<int>(mime.application_json(), fn(value: int) -> [byte] {
+        return json.to_bytes(json.int_to_json(value))
+    })
+}
+
+// A `Json` value as the whole body, for something answering a tree it passes through rather than a
+// model of its own.
+pub fn json_value_encoder() -> Encoder<Json> {
+    return encoder<Json>(mime.application_json(), fn(value: Json) -> [byte] {
+        return json.to_bytes(value)
+    })
+}

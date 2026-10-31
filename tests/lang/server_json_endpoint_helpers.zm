@@ -6,6 +6,7 @@
 // client gets, and those bytes back through `json_decoder` produce the value again. The list form
 // is the one worth having -- written out it is a `array_map` into a `JArray` at every route
 // that answers a collection.
+use codec
 use json
 use server
 
@@ -16,17 +17,17 @@ struct Point {
 }
 
 fn main() {
-    val enc = server.json_encoder<Point>(point_to_json)
+    val enc = codec.json_encoder<Point>(point_to_json)
     val one = enc.encode(Point { x: 3, y: 4 })
     print(unwrap(bytes_to_string(one)))
 
-    val dec = server.json_decoder<Point>(point_from_json)
+    val dec = codec.json_decoder<Point>(point_from_json)
     print(switch dec.decode(one) {
         Ok(p) { format("{},{}", str(p.x), str(p.y)) }
         Err(e) { concat("rejected: ", e) }
     })
 
-    val list = server.json_list_encoder<Point>(point_to_json)
+    val list = codec.json_list_encoder<Point>(point_to_json)
     print(unwrap(bytes_to_string(list.encode([Point { x: 1, y: 2 }, Point { x: 5, y: 6 }]))))
     print(unwrap(bytes_to_string(list.encode([]))))
 

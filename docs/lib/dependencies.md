@@ -10,6 +10,7 @@ flowchart LR
     subgraph group_core["core"]
         bits["bits"]
         clock["clock"]
+        codec["codec"]
         compress["compress"]
         crypto["crypto"]
         csv["csv"]
@@ -65,7 +66,6 @@ flowchart LR
     end
     subgraph group_http["HTTP"]
         derive_routes["http.derive_routes"]
-        endpoint["http.endpoint"]
         http["http"]
     end
     subgraph group_time["time"]
@@ -73,6 +73,12 @@ flowchart LR
         time["time"]
         zone["time.zone"]
     end
+    codec --> csv
+    codec --> json
+    codec --> mime
+    codec --> ndjson
+    codec --> toml
+    codec --> yaml
     crypto --> encoding
     crypto --> random
     csv --> fs
@@ -104,10 +110,6 @@ flowchart LR
     derive_validate --> template
     encoding --> locale
     encoding --> number
-    endpoint --> http
-    endpoint --> json
-    endpoint --> mime
-    endpoint --> uuid
     eql --> datasource
     eql --> db
     eql --> locale
@@ -264,8 +266,8 @@ otherwise: everything on a layer depends only on lower layers.
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `template`, `time`, `uuid` |
-| 5 | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `endpoint`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
-| 6 | `derive_repository` |
+| 5 | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
+| 6 | `codec`, `derive_repository` |
 
 ## Each module
 
@@ -273,9 +275,10 @@ otherwise: everything on a layer depends only on lower layers.
 |---|---|---|
 | `bits` | - | `image` |
 | `clock` | - | `datasource`, `jwt`, `log`, `os`, `schedule`, `time`, `uuid` |
+| `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `yaml` | - |
 | `compress` | - | `image`, `pdfobj` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
-| `csv` | `fs`, `json`, `number` | - |
+| `csv` | `fs`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `eql`, `migrate` |
 | `db` | `net`, `number`, `url` | `datasource`, `eql`, `memdb`, `migrate`, `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
 | `derive_entity` | `meta`, `template` | - |
@@ -288,15 +291,14 @@ otherwise: everything on a layer depends only on lower layers.
 | `derive_row` | `meta`, `template` | `derive_repository` |
 | `derive_validate` | `meta`, `template` | - |
 | `encoding` | `locale`, `number` | `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
-| `endpoint` | `http`, `json`, `mime`, `uuid` | - |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `expr` | `json`, `regex` | `template` |
 | `font` | `truetype` | `layout`, `pdf`, `raster` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `sql`, `zone` |
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
-| `http` | `locale`, `mime`, `number`, `random`, `url` | `endpoint` |
+| `http` | `locale`, `mime`, `number`, `random`, `url` | - |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
-| `json` | `math`, `number` | `csv`, `endpoint`, `expr`, `jwt`, `log`, `ndjson`, `template`, `time`, `toml`, `uuid`, `yaml` |
+| `json` | `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `template`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
 | `locale` | - | `encoding`, `eql`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `sql`, `time`, `toml`, `url`, `xml`, `yaml` |
@@ -307,9 +309,9 @@ otherwise: everything on a layer depends only on lower layers.
 | `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate` |
 | `metrics` | `os` | - |
 | `migrate` | `crypto`, `datasource`, `db`, `encoding`, `fs`, `os`, `time` | - |
-| `mime` | `locale` | `endpoint`, `http` |
+| `mime` | `locale` | `codec`, `http` |
 | `mysql` | `crypto`, `db`, `net`, `number` | - |
-| `ndjson` | `json` | - |
+| `ndjson` | `json` | `codec` |
 | `net` | - | `db`, `mysql`, `pg` |
 | `number` | `locale` | `csv`, `db`, `encoding`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `sql`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `fs`, `log`, `metrics`, `migrate`, `process`, `properties`, `zone` |
@@ -333,13 +335,13 @@ otherwise: everything on a layer depends only on lower layers.
 | `test` | `regex` | - |
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `eql`, `migrate`, `schedule`, `toml` |
-| `toml` | `json`, `locale`, `number`, `time` | - |
+| `toml` | `json`, `locale`, `number`, `time` | `codec` |
 | `truetype` | `geom`, `shape` | `font`, `pdf`, `raster` |
 | `url` | `locale`, `number` | `db`, `http` |
-| `uuid` | `clock`, `db`, `json`, `number`, `random` | `endpoint`, `eql` |
+| `uuid` | `clock`, `db`, `json`, `number`, `random` | `eql` |
 | `validate` | `regex` | - |
 | `xml` | `locale` | - |
-| `yaml` | `json`, `locale`, `number` | - |
+| `yaml` | `json`, `locale`, `number` | `codec` |
 | `zone` | `fs`, `number`, `os` | `time` |
 
 ## Why some modules are separate

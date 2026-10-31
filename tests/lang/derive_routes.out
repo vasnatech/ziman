@@ -91,7 +91,7 @@ pub val main_routes: [server.Endpoint<Ctx>] = [
         pattern: "/api/orders",
         handler: server.secure_handler(
             who: authenticated,
-            encoders: [endpoint.list_encoder<model.OrderResponse>(model.order_response_to_json)],
+            encoders: [json_list_encoder<model.OrderResponse>(model.order_response_to_json)],
             run: handle_list,
             api: api
         )
@@ -101,8 +101,8 @@ pub val main_routes: [server.Endpoint<Ctx>] = [
         pattern: "/api/orders",
         handler: server.secure_body_handler(
             who: authenticated,
-            decoders: [endpoint.json_decoder<model.OrderRequest>(model.order_request_from_json)],
-            encoders: [endpoint.json_encoder<model.OrderResponse>(model.order_response_to_json)],
+            decoders: [json_decoder<model.OrderRequest>(model.order_request_from_json)],
+            encoders: [json_encoder<model.OrderResponse>(model.order_response_to_json)],
             status: 201,
             run: handle_create,
             api: api
@@ -113,7 +113,7 @@ pub val main_routes: [server.Endpoint<Ctx>] = [
         pattern: "/api/orders/{id}",
         handler: server.secure_path_handler(
             who: authenticated,
-            path: endpoint.uuid_param("order"),
+            path: uuid_param("order"),
             encoders: [],
             status: 204,
             run: handle_delete,

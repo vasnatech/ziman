@@ -1,0 +1,53 @@
+// `codec`: one value, in whichever media type is asked for, built from the type's own
+// `#[derive(Json)]` pair. The point of the module -- a `Format` plus a `to_json` is an `Encoder`,
+// so offering YAML or CSV costs one call rather than a closure per type and per format.
+//
+// **The three sets are not nested, and that is the fixture's real subject**: NDJSON is a sequence
+// of documents and CSV is a table, so neither writes a lone object; TOML is a table at the top, so
+// it does not write an array. Offering all five for both shapes and reading the refusals is how
+// the sets were arrived at.
+use codec
+use json.Json
+use mime
+
+#[derive(Json)]
+struct Order {
+    id: int
+    item: string
+}
+
+fn show(media: mime.MediaType, data: [byte]) {
+    val body = switch bytes_to_string(data) {
+        Ok(text) { replace(text, "\n", " / ") }
+        Err(_) { "<not text>" }
+    }
+    print(prelude.format("{}  ->  {}", mime.essence(media), body))
+}
+
+fn main() {
+    val one = Order { id: 7, item: "desk" }
+    val many = [one, Order { id: 8, item: "lamp" }]
+
+    print("-- a lone value: the tree formats")
+    for e in codec.encoders_of<Order>(order_to_json) {
+        show(e.media, e.encode(one))
+    }
+
+    print("-- a list: the sequence formats")
+    for e in codec.list_encoders_of<Order>(order_to_json) {
+        show(e.media, e.encode(many))
+    }
+
+    // And back: a decoder for a format reads that format's text into the model.
+    print("-- decoding, through the same Format")
+    val yaml_in = codec.decoder_of<Order>(codec.yaml_format(), order_from_json)
+    switch yaml_in.decode(to_bytes("id: 9\nitem: chair\n")) {
+        Ok(o) { print(prelude.format("yaml  ->  {} {}", str(o.id), o.item)) }
+        Err(message) { print(concat("refused: ", message)) }
+    }
+    // A media type names its format, which is what content negotiation needs.
+    switch codec.format_for(mime.text_csv()) {
+        Some(f) { print(concat("text/csv is a known format: ", mime.essence(f.media))) }
+        None { print("text/csv is not a known format") }
+    }
+}

@@ -1,0 +1,12 @@
+-- a lone value: the tree formats
+application/json  ->  {"id":7,"item":"desk"}
+application/yaml  ->  id: 7 / item: desk / 
+application/toml  ->  id = 7 / item = "desk" / 
+-- a list: the sequence formats
+application/json  ->  [{"id":7,"item":"desk"},{"id":8,"item":"lamp"}]
+application/yaml  ->  - id: 7 /   item: desk / - id: 8 /   item: lamp / 
+application/x-ndjson  ->  {"id":7,"item":"desk"} / {"id":8,"item":"lamp"} / 
+text/csv  ->  id,item / 7,desk / 8,lamp / 
+-- decoding, through the same Format
+yaml  ->  9 chair
+text/csv is a known format: text/csv

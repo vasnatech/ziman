@@ -155,10 +155,13 @@ below (`open_session`, `read_request`, `write_response`) when `serve` doesn't fi
   caller parameter); `Denied` is `Unauthenticated`/`Forbidden`/`Failed` (401/403/500),
   answered before the body is read, the path decoded, or a format negotiated. `run` returns
   `Result<O, E>` -- an ordinary function, no request-awareness needed. `encoders: []` answers
-  with an empty body and no `Content-Type` (what a 204 needs). A `Decoder<I> { media, decode }`
-  turns request bytes into an `I` (`Err` is 400); an `Encoder<O> { media, encode }` turns an
-  answer into bytes -- built with `server.decoder`/`encoder` (bytes) or `text_decoder`/
-  `text_encoder` (text; a body NUL is 400 there). An endpoint answers 415 with no decoder
+  with an empty body and no `Content-Type` (what a 204 needs). A `codec.Decoder<I> { media, decode }`
+  turns request bytes into an `I` (`Err` is 400); a `codec.Encoder<O> { media, encode }` turns an
+  answer into bytes -- built with `codec.decoder`/`encoder` (bytes), `text_decoder`/`text_encoder`
+  (text; a NUL is 400 there), or `codec.encoder_of(format, to_json)` for any of `codec`'s tree
+  formats, which is how one endpoint answers JSON, YAML, TOML, NDJSON or CSV from a single
+  `#[derive(Json)]` pair. The pair lives in `codec` rather than here because a media type and a
+  function over a value is serialization; what is HTTP is choosing between several by `Accept`. An endpoint answers 415 with no decoder
   matching `Content-Type`, 406 with no encoder matching `Accept`. `Request`/`Response.body` is
   `[byte]` (`request_text`/`response_text` give text, or an `Err` on a NUL). `server.routes<C>`
   compiles a table once (a module-level `val`, not per request), splitting each pattern into

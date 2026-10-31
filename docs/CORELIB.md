@@ -163,6 +163,80 @@ pub native fn sleep_millis(ms: int)
 
 ```
 
+## `codec`
+
+```
+pub struct Decoder<I> {
+    media: mime.MediaType
+    decode: fn([byte]) -> Result<I, string>
+}
+
+pub struct Encoder<O> {
+    media: mime.MediaType
+    encode: fn(O) -> [byte]
+}
+
+pub struct Format {
+    // What to call it to a person: `JSON`, not `application/json`. The media type is the wire's
+    // name for a format and a poor word for a message -- "malformed application/json" reads as
+    // machinery where "malformed JSON" reads as a sentence. The Java interface this answers to
+    // draws the same distinction, `MediaType.name()` beside `mimeType()`.
+    name: string
+    media: mime.MediaType
+    parse: fn(string) -> Result<Json, string>
+    format: fn(Json) -> Result<string, string>
+}
+
+pub fn format_of(
+
+pub fn json_format() -> Format
+
+pub fn yaml_format() -> Format
+
+pub fn toml_format() -> Format
+
+pub fn ndjson_format() -> Format
+
+pub fn csv_format() -> Format
+
+pub fn formats() -> [Format]
+
+pub fn tree_formats() -> [Format]
+
+pub fn sequence_formats() -> [Format]
+
+pub fn format_for(media: mime.MediaType) -> Option<Format>
+
+pub fn decoder<I>(media: mime.MediaType, decode: fn([byte]) -> Result<I, string>) -> Decoder<I>
+
+pub fn text_decoder<I>(media: mime.MediaType, decode: fn(string) -> Result<I, string>) -> Decoder<I>
+
+pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O>
+
+pub fn text_encoder<O>(media: mime.MediaType, encode: fn(O) -> string) -> Encoder<O>
+
+pub fn encoder_of<O>(f: Format, to_json: fn(O) -> Json) -> Encoder<O>
+
+pub fn list_encoder_of<O>(f: Format, to_json: fn(O) -> Json) -> Encoder<[O]>
+
+pub fn decoder_of<I>(f: Format, from_json: fn(Json) -> Result<I, string>) -> Decoder<I>
+
+pub fn encoders_of<O>(to_json: fn(O) -> Json) -> [Encoder<O>]
+
+pub fn list_encoders_of<O>(to_json: fn(O) -> Json) -> [Encoder<[O]>]
+
+pub fn json_decoder<I>(from_json: fn(Json) -> Result<I, string>) -> Decoder<I>
+
+pub fn json_encoder<O>(to_json: fn(O) -> Json) -> Encoder<O>
+
+pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]>
+
+pub fn count_encoder() -> Encoder<int>
+
+pub fn json_value_encoder() -> Encoder<Json>
+
+```
+
 ## `compress`
 
 ```
@@ -3066,27 +3140,6 @@ pub fn format(s: Statement) -> string
 pub fn attributes() -> [meta.AttrSpec]
 
 pub fn generate_module(m: meta.ModuleTarget) -> Result<string, string>
-
-```
-
-## `endpoint`
-
-```
-pub val application_json = mime.application_json()
-
-pub fn json_decoder<I>(from_json: fn(Json) -> Result<I, string>) -> server.Decoder<I>
-
-pub fn json_encoder<O>(to_json: fn(O) -> Json) -> server.Encoder<O>
-
-pub fn json_value_encoder() -> server.Encoder<Json>
-
-pub fn count_encoder() -> server.Encoder<int>
-
-pub fn list_encoder<O>(to_json: fn(O) -> Json) -> server.Encoder<[O]>
-
-pub fn uuid_param(kind: string) -> fn(server.Params) -> Result<Uuid, string>
-
-pub fn named_uuid_param(name: string, kind: string) -> fn(server.Params) -> Result<Uuid, string>
 
 ```
 

@@ -1,3 +1,6 @@
+use codec
+// `codec.text_decoder` says "the input is not text", not "the body": it is a serialization
+// decoder and knows nothing about requests, which is the point of its living outside `server`.
 use http
 use mime
 use server
@@ -181,11 +184,11 @@ fn h(name: string, value: string) -> http.Header {
 }
 
 fn main() {
-    val text_out = server.text_encoder<Item>(mime.text_plain(), as_text)
-    val csv_out = server.text_encoder<Item>(mime.text_csv(), as_csv)
-    val text_in = server.text_decoder<Item>(mime.text_plain(), read_item)
-    val csv_in = server.text_decoder<Item>(mime.text_csv(), read_csv_item)
-    val caller_out = server.text_encoder<Caller>(mime.text_plain(), me_as_text)
+    val text_out = codec.text_encoder<Item>(mime.text_plain(), as_text)
+    val csv_out = codec.text_encoder<Item>(mime.text_csv(), as_csv)
+    val text_in = codec.text_decoder<Item>(mime.text_plain(), read_item)
+    val csv_in = codec.text_decoder<Item>(mime.text_csv(), read_csv_item)
+    val caller_out = codec.text_encoder<Caller>(mime.text_plain(), me_as_text)
     val api = server.Api<string> { failure: failure, fault: fault }
     val endpoints = [
         server.Endpoint<Ctx> {
@@ -268,8 +271,8 @@ fn main() {
             method: http.HttpMethod.Post,
             pattern: "/binary",
             handler: server.public_body_handler(
-                decoders: [server.decoder<[byte]>(mime.application_octet_stream(), reverse_bytes)],
-                encoders: [server.encoder<[byte]>(mime.application_octet_stream(), fn(data) { return data })],
+                decoders: [codec.decoder<[byte]>(mime.application_octet_stream(), reverse_bytes)],
+                encoders: [codec.encoder<[byte]>(mime.application_octet_stream(), fn(data) { return data })],
                 run: echo_binary,
                 api: api
             )

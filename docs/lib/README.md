@@ -18,6 +18,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | Module | What it is |
 |---|---|
 | [`json`](json.md) | JSON as a `Json` tree: a native parser and serializer, and Ziman helpers for reading and building trees. |
+| [`codec`](codec.md) | A value as bytes, in a named media type, and back. |
 | [`expr`](expr.md) | An expression language over `Json`, for rules and text that are *data* rather than source. |
 | [`ndjson`](ndjson.md) | Newline-delimited JSON: one JSON value per line, written on top of `json`. |
 | [`csv`](csv.md) | CSV (RFC 4180) as `Json`: a table is a `Json` array of objects, one per data row and keyed by the header row, so any `#[derive(Json)]` type decodes from a row with its own `_from_json` and encodes back. |
@@ -74,7 +75,6 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`http`](http.md) | What an HTTP server and an HTTP client have in common. |
 | [`server`](server.md) | An HTTP/1.1 *server* toolkit, written in Ziman on top of `net`. |
 | [`client`](client.md) | An HTTP/1.1 *client*, written in Ziman on top of `net`, so a Ziman program can call another service. |
-| [`endpoint`](endpoint.md) | What every JSON endpoint is built from. |
 
 ## Databases
 

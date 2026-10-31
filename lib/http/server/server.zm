@@ -60,6 +60,7 @@ val http_1_1 = "HTTP/1.1"
 val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
 
 use clock
+use codec
 use compress
 use http.Header
 use http.HttpMethod
@@ -113,6 +114,8 @@ use number.byte_from_hex
 use number.int_from_hex
 use number.to_hex
 use os
+use uuid
+use uuid.Uuid
 
 // Case folding here is **protocol folding**, so it names the invariant locale rather than taking
 // whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a

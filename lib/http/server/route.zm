@@ -141,3 +141,33 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
     }
     return Option<string>.None
 }
+
+// ---- path parameters as values ----
+//
+// A captured segment is a string; these turn one into a `Uuid` and answer a message a 400 can
+// carry. **Beside `param`, which is what they call** -- they were a module of their own for a day
+// (`lib/http/endpoint.zm`), which was one module for two functions about this one's own `Params`.
+
+// A `{id}` path parameter is just a string; this turns it into a `Uuid`, and a bad one is answered 400
+// before the endpoint runs. `kind` names what the id belongs to, for the message ("invalid order id").
+pub fn uuid_param(kind: string) -> fn(Params) -> Result<Uuid, string> {
+    return fn(params: Params) -> Result<Uuid, string> {
+        val text = param(params, "id")
+        return switch uuid.parse(text) {
+            Ok(id) { id }
+            Err(_) { format("invalid {} id: {}", kind, text) }
+        }
+    }
+}
+
+// The same as `uuid_param`, but for a captured segment named something other than `{id}`: a pattern with
+// two captures (`{orderId}/items/{itemId}`) needs to say which it means.
+pub fn named_uuid_param(name: string, kind: string) -> fn(Params) -> Result<Uuid, string> {
+    return fn(params: Params) -> Result<Uuid, string> {
+        val text = param(params, name)
+        return switch uuid.parse(text) {
+            Ok(id) { id }
+            Err(_) { format("invalid {} id: {}", kind, text) }
+        }
+    }
+}

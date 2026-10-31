@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "lib")
 
 GROUPS = [
-    ("Data and formats", "core", ["json", "expr", "ndjson", "csv", "toml", "yaml", "xml", "markdown", "properties",
+    ("Data and formats", "core", ["json", "codec", "expr", "ndjson", "csv", "toml", "yaml", "xml", "markdown", "properties",
                                    "number", "math", "bits", "encoding", "uuid", "regex", "compress", "crypto", "jwt", "otp",
                                    "mime"]),
     # The group's directory is where the source is read from, so a module listed here lives in
@@ -27,7 +27,7 @@ GROUPS = [
     ("Time", "time", ["time", "zone", "schedule"]),
     ("System", "core", ["fs", "os", "process", "thread", "log", "metrics", "random", "clock", "locale"]),
     ("Networking", "core", ["net", "url"]),
-    ("HTTP", "http", ["http", "server", "client", "endpoint"]),
+    ("HTTP", "http", ["http", "server", "client"]),
     ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql", "memdb", "sql", "eql"]),
     ("Testing", "core", ["test"]),
     # Its own group rather than a line under Data, because the rules and the generator are one

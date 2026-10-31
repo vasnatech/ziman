@@ -14,8 +14,8 @@
 // secured is whether its second parameter is a `Principal`; whether its input is in the path or
 // the body is whether it takes a `Uuid` or a struct; and those three facts choose one of
 // `server`'s eight handler constructors. The answer's encoder comes from the return type -- a
-// `[T]` takes `endpoint.list_encoder`, a `unit` takes none at all, anything else takes
-// `endpoint.json_encoder`. The decoder and encoder *functions* are named from the types as the
+// `[T]` takes `json_list_encoder`, a `unit` takes none at all, anything else takes
+// `json_encoder` -- `codec`'s. The decoder and encoder *functions* are named from the types as the
 // source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all, so
 // `model.order_request_from_json` is `#[derive(Json)]`'s own convention read backwards.
 //
@@ -30,9 +30,10 @@
 //
 // **What the application must have in scope where this is spliced**: `Ctx` (its context type),
 // `api` (its `server.Api`, which says how its own error type renders), the `who` function each
-// route names, and `use endpoint` for the decoders and encoders. Those are the four things this
-// module cannot know, and emitting them as bare names is what keeps it from inventing a
-// vocabulary for an application's error type -- see docs/design/user-generators.md §5c.
+// route names, and the four names below from `codec` and `server` -- `json_decoder`,
+// `json_encoder`, `json_list_encoder`, `uuid_param`. They are emitted bare rather than qualified
+// so that an application is free to bring them in by per-name import, and so that this module
+// invents no vocabulary for an application's error type (user-generators.md §5c).
 #![generator(Routes)]
 
 use meta
@@ -48,7 +49,7 @@ use template
 //             pattern: "/api/orders",
 //             handler: server.secure_handler(
 //                 who: authenticated,
-//                 encoders: [endpoint.list_encoder<model.OrderResponse>(model.order_response_to_json)],
+//                 encoders: [json_list_encoder<model.OrderResponse>(model.order_response_to_json)],
 //                 run: handle_list,
 //                 api: api
 //             )
@@ -58,8 +59,8 @@ use template
 //             pattern: "/api/orders",
 //             handler: server.secure_body_handler(
 //                 who: authenticated,
-//                 decoders: [endpoint.json_decoder<model.OrderRequest>(model.order_request_from_json)],
-//                 encoders: [endpoint.json_encoder<model.OrderResponse>(model.order_response_to_json)],
+//                 decoders: [json_decoder<model.OrderRequest>(model.order_request_from_json)],
+//                 encoders: [json_encoder<model.OrderResponse>(model.order_response_to_json)],
 //                 status: 201,
 //                 run: handle_create,
 //                 api: api
@@ -70,7 +71,7 @@ use template
 //             pattern: "/api/orders/{id}",
 //             handler: server.secure_path_handler(
 //                 who: authenticated,
-//                 path: endpoint.uuid_param("order"),
+//                 path: uuid_param("order"),
 //                 encoders: [],
 //                 status: 204,
 //                 run: handle_delete,
@@ -94,10 +95,10 @@ pub val @{module}_routes: [server.Endpoint<Ctx>] = [
             who: @{e.who},
 @end
 @if e.has_path
-            path: endpoint.uuid_param("@{e.label}"),
+            path: uuid_param("@{e.label}"),
 @end
 @if e.has_body
-            decoders: [endpoint.json_decoder<@{e.body}>(@{e.from_json})],
+            decoders: [json_decoder<@{e.body}>(@{e.from_json})],
 @end
             encoders: @{e.encoders},
 @if e.has_status
@@ -183,7 +184,7 @@ fn encoders_for(f: meta.Function) -> Result<string, string> {
     if ResultOf(r) = f.returns {
         if Array(inner) = r.ok {
             if Some(name) = named_of(inner) {
-                return ok(concat("[endpoint.list_encoder<", name, ">(", json_stem(name), "_to_json)]"))
+                return ok(concat("[json_list_encoder<", name, ">(", json_stem(name), "_to_json)]"))
             }
         }
         // A `unit` answer has no body, which is what a 204 means.
@@ -191,7 +192,7 @@ fn encoders_for(f: meta.Function) -> Result<string, string> {
             return ok("[]")
         }
         if Some(name) = named_of(r.ok) {
-            return ok(concat("[endpoint.json_encoder<", name, ">(", json_stem(name), "_to_json)]"))
+            return ok(concat("[json_encoder<", name, ">(", json_stem(name), "_to_json)]"))
         }
     }
     return err(prelude.format(

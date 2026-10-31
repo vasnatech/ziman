@@ -434,6 +434,24 @@ pub fn query_param(req: Request, name: string) -> Option<string>
 A query-string value by name, percent-decoded ("+" is a space); the
 first one if it is repeated. `None` if absent.
 
+### `uuid_param`
+
+```
+pub fn uuid_param(kind: string) -> fn(Params) -> Result<Uuid, string>
+```
+
+A `{id}` path parameter is just a string; this turns it into a `Uuid`, and a bad one is answered 400
+before the endpoint runs. `kind` names what the id belongs to, for the message ("invalid order id").
+
+### `named_uuid_param`
+
+```
+pub fn named_uuid_param(name: string, kind: string) -> fn(Params) -> Result<Uuid, string>
+```
+
+The same as `uuid_param`, but for a captured segment named something other than `{id}`: a pattern with
+two captures (`{orderId}/items/{itemId}`) needs to say which it means.
+
 ## `multipart.zm`
 
 ### `Part`
@@ -549,105 +567,6 @@ pub struct Endpoint<C> {
 
 A route: the handler, already adapted to requests and responses, for `method` on `pattern`.
 
-### `Decoder`
-
-```
-pub struct Decoder<I> {
-    media: mime.MediaType
-    decode: fn([byte]) -> Result<I, string>
-}
-```
-
-How to decode a request body of type `media` into an `I`; an `Err` message is answered 400. Build one with `decoder`
-(a function over the body's bytes) or `text_decoder` (over its text).
-
-### `Encoder`
-
-```
-pub struct Encoder<O> {
-    media: mime.MediaType
-    encode: fn(O) -> [byte]
-}
-```
-
-How to encode an answer `O` as `media`. Build one with `encoder` (to bytes) or `text_encoder` (to text).
-
-An endpoint may list several, and **which one answers is the client's choice, not the order here**: each
-one's media type gets the request's `Accept` weight (`http.quality`) and the heaviest wins, so an endpoint
-offering `text/plain` and `text/csv` answers `Accept: text/csv, text/plain;q=0.5` with CSV. This order
-breaks a tie, which makes it the server's preference among types the client likes equally. A type the
-client gave `q=0` is refused rather than used as a last resort, and an endpoint whose every encoder is
-refused answers 406.
-
-### `decoder`
-
-```
-pub fn decoder<I>(media: mime.MediaType, decode: fn([byte]) -> Result<I, string>) -> Decoder<I>
-```
-
-A decoder for bodies of `media`, from the body's bytes.
-
-### `text_decoder`
-
-```
-pub fn text_decoder<I>(media: mime.MediaType, decode: fn(string) -> Result<I, string>) -> Decoder<I>
-```
-
-A decoder for bodies of `media` that are text: the body is turned into a string first (an `Err`, so a 400, when it
-holds a NUL byte) and `decode` reads that.
-
-### `encoder`
-
-```
-pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O>
-```
-
-An encoder for answers of `media`, to bytes.
-
-### `json_decoder`
-
-```
-pub fn json_decoder<I>(from_json: fn(Json) -> Result<I, string>) -> Decoder<I>
-```
-
-`#[derive(Json)]` already gives a type its `<snake_type>_to_json` and `<snake_type>_from_json`;
-these three turn one of those into the `Decoder`/`Encoder` an endpoint wants, so a typed JSON
-endpoint is one call per direction instead of a closure spelled out at every route.
-
-Promoted out of the reference backend rather than invented here: it had written `json_encoder`,
-`list_encoder` and `json_decoder` itself, and its own comment records why -- "every endpoint
-below used to spell these out, **105 times** between them", with the list form running to seven
-lines each, "which is 105 places for the media type or the JSON writing to drift apart". Any
-second JSON service would have written the same three functions, which is what makes them the
-library's job (docs/roadmap/'s content-types entry, tasks.md F43).
-
-`media` is `application/json` and not an argument: an endpoint that answers some other media type
-wants `encoder`/`decoder` directly, and offering a media parameter here would only let these two
-disagree about what they are for.
-
-### `json_encoder`
-
-```
-pub fn json_encoder<O>(to_json: fn(O) -> Json) -> Encoder<O>
-```
-
-### `json_list_encoder`
-
-```
-pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]>
-```
-
-The list counterpart, which is the one worth having: written out it is a `map` into a
-`JArray` at every route that answers a collection.
-
-### `text_encoder`
-
-```
-pub fn text_encoder<O>(media: mime.MediaType, encode: fn(O) -> string) -> Encoder<O>
-```
-
-An encoder for answers of `media` that are text: `encode` writes a string and the encoder turns it into bytes.
-
 ### `Denied`
 
 ```
@@ -680,7 +599,7 @@ itself rejects (400, 404, 405, 406, 415), so an application's error bodies have 
 ```
 pub fn secure_handler<C, U, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
-    encoders: [Encoder<O>],
+    encoders: [codec.Encoder<O>],
     status: Option<int>,
     run: fn(C, U) -> Result<O, E>,
     api: Api<E>
@@ -696,7 +615,7 @@ first of `encoders` the client's `Accept` allows, with `status`.
 pub fn secure_path_handler<C, U, P, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     path: fn(Params) -> Result<P, string>,
-    encoders: [Encoder<O>],
+    encoders: [codec.Encoder<O>],
     status: Option<int>,
     run: fn(C, U, P) -> Result<O, E>,
     api: Api<E>
@@ -712,7 +631,7 @@ answered 400, so a bad id never reaches `run`), and `run(ctx, caller, input)` re
 pub fn secure_query_handler<C, U, Q, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     query: fn(Request) -> Result<Q, string>,
-    encoders: [Encoder<O>],
+    encoders: [codec.Encoder<O>],
     status: Option<int>,
     run: fn(C, U, Q) -> Result<O, E>,
     api: Api<E>
@@ -728,8 +647,8 @@ which `query_param` is the tool, and turns it into a `Q` (an `Err` message is an
 ```
 pub fn secure_body_handler<C, U, I, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
-    decoders: [Decoder<I>],
-    encoders: [Encoder<O>],
+    decoders: [codec.Decoder<I>],
+    encoders: [codec.Encoder<O>],
     status: Option<int>,
     run: fn(C, U, I) -> Result<O, E>,
     api: Api<E>
@@ -746,8 +665,8 @@ negotiated (else 406), the body is decoded with the decoder for its type (a fail
 pub fn secure_path_body_handler<C, U, P, I, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     path: fn(Params) -> Result<P, string>,
-    decoders: [Decoder<I>],
-    encoders: [Encoder<O>],
+    decoders: [codec.Decoder<I>],
+    encoders: [codec.Encoder<O>],
     status: Option<int>,
     run: fn(C, U, P, I) -> Result<O, E>,
     api: Api<E>
@@ -762,7 +681,7 @@ returns the answer or an error. Either input failing to decode is a 400.
 
 ```
 pub fn public_handler<C, O, E>(
-    encoders: [Encoder<O>],
+    encoders: [codec.Encoder<O>],
     status: Option<int>,
     run: fn(C) -> Result<O, E>,
     api: Api<E>
@@ -776,7 +695,7 @@ A public endpoint with no input: `run(ctx)`. Anyone may call it.
 ```
 pub fn public_path_handler<C, P, O, E>(
     path: fn(Params) -> Result<P, string>,
-    encoders: [Encoder<O>],
+    encoders: [codec.Encoder<O>],
     status: Option<int>,
     run: fn(C, P) -> Result<O, E>,
     api: Api<E>
@@ -789,8 +708,8 @@ A public endpoint whose input is in the path: `run(ctx, input)`.
 
 ```
 pub fn public_body_handler<C, I, O, E>(
-    decoders: [Decoder<I>],
-    encoders: [Encoder<O>],
+    decoders: [codec.Decoder<I>],
+    encoders: [codec.Encoder<O>],
     status: Option<int>,
     run: fn(C, I) -> Result<O, E>,
     api: Api<E>
@@ -804,8 +723,8 @@ A public endpoint with a request body: `run(ctx, input)`.
 ```
 pub fn public_path_body_handler<C, P, I, O, E>(
     path: fn(Params) -> Result<P, string>,
-    decoders: [Decoder<I>],
-    encoders: [Encoder<O>],
+    decoders: [codec.Decoder<I>],
+    encoders: [codec.Encoder<O>],
     status: Option<int>,
     run: fn(C, P, I) -> Result<O, E>,
     api: Api<E>
