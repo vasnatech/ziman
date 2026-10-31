@@ -652,7 +652,7 @@ pub fn format(rows: Json, sep: string) -> Result<string, string> {
         push(flat, cells)
         i = i + 1
     }
-    val names = to_array(snapshot(columns))
+    val names = to_array(columns)
     val out = mutable_string_new()
     write_row(out, names, sep)
     for cells in snapshot(flat) {

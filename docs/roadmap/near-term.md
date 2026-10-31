@@ -801,32 +801,37 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   Nothing in the North Star carries an uninterpreted declaration attribute, so the migration cost
   of (1) is currently zero — which argues for doing it before that stops being true.
 
-- **`--lint` cannot read a library module, so `lib/`'s own findings are invisible.** (Found
-  2026-10-30 while gating the linter.)
+- ~~**`--lint` cannot read a library module, so `lib/`'s own findings are invisible.**~~ **DONE
+  2026-10-30, and this entry was wrong the day it was written.** `tools/lint_lib.py` already did
+  it and `make lint` already ran it: it generates a throwaway entry importing every module and
+  points `ZIMAN_MODULE_PATH` at the sources, so they load from disk with real `source_file` paths.
+  The "shape 2" it proposed -- linting every non-corelib module of whatever program is given --
+  was already the behaviour too, because the lint gate is per function on `source_file`, not per
+  entry. The promised `lib/db/eql.zm` `val d` had been fixed as well. The original text is gone
+  rather than kept: unlike the other corrections made this day, its argument was not the reason
+  for any work, because the thing it asked for already existed.
 
-  `--lint` reports findings in *your own code*, and a bundled library module is not a program.
-  Linting one by path loads it as an **entry**, where its declarations go unqualified:
+  The real work was the gap between findings existing and findings being *gated*, which is now
+  closed: **43 findings -> 0**, and `lint-lib-check` runs in `check-fast`.
 
-  ```
-  $ ziman --lint lib/core/uuid.zm
-  ziman: type error at 447:65 in lib/core/net.zm: function 'format' expects 1 argument(s), found 2
-  ```
-
-  `lib/core/uuid.zm:166` declares `pub fn format(u: Uuid) -> string`. As an entry module that name
-  is bare, so it shadows the **builtin** `format` for every other module in the graph, and
-  `net.zm`'s perfectly good `format("line longer than {} bytes", max)` is reported against a
-  one-argument function. `ziman --check` on the same path says the same thing plus *"no 'main'
-  function found"*, so this is not a `--lint` fault -- it is what loading a library module as a
-  program means.
-
-  **What it costs: the library is unlinted.** `make lint-check` gates the 67 worked examples and
-  `showcase.zm`, which are real programs, and that found five real things on its first run. But
-  `--lint` over `lib/` would need a mode that treats a module as "own code" **without** making it
-  an entry -- and there is at least one real finding waiting there, `lib/db/eql.zm`'s `val d` that
-  is never read, visible only in the broken mode.
-
-  Two shapes to choose between: a flag that lints a named module within a program's graph
-  (`ziman --lint-module eql prog.zm`), or linting every non-corelib module of whatever program is
-  given, which costs nothing new at the command line and would lint the North Star's own 150 files
-  as a side effect of checking it. The second is probably right and is a change to what `--lint`
-  means, which is why this is an entry rather than a commit.
+  * **Two populations had never been linted at all.** `lib/graphics` was missing from the tool's
+    module list (12 modules), and the prelude cannot be imported, so no generated entry reaches
+    it -- `--lint-bundled` is new for that, reporting against each part's `origin_file`. It found
+    three discards that should have been the bare `_`.
+  * **One of the 43 was the lint's own bug.** A binding used only as the receiver of a *called*
+    field was reported as never read, because that call path synthesises its own base reference
+    and never hands it to `check_expr`, where a read is marked. `--lint` was telling people to
+    delete bindings their program calls through -- four in `lib/db/datasource.zm`, whose
+    neighbouring `c.dialect` was correctly silent, which is what made it look like a rule about
+    enum binders. Pinned by `tests/lang/lint_called_field_is_a_read`.
+  * **29 were real and mechanical**: unused enum payloads now `_`, two `var`s that never change,
+    a `snapshot` before a `to_array` that reads the set directly, one dead `val`.
+  * **Two were real quadratics, fixed.** `expr.zm`'s string lexer built its literal with `concat`
+    in a loop over the caller's input; `memdb.zm`'s foreign-key update copied the whole child
+    table once per affected row, and now collects the rewritten rows by index and applies them in
+    one pass -- `tests/lang/memdb_foreign_keys` cross-checks that path against real SQLite and its
+    output is byte-identical.
+  * **7 are marked `// lint-ok: <reason>`**, the shape `/* xalloc-ok: */` already uses in the C,
+    with the reason required and a bare marker refused. Each is bounded by something that is not
+    input: a datetime format pattern, a foreign key's column count, the SET clauses of one
+    UPDATE, the `@template`s in one sheet, a configured header limit.

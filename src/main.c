@@ -63,6 +63,9 @@ static void usage(FILE *out) {
           "                   (with --check, print {\"ok\":true} on success)\n"
           "  --lint           report style findings (a `var` never reassigned) in your own\n"
           "                   code instead of running it; exit 1 if there are any\n"
+          "  --lint-bundled   as --lint, and lint the bundled library modules too. Point it at\n"
+          "                   a program that imports them: pointing --lint at lib/x.zm loads\n"
+          "                   that module as an entry, where its names go unqualified\n"
           "  --coverage       run, then report which lines of your own code did not\n"
           "                   execute; exit 1 if any did not\n"
           "  --coverage-lcov=F  also write the coverage to F in lcov's .info format (for\n"
@@ -755,7 +758,7 @@ int main(int argc, char **argv) {
         }
         break;
     }
-    int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, fmt_canonical = 0, lsp = 0, coverage = 0, profile = 0, locals = 0;
+    int check_only = 0, json = 0, lint = 0, lint_bundled = 0, fmt = 0, fmt_write = 0, fmt_width = 120, fmt_canonical = 0, lsp = 0, coverage = 0, profile = 0, locals = 0;
     const char *coverage_lcov = NULL;
     long stack_main_mb = 0, stack_thread_mb = 0, stack_threads = 0;
     const char *file = NULL;
@@ -770,6 +773,7 @@ int main(int argc, char **argv) {
         if (strcmp(a, "--check") == 0) check_only = 1;
         else if (strcmp(a, "--json") == 0) json = 1;
         else if (strcmp(a, "--lint") == 0) lint = 1;
+        else if (strcmp(a, "--lint-bundled") == 0) { lint = 1; lint_bundled = 1; }
         else if (strcmp(a, "--coverage") == 0) coverage = 1;
         /* Implies --coverage: asking for the file is asking for the measurement. */
         else if (strncmp(a, "--coverage-lcov=", 16) == 0) {
@@ -819,6 +823,7 @@ int main(int argc, char **argv) {
     }
     ziman_set_json_errors(json);
     ziman_stack_configure(stack_main_mb, stack_thread_mb, stack_threads);
+    if (lint_bundled) typecheck_enable_lint_bundled();
     RunOptions options = {file, json, lint, check_only, coverage, profile, locals, coverage_lcov};
     ziman_run_on_big_stack(run_program, &options);
     return 0;

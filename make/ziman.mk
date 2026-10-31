@@ -165,15 +165,20 @@ benchmark-check: $(BIN)
 # waits for ever", which is A47 word for word, and it could not see the two `spawn serve` calls
 # that had it.
 #
-# NOT in `check` yet, deliberately. Three findings remain and all three are quadratic-accumulation
-# warnings on loops that are bounded in practice: `time.zm:280` accumulates the few literal
-# characters between two tokens of a format pattern and says so in a comment that predates this
-# target, and `yaml.zm:698`/`:709` have predicates (`flow_depth`, `quote_open`) that rescan the
-# accumulation every round, so a builder would snapshot per round and cost the same -- making
-# those linear needs the depth and quote state tracked incrementally. Gating needs either those
-# three resolved or a way to record "bounded, and here is why" in the source, the way
-# `xalloc-ok:` does for check_xalloc.py.
-lint: $(BIN)
+# **Gated since 2026-10-30**, which is what the note that stood here asked for: "either those
+# three resolved or a way to record 'bounded, and here is why' in the source, the way `xalloc-ok:`
+# does for check_xalloc.py". Both, in the end -- `// lint-ok: <reason>` exists (the reason is
+# required, a bare marker is refused) and the findings went 43 -> 0, of which 7 are marked bounded
+# and the rest were fixed. The three the old note named had already gone by then, which is its own
+# small lesson about a comment listing specific line numbers.
+#
+# Two gaps it had on top of the findings: `lib/graphics` was missing from the module list, so its
+# 12 modules had never been linted at all, and the prelude is not importable so no generated entry
+# could reach it -- `--lint-bundled` is what lints it, and it found three discards that should have
+# been the bare `_`. One of the 43 was the lint's own bug: a binding used only as the receiver of a
+# called field (`c.close()`) was reported as never read, so `--lint` was telling people to delete
+# bindings their program calls through.
+lint lint-lib-check: $(BIN)
 	@python3 tools/lint_lib.py
 
 # A line-coverage figure for lib/, merged across the whole fixture suite. Not in `check`: it runs

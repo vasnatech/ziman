@@ -443,7 +443,7 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
             push(parts, DateTimePart.Nano)
             i = i + 9
         } else {
-            literal_buf = concat(literal_buf, char_at(pattern, i))
+            literal_buf = concat(literal_buf, char_at(pattern, i))  // lint-ok: bounded by the format pattern, which the programmer writes ("yyyy-MM-dd"), not by any input
             i = i + 1
         }
     }

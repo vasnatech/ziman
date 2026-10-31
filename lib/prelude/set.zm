@@ -184,7 +184,7 @@ pub native fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
 pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool) {
     for item in s {
         if !keep(item) {
-            val _dropped = remove(s, item)
+            val _ = remove(s, item)
         }
     }
 }

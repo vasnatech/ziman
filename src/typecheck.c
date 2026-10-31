@@ -550,6 +550,21 @@ static const char *g_lint_file = NULL;
 
 void typecheck_enable_lint(void) { g_lint_on = 1; }
 
+/* **`--lint-bundled`, and why a flag rather than a path.** `--lint lib/core/uuid.zm` loads that
+ * module as an *entry*, where its declarations go unqualified -- so `pub fn format(u: Uuid)`
+ * shadows the builtin `format` for the whole graph and `lib/core/net.zm`'s perfectly good
+ * `format("...{}", max)` is reported as taking one argument. That is not a lint fault; it is what
+ * loading a library module as a program means, and `--check` on the same path says the same thing.
+ * So the library is linted the only way that is sound: as a *library*, inside a program that
+ * imports it, with this flag saying "the bundled modules count as code I own".
+ *
+ * `g_user_code` is deliberately NOT widened. It gates `#[deprecated]`, whose whole point is to
+ * stay quiet within the module that owns the deprecated thing -- widening it would make every
+ * internal corelib call to a superseded sibling warn. Only the style lints move. */
+static int g_lint_bundled = 0;
+void typecheck_enable_lint_bundled(void) { g_lint_on = 1; g_lint_bundled = 1; }
+int typecheck_lint_bundled_enabled(void) { return g_lint_bundled; }
+
 /* Whether two declarations come from the same place, for the purpose of "is this use
  * cross-module". A bundled core module and the prelude carry a NULL `source_file` (ast.h), so a
  * user file calling into one compares non-NULL against NULL and is correctly treated as crossing. */
@@ -3939,6 +3954,17 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         base_ref->resolved_type = base->type;
         base_ref->resolved_depth = depth;
         base_ref->resolved_slot = slot;
+        /* **Calling a field of a binding reads the binding**, and this path has to say so itself:
+         * the `base_ref` above is synthesised with its type and slot filled in directly and is
+         * never handed to `check_expr`, so the one place that marks a read -- EXPR_IDENT -- never
+         * sees it. The sibling case a few lines down (a call through a function-valued local by
+         * bare name) already carries the same line for the same reason. Without it `--lint` told
+         * you to delete a binding your program calls through: `Direct(c) { c.close() }` in
+         * lib/db/datasource.zm was four such findings, and a plain `c.dialect` on the line above
+         * was correctly silent, which is what made it look like a rule about enum binders. */
+        if (base->lint_id > 0 && base->lint_id - 1 < g_lint_var_count) {
+            g_lint_vars[base->lint_id - 1].used = 1;
+        }
         e->as.call.callee_expr = access;
         return *ft.elem;
     }
@@ -7259,8 +7285,14 @@ static void check_function(Module *module, FunctionDecl *fn) {
     if (fn_has_body(fn)) {
         int lint_first_var = g_lint_var_count;
         g_user_code = fn->source_file != NULL && fn->derived_from == NULL;
-        g_lint_active = g_lint_on && g_user_code;
-        g_lint_file = fn->source_file;
+        /* A bundled declaration keeps `source_file` NULL on purpose (ast.h), so `origin_file` --
+         * which exists for diagnostics and has the source registered under it, so the excerpt and
+         * caret come back too -- is what names the file under `--lint-bundled`. A derived function
+         * is still never linted: nobody can act on a finding in code they did not write. */
+        int bundled_lintable = g_lint_bundled && fn->derived_from == NULL
+                               && fn->source_file == NULL && fn->origin_file != NULL;
+        g_lint_active = g_lint_on && (g_user_code || bundled_lintable);
+        g_lint_file = fn->source_file != NULL ? fn->source_file : fn->origin_file;
         int errors_before_body = ziman_error_count();
         for (int i = 0; i < fn->body->as.block.stmts.count; i++) {
             check_stmt_recovering(module, env, fn->body->as.block.stmts.items[i], fn->return_type, 0);

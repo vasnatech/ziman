@@ -582,7 +582,7 @@ pub fn label_of(t: Target) -> string {
 pub fn fields_of(t: Target) -> [Field] {
     switch t.entity.body {
         Struct(fields) { return fields }
-        Enum(ignored) { return [] }
+        Enum(_) { return [] }
     }
 }
 

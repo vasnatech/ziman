@@ -384,9 +384,7 @@ fn parse_block(lines: [string], start: int) -> Result<Section, string> {
 fn collect_refs(nodes: [Node], into: MutableArray<string>, bound: [string]) {
     for n in nodes {
         switch n {
-            Literal(s) {
-                val ignored = s
-            }
+            Literal(_) {}
             Hole(h) { add_names(h.e, into, bound) }
             Yield(b) { add_names(b.e, into, bound) }
             Repeat(l) {
@@ -439,7 +437,7 @@ pub fn parse(source: string) -> Result<Sheet, string> {
         if len(name) == 0 {
             return err(problem(i + 1, "'@template' needs a name"))
         }
-        for already in snapshot(out) {
+        for already in snapshot(out) {  // lint-ok: bounded by the @template declarations in one sheet, and it is the duplicate-name check over them
             if already.name == name {
                 return err(problem(i + 1, concat("this sheet already has a template called '", name, "'")))
             }
@@ -483,11 +481,11 @@ fn names_of(ctx: Json) -> string {
 // A kind with its article, because every message that uses it reads "is bound to <kind>".
 fn kind_of(v: Json) -> string {
     switch v {
-        JString(ignored) { return "a string" }
-        JNumber(ignored) { return "a number" }
-        JBool(ignored) { return "a bool" }
-        JArray(ignored) { return "an array" }
-        JObject(ignored) { return "an object" }
+        JString(_) { return "a string" }
+        JNumber(_) { return "a number" }
+        JBool(_) { return "a bool" }
+        JArray(_) { return "an array" }
+        JObject(_) { return "an object" }
         JNull { return "null" }
     }
 }
@@ -594,7 +592,7 @@ fn emit(nodes: [Node], ctx: Json, out: MutableArray<string>) -> Result<unit, str
                 // **The binder shadowing a bound name is refused**, which keeps templates.md §5's
                 // "shadowing is impossible by construction" now that a binder is an ordinary
                 // context key rather than a separate frame.
-                if Some(ignored) = json.get(ctx, l.binder) {
+                if Some(_) = json.get(ctx, l.binder) {
                     return err(prelude.format(
                         "'@for {} in {}' would shadow the bound '{}'",
                         l.binder,

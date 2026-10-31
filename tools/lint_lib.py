@@ -11,15 +11,49 @@ bundled into the binary, whose declarations carry a NULL `source_file` -- the ve
 uses to tell a user's code from the standard library -- and every finding in lib/ is discarded
 before it is printed (docs/reviews/tasks/ F133).
 
-Exits 1 if any finding is reported, 0 otherwise.
+**The prelude needs the other route.** `lib/prelude/*.zm` is merged bare into every program and
+cannot be `use`d, so no generated entry reaches it; `--lint-bundled` is what lints it, reporting
+against each part's `origin_file`. Two passes, therefore, and the counts are added.
+
+**`// lint-ok: <reason>`** on the line a finding points at drops it, the same shape and for the same
+purpose as `/* xalloc-ok: ... */` in the C (tools/check_xalloc.py): some accumulations really are
+bounded, and the alternative to recording that in the source is leaving this ungated for ever. The
+reason is required -- a bare marker is refused -- because the reason is the whole value of it.
+
+Exits 1 if any finding survives, 0 otherwise.
 """
 import os
+import re
 import subprocess
 import sys
 import tempfile
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-DIRS = ["lib/core", "lib/db", "lib/http", "lib/time"]
+# Every package under lib/ except prelude, which is not importable and goes through the second
+# pass below. `lib/graphics` was missing until 2026-10-30, so its 12 modules had never been linted.
+DIRS = ["lib/core", "lib/db", "lib/graphics", "lib/http", "lib/time"]
+FINDING = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+): warning: (?P<msg>.*)$")
+
+
+def suppressed(finding):
+    """True when the line a finding points at carries `// lint-ok: <reason>`."""
+    m = FINDING.match(finding)
+    if m is None:
+        return False
+    try:
+        with open(m.group("file")) as f:
+            line = f.read().splitlines()[int(m.group("line")) - 1]
+    except (OSError, IndexError):
+        return False
+    marker = "// lint-ok:"
+    at = line.find(marker)
+    if at < 0:
+        return False
+    if not line[at + len(marker):].strip():
+        print("lint_lib.py: %s:%s has a bare `// lint-ok:` -- give the reason, it is the point of "
+              "the marker" % (m.group("file"), m.group("line")), file=sys.stderr)
+        return False
+    return True
 
 
 def main():
@@ -39,13 +73,28 @@ def main():
         env = dict(os.environ, ZIMAN_MODULE_PATH=":".join(os.path.join(ROOT, d) for d in DIRS))
         done = subprocess.run([os.path.join(ROOT, "ziman"), "--lint", path],
                               env=env, capture_output=True, text=True)
-    out = (done.stdout + done.stderr).strip()
-    if out:
-        print(out)
-        print("lint_lib.py: %d finding(s) across %d modules" % (len(out.splitlines()), len(modules)),
-              file=sys.stderr)
+    findings = [l for l in (done.stdout + done.stderr).strip().splitlines() if l]
+
+    # The prelude, which the generated entry cannot import. Any program will do as the carrier:
+    # the prelude is merged into all of them, so this one is the smallest possible.
+    with tempfile.TemporaryDirectory() as tmp:
+        carrier = os.path.join(tmp, "carrier.zm")
+        with open(carrier, "w") as f:
+            f.write('fn main() {\n    print("lint")\n}\n')
+        prelude = subprocess.run([os.path.join(ROOT, "ziman"), "--lint-bundled", carrier],
+                                 capture_output=True, text=True)
+    findings += [l for l in (prelude.stdout + prelude.stderr).strip().splitlines() if l]
+
+    kept = [f for f in findings if not suppressed(f)]
+    n_parts = len([f for f in os.listdir(os.path.join(ROOT, "lib", "prelude")) if f.endswith(".zm")])
+    scanned = len(modules) + n_parts
+    if kept:
+        print("\n".join(kept))
+        print("lint_lib.py: %d finding(s) across %d modules and prelude parts (%d suppressed)"
+              % (len(kept), scanned, len(findings) - len(kept)), file=sys.stderr)
         sys.exit(1)
-    print("lint_lib.py: no findings across %d library modules" % len(modules))
+    print("lint_lib.py: no findings across %d library modules and prelude parts (%d suppressed)"
+          % (scanned, len(findings) - len(kept)))
 
 
 if __name__ == "__main__":

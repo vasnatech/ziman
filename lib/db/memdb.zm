@@ -1900,9 +1900,13 @@ fn one_cascade(
         // The remaining actions rewrite the child's key in place: `CASCADE` on an update to the
         // parent's new values, `SET NULL` to NULL, `SET DEFAULT` to each column's default.
         val names = column_names(child)
-        var rows = child.rows
+        // The rewritten rows are collected by index and applied in one pass below. `rows =
+        // set(rows, i, row)` per affected row copied the whole table each time, so an update that
+        // moved a key referenced by many rows was quadratic in them -- and `pointing` is data, not
+        // schema, unlike the `fk.columns` loop just inside this one.
+        val updated = mutable_map_new<int, [SqlValue]>()
         for i in pointing {
-            var row = rows[i]
+            var row = child.rows[i]
             for k in 0..prelude.len(fk.columns) {
                 val at = column_index(names, fk.columns[k])
                 if at < 0 {
@@ -1914,11 +1918,11 @@ fn one_cascade(
                 }
                 if action == "CASCADE" {
                     val new_key = key_values(column_names(parent_table), replacements[which], parent_cols)
-                    row = set(row, at, if prelude.len(new_key) > k { new_key[k] } else { SqlValue.Null })
+                    row = set(row, at, if prelude.len(new_key) > k { new_key[k] } else { SqlValue.Null })  // lint-ok: bounded by the foreign key's own column count, which is schema
                 } else if action == "SET NULL" {
-                    row = set(row, at, SqlValue.Null)
+                    row = set(row, at, SqlValue.Null)  // lint-ok: bounded by the foreign key's own column count, which is schema
                 } else if action == "SET DEFAULT" {
-                    row = set(row, at, switch child.columns[at].default_value {
+                    row = set(row, at, switch child.columns[at].default_value {  // lint-ok: bounded by the foreign key's own column count, which is schema
                         Some(v) { v }
                         None { SqlValue.Null }
                     })
@@ -1926,8 +1930,13 @@ fn one_cascade(
                     return err(problem(concat("unsupported foreign key action: ", action)))
                 }
             }
-            rows = set(rows, i, row)
+            set(updated, i, row)
         }
+        val rebuilt = mutable_array_new<[SqlValue]>()
+        for j in 0..prelude.len(child.rows) {
+            push(rebuilt, get_or(updated, j, child.rows[j]))
+        }
+        val rows = snapshot(rebuilt)
         val changed = rows_changed(child, rows, pointing)
         current = with_table(current, changed)
         try enforce(current, changed, pointing, params, strict)
@@ -2797,7 +2806,7 @@ fn run_update(database: Database, stmt: UpdateStmt, params: [SqlValue], strict: 
             }
             // Every assignment of one statement reads the row as it was before the statement,
             // which is what `SET a = b, b = a` means in SQL.
-            row = set(row, at, try eval_expr(assignment.value, row_ctx(database, shape, t.rows[i], params, strict)))
+            row = set(row, at, try eval_expr(assignment.value, row_ctx(database, shape, t.rows[i], params, strict)))  // lint-ok: bounded by the SET clauses of one UPDATE, which is the statement as written
         }
         push(rows, row)
         push(written, row)
@@ -3737,7 +3746,6 @@ fn build_source(
     outer: [Ctx]
 ) -> Result<Source, DbError> {
     if prelude.len(stmt.from) == 0 {
-        val none: [string] = []
         // One row of no columns, which is what makes `SELECT 1` answer a single 1.
         val no_values: [SqlValue] = []
         return ok(Source { names: no_names, rows: [no_values] })

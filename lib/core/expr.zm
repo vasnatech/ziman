@@ -116,7 +116,9 @@ fn lex(source: string) -> Result<[Token], string> {
         if c == "'" || c == "\"" {
             val quote = c
             val start = i
-            var text = ""
+            // A builder, not `text = concat(text, ..)`: the length of a string literal is the
+            // caller's input, so rebuilding it a character at a time is quadratic in it.
+            val text = mutable_string_new()
             i = i + 1
             var closed = false
             while i < n {
@@ -126,17 +128,17 @@ fn lex(source: string) -> Result<[Token], string> {
                     break
                 }
                 if cs[i] == "\\" && i + 1 < n {
-                    text = concat(text, unescape(cs[i + 1]))
+                    append(text, unescape(cs[i + 1]))
                     i = i + 2
                     continue
                 }
-                text = concat(text, cs[i])
+                append(text, cs[i])
                 i = i + 1
             }
             if !closed {
                 return err(problem(start, concat("this ", quote, " string is never closed")))
             }
-            push(out, Token { kind: "string", text: text, at: start })
+            push(out, Token { kind: "string", text: snapshot(text), at: start })
             continue
         }
         if is_digit(c) {
@@ -315,7 +317,7 @@ fn parse_compare(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
     } else {
         val t = peek(ts, at)
         if t.kind == "name" && t.text == "in" {
-            val ignored = advance(ts, at)
+            val _ = advance(ts, at)
             op = "in"
         }
     }
@@ -542,7 +544,7 @@ pub fn names(e: Expr) -> [string] {
 
 fn collect_names(e: Expr, out: MutableArray<string>) {
     switch e {
-        Lit(ignored) {}
+        Lit(_) {}
         Root(name) {
             if !contains(out, name) {
                 push(out, name)
@@ -583,11 +585,11 @@ fn truth(v: Json) -> Result<bool, string> {
 pub fn kind_of(v: Json) -> string {
     switch v {
         JNull { return "null" }
-        JBool(ignored) { return "a boolean" }
-        JNumber(ignored) { return "a number" }
-        JString(ignored) { return "a string" }
-        JArray(ignored) { return "an array" }
-        JObject(ignored) { return "an object" }
+        JBool(_) { return "a boolean" }
+        JNumber(_) { return "a number" }
+        JString(_) { return "a string" }
+        JArray(_) { return "an array" }
+        JObject(_) { return "an object" }
     }
 }
 
@@ -632,7 +634,7 @@ fn index(target: Json, key: Json) -> Result<Json, string> {
         }
         return ok(items[i])
     }
-    if JObject(fields) = target {
+    if JObject(_) = target {
         if JString(k) = key {
             return member(target, k, false, k)
         }
@@ -662,10 +664,10 @@ fn number_of(v: Json) -> Option<float> {
 
 fn is_whole_number(v: Json) -> bool {
     if JNumber(n) = v {
-        if Int(ignored) = n {
+        if Int(_) = n {
             return true
         }
-        if Bigint(ignored) = n {
+        if Bigint(_) = n {
             return true
         }
     }
@@ -714,10 +716,10 @@ fn binary(op: string, l: Json, r: Json) -> Result<Json, string> {
     // `+` concatenates when either side is a string. The one overload, and it earns its place
     // in a language whose other job is building text.
     if op == "+" {
-        if JString(ignored) = l {
+        if JString(_) = l {
             return ok(Json.JString(concat(try text(l), try text(r))))
         }
-        if JString(ignored) = r {
+        if JString(_) = r {
             return ok(Json.JString(concat(try text(l), try text(r))))
         }
     }
@@ -796,10 +798,10 @@ fn same(l: Json, r: Json) -> bool {
     }
     // Arrays and objects compare by their rendered form, which is structural equality for a
     // tree whose leaves are all scalars -- the only values this language can build.
-    if JArray(ignored) = l {
+    if JArray(_) = l {
         return json.format(l) == json.format(r)
     }
-    if JObject(ignored) = l {
+    if JObject(_) = l {
         return json.format(l) == json.format(r)
     }
     return false
@@ -838,8 +840,8 @@ fn text(v: Json) -> Result<string, string> {
                 Decimal(d) { return ok(str(d)) }
             }
         }
-        JArray(ignored) { return err("an array has no text form -- index it, or test it with 'in'") }
-        JObject(ignored) { return err("an object has no text form -- read a key off it") }
+        JArray(_) { return err("an array has no text form -- index it, or test it with 'in'") }
+        JObject(_) { return err("an object has no text form -- read a key off it") }
     }
 }
 

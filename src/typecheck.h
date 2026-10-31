@@ -26,6 +26,11 @@ void typecheck_skip_main_check(int skip);
 /* `--lint`: after this, typecheck() also reports style findings in the user's
  * own (non-bundled, non-derived) code through ziman_warning(), and counts them. */
 void typecheck_enable_lint(void);
+/* `--lint-bundled`: run the style lints over bundled modules too, which `--lint` alone cannot
+ * reach. See typecheck.c's own comment for why this is not the same as calling a library module an
+ * entry, which is what pointing `--lint` at `lib/core/uuid.zm` does. */
+void typecheck_enable_lint_bundled(void);
+int typecheck_lint_bundled_enabled(void);
 int typecheck_lint_count(void);
 int typecheck_lint_enabled(void);
 void typecheck_lint_note(void);

@@ -1434,7 +1434,7 @@ pub fn delete_all(conn: datasource.Connection, e: Entity) -> Result<int, DbError
 // Whether a translated query is the one kind that changes the database. `switch` over `Statement`
 // would be thirteen arms to answer one question.
 fn removes_rows(statement: Statement) -> bool {
-    if Delete(d) = statement {
+    if Delete(_) = statement {
         return true
     }
     return false

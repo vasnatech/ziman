@@ -329,7 +329,7 @@ pub native fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> M
 pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool) {
     for k, v in m {
         if !keep(k, v) {
-            val _dropped = remove(m, k)
+            val _ = remove(m, k)
         }
     }
 }
@@ -392,7 +392,7 @@ pub native fn keys_set<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
 pub fn keys_set<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K> {
     val out = mutable_set_new<K>()
     for k in m {
-        val _added = add<K>(out, k)
+        val _ = add<K>(out, k)
     }
     return snapshot(out)
 }

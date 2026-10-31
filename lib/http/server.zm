@@ -388,7 +388,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         } else {
             started = clock.monotonic_millis()
         }
-        buf = concat(buf, chunk)
+        buf = concat(buf, chunk)  // lint-ok: bounded by max_header_bytes, which the loop below enforces
         head_end = find_head_end(buf)
     }
     if head_end > max_header_bytes {
@@ -2499,8 +2499,8 @@ fn serve_burst(
     on_request: Option<fn(RequestLog)>,
     meter: bool
 ) -> Served {
-    var conn = start
-    var sock = conn.session.sock
+    val conn = start
+    val sock = conn.session.sock
     var session = conn.session
     var open = true
     while open {

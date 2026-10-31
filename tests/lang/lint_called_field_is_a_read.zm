@@ -1,0 +1,24 @@
+// `--lint`'s unread-binding rule and a binding used only as the receiver of a *called* field.
+// `handle.close()` reads `handle`, but the call path for a field of function type synthesises its
+// own base reference with the type and slot filled in directly and never hands it to `check_expr`
+// -- so EXPR_IDENT, the one place a read is marked, never saw it. `lib/db/datasource.zm`'s four
+// `Direct(c) { c.close() }` arms were reported as never read, while the `c.dialect` on the line
+// above was correctly silent, which is what made it look like a rule about enum binders.
+struct Handle {
+    label: string
+    close: fn()
+}
+
+fn make(label: string) -> Handle {
+    return Handle { label: label, close: fn() { print(concat("closed ", label)) } }
+}
+
+fn main() {
+    // A field read, which was always seen.
+    val read_field = make("one")
+    print(read_field.label)
+
+    // A field called, which was not.
+    val called_field = make("two")
+    called_field.close()
+}
