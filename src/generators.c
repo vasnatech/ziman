@@ -124,11 +124,20 @@ static Module *user_generator_program(const char *path) {
 static char *root_of(const char *source_file, const char *path) {
     size_t flen = strlen(source_file);
     size_t plen = strlen(path);
-    if (flen < plen + 4) return NULL;
+    /* **`plen + 3`, not `plen + 4`** (2026-10-31). The extra character demanded a non-empty root,
+     * which is exactly the case a *relative* entry produces: `ziman --check main.zm` run in the
+     * project's own directory gives the generator `source_file` "derive/routes.zm" for the path
+     * "derive/routes", so the root is the empty string and this refused -- and the refusal is
+     * silent, because `ziman_module_attr_specs` skips a generator it cannot load. The symptom was
+     * `#[route(..)]` reported as an attribute no generator declares, from the normal way of running
+     * the compiler, while the same files worked when the entry was named absolutely. */
+    if (flen < plen + 3) return NULL;
     const char *tail = source_file + flen - (plen + 3);
     if (strncmp(tail, path, plen) != 0 || strcmp(tail + plen, ".zm") != 0) return NULL;
     size_t rlen = (size_t)(tail - source_file);
     while (rlen > 1 && source_file[rlen - 1] == '/') rlen--;
+    /* The generator sits beside the entry, so the root is where the compiler was run. */
+    if (rlen == 0) return ziman_xstrdup(".");
     char *root = ziman_xmalloc(rlen + 1);
     memcpy(root, source_file, rlen);
     root[rlen] = '\0';
@@ -887,10 +896,11 @@ static Value reify_module_target(const ZimanModuleTarget *mt, int line, int col)
     for (int i = 0; i < mt->defined_count; i++) {
         defined[i] = value_string(ziman_xstrdup(mt->defined[i]));
     }
-    Value all[3] = {array_of(args, mt->arg_count),
+    Value all[4] = {value_string(ziman_xstrdup(mt->name != NULL ? mt->name : "")),
+                    array_of(args, mt->arg_count),
                     array_of(fns, mt->function_count),
                     array_of(defined, mt->defined_count)};
-    Value v = call_meta("module_target", all, 3, line, col);
+    Value v = call_meta("module_target", all, 4, line, col);
     native_gc_unsafe_leave();
     return v;
 }

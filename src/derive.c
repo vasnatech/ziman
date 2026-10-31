@@ -854,6 +854,20 @@ void generate_project_module(Module *module) {
     }
 
     ZimanModuleTarget mt;
+    /* The basename without `.zm`, which is the name a `use` of this module binds -- the same
+     * derivation `module_name_of` makes in the loader. NULL for a module with no file of its own,
+     * which cannot carry this attribute anyway. */
+    mt.name = "";
+    if (module->source_file != NULL) {
+        const char *slash = strrchr(module->source_file, '/');
+        const char *base = slash != NULL ? slash + 1 : module->source_file;
+        size_t blen = strlen(base);
+        if (blen > 3 && strcmp(base + blen - 3, ".zm") == 0) blen -= 3;
+        char *own = ziman_xmalloc(blen + 1);
+        memcpy(own, base, blen);
+        own[blen] = '\0';
+        mt.name = own;
+    }
     mt.args = module->module_derive_args != NULL ? module->module_derive_args->args : NULL;
     mt.arg_count = module->module_derive_args != NULL ? module->module_derive_args->arg_count : 0;
     mt.functions = fns;

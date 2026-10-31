@@ -60,6 +60,7 @@ char *ziman_generate_module_in_ziman(const ZimanTarget *t, int line, int col);
  * Unlike `ZimanTarget` this is not entity-shaped, which is the whole point (user-generators.md
  * §5c): a generator over routes, or a client over an interface, has no entity. */
 typedef struct {
+    const char *name;             /* the module's own name, no folder and no `.zm` */
     const FieldAttrArg *args;     /* `#![derive(X(a: 1))]`'s arguments; NULL when written bare */
     int arg_count;
     FunctionDecl **functions;

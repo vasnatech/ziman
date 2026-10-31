@@ -688,6 +688,12 @@ absent -- the counterpart of `attr_arg_of` for a field.
 
 ```
 pub struct ModuleTarget {
+    // The module's own name, without its folder or `.zm` -- `shared_link` for
+    // `controller/shared_link.zm`. **A generator needs it to name what it exports**: a qualified
+    // read of another module's val is refused, so thirty modules each exporting a bare `routes`
+    // would collide in one import list. Found by writing a generator that had to ask for it as an
+    // attribute argument instead.
+    name: string
     // `#![derive(Routes(prefix: "/api"))]`'s arguments, as a declaration target's are.
     args: [AttrArg]
     // The module's functions, each with its own `attrs` -- which is where a `#[route(..)]` is read.
@@ -710,7 +716,7 @@ names it already defines.
 ### `module_target`
 
 ```
-pub fn module_target(args: [AttrArg], functions: [Function], defined: [string]) -> ModuleTarget
+pub fn module_target(name: string, args: [AttrArg], functions: [Function], defined: [string]) -> ModuleTarget
 ```
 
 ### `module_arg`
