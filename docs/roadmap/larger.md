@@ -150,7 +150,14 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   ordering question.
 
 
-- **`meta`, redesigned.** Designed in [docs/design/meta.md](../design/meta.md), not built. The
+- ~~**`meta`, redesigned.**~~ **DONE 2026-10-29.** Designed in
+  [docs/design/meta.md](../design/meta.md), which is **built**: all five steps of its §11 shipped
+  (F225-F229) -- `Reflect` and its fixture, `Type` and `Decl` as enums, `Field.attrs`,
+  `derive(Entity)` ported, and `Target`/`Function`/`Param` with the `generate_module` entry point
+  -- after which **`src/derive.c` went from 1,716 lines to 947 and generates no code at all**.
+  *Update 2026-10-30: this entry still said "not built", found by asking this file what was next.*
+  The problem statement below is kept because the argument it makes is the reason the work was
+  done. The
   derives-in-Ziman port is finished and what it left behind is `meta`, grown one field at a time
   by whichever generator needed it next. Two halves. The **model** gains what `derive(Entity)` and
   `#[repository]` actually read -- `#[pk]` as a member attribute and the derive's argument -- and
@@ -170,12 +177,16 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   three bugs shipped in the bridge and none was caught by 1,293 fixtures. Step 5 ports
   `derive(Entity)`, taking the last generator out of `src/derive.c`.
 
-- **An expression language, and `template.zm` using it.** Designed in
-  [docs/design/expressions.md](../design/expressions.md). **Step 1 is built**: `lib/core/expr.zm`
-  parses and evaluates the whole grammar over `Json` -- navigation with `?.`, the operators,
-  `in`, the ternary, and the fixed function set -- with `tests/lang/expr_language` pinning every
-  operator and every refusal. Steps 2-5 (snake_case keys, `template.zm` on a `Json` context,
-  `template` adopting `expr` with `@if`/`@elif`/`@else`, and `render_text`) are not. **Two modules, one direction**:
+- ~~**An expression language, and `template.zm` using it.**~~ **DONE 2026-10-29/30.** Designed in
+  [docs/design/expressions.md](../design/expressions.md), which is **built and closed**: all five
+  steps of its §16 shipped (F231-F235) and §17's last open decision closed the next day.
+  `lib/core/expr.zm` parses and evaluates the whole grammar over `Json`, with
+  `tests/lang/expr_language` pinning every operator and every refusal; step 2's snake_case keys
+  landed as the recommended rekey (F231); `template.zm` takes a `Json` context, imports `expr`, and
+  has `@if`/`@elif`/`@else` and `render_text`. *Update 2026-10-30: this entry still said "Steps 2-5
+  ... are not [built]" a day after they were, found by asking this file what was next -- the drift
+  the preamble describes, caught the way it says to catch it.* The problem statement below is kept
+  because the argument it makes is the reason the work was done. **Two modules, one direction**:
   `lib/core/expr.zm` knows nothing about templates and `template.zm` depends on it, so `expr` is
   usable with no template at all -- which is the whole of the config-and-validation use -- and
   `template` ends up holding no grammar of its own. A SpEL-shaped language for
@@ -446,8 +457,26 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   on it, so it is a function with a predicate rather than a predicate with a name.
 
 
-- **Code generation from annotations needs a mechanism, not a series of exceptions. Not started;
-  this is the design talk.**
+- ~~**Code generation from annotations needs a mechanism, not a series of exceptions.**~~ **Mostly
+  DONE 2026-10-28/30; the design talk it asked for is
+  [docs/design/user-generators.md](../design/user-generators.md).** Its question 1 was decided here
+  on 2026-10-26 and built: generation runs from the **loader**, after `link_uses`, so a generator
+  sees resolved imports. Questions 2, 4 and 5 were made easier by the derives moving to Ziman and
+  are answered there; `#[derive(X)]` resolves through the importing module's `use` list, so **a
+  project can write its own derive** (F254), with named typed target arguments (F253) and its own
+  field attributes (F250, F261). `#![repository]`/`#[repository]` -- the annotation that started
+  this entry -- are **gone**, `derive` being the only target mechanism (F256-F258). What is left
+  open is narrow and recorded in that document's status: `#![derive(X(..))]` naming a project's own
+  *module* generator, which §5c argues has nothing decided for it to receive, plus §8's follow-on,
+  the derived-output cache filed under "Near-term".
+
+  *Update 2026-10-30: two things below are out of date and kept for the record rather than
+  corrected in place. **"The wall is one line: `generate_derived_functions(module)` is called from
+  `parser.c` ... before any import is resolved"** -- `parser.c` has not called it for some time; it
+  is called from `loader.c`, after `link_uses(ldr, mod)`, and the comment at that line explains why
+  it sits exactly there. And **"A generator cannot read a type it does not own"** no longer holds
+  for the case that motivated it. Found by asking this file what was next.*
+
   Raised 2026-10-26, from the conversation that added `#[derive(Entity("table"))]` and then tried
   to design a `#![repository(..)]` that generates the ten CRUD functions a repository writes by
   hand. The annotation is not the point of this entry -- **the point is that designing it kept

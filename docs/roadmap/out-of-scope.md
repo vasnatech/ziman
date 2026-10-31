@@ -100,7 +100,11 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
     lack. A compact copy of the IANA rules bundled in the binary would be the fallback (100 to 400 KB, and it
     has to be refreshed when the rules change). `UTC` and fixed offsets already work without any files.
 
-- **A Ziman website -- not started; when there is one, it should carry the library map.** The manual
+- **A Ziman website -- ~~not started~~ shipped 2026-10; it should still carry the library map.**
+  *Update 2026-10-30: **ziman.dev is live**, built from `websites/ziman.dev/` and deployed to
+  Cloudflare Pages by `.github/workflows/cloudflare-pages.yml`. What this entry asks for is still
+  open, though: the site is a landing page and links to the docs on GitHub rather than rendering
+  the module pages, the runnable examples or the dependency map.* The manual
   (`docs/lib/`) is generated Markdown that reads fine on GitHub, but a site would want the module pages
   rendered, the runnable examples, and the interactive dependency map. `tools/gen_lib_map.py` already writes
   that map as one self-contained HTML page (layers, colours by folder, click a module to trace what it uses
