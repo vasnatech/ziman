@@ -619,7 +619,9 @@ static int run_api(const char *module_name) {
                "  [T] (an array)  Map<K, V>  Set<T>  Option<T>  Result<T, E>  Channel<T>\n");
         return 0;
     }
-    const char *source = corelib_source_for(module_name);
+    /* The whole module, parts and all: `server` is ten files and a reader asking what it exports
+     * wants all of it. */
+    const char *source = corelib_whole_source_for(module_name);
     char *owned = NULL;
     if (source == NULL) {
         /* Not bundled: try it as a file, so this works on a project's own modules too. */

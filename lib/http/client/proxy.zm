@@ -1,0 +1,47 @@
+// ------------------------------------------------------------ proxies
+
+// The proxy to use for `u`: `explicit` if given ("" means none at all), else the environment
+// (`HTTPS_PROXY` for https, `HTTP_PROXY` for http, either case), skipped for hosts `NO_PROXY` lists.
+fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientError> {
+    var text = ""
+    if Some(t) = explicit {
+        text = t
+    } else {
+        val upper = os.get_env(if u.secure { "HTTPS_PROXY" } else { "HTTP_PROXY" })
+        val lower = os.get_env(if u.secure { "https_proxy" } else { "http_proxy" })
+        text = get_or(upper, get_or(lower, ""))
+        if byte_len(text) > 0 && no_proxy_matches(u.host) {
+            text = ""
+        }
+    }
+    if byte_len(text) == 0 {
+        return ok(Option<Url>.None)
+    }
+    val parsed = parse_url(if contains(text, "://") { text } else { concat("http://", text) })
+    if Err(e) = parsed {
+        return err(ClientError.BadUrl(concat("proxy: ", e)))
+    }
+    if unwrap(parsed).secure {
+        return err(ClientError.BadUrl("proxy: an https:// proxy is not supported (use http://)"))
+    }
+    return ok(Option<Url>.Some(unwrap(parsed)))
+}
+
+// True if `NO_PROXY` (a comma-separated list of hosts, `.suffixes` and `*`) covers `host`.
+fn no_proxy_matches(host: string) -> bool {
+    val upper = os.get_env("NO_PROXY")
+    val list = get_or(upper, get_or(os.get_env("no_proxy"), ""))
+    for raw in split(list, ",") {
+        val entry = to_lower(trim(raw), invariant)
+        if entry == "*" {
+            return true
+        }
+        if byte_len(entry) > 0 {
+            val bare = if starts_with(entry, ".") { substring(entry, 1, len(entry)) } else { entry }
+            if to_lower(host, invariant) == bare || ends_with(to_lower(host, invariant), concat(".", bare)) {
+                return true
+            }
+        }
+    }
+    return false
+}

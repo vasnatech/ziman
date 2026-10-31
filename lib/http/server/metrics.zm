@@ -1,0 +1,141 @@
+// ---------------------------------------------------------------- metrics
+
+val requests_metric = "http_requests_total"
+val latency_metric = "http_request_seconds"
+val connections_metric = "http_open_connections"
+val received_metric = "http_received_bytes_total"
+val sent_metric = "http_sent_bytes_total"
+
+// Declares what `metered_routes` and `ServeOptions.metrics` record. Calling it again is a no-op, so
+// an application that wants the names documented before any request may call it itself.
+//
+// The latency buckets are seconds, by Prometheus convention. Note the resolution they are measured
+// at: `clock.monotonic_millis` is the finest clock Ziman has, so every request faster than a
+// millisecond lands in the first bucket and a latency histogram cannot tell 100us from 900us. For
+// a handler doing real work that is unimportant; for one answering from memory it means the
+// histogram says "fast" and nothing finer.
+pub fn declare_metrics() {
+    val _ = metrics.counter(requests_metric, "Requests answered, by method, matched route and status.")
+    val _ = metrics.histogram(
+        latency_metric,
+        "How long a request took, in seconds, by method and matched route.",
+        [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+    )
+    val _ = metrics.gauge(connections_metric, "Connections being served right now.")
+    val _ = metrics.counter(received_metric, "Request bytes read.")
+    val _ = metrics.counter(sent_metric, "Response bytes written.")
+}
+
+// The label key for one request. Built by hand rather than through `metrics.series`, which sorts
+// and escapes: these three values are a method name, a route pattern and a status, none of which can
+// contain a quote, a backslash or a newline, and the names are already in increasing order.
+//
+// `route` is the *matched pattern*, never the request's path. A path carries ids, so labelling by it
+// would grow the registry until the series cap dropped everything after the first 128 -- which is
+// the usual way a metrics integration takes a service down. A request that matched nothing is
+// labelled `<unmatched>` for the same reason.
+// Everything recorded so far, as the body of a `/metrics` endpoint -- the content type Prometheus
+// expects, and the version it has used since 0.0.4. Mount it in one line:
+//
+//     server.Endpoint<Ctx> { method: HttpMethod.Get, pattern: "/metrics", handler: server.metrics_handler<Ctx> }
+//
+// Nothing here restricts who may read it. A metrics page tells a reader the shape of your traffic
+// and which routes exist, so put it behind the same `who` as the rest of an internal API, or on a
+// listener that only your network can reach.
+pub fn metrics_response() -> Response {
+    // Samples the runtime's own gauges first, so a scrape carries the collector's heap and
+    // collection count, the thread count and the open descriptors alongside the application's own
+    // numbers without every application remembering to ask (docs/roadmap/'s metrics item 3). This is
+    // what Prometheus' own client libraries do with their process and GC collectors. An application
+    // that does not want them can render `metrics.render()` itself.
+    metrics.record_runtime()
+    return with_header(
+        response(status_ok, to_bytes(metrics.render())),
+        "Content-Type",
+        "text/plain; version=0.0.4; charset=utf-8"
+    )
+}
+
+pub fn metrics_handler<C>(ctx: C, req: Request, params: Params) -> Response {
+    return metrics_response()
+}
+
+fn request_key(method: HttpMethod, route: string, status: int) -> string {
+    return concat(
+        "method=\"",
+        method_name(method),
+        "\",route=\"",
+        route,
+        "\",status=\"",
+        str(status),
+        "\""
+    )
+}
+
+fn latency_key(method: HttpMethod, route: string) -> string {
+    return concat("method=\"", method_name(method), "\",route=\"", route, "\"")
+}
+
+fn connection_closed(meter: bool) {
+    if meter {
+        metrics.gauge_add(connections_metric, -1.0)
+    }
+}
+
+fn record_request(method: HttpMethod, route: string, status: int, millis: int) {
+    metrics.increment(metrics.series_of(key_name: requests_metric, key: request_key(method, route, status)))
+    metrics.observe(
+        metrics.series_of(key_name: latency_metric, key: latency_key(method, route)),
+        (millis as float) / 1000.0
+    )
+}
+
+fn method_key(m: HttpMethod, length: int) -> string {
+    return format("{} {}", method_name(m), length)
+}
+
+// Compiles `endpoints` for `dispatch`. Do it once, at start-up (a module-level `val`), not per request. The order
+// is what `dispatch` tries them in: the first endpoint that matches wins, so a `/items/{id}` listed before
+// `/items/new` answers for `/items/new`.
+fn routes_with<C>(endpoints: [Endpoint<C>], meter: bool) -> Routes<C> {
+    val patterns = mutable_array_new<Pattern>()
+    val methods = mutable_map_new<string, [int]>()
+    val lengths = mutable_map_new<int, [int]>()
+    val none: [int] = []
+    var i = 0
+    for e in endpoints {
+        val p = compile_pattern(e.pattern)
+        push(patterns, p)
+        val key = method_key(e.method, len(p.parts))
+        set(
+            methods,
+            key,
+            push(get_or(get(methods, key), none), i)
+        )
+        set(
+            lengths,
+            len(p.parts),
+            push(get_or(get(lengths, len(p.parts)), none), i)
+        )
+        i = i + 1
+    }
+    return Routes<C> {
+        meter: meter,
+        endpoints: endpoints,
+        patterns: snapshot(patterns),
+        by_method: snapshot(methods),
+        by_length: snapshot(lengths)
+    }
+}
+
+pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {
+    return routes_with<C>(endpoints, false)
+}
+
+// `routes`, and `dispatch` on the result records `http_requests_total` and `http_request_seconds`
+// for every request, labelled with the method, the pattern that matched and the status. One line to
+// turn on, and the pattern is a label only something that did the matching can supply.
+pub fn metered_routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {
+    declare_metrics()
+    return routes_with<C>(endpoints, true)
+}

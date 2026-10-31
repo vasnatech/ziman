@@ -822,7 +822,10 @@ static char *core_file(const char *use_path) {
     static char *files[64];
     static int n = 0;
     for (int i = 0; i < n; i++) if (strcmp(names[i], use_path) == 0) return files[i];
-    const char *source = corelib_source_for(use_path);
+    /* Joined for a multi-file module, so ctrl+click on `use server` opens something rather than
+     * nothing. A position inside it is the join's, not a part's -- go-to-definition on a *name*
+     * goes through the declaration's own `origin_file` and is unaffected. */
+    const char *source = corelib_whole_source_for(use_path);
     if (source == NULL || n == 64) return NULL;
     const char *xdg = getenv("XDG_CACHE_HOME");
     const char *home = getenv("HOME");

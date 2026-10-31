@@ -101,7 +101,7 @@ install-hooks:
 # -MMD/-MP header tracking only kicks in from the second build onward,
 # once a .d file already mentions it. Add a new core module by adding
 # its name here and one line to corelib.c's CORE_MODULES table.
-CORELIB_MODULES := meta template derive_ord derive_row derive_properties derive_json derive_reflect derive_entity derive_repository derive_validate expr validate process url fs log metrics regex client random uuid clock time schedule json number math bits encoding thread datasource sqlite mysql memdb sql eql db net crypto pg http server endpoint derive_routes os properties ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp locale test geom shape paint scene pdfobj pdf truetype font image stroker raster layout
+CORELIB_MODULES := meta template derive_ord derive_row derive_properties derive_json derive_reflect derive_entity derive_repository derive_validate expr validate process url fs log metrics regex random uuid clock time schedule json number math bits encoding thread datasource sqlite mysql memdb sql eql db net crypto pg http endpoint derive_routes os properties ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp locale test geom shape paint scene pdfobj pdf truetype font image stroker raster layout
 
 # The prelude is not a module and is deliberately NOT in CORELIB_MODULES: it has
 # no line in corelib.c's CORE_MODULES table, nothing can `use` it, and
@@ -115,13 +115,23 @@ CORELIB_MODULES := meta template derive_ord derive_row derive_properties derive_
 # what retired `collections` on 2026-10-22 once the last of its names had been
 # filed by type.
 PRELUDE_PARTS := prelude array channel iter map mutable option result set string
+
+# **Two bundled modules are several files each**, which is what a module too big to read in one
+# sitting does; see src/corelib.c's MODULE_PARTS and loader.c's merge. Each is a folder under
+# lib/http/ whose first part carries the module comment, the imports and the types. Adding a part
+# means a file in the folder, its name here, and *two* lines in corelib.c -- the #include and the
+# row -- the same three edits a prelude part takes, and the same cheap check: as many #includes as
+# rows as names here.
+SERVER_PARTS := server read respond route multipart handler ratelimit metrics cors serve
+CLIENT_PARTS := client read proxy send cookie request stream
 # Bundled modules live in lib/core (general-purpose), lib/db (SQL drivers, and the three
 # generators that write SQL: derive_row, derive_entity, derive_repository), lib/http (http,
 # server, client), lib/time (time, zone, schedule) and lib/graphics (the 2D model and its
 # backends); `use` names are flat either way, which is what `vpath` below is for.
 vpath %.zm lib lib/core lib/db lib/graphics lib/http lib/time
 
-CORELIB_HEADERS := $(CORELIB_MODULES:%=$(BUILD)/%_source.h) $(PRELUDE_PARTS:%=$(BUILD)/prelude_%_source.h)
+CORELIB_HEADERS := $(CORELIB_MODULES:%=$(BUILD)/%_source.h) $(PRELUDE_PARTS:%=$(BUILD)/prelude_%_source.h) \
+                   $(SERVER_PARTS:%=$(BUILD)/server_%_source.h) $(CLIENT_PARTS:%=$(BUILD)/client_%_source.h)
 
 -include $(DEP)
 

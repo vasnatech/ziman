@@ -1,0 +1,209 @@
+// ---------------------------------------------------------------- streaming a response body
+
+// A response whose body has not been read yet: the status and headers, and the body as an `Iter` of blocks
+// of bytes read as a `for` loop asks for them.
+pub struct StreamResponse {
+    status: int
+    headers: [Header]
+    body: Iter<Result<[byte], ClientError>>
+}
+
+// How the body is framed, and how much of it is left, for the streaming reader. `mode` is 0 for a body of
+// known length (`left` bytes remain), 1 for a chunked one (`left` bytes remain in the current chunk;
+// `after_chunk` means the CRLF that ends a chunk is still to be read) and 2 for one that runs until the
+// server closes. `buffer` holds bytes already read but not yet handed out.
+struct BodyState {
+    buffer: [byte]
+    mode: int
+    left: int
+    after_chunk: bool
+    finished: bool
+}
+
+fn body_block(bytes: [byte]) -> Option<Result<[byte], ClientError>> {
+    val block: Result<[byte], ClientError> = bytes
+    return Option<Result<[byte], ClientError>>.Some(block)
+}
+
+fn body_failure(e: ClientError) -> Option<Result<[byte], ClientError>> {
+    val failure: Result<[byte], ClientError> = e
+    return Option<Result<[byte], ClientError>>.Some(failure)
+}
+
+fn body_end() -> Option<Result<[byte], ClientError>> {
+    return Option<Result<[byte], ClientError>>.None
+}
+
+// The next piece of the body: up to `read_chunk_bytes` of what remains, from the buffer or the socket.
+fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte], ClientError>> {
+    val st = receive(cell)
+    if st.finished {
+        send(cell, st)
+        return body_end()
+    }
+    val finished = BodyState { buffer: [], mode: st.mode, left: 0, after_chunk: false, finished: true }
+    if st.mode == 1 && st.left == 0 {
+        // between chunks: the CRLF that ended the last one, then the next size line
+        var buf = st.buffer
+        if st.after_chunk {
+            while len(buf) < 2 {
+                val more_bytes = more(s, buf)
+                if Err(e) = more_bytes {
+                    send(cell, finished)
+                    return body_failure(e)
+                }
+                buf = unwrap(more_bytes)
+            }
+            buf = slice(buf, 2, len(buf))
+        }
+        var eol = index_of(buf, crlf, 0)
+        while eol < 0 {
+            if len(buf) > max_chunk_size_line_bytes {
+                send(cell, finished)
+                return body_failure(ClientError.BadResponse("chunk size line is too long"))
+            }
+            val more_bytes = more(s, buf)
+            if Err(e) = more_bytes {
+                send(cell, finished)
+                return body_failure(e)
+            }
+            buf = unwrap(more_bytes)
+            eol = index_of(buf, crlf, 0)
+        }
+        val line = text_of(slice(buf, 0, eol))
+        if Err(e) = line {
+            send(cell, finished)
+            return body_failure(e)
+        }
+        val size_text = trim(split(unwrap(line), ";")[0])
+        val n = switch int_from_hex(size_text) {
+            Ok(v) {
+                if v < 0 {
+                    send(cell, finished)
+                    return body_failure(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
+                }
+                v
+            }
+            Err(_) {
+                send(cell, finished)
+                return body_failure(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
+            }
+        }
+        buf = slice(buf, eol + 2, len(buf))
+        if n == 0 {
+            send(cell, finished)
+            return body_end()
+        }
+        send(cell, BodyState { buffer: buf, mode: 1, left: n, after_chunk: false, finished: false })
+        return next_body_block(s, cell)
+    }
+    if st.mode != 2 && st.left == 0 {
+        send(cell, finished)
+        return body_end()
+    }
+    // hand out buffered bytes first, else read
+    var block = st.buffer
+    var rest: [byte] = []
+    if len(block) == 0 {
+        val got = net.read(s, read_chunk_bytes)
+        if Err(e2) = got {
+            val e = e2
+            send(cell, finished)
+            if st.mode == 2 && NetError.is_Closed(e) {
+                return body_end()
+            }
+            if NetError.is_Timeout(e) {
+                return body_failure(ClientError.Timeout)
+            }
+            return body_failure(ClientError.Network(net_error_message(e)))
+        }
+        block = unwrap(got)
+    }
+    if st.mode != 2 && len(block) > st.left {
+        rest = slice(block, st.left, len(block))
+        block = slice(block, 0, st.left)
+    }
+    var left = st.left - len(block)
+    if st.mode == 2 {
+        left = 0
+    }
+    send(cell, BodyState {
+        buffer: rest,
+        mode: st.mode,
+        left: left,
+        after_chunk: st.mode == 1 && left == 0,
+        finished: false
+    })
+    return body_block(block)
+}
+
+// Sends one request and returns the status and headers as soon as they arrive, with the body left on the
+// connection to be read lazily -- for a large download, or a response that never ends. The body is an
+// `Iter` of `Result<[byte], ClientError>` blocks of at most 8192 bytes, read as a `for` loop asks for
+// them: `val r = try client.stream(method: HttpMethod.Get, url: u)` then `for block in r.body { val bytes =
+// try block ... }`. A read error, or a timeout waiting for the next block, is a last Err item. The body comes
+// as sent: this asks for no compression (`Accept-Encoding: identity`), and a server that compresses anyway
+// is not decoded. No redirects are followed and no cookies are sent (a 3xx is returned as it is), nothing
+// is limited to 8 MiB, and the connection is not reused: it is closed when the body is finished, when the
+// loop is left early or with `iter_close(r.body)`, and a stream dropped unfinished is closed when its
+// socket is collected. Arguments as for `request`: `headers`, `body`, `timeout_ms`, `ca_file`,
+// `proxy`.
+pub fn stream(
+    method: HttpMethod,
+    url: string,
+    headers: Option<[Header]>,
+    body: Option<[byte]>,
+    timeout_ms: Option<int>,
+    ca_file: Option<string>,
+    proxy: Option<string>
+) -> Result<StreamResponse, ClientError> {
+    val parsed = parse_url(url)
+    if Err(e) = parsed {
+        return err(ClientError.BadUrl(e))
+    }
+    val u = unwrap(parsed)
+    val timeout = get_or(timeout_ms, default_timeout_ms)
+    val via = try proxy_for(u, proxy)
+    val sock = try open_socket(u, via, ca_file, timeout)
+    val _ = net.set_timeout(sock, timeout)
+    val sent = write_request(sock, method, u, via, get_or(headers, []), body, false, false)
+    if Err(e) = sent {
+        net.close(sock)
+        return err(e)
+    }
+    val read = read_head(sock)
+    if Err(e) = read {
+        net.close(sock)
+        return err(e)
+    }
+    val head = unwrap(read)
+    val te = header_value(head.headers, "Transfer-Encoding")
+    val cl = header_value(head.headers, "Content-Length")
+    val status = head.status
+    val no_body = method == HttpMethod.Head || status < 200 || status == status_no_content || status == status_not_modified
+    var state = BodyState { buffer: head.rest, mode: 2, left: 0, after_chunk: false, finished: no_body }
+    if Some(te) = te && contains(to_lower(te, invariant), "chunked") {
+        state = BodyState { buffer: head.rest, mode: 1, left: 0, after_chunk: false, finished: no_body }
+    } else if Some(cl) = cl {
+        val n = switch parse_int(trim(cl)) {
+            Ok(v) {
+                if v < 0 {
+                    net.close(sock)
+                    return err(ClientError.BadResponse("invalid Content-Length"))
+                }
+                v
+            }
+            Err(_) {
+                net.close(sock)
+                return err(ClientError.BadResponse("invalid Content-Length"))
+            }
+        }
+        state = BodyState { buffer: head.rest, mode: 0, left: n, after_chunk: false, finished: no_body }
+    }
+    val cell: Channel<BodyState> = channel_new()
+    send(cell, state)
+    val blocks = iter_from<Result<[byte], ClientError>>(fn() -> Option<Result<[byte], ClientError>> {
+        next_body_block(sock, cell)
+    }, fn() { net.close(sock) })
+    return ok(StreamResponse { status: head.status, headers: head.headers, body: blocks })
+}

@@ -1999,6 +1999,52 @@ static void resolve_repository(Loader *ldr, Module *mod) {
                 mod->repository_entity, mod->repository_entity);
 }
 
+/* **One bundled module out of several files**, which is what `lib/http/server/` is: ten files
+ * sharing one namespace. Each part is parsed on its own so its line numbers are its own and is
+ * registered under its real path so a diagnostic inside it prints that file and its excerpt --
+ * the same treatment prelude.c's ten parts get, which is where this mechanism was special-cased
+ * until 2026-10-31.
+ *
+ * **The first part owns the module**: its `use` lines, its module-level attributes
+ * (`#![experimental]`, `#![generator(X)]`) and whatever else is a property of the module rather
+ * than of a file. A later part carrying a `use` is refused, for the reason a prelude part is --
+ * merging N import lists asks which part owns an import, which one list never has to answer. */
+static Module *parse_bundled_parts(const char *use_path, int parts) {
+    Module *whole = NULL;
+    for (int p = 0; p < parts; p++) {
+        const char *name = corelib_part_name(use_path, p);
+        const char *text = corelib_part_source(use_path, p);
+        ziman_register_source(name, text);
+        ziman_set_error_file(name);
+        Module *part = parse_file_contents(text);
+        if (p == 0) {
+            whole = part;
+            /* The first part's own declarations need the stamp too, so that every function in the
+             * module answers the same question the same way. */
+            for (int i = 0; i < part->functions.count; i++) part->functions.items[i]->origin_file = name;
+            continue;
+        }
+        if (part->uses.count > 0) {
+            ziman_error("module", part->uses.items[0].line, part->uses.items[0].col,
+                        "a part of '%s' cannot `use` another module -- the imports of a multi-file "
+                        "bundled module live in its first part (%s), because an import belongs to "
+                        "the module and not to one of its files",
+                        use_path, corelib_part_name(use_path, 0));
+        }
+        for (int i = 0; i < part->functions.count; i++) {
+            /* Not `source_file`, which means "the user wrote this" to the lint gate and to
+             * coverage; this one is for the diagnostic alone (ast.h). */
+            part->functions.items[i]->origin_file = name;
+            function_list_push(&whole->functions, part->functions.items[i]);
+        }
+        for (int i = 0; i < part->structs.count; i++) struct_list_push(&whole->structs, part->structs.items[i]);
+        for (int i = 0; i < part->enums.count; i++) enum_list_push(&whole->enums, part->enums.items[i]);
+        for (int i = 0; i < part->vals.count; i++) global_val_list_push(&whole->vals, part->vals.items[i]);
+    }
+    ziman_set_error_file(NULL);
+    return whole;
+}
+
 static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int ref_col) {
     Module *existing = find_loaded(ldr, use_path);
     if (existing != NULL) return existing;
@@ -2024,7 +2070,11 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
         }
     }
     int from_disk = source != NULL;
-    if (source == NULL) {
+    /* A bundled module may be several files (corelib.h). Asked before the fallback below, because
+     * `corelib_source_for` deliberately answers NULL for one and the "cannot find module" error
+     * must not fire for a module that exists in ten pieces. */
+    int parts = from_disk ? 0 : corelib_part_count(use_path);
+    if (source == NULL && parts == 0) {
         /* No project-relative file by this name -- fall back to a
          * bundled core module (see corelib.h) before giving up. A
          * project file always wins when both exist. */
@@ -2041,7 +2091,18 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
     }
     ziman_set_error_file(from_disk ? file_path : NULL);
     if (from_disk) ziman_register_source(file_path, source);
-    Module *mod = parse_file_contents(source);
+    Module *mod = parts > 0 ? parse_bundled_parts(use_path, parts) : parse_file_contents(source);
+    /* **A one-file bundled module names its own file too**, which only the prelude's parts did
+     * before 2026-10-31: `origin_file` is for the diagnostic alone (ast.h), and without it the
+     * only way to lint `lib/` was to load it from disk under ZIMAN_MODULE_PATH -- which stops
+     * working the moment a module is a folder of parts. `parse_bundled_parts` stamps its own. */
+    if (!from_disk && parts == 0) {
+        const char *own = corelib_path_for(use_path);
+        if (own != NULL) {
+            ziman_register_source(own, source);
+            for (int i = 0; i < mod->functions.count; i++) mod->functions.items[i]->origin_file = own;
+        }
+    }
     /* A module found on disk is ordinarily a project's own, never part of the bundled standard
      * library -- except when its own name is also a bundled module's (see module_name_of's own
      * comment on the entry-file case this mirrors): developing the stdlib itself means its

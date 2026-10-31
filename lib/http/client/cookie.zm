@@ -1,0 +1,227 @@
+// ------------------------------------------------------------ cookies
+//
+// A `CookieJar` is a value: `request_with_jar` takes one and returns the updated one (the jar you
+// passed is unchanged), so keep the newest. It follows RFC 6265 for what matters in practice: `Domain`
+// (a suffix match; without it the cookie is for that host only), `Path`, `Secure` (only sent over
+// https), `Max-Age` and `Expires` (an expired cookie removes the one it replaces), session cookies.
+// `HttpOnly` and `SameSite` are ignored (they govern browsers).
+
+// One stored cookie. `expires` is seconds since the epoch, -1 for a session cookie.
+pub struct Cookie {
+    name: string
+    value: string
+    domain: string
+    path: string
+    secure: bool
+    host_only: bool
+    expires: int
+}
+
+// The cookies a client is holding, passed to `request_with_jar` and returned updated. Make an
+// empty one with `cookie_jar()`.
+pub struct CookieJar {
+    cookies: [Cookie]
+}
+
+// A jar with no cookies.
+pub fn cookie_jar() -> CookieJar {
+    return CookieJar { cookies: [] }
+}
+
+// A response together with the cookie jar as the exchange left it.
+pub struct JarResponse {
+    response: Response
+    jar: CookieJar
+}
+
+// The directory of a request target: "/a/b?x" is "/a", "/x" is "/".
+fn default_path(target: string) -> string {
+    val path = split(target, "?")[0]
+    val slash = last_index_of(path, "/")
+    return if slash <= 0 { "/" } else { substring(path, 0, slash) }
+}
+
+val month_names: [string] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+
+// Seconds since the epoch of an HTTP date ("Thu, 24 Sep 2026 12:00:00 GMT", also with dashes), or -1.
+fn parse_http_date(text: string) -> int {
+    val parts = split(replace(trim(text), "-", " "), " ")
+    val fields = mutable_array_new<string>()
+    for p in parts {
+        if byte_len(p) > 0 {
+            push(fields, p)
+        }
+    }
+    val f = snapshot(fields)
+    if len(f) < 5 {
+        return -1
+    }
+    val day = parse_int(f[1])
+    val year_parsed = parse_int(f[3])
+    val clock_parts = split(f[4], ":")
+    if !is_ok(day) || !is_ok(year_parsed) || len(clock_parts) != 3 {
+        return -1
+    }
+    var month = 0
+    for i in 0..12 {
+        if to_lower(substring(f[2], 0, 3), invariant) == month_names[i] {
+            month = i + 1
+        }
+    }
+    val hh = parse_int(clock_parts[0])
+    val mm = parse_int(clock_parts[1])
+    val ss = parse_int(clock_parts[2])
+    if month == 0 || !is_ok(hh) || !is_ok(mm) || !is_ok(ss) {
+        return -1
+    }
+    var year = unwrap(year_parsed)
+    if year < 100 {
+        year = if year < 70 { 2000 + year } else { 1900 + year }
+    }
+    if Ok(d) = localdate_of(year, month, unwrap(day)) {
+        return to_epoch_day(d) * 86400 + unwrap(hh) * 3600 + unwrap(mm) * 60 + unwrap(ss)
+    }
+    return -1
+}
+
+// A `Set-Cookie` header value as a cookie set by the response to a request for `u` (None if it is
+// malformed or names another domain).
+fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
+    val pieces = split(value, ";")
+    val name_value = switch split_once(trim(pieces[0]), "=") {
+        Some(nv) { nv }
+        None { return Option<Cookie>.None }
+    }
+    if byte_len(name_value[0]) == 0 {
+        return Option<Cookie>.None
+    }
+    var domain = to_lower(u.host, invariant)
+    var host_only = true
+    var path = default_path(u.target)
+    var secure = false
+    var expires = -1
+    var max_age_seen = false
+    for i in 1..len(pieces) {
+        val attr = trim(pieces[i])
+        val kv = split_once(attr, "=")
+        val key = to_lower(switch kv {
+            Some(pair) { pair[0] }
+            None { attr }
+        }, invariant)
+        val val_text = switch kv {
+            Some(pair) { trim(pair[1]) }
+            None { "" }
+        }
+        if key == "domain" && byte_len(val_text) > 0 {
+            val wanted = to_lower(if starts_with(
+                val_text,
+                "."
+            ) { substring(val_text, 1, len(val_text)) } else { val_text }, invariant)
+            if wanted != domain && !ends_with(domain, concat(".", wanted)) {
+                return Option<Cookie>.None
+            }
+            domain = wanted
+            host_only = false
+        } else if key == "path" && starts_with(val_text, "/") {
+            path = val_text
+        } else if key == "secure" {
+            secure = true
+        } else if key == "max-age" {
+            if Ok(n) = parse_int(val_text) {
+                expires = now + n
+                max_age_seen = true
+            }
+        } else if key == "expires" && !max_age_seen {
+            expires = parse_http_date(val_text)
+        }
+    }
+    return Option<Cookie>.Some(Cookie {
+        name: trim(name_value[0]),
+        value: trim(name_value[1]),
+        domain: domain,
+        path: path,
+        secure: secure,
+        host_only: host_only,
+        expires: expires
+    })
+}
+
+fn same_cookie(a: Cookie, b: Cookie) -> bool {
+    return a.name == b.name && a.domain == b.domain && a.path == b.path
+}
+
+// The jar with the cookies in a response's `Set-Cookie` headers stored (replacing ones of the same
+// name, domain and path; an already expired one deletes it). `u` is the URL that was requested.
+pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar {
+    val now = now_raw()[0]
+    var current = jar.cookies
+    for h in headers {
+        if equals_ignore_case(h.name, "Set-Cookie", invariant) {
+            if Some(c) = parse_set_cookie(h.value, u, now) {
+                val kept = mutable_array_new<Cookie>()
+                for old in current {
+                    if !same_cookie(old, c) && (old.expires < 0 || old.expires > now) {
+                        push(kept, old)
+                    }
+                }
+                if c.expires < 0 || c.expires > now {
+                    push(kept, c)
+                }
+                current = snapshot(kept)
+            }
+        }
+    }
+    return CookieJar { cookies: current }
+}
+
+// Whether `c` should be sent on a request to `u`: not expired, `Secure` only over https, the domain
+// matches (exactly if `host_only`, else `u`'s host or any subdomain of it), and the path is `c.path`
+// or a directory above it on a `/` boundary (so `/ab` does not match a cookie scoped to `/a`).
+fn cookie_matches(c: Cookie, u: Url, now: int) -> bool {
+    if c.expires >= 0 && c.expires <= now {
+        return false
+    }
+    if c.secure && !u.secure {
+        return false
+    }
+    val host = to_lower(u.host, invariant)
+    val domain_ok = if c.host_only { host == c.domain } else { host == c.domain || ends_with(
+        host,
+        concat(".", c.domain)
+    ) }
+    if !domain_ok {
+        return false
+    }
+    val path = split(u.target, "?")[0]
+    if c.path == path || c.path == "/" {
+        return true
+    }
+    return starts_with(path, c.path) && (ends_with(c.path, "/") || is_char_at(path, len(c.path), "/"))
+}
+
+// The `Cookie` header value for a request to `u` -- `a=1; b=2` -- from the jar's matching cookies (longer
+// paths first), or None if none match.
+pub fn jar_header(jar: CookieJar, u: Url) -> Option<string> {
+    val now = now_raw()[0]
+    val chosen = mutable_array_new<Cookie>()
+    for c in jar.cookies {
+        if cookie_matches(c, u, now) {
+            push(chosen, c)
+        }
+    }
+    val matched = snapshot(chosen)
+    if len(matched) == 0 {
+        return Option<string>.None
+    }
+    val ordered = sort_matches(matched)
+    val parts = mutable_array_new<string>()
+    for c in ordered {
+        push(parts, format("{}={}", c.name, c.value))
+    }
+    return Option<string>.Some(join(separator: "; ", pieces: snapshot(parts)))
+}
+
+// Stable order: longer paths first.
+fn sort_matches(cookies: [Cookie]) -> [Cookie] {
+    return sort_by_desc(cookies, fn(c: Cookie) -> int { return len(c.path) })
+}

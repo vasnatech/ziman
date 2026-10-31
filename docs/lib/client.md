@@ -118,6 +118,8 @@ false
 9
 ```
 
+## `client.zm`
+
 ### `ClientError`
 
 ```
@@ -169,7 +171,7 @@ pub fn parse_url(url: string) -> Result<Url, string>
 Parses an `http://` or `https://` URL. An Err says what is wrong: another scheme, a missing host, an
 unterminated `[` in an IPv6 host, a bad port.
 
-## Reading
+## `read.zm`
 
 ### `response_header`
 
@@ -179,7 +181,7 @@ pub fn response_header(r: Response, name: string) -> Option<string>
 
 The first header called `name` (any case) of a response, or None.
 
-## Sending
+## `send.zm`
 
 ### `close_idle`
 
@@ -189,7 +191,7 @@ pub fn close_idle()
 
 Closes every parked keep-alive connection.
 
-## Cookies
+## `cookie.zm`
 
 ### `Cookie`
 
@@ -255,7 +257,7 @@ pub fn jar_header(jar: CookieJar, u: Url) -> Option<string>
 The `Cookie` header value for a request to `u` -- `a=1; b=2` -- from the jar's matching cookies (longer
 paths first), or None if none match.
 
-## Requests
+## `request.zm`
 
 ### `request`
 
@@ -366,7 +368,7 @@ pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, C
 
 POST an HTML-form-style body built from `fields` (`Content-Type: application/x-www-form-urlencoded`).
 
-## Streaming a response body
+## `stream.zm`
 
 ### `StreamResponse`
 

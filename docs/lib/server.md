@@ -111,6 +111,8 @@ Output:
 404
 ```
 
+## `server.zm`
+
 ### `Params`
 
 ```
@@ -177,8 +179,6 @@ pub struct Exchange {
 
 One request read from a connection, with the session to read the next one from.
 
-## Helpers
-
 ### `open_session`
 
 ```
@@ -210,7 +210,7 @@ Like `open_session_with_timeout`, and the head of each request -- from its first
 `head_timeout_ms`, which is then also how long the first byte may take; once the first request is read, the socket goes back to `timeout_ms`, the wait
 between requests of a keep-alive connection. `serve` opens its sessions this way with `ServeOptions.header_timeout_ms`.
 
-## Reading
+## `read.zm`
 
 ### `read_request`
 
@@ -223,7 +223,7 @@ closed the connection between requests (the normal way a keep-alive
 connection ends); other errors mean the request itself was unusable --
 `error_response` maps one to the HTTP response to send before closing.
 
-## Responses
+## `respond.zm`
 
 ### `response`
 
@@ -327,8 +327,6 @@ keeps alive unless either side asked to close, HTTP/1.0 only if the
 client asked to keep it. A `HEAD` request gets the headers, with the
 Content-Length the body would have had, and no body.
 
-## Response compression
-
 ### `compressed`
 
 ```
@@ -385,7 +383,7 @@ pub fn write_error_with(
 application gets the status and the sentence, not the `HttpError`, and what it returns is written as-is, so its
 body shape and any header it adds (an HSTS header, say) are on the rejection too.
 
-## Routing
+## `route.zm`
 
 ### `path_params`
 
@@ -436,7 +434,7 @@ pub fn query_param(req: Request, name: string) -> Option<string>
 A query-string value by name, percent-decoded ("+" is a space); the
 first one if it is repeated. `None` if absent.
 
-## Multipart/form-data
+## `multipart.zm`
 
 ### `Part`
 
@@ -537,7 +535,7 @@ there but its bytes are not text. The error is the outer answer so a caller that
 `Result` can `try` this and go on with an `Option<string>`; an absent field and a field holding a JPEG
 are different things, and neither is silently the other.
 
-## Typed endpoints
+## `handler.zm`
 
 ### `Endpoint`
 
@@ -606,8 +604,6 @@ pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O>
 
 An encoder for answers of `media`, to bytes.
 
-## JSON endpoints, from a `#[derive(Json)]` pair
-
 ### `json_decoder`
 
 ```
@@ -665,8 +661,6 @@ pub enum Denied {
 Why a caller was refused before an endpoint ran: not identified (`Unauthenticated`, answered 401), identified but not
 allowed (`Forbidden`, 403), or identifying them failed for a reason that is the server's (`Failed`, 500).
 
-## What every endpoint of an application shares
-
 ### `Api`
 
 ```
@@ -680,8 +674,6 @@ How an application answers what goes wrong, given once and passed to every build
 the response for an `Err` of the endpoint's own error type `E`, and `fault(status, message)` the one for what the library
 itself rejects (400, 404, 405, 406, 415), so an application's error bodies have one shape:
 `val api = server.Api<ApiError> { failure: failure, fault: fault }`.
-
-## The input kinds, each in a `secure_` form (the caller is identified first) and a `public_` one.
 
 ### `secure_handler`
 
@@ -841,7 +833,7 @@ A table of endpoints compiled for dispatching: each pattern split once, and the 
 and number of path segments (in the order they were given) so a request only meets the ones that could match.
 Build it once with `routes`.
 
-## Rate limiting
+## `ratelimit.zm`
 
 ### `rate_allow`
 
@@ -922,7 +914,7 @@ There is no default and no auto-detection on purpose. A library cannot know what
 server, and guessing would mean every deployment that is *not* behind a proxy accepts a header its
 clients control.
 
-## Metrics
+## `metrics.zm`
 
 ### `declare_metrics`
 
@@ -987,7 +979,7 @@ pub fn metered_routes<C>(endpoints: [Endpoint<C>]) -> Routes<C>
 for every request, labelled with the method, the pattern that matched and the status. One line to
 turn on, and the pattern is a label only something that did the matching can supply.
 
-## CORS
+## `cors.zm`
 
 ### `CorsPolicy`
 
@@ -1050,7 +1042,7 @@ path serving GET has to serve HEAD; the GET handler's body comes back as usual a
 it on the wire while keeping the `Content-Length` it would have had. `Allow` therefore names HEAD wherever
 GET is served.
 
-## Serve
+## `serve.zm`
 
 ### `RequestLog`
 
@@ -1064,46 +1056,6 @@ pub struct RequestLog {
     peer: Option<string>
 }
 ```
-
-The accept loop and the per-connection request loop, so an application only
-supplies its handler. A handler is a *function value*: a named function, or a
-lambda that captures what it needs (a database connection, a configuration):
-
-
-```
-server.serve(listener, fn(req) { route(conn, req) }, options)
-```
-
-One thread per connection, at most `max_connections` at once (the limit is a
-channel used as a counting semaphore: a client past it waits in the kernel's
-accept queue). `serve` returns when a shutdown has been requested
-(`os.install_shutdown_handler()` makes SIGINT/SIGTERM do that) and every
-connection already being served has finished -- an idle keep-alive
-connection ends at `idle_timeout_ms` at the latest. It does not close the
-listener or install the signal handler; the caller owns both.
-
-`idle_timeout_ms` is how long a client may take over anything else: a keep-alive connection waiting for its next request, a body, a
-stalled read. `header_timeout_ms` (use a few seconds; it should not exceed `idle_timeout_ms`) is how long a new connection may take to send its first byte, and any
-request to send its head once it has begun: an honest client needs milliseconds, so a client that opens connections and dawdles is dropped fast and cannot hold
-every one of the `max_connections` slots for `idle_timeout_ms` at a time. It cannot tell one client from another, so a determined flood from many
-addresses is a job for a firewall or the proxy in front (see the roadmap).
-One finished exchange, for `ServeOptions.on_request`.
-
-A struct rather than a handful of parameters **because the library builds it and the application
-only reads it**: a field added here later cannot break a caller, which is the opposite of the
-`ServeOptions` literal problem F61 ran into, where every field of a struct the *caller* builds is
-required. So this is a shape that can grow.
-
-`duration_ms` is the time to *serve*: from the request being fully read to its response being
-written. It deliberately excludes the client's own slowness in sending and the idle wait on a
-keep-alive connection, neither of which is work this server did -- a log line blaming the server
-for a client typing slowly would be worse than no line at all.
-
-`response_bytes` is the body's size, which is what a `HEAD` request reports without sending, and
-is measured *after* `compressed` has had its say, so it is what went on the wire.
-
-`peer` is the transport address, `None` on a request that did not come off a socket. It is not
-`X-Forwarded-For`, which is `forwarded_for`'s job and a different question.
 
 ### `ServeOptions`
 

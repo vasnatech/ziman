@@ -94,7 +94,18 @@ def current_modules(root):
             continue
         text = path.read_text(errors="replace")
         names = {a or b for a, b in EXPORT.findall(text)}
-        out[path.stem] = names
+        # **A folder module's parts all belong to one name** (lib/http/server/, 2026-10-31): keyed
+        # by the file's own stem, `lib/http/server/cors.zm` would answer for a module `cors` that
+        # does not exist while `server` lost nine tenths of its exports -- which is how this first
+        # reported `server.route` missing.
+        #
+        # By depth, not by "a folder containing a file of its own name": `lib/db/db.zm` makes
+        # lib/db/ look like one of those, which made every module in that package answer as `db`
+        # and `use datasource` name no module at all. A bundled module is lib/<pkg>/<name>.zm or
+        # lib/<pkg>/<name>/<part>.zm, so four path components means the third is the module.
+        rel = path.relative_to(root).parts
+        owner = rel[2] if len(rel) == 4 else path.stem
+        out.setdefault(owner, set()).update(names)
     return out
 
 

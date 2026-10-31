@@ -139,6 +139,25 @@ def prelude_parts():
              "this tool reads it rather than keeping its own copy")
 
 
+def module_parts(name):
+    """lib/http/<name>/<part>.zm, in the Makefile's <NAME>_PARTS order.
+
+    Read from the Makefile for the reason `prelude_parts` is: a part missing from the list is not
+    in the binary, so it must not be in the manual either."""
+    key = name.upper() + "_PARTS :="
+    for line in read_lines(os.path.join(ROOT, "Makefile")):
+        if line.startswith(key):
+            names = line.split(":=", 1)[1].split()
+            paths = [os.path.join(ROOT, "lib", "http", name, n + ".zm") for n in names]
+            missing = [p for p in paths if not os.path.exists(p)]
+            if missing:
+                sys.exit("gen_lib_manual.py: %s names a file that is not there: %s"
+                         % (key.strip(" :="), ", ".join(missing)))
+            return paths
+    sys.exit("gen_lib_manual.py: lib/http/%s/ is a folder module with no %s line in the Makefile"
+             % (name, key.strip(" :=")))
+
+
 def parse(path):
     # A list of paths is the prelude, which is several files that make one page: each part becomes
     # a section, and only the first part's header describes the page (every part repeats the same
@@ -343,12 +362,22 @@ def main():
     for title, folder, names in GROUPS:
         index += ["## %s" % title, "", "| Module | What it is |", "|---|---|"]
         for name in names:
-            path = os.path.join(ROOT, "lib", folder, name + ".zm")
-            text, summary = page(name, path, folder)
+            # **A module may be a folder of parts** (lib/http/server/, lib/http/client/): one
+            # module in several files, merged by the loader. The page is built from all of them,
+            # the first part first, which is the order src/corelib.c's MODULE_PARTS has and the
+            # order the module comment and the types are in.
+            folded = os.path.join(ROOT, "lib", folder, name)
+            if os.path.isdir(folded):
+                parts = module_parts(name)
+                text, summary = page(name, parts, folder)
+                seen.update(parts)
+            else:
+                path = os.path.join(ROOT, "lib", folder, name + ".zm")
+                text, summary = page(name, path, folder)
+                seen.add(path)
             with open(os.path.join(OUT, name + ".md"), "w") as f:
                 f.write(text)
             index.append("| [`%s`](%s.md) | %s |" % (name, name, summary.replace("|", "\\|")))
-            seen.add(path)
         index.append("")
     path = prelude_parts()
     text, summary = page("prelude", path, "")
@@ -358,10 +387,11 @@ def main():
               "| [`prelude`](prelude.md) | %s |" % summary.replace("|", "\\|"), ""]
     seen.update(path)
     for folder in ("core", "db", "http", "time"):
-        for fn in sorted(os.listdir(os.path.join(ROOT, "lib", folder))):
-            p = os.path.join(ROOT, "lib", folder, fn)
-            if fn.endswith(".zm") and p not in seen:
-                sys.exit("gen_lib_manual.py: %s is in no group; add it to GROUPS" % p)
+        for root, _dirs, files in os.walk(os.path.join(ROOT, "lib", folder)):
+            for fn in sorted(files):
+                p = os.path.join(root, fn)
+                if fn.endswith(".zm") and p not in seen:
+                    sys.exit("gen_lib_manual.py: %s is in no group; add it to GROUPS" % p)
     wanted = {n + ".md" for _, _, names in GROUPS for n in names} | {"prelude.md", "README.md", "dependencies.md"}
     for stale in sorted(os.listdir(OUT)):
         if stale.endswith(".md") and stale not in wanted and stale != "library-map.md":

@@ -64,7 +64,7 @@ define embed_zm
 	awk -v src="$<" -v macro="$(1)" \
 	    'BEGIN { printf "/* Generated from %s -- do not edit directly. */\n#define %s \\\n", src, macro } \
 	     { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\?/, "\\?"); printf "    \"%s\\n\" \\\n", $$0 } \
-	     END { print "    \"\"" }' $< > $@
+	     END { printf "    \"\"\n#define %s_PATH \"%s\"\n", macro, src }' $< > $@
 endef
 
 $(BUILD)/%_source.h: %.zm | $(BUILD)
@@ -75,6 +75,15 @@ $(BUILD)/%_source.h: %.zm | $(BUILD)
 # vpath search is what guarantees a part can never be found as one.
 $(BUILD)/prelude_%_source.h: lib/prelude/%.zm | $(BUILD)
 	$(call embed_zm,PRELUDE_$(shell echo $* | tr a-z A-Z)_SOURCE)
+
+# The two multi-file bundled modules, each its own rule for the same reason the prelude has one:
+# the macro is prefixed by the module, so `lib/http/server/read.zm` and `lib/http/client/read.zm`
+# are SERVER_READ_SOURCE and CLIENT_READ_SOURCE rather than colliding on READ_SOURCE.
+$(BUILD)/server_%_source.h: lib/http/server/%.zm | $(BUILD)
+	$(call embed_zm,SERVER_$(shell echo $* | tr a-z A-Z)_SOURCE)
+
+$(BUILD)/client_%_source.h: lib/http/client/%.zm | $(BUILD)
+	$(call embed_zm,CLIENT_$(shell echo $* | tr a-z A-Z)_SOURCE)
 
 $(BUILD)/%.o: src/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<

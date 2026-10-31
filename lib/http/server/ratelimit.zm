@@ -1,0 +1,98 @@
+// ---------------------------------------------------------------- rate limiting
+
+native fn rate_allow_raw(bucket: string, key: string, limit: int, window_seconds: int, now_seconds: int) -> bool
+
+native fn rate_reset_raw()
+
+native fn conn_acquire_raw(key: string, limit: int) -> bool
+
+native fn conn_release_raw(key: string)
+
+native fn conn_count_raw(key: string) -> int
+
+// Whether this event is within `limit` for `key` in the last `window_seconds` -- and asking counts it,
+// so ask exactly once per event. `bucket` separates unrelated limits that share a key: `"login"` and
+// `"register"` keyed by the same address are two allowances, not one.
+//
+// What it is for: making an unauthenticated flood expensive. Per-account lockout already covers a
+// password guessed at one account (and throttles the email tried whether or not the account exists);
+// what it cannot cover is volume from one source against many accounts, or against an endpoint that
+// does real work for an anonymous caller -- registration above all, which asks OpenSSL for a ~19 MiB
+// Argon2id buffer before it knows who is asking (B10).
+//
+// Fixed window, not a token bucket: a client can spend its whole allowance at the end of one window
+// and again at the start of the next, so the honest worst case is twice `limit` over a window's width.
+// That is stated rather than hidden because it is the kind of thing a reader should not have to derive.
+//
+// At most 4096 distinct keys are tracked at once. Past that, an entry whose window has expired is
+// reused, and failing that the oldest window is replaced -- so a determined flood can push a
+// legitimate caller's count out and hand them a fresh allowance. That is a bounded loss of accuracy,
+// chosen over refusing everyone (a denial of service) or allowing everyone (no protection at all);
+// src/native_http.c says why at more length.
+pub fn rate_allow(bucket: string, key: string, limit: int, window_seconds: int) -> bool {
+    return rate_allow_at(bucket, key, limit, window_seconds, clock.monotonic_millis() / 1000)
+}
+
+// `rate_allow` with the clock supplied, the same way `jwt.verify_at` takes the time rather than reading
+// it. A test can then show a window expiring without waiting for one, and a caller with its own idea of
+// now -- a replayed log, a simulation -- can use that instead. `now_seconds` must not go backwards for a
+// given key: a window is "has `now` passed `window_start + window_seconds`", so a clock that jumps back
+// extends the current window rather than opening a new one.
+pub fn rate_allow_at(bucket: string, key: string, limit: int, window_seconds: int, now_seconds: int) -> bool {
+    return rate_allow_raw(bucket, key, limit, window_seconds, now_seconds)
+}
+
+// Forgets every counter. For a test that wants a known starting point -- a server calling this would
+// hand every client a fresh allowance.
+pub fn rate_reset() {
+    rate_reset_raw()
+}
+
+// How many connections `address` holds open right now. For a test; a server has no reason to ask.
+pub fn open_connections_of(address: string) -> int {
+    return conn_count_raw(address)
+}
+
+// The address to rate-limit a request by, for a server that sits behind proxies **it owns**.
+//
+// `trusted_hops` is how many proxies of your own are in front of this server. Read it that way and
+// nothing else: the function takes the entry that many places from the *right* of `X-Forwarded-For`,
+// because each proxy appends the address it saw and only the rightmost entries were written by
+// machines you control. Everything to the left of those was supplied by the client, which can write
+// whatever it likes there.
+//
+// So `trusted_hops: 0` returns `req.peer` and ignores the header entirely, which is the right answer
+// when nothing is in front. `trusted_hops: 1` behind one proxy of yours returns the address that proxy
+// saw. Getting the number too *high* is the dangerous direction: it starts trusting entries the client
+// wrote, which is how a rate limit becomes decoration. Too low merely limits the proxy instead of the
+// client, which is visible immediately.
+//
+// There is no default and no auto-detection on purpose. A library cannot know what is in front of a
+// server, and guessing would mean every deployment that is *not* behind a proxy accepts a header its
+// clients control.
+pub fn forwarded_for(req: Request, trusted_hops: int) -> Option<string> {
+    if trusted_hops < 1 {
+        return req.peer
+    }
+    val hops = mutable_array_new<string>()
+    for h in req.headers {
+        if equals_ignore_case(h.name, "X-Forwarded-For", invariant) {
+            for part in split(h.value, ",") {
+                val trimmed = trim(part)
+                if trimmed != "" {
+                    push(hops, trimmed)
+                }
+            }
+        }
+    }
+    val list = snapshot(hops)
+    // The transport peer is the last hop of all: it is the proxy that actually connected here, and it
+    // never appears in the header it wrote.
+    val index = len(list) - trusted_hops
+    if index < 0 || len(list) == 0 {
+        // Fewer entries than hops claimed: the request did not come through the chain this server was
+        // told to expect, so the only address that is certainly not forged is the one on the socket.
+        return req.peer
+    }
+    return Some(list[index])
+}

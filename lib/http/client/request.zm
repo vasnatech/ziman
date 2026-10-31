@@ -1,0 +1,220 @@
+// ------------------------------------------------------------ requests
+
+// What a finished exchange (following redirects) produced.
+struct Outcome {
+    response: Response
+    jar: CookieJar
+}
+
+// The engine behind every request function: redirects, cookies, credentials, proxies.
+fn run(
+    method: HttpMethod,
+    url: string,
+    headers: [Header],
+    body: Option<[byte]>,
+    timeout: int,
+    limit: int,
+    ca_file: Option<string>,
+    proxy_arg: Option<string>,
+    want_compression: bool,
+    reuse: bool,
+    jar: CookieJar
+) -> Result<Outcome, ClientError> {
+    val parsed = parse_url(url)
+    if Err(e) = parsed {
+        return err(ClientError.BadUrl(e))
+    }
+    var current = unwrap(parsed)
+    var m = method
+    var b = body
+    var hs = headers
+    var cookies = jar
+    var hops = 0
+    while true {
+        val proxy = try proxy_for(current, proxy_arg)
+        val cookie_value = jar_header(cookies, current)
+        val sent_headers = switch cookie_value {
+            Some(v) {
+                if Option.is_Some(header_value(hs, "Cookie")) { hs } else { push(
+                    hs,
+                    Header { name: "Cookie", value: v }
+                ) }
+            }
+            None { hs }
+        }
+        val resp = try send_once(m, current, proxy, sent_headers, b, timeout, ca_file, want_compression, reuse)
+        cookies = jar_store(cookies, current, resp.headers)
+        val s = resp.status
+        val redirect = s == status_moved_permanently || s == status_found || s == status_see_other || s == status_temporary_redirect ||
+            s == status_permanent_redirect
+        if !redirect || limit == 0 || !Option.is_Some(location_of(resp)) {
+            return ok(Outcome { response: resp, jar: cookies })
+        }
+        if hops >= limit {
+            return err(ClientError.TooManyRedirects)
+        }
+        val next = resolve_location(current, Option.unwrap_Some(location_of(resp)))
+        if Err(e) = next {
+            return err(ClientError.BadResponse(concat("bad redirect location: ", e)))
+        }
+        var next_url = unwrap(next)
+        val moved_away = next_url.host != current.host || next_url.port != current.port || next_url.secure != current.secure
+        if moved_away {
+            val kept = mutable_array_new<Header>()
+            for h in hs {
+                if !equals_ignore_case(h.name, "Authorization", invariant) && !equals_ignore_case(
+                    h.name,
+                    "Cookie",
+                    invariant
+                ) {
+                    push(kept, h)
+                }
+            }
+            hs = snapshot(kept)
+        } else if byte_len(next_url.userinfo) == 0 {
+            // Credentials given in the URL (`https://user:pass@host/`) survive a same-host
+            // redirect, which is what the header rule above already does for an `Authorization`
+            // header the caller passed in. They used not to: `resolve_location` rebuilds the URL
+            // from scheme + host:port + path and has nowhere to put `userinfo`, and the request
+            // headers are rebuilt from `current` on every hop -- so a plain `/login` -> `/home` on
+            // the same host arrived unauthenticated, and the caller saw a 401 from a server it had
+            // given a password to. Dropped on a cross-host redirect by the branch above, for the
+            // same reason the header is (D20).
+            next_url = with next_url { userinfo: current.userinfo }
+        }
+        current = next_url
+        if s == status_see_other || ((s == status_moved_permanently || s == status_found) && m == HttpMethod.Post) {
+            m = HttpMethod.Get
+            b = Option<[byte]>.None
+        }
+        hops = hops + 1
+    }
+    return err(ClientError.TooManyRedirects)
+}
+
+// Sends one request and returns the (final) response, its body as bytes.
+//   method        an `http.HttpMethod` (`HttpMethod.Get`, `HttpMethod.Post`, ...)
+//   headers       extra request headers; Host, Content-Length and Connection are always set by the client
+//   body          the request body, if any, as bytes (`to_bytes(text)` for text)
+//   timeout_ms    per read/write, default 30000
+//   max_redirects redirects to follow, default 5 (0 = return the 3xx as it is)
+//   ca_file       a PEM file of trusted CAs for https, instead of the system store (a private CA, a test
+//                 certificate); the certificate is always verified
+//   proxy         a proxy URL (`http://host:port`, optionally `user:pass@`); "" for none; if omitted, the
+//                 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` environment variables decide
+//   compress      ask for gzip/deflate and decode the body (default true)
+//   reuse         keep the connection for the next request to the same place (default true)
+pub fn request(
+    method: HttpMethod,
+    url: string,
+    headers: Option<[Header]>,
+    body: Option<[byte]>,
+    timeout_ms: Option<int>,
+    max_redirects: Option<int>,
+    ca_file: Option<string>,
+    proxy: Option<string>,
+    compress: Option<bool>,
+    reuse: Option<bool>
+) -> Result<Response, ClientError> {
+    val outcome = try run(
+        method,
+        url,
+        get_or(headers, []),
+        body,
+        get_or(timeout_ms, default_timeout_ms),
+        get_or(max_redirects, default_max_redirects),
+        ca_file,
+        proxy,
+        get_or(compress, true),
+        get_or(reuse, true),
+        cookie_jar()
+    )
+    return ok(outcome.response)
+}
+
+// `request`, with cookies: the jar's matching cookies are sent (on every redirect hop too), and the
+// cookies the responses set are stored. Returns the response and the updated jar; pass that jar to the
+// next call to stay "logged in". Other arguments as for `request`.
+pub fn request_with_jar(
+    jar: CookieJar,
+    method: HttpMethod,
+    url: string,
+    headers: Option<[Header]>,
+    body: Option<[byte]>,
+    timeout_ms: Option<int>,
+    max_redirects: Option<int>,
+    ca_file: Option<string>,
+    proxy: Option<string>,
+    compress: Option<bool>,
+    reuse: Option<bool>
+) -> Result<JarResponse, ClientError> {
+    val outcome = try run(
+        method,
+        url,
+        get_or(headers, []),
+        body,
+        get_or(timeout_ms, default_timeout_ms),
+        get_or(max_redirects, default_max_redirects),
+        ca_file,
+        proxy,
+        get_or(compress, true),
+        get_or(reuse, true),
+        jar
+    )
+    return ok(JarResponse { response: outcome.response, jar: outcome.jar })
+}
+
+// GET `url`.
+pub fn get(url: string) -> Result<Response, ClientError> {
+    return request(method: HttpMethod.Get, url: url)
+}
+
+// HEAD `url`: the status and headers, no body.
+pub fn head(url: string) -> Result<Response, ClientError> {
+    return request(method: HttpMethod.Head, url: url)
+}
+
+// DELETE `url`.
+pub fn delete(url: string) -> Result<Response, ClientError> {
+    return request(method: HttpMethod.Delete, url: url)
+}
+
+// POST with a JSON body: sets `Content-Type: application/json`.
+pub fn post_json(url: string, body: string) -> Result<Response, ClientError> {
+    return request(
+        method: HttpMethod.Post,
+        url: url,
+        body: to_bytes(body),
+        headers: [Header { name: "Content-Type", value: mime.format(mime.application_json()) }]
+    )
+}
+
+// PUT with a JSON body: sets `Content-Type: application/json`.
+pub fn put_json(url: string, body: string) -> Result<Response, ClientError> {
+    return request(
+        method: HttpMethod.Put,
+        url: url,
+        body: to_bytes(body),
+        headers: [Header { name: "Content-Type", value: mime.format(mime.application_json()) }]
+    )
+}
+
+// The fields as an `application/x-www-form-urlencoded` body: `a=1&b=x+y`, names and values
+// percent-encoded, in the map's insertion order.
+pub fn form_encode(fields: Map<string, string>) -> string {
+    val parts = mutable_array_new<string>()
+    for name, value in fields {
+        push(parts, format("{}={}", percent_encode(name, true), percent_encode(value, true)))
+    }
+    return join(separator: "&", pieces: snapshot(parts))
+}
+
+// POST an HTML-form-style body built from `fields` (`Content-Type: application/x-www-form-urlencoded`).
+pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, ClientError> {
+    return request(
+        method: HttpMethod.Post,
+        url: url,
+        body: to_bytes(form_encode(fields)),
+        headers: [Header { name: "Content-Type", value: mime.format(mime.application_form()) }]
+    )
+}

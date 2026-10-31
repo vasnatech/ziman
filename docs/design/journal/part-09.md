@@ -1159,3 +1159,58 @@ the link depths the move required. 1,347 fixtures, 420 library tests, the North 
 The largest hand-written file is now 200 KB, down from 1.2 MB -- `v0-decisions.md`,
 which is one section and splits no further without breaking it, as `roadmap/larger.md` at 152 KB
 also does; every part that *was* cut came out at or under the 120 KB budget.
+
+## A bundled module may be several files (2026-10-31)
+
+`lib/http/server.zm` was **2,878 lines** and `client.zm` 1,445. They are folders now --
+`lib/http/server/` in ten parts and `lib/http/client/` in seven, largest 567 lines -- and they are
+still one module each: `use server`, `server.serve`, 75 exported names unchanged.
+
+**The mechanism existed for exactly one module and was special-cased for it.** `prelude.c` held a
+table of ten parts and `loader.c` merged them inline, which is why [[project_ziman_prelude_layout]]
+records that adding a prelude part takes four edits. Generalising it is `src/corelib.c`'s
+`MODULE_PARTS` plus `parse_bundled_parts` in the loader: each part is parsed on its own, so its
+line numbers are its own, and registered under its real path, so a diagnostic inside
+`lib/http/server/cors.zm` says that file and brings its excerpt.
+
+**A part may not `use`.** The module's imports live in its first part, which is the rule a prelude
+part already follows, and the reason is that merging N import lists asks which part owns an import
+-- a question one list never has to answer. The first part carries the module comment, the imports
+and the types; the rest are the sections the single file was already divided into.
+
+**Disk and bundled mean different things by a folder, and that is deliberate.** On disk `use shapes`
+is `shapes/shapes.zm` *alone*, because a folder there is a namespace of modules -- the North Star
+has `controller/shared_link.zm` beside `controller/controller.zm` and imports both. A bundled
+module's parts are listed in a table, which is explicit where a directory listing would be a guess.
+Unifying them would have merged every controller into one module.
+
+### What it broke, and what that was worth finding
+
+Four tools assumed a module is a file, and each was a real gap rather than a rename:
+
+* **`gen_lib_manual.py`** read `lib/<pkg>/<name>.zm`. Its orphan check also walked one level, so a
+  part would have been reported as "in no group" -- it walks the tree now.
+* **`check_doc_modules.py`** keyed exports by filename, so `lib/http/server/cors.zm` answered for a
+  module `cors` that does not exist while `server` lost nine tenths of its exports: that is how it
+  first reported `server.route` missing from the docs. Keyed by path *depth* now, after a first
+  attempt keyed on "a folder containing a file of its own name" matched `lib/db/` -- `db.zm` lives
+  there -- and made every module in that package answer as `db`.
+* **`--api server`** printed nothing, because it reads one source. `corelib_whole_source_for` joins
+  the parts for a caller that wants the text rather than to parse it; the language server's cached
+  file uses it too.
+* **`lint_lib.py` stopped working entirely**, and fixing it properly is the best thing to come out
+  of this. It loaded `lib/` *from disk* under `ZIMAN_MODULE_PATH` because a bundled declaration's
+  `source_file` is NULL and the lint discards findings without one (F133) -- and from disk,
+  `use server` is one part of ten, so the other nine names were undefined. The fix was not an
+  exception for folder modules: **every bundled module now carries its own `origin_file`**, emitted
+  beside its source by the Makefile so it cannot drift. `--lint-bundled` therefore reports against
+  real paths for all of `lib/`, and the tool is one pass over a carrier program instead of two
+  passes and a module path. 97 files, zero findings, seven `// lint-ok:`.
+
+The gap that last point closed had been noted the day before and worked around: `--lint-bundled`
+could see nothing but the prelude, because the prelude's parts were the only bundled declarations
+with an `origin_file`. The workaround was the disk sweep; it took this split to make the
+workaround fail and the real fix obvious.
+
+**`memdb.zm` is 4,402 lines and is now the largest single file in `lib/`.** The mechanism is there
+when it is wanted.

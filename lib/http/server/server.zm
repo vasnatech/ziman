@@ -1,0 +1,240 @@
+// server.zm -- an HTTP/1.1 *server* toolkit, written in Ziman on top of
+// `net`: parse a request off a socket, route it, write a response.
+// Two ways to use it. `serve(listener, ctx, handler, options)` runs the accept
+// loop and the per-connection loop for you and calls your handler -- a
+// function value -- for each request (see "serve" at the end of this file).
+// Or write your own accept loop and connection loop and call the pieces:
+// `read_request`, `write_response`, the response builders, and route matching
+// that extracts path parameters (`route`, `param`). A handler cannot capture
+// (function values are references to named functions or lambdas), so what it needs
+// besides the request travels as an explicit context value.
+//
+// What it speaks: HTTP/1.1 and 1.0 requests with a request line, headers
+// and an optional body (`Content-Length`, or `Transfer-Encoding: chunked`, decoded); keep-alive
+// across requests on one connection (including pipelined requests already in the buffer);
+// `Expect: 100-continue`; `HEAD` (headers only). Every response carries `Date` and `X-Content-Type-Options: nosniff`, and none says
+// what server it is (a `Server` header only tells an attacker what to look for); a handler that sets either header itself is not overridden. What it
+// does not: other transfer encodings (answered 501), HTTP/2, and
+// request trailers (read and ignored). `multipart/form-data` bodies are read on request (see
+// `multipart`) and responses are gzipped on request (see `compressed`); neither happens unasked. TLS is the socket's business: hand `serve` a listener from
+// `net.listen_tls` and every connection is HTTPS. Request and response bodies are `[byte]` and may
+// hold any byte, including a NUL -- only the request line and headers are read as text, so a NUL
+// there (not in the body) is what gets a 400 (a Ziman `string` cannot hold one).
+//
+// Bounded by design: headers may total at most 16 KiB and a body at most
+// 1 MiB, so a client can't make a handler thread buffer without limit;
+// exceeding them is `HeadersTooLarge`/`BodyTooLarge` (431/413). Set a read
+// timeout on the socket (`net.set_timeout`) so an idle or stalled client
+// can't hold a thread forever: a timed-out read is `Err(Timeout)`. A per-read
+// timeout alone does not stop a client that sends a byte just inside it, again
+// and again (slowloris), so `open_session_with_timeouts` (which `serve` uses,
+// with `idle_timeout_ms`) also bounds the whole request -- head and body --
+// from its first byte. A request's head has a shorter limit of its own (`header_timeout_ms`, from its first byte to the blank line), and so does
+// a new connection's first byte: a client that opens a connection and says nothing, or sends its head a byte at a time, is let go
+// after that long rather than after `idle_timeout_ms`, so a handful of them cannot keep every connection slot from real clients.
+//
+// Strict where a proxy in front might be lenient, because a difference between the
+// two is how requests get smuggled: a request whose `Content-Length` values differ,
+// or is not plain digits (`+5`), or that has two `Transfer-Encoding` or `Host`
+// headers, or an HTTP/1.1 request with no `Host`, or a header name that is not a
+// token, or a header line with a bare CR or LF or another control character, is a
+// 400. Response headers are checked on the way out: `write_response` refuses a
+// header whose name is not a token or whose value has a control character (CRLF
+// injection through a value an application took from a client) and sends a 500.
+
+val read_chunk_bytes = 4096
+val accept_error_backoff_ms = 10
+
+// How long the poller waits on a batch of idle connections before looking around again. Bounded for
+// the same reason `accept` polls in slices underneath: a shutdown has to be noticed, and there is no
+// way to interrupt a wait told to last forever. 250ms matches what accept_raw uses.
+val poll_slice_ms = 250
+
+// How long a worker waits for a keep-alive connection's next request before handing it back to the
+// poller. Small on purpose: it is a bet that a busy connection's next request is already arriving,
+// and the cost of losing the bet is one wasted wait, where the cost of not betting is a thread
+// spawn and two channel hops per request (see serve_burst).
+val keepalive_grace_ms = 5
+val http_1_0 = "HTTP/1.0"
+val http_1_1 = "HTTP/1.1"
+val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
+
+use clock
+use compress
+use http.Header
+use http.HttpMethod
+use http.Request
+use http.Response
+use http.content_type
+use http.header
+use http.header_value
+use http.is_field_value
+use http.is_token
+use http.method_name
+use http.method_parse
+use http.percent_decode
+use http.quality
+use http.status_accepted
+use http.status_bad_request
+use http.status_conflict
+use http.status_continue
+use http.status_created
+use http.status_forbidden
+use http.status_found
+use http.status_header_fields_too_large
+use http.status_internal_server_error
+use http.status_method_not_allowed
+use http.status_moved_permanently
+use http.status_no_content
+use http.status_not_acceptable
+use http.status_not_found
+use http.status_not_implemented
+use http.status_not_modified
+use http.status_ok
+use http.status_payload_too_large
+use http.status_request_timeout
+use http.status_service_unavailable
+use http.status_too_many_requests
+use http.status_unauthorized
+use http.status_unprocessable_entity
+use http.status_unsupported_media_type
+use json
+use json.Json
+use json.parse
+use locale
+use metrics
+use mime
+use net
+use net.Listener
+use net.NetError
+use net.Socket
+use net.net_error_message
+use number.byte_from_hex
+use number.int_from_hex
+use number.to_hex
+use os
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
+
+// The `{name}` captures of a matched route, by position.
+pub struct Params {
+    names: [string]
+    values: [string]
+}
+
+// Why reading a request failed: malformed (`BadRequest`), too large (`BodyTooLarge`,
+// `HeadersTooLarge`), unsupported (`NotImplemented`), a stalled client (`Timeout`), a peer that
+// went away (`Closed`) or a socket error (`Io`). `serve` answers each with the matching status
+// where the peer is still there.
+pub enum HttpError {
+    BadRequest(string)
+    BodyTooLarge
+    HeadersTooLarge
+    NotImplemented(string)
+    Timeout
+    Closed
+    Io(string)
+}
+
+// One client connection's read state: the socket, plus any bytes already
+// read past the end of the last request (the start of the next, when a
+// client pipelines). Values are immutable, so `read_request` returns the
+// updated session rather than changing this one.
+pub struct Session {
+    sock: Socket
+    buffer: [byte]
+    timeout_ms: int
+    head_timeout_ms: int
+    fresh: bool
+    // The largest request body `read_request` will accept, or 0 for this module's 1 MiB default.
+    // `serve` fills it from `ServeOptions.max_body_bytes`; the `open_session*` constructors leave it
+    // 0, so a caller reading requests off its own socket keeps the default until it says otherwise.
+    //
+    // It is here rather than only on `ServeOptions` because `read_request(session)` is the public
+    // entry point and the North Star backend calls it directly -- a limit the server knows has to
+    // reach it somehow, and widening that signature would break every such caller (D21, D22).
+    max_body_bytes: int
+}
+
+// One request read from a connection, with the session to read the next one from.
+pub struct Exchange {
+    request: Request
+    session: Session
+}
+
+val max_header_bytes = 16384
+val max_body_bytes = 1048576
+val max_chunk_line_bytes = 1024
+
+// ------------------------------------------------------------ helpers
+
+fn lift<T>(r: Result<T, NetError>) -> Result<T, HttpError> {
+    if Err(e2) = r {
+        val e = e2
+        if NetError.is_Timeout(e) {
+            return err(HttpError.Timeout)
+        }
+        if NetError.is_Closed(e) {
+            return err(HttpError.Closed)
+        }
+        return err(HttpError.Io(net_error_message(e)))
+    }
+    return unwrap(r)
+}
+
+fn text_of(b: [byte], start: int, end: int) -> Result<string, HttpError> {
+    if Ok(s) = bytes_to_string(slice(b, start, end)) {
+        return s
+    }
+    return err(HttpError.BadRequest("request contains a NUL byte"))
+}
+
+val crlf: [byte] = [13b, 10b]
+val crlf_crlf: [byte] = [13b, 10b, 13b, 10b]
+
+// Index just past the first CRLF CRLF, or -1.
+fn find_head_end(buf: [byte]) -> int {
+    val at = index_of(buf, crlf_crlf, 0)
+    return if at < 0 { -1 } else { at + 4 }
+}
+
+// A new connection's read state: the socket and nothing buffered yet. Reads are bounded only by
+// the socket's own timeout, one read at a time.
+pub fn open_session(sock: Socket) -> Session {
+    return Session { sock: sock, buffer: [], timeout_ms: 0, head_timeout_ms: 0, fresh: false, max_body_bytes: 0 }
+}
+
+// Like `open_session`, and the whole of each request (head and body, from its first byte) must
+// arrive within `timeout_ms` (a stalled or dripping client gets `Err(Timeout)`, answered 408), on top
+// of the socket's per-read timeout, which it sets and resets itself: set none yourself. `serve` opens
+// its sessions this way with `idle_timeout_ms`.
+#[deprecated("use open_session_with_timeouts, which also bounds the request head")]
+pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session {
+    return Session {
+        sock: sock,
+        buffer: [],
+        timeout_ms: timeout_ms,
+        head_timeout_ms: 0,
+        fresh: false,
+        max_body_bytes: 0
+    }
+}
+
+// Like `open_session_with_timeout`, and the head of each request -- from its first byte to the blank line that ends it -- must also arrive within
+// `head_timeout_ms` (a client that is honest sends it at once). For a session on a new connection the socket's own timeout must already be
+// `head_timeout_ms`, which is then also how long the first byte may take; once the first request is read, the socket goes back to `timeout_ms`, the wait
+// between requests of a keep-alive connection. `serve` opens its sessions this way with `ServeOptions.header_timeout_ms`.
+pub fn open_session_with_timeouts(sock: Socket, timeout_ms: int, head_timeout_ms: int) -> Session {
+    return Session {
+        sock: sock,
+        buffer: [],
+        timeout_ms: timeout_ms,
+        head_timeout_ms: head_timeout_ms,
+        fresh: true,
+        max_body_bytes: 0
+    }
+}

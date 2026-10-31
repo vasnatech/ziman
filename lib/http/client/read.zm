@@ -1,0 +1,250 @@
+// ------------------------------------------------------------ reading
+
+fn lift<T>(r: Result<T, NetError>) -> Result<T, ClientError> {
+    return switch r {
+        Ok(v) { ok(v) }
+        Err(e) {
+            if NetError.is_Timeout(e) {
+                return err(ClientError.Timeout)
+            }
+            return err(ClientError.Network(net_error_message(e)))
+        }
+    }
+}
+
+fn text_of(b: [byte]) -> Result<string, ClientError> {
+    if Ok(s) = bytes_to_string(b) {
+        return s
+    }
+    return err(ClientError.BadResponse("body contains a NUL byte"))
+}
+
+fn header_value(headers: [Header], name: string) -> Option<string> {
+    for h in headers {
+        if equals_ignore_case(h.name, name, invariant) {
+            return Option<string>.Some(h.value)
+        }
+    }
+    return Option<string>.None
+}
+
+// The first header called `name` (any case) of a response, or None.
+pub fn response_header(r: Response, name: string) -> Option<string> {
+    return header_value(r.headers, name)
+}
+
+// Reads at least one more byte from the socket onto `buf`.
+fn more(sock: Socket, buf: [byte]) -> Result<[byte], ClientError> {
+    return concat(buf, try lift<[byte]>(net.read(sock, read_chunk_bytes)))
+}
+
+// A status line and headers, and the bytes read past them.
+struct Head {
+    status: int
+    status_line: string
+    headers: [Header]
+    rest: [byte]
+}
+
+// A body, and whether the connection can be reused afterwards (the body was framed by length, and
+// nothing is left unread).
+struct Body {
+    bytes: [byte]
+    clean: bool
+}
+
+// Reads a response head: everything up to the blank line, parsed. `first_byte_seen` is false until at
+// least one byte arrived (a reused connection that answers with a close before any byte is retried).
+fn read_head(sock: Socket) -> Result<Head, ClientError> {
+    var buf: [byte] = []
+    var head_end = -1
+    while head_end < 0 {
+        if len(buf) > max_header_bytes {
+            return err(ClientError.BadResponse("response headers are too large"))
+        }
+        val step = try more(sock, buf)
+        buf = step
+        val at = index_of(buf, crlf_crlf, 0)
+        head_end = if at < 0 { -1 } else { at + 4 }
+    }
+    val head = try text_of(slice(buf, 0, head_end - 4))
+    val lines = split(head, "\r\n")
+    val status_parts = split(lines[0], " ")
+    if len(status_parts) < 2 || !starts_with(status_parts[0], "HTTP/1.") {
+        return err(ClientError.BadResponse(concat("malformed status line: ", lines[0])))
+    }
+    val status = switch parse_int(status_parts[1]) {
+        Ok(v) { v }
+        Err(_) { return err(ClientError.BadResponse(concat("malformed status line: ", lines[0]))) }
+    }
+    val headers = mutable_array_new<Header>()
+    var i = 1
+    while i < len(lines) {
+        if Some(pair) = split_once(lines[i], ":") {
+            push(headers, Header { name: pair[0], value: trim(pair[1]) })
+        } else {
+            return err(ClientError.BadResponse(concat("malformed header line: ", lines[i])))
+        }
+        i = i + 1
+    }
+    return ok(Head {
+        status: status,
+        status_line: lines[0],
+        headers: snapshot(headers),
+        rest: slice(buf, head_end, len(buf))
+    })
+}
+
+// The body of a chunked response, through the last chunk and the trailers, so the connection is left
+// at the start of whatever comes next. `start` holds what was already read past the head.
+fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
+    var buf = start
+    val body = mutable_array_new<byte>()
+    var total = 0
+    while true {
+        var eol = index_of(buf, crlf, 0)
+        while eol < 0 {
+            if len(buf) > max_chunk_size_line_bytes {
+                return err(ClientError.BadResponse("chunk size line is too long"))
+            }
+            val step = try more(sock, buf)
+            buf = step
+            eol = index_of(buf, crlf, 0)
+        }
+        val line = try text_of(slice(buf, 0, eol))
+        val size_text = trim(split(line, ";")[0])
+        val size = switch int_from_hex(size_text) {
+            Ok(v) {
+                if v < 0 {
+                    return err(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
+                }
+                v
+            }
+            Err(_) { return err(ClientError.BadResponse(concat("invalid chunk size: ", size_text))) }
+        }
+        buf = slice(buf, eol + 2, len(buf))
+        if size == 0 {
+            var trailer_end = index_of(buf, crlf, 0)
+            while trailer_end != 0 {
+                while trailer_end < 0 {
+                    if len(buf) > max_header_bytes {
+                        return err(ClientError.BadResponse("response trailers are too large"))
+                    }
+                    val step = try more(sock, buf)
+                    buf = step
+                    trailer_end = index_of(buf, crlf, 0)
+                }
+                if trailer_end != 0 {
+                    buf = slice(buf, trailer_end + 2, len(buf))
+                    trailer_end = index_of(buf, crlf, 0)
+                }
+            }
+            return ok(Body { bytes: snapshot(body), clean: len(buf) == 2 })
+        }
+        total = total + size
+        if total > max_body_bytes {
+            return err(ClientError.TooLarge)
+        }
+        while len(buf) < size + 2 {
+            val step = try more(sock, buf)
+            buf = step
+        }
+        push(body, slice(buf, 0, size))
+        buf = slice(buf, size + 2, len(buf))
+    }
+    return ok(Body { bytes: [], clean: false })
+}
+
+// A body that runs until the server closes the connection (so the connection cannot be reused).
+fn read_to_close(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
+    val body = mutable_array_new<byte>()
+    push(body, start)
+    while true {
+        if len(body) > max_body_bytes {
+            return err(ClientError.TooLarge)
+        }
+        val chunk = net.read(sock, read_chunk_bytes)
+        if Err(e2) = chunk {
+            val e = e2
+            if NetError.is_Closed(e) {
+                return ok(Body { bytes: snapshot(body), clean: false })
+            }
+            if NetError.is_Timeout(e) {
+                return err(ClientError.Timeout)
+            }
+            return err(ClientError.Network(net_error_message(e)))
+        }
+        push(body, unwrap(chunk))
+    }
+    return err(ClientError.Timeout)
+}
+
+// Reads the body the head announces.
+fn read_body(sock: Socket, head: Head, head_only: bool) -> Result<Body, ClientError> {
+    val status = head.status
+    val no_body = head_only || status < 200 || status == status_no_content || status == status_not_modified
+    if no_body {
+        return ok(Body { bytes: [], clean: len(head.rest) == 0 })
+    }
+    val te = header_value(head.headers, "Transfer-Encoding")
+    val cl = header_value(head.headers, "Content-Length")
+    if Some(te) = te && contains(to_lower(te, invariant), "chunked") {
+        return read_chunked(sock, head.rest)
+    }
+    if Some(cl) = cl {
+        val n = switch parse_int(trim(cl)) {
+            Ok(v) {
+                if v < 0 {
+                    return err(ClientError.BadResponse("invalid Content-Length"))
+                }
+                v
+            }
+            Err(_) { return err(ClientError.BadResponse("invalid Content-Length")) }
+        }
+        if n > max_body_bytes {
+            return err(ClientError.TooLarge)
+        }
+        if n > len(head.rest) {
+            return ok(Body {
+                bytes: concat(head.rest, try lift<[byte]>(net.read_exact(sock, n - len(head.rest)))),
+                clean: true
+            })
+        }
+        return ok(Body { bytes: slice(head.rest, 0, n), clean: len(head.rest) == n })
+    }
+    return read_to_close(sock, head.rest)
+}
+
+// Undoes `Content-Encoding: gzip` / `deflate`, dropping the two headers the encoding made untrue. An
+// encoding this client does not know is left alone.
+fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<Response, ClientError> {
+    val enc = header_value(headers, "Content-Encoding")
+    if !Option.is_Some(enc) || len(body) == 0 {
+        return ok(Response { status: status, headers: headers, body: body })
+    }
+    val name = to_lower(trim(Option.unwrap_Some(enc)), invariant)
+    if name != "gzip" && name != "x-gzip" && name != "deflate" {
+        return ok(Response { status: status, headers: headers, body: body })
+    }
+    var decoded = decompress(body, max_body_bytes)
+    // HTTP's "deflate" is supposed to be zlib-wrapped (RFC 1950), but some servers send raw RFC 1951
+    // deflate with no header at all; if the standard decode fails, retry as raw before giving up.
+    if !is_ok(decoded) && name == "deflate" && unwrap_err(decoded) == "compressed data is corrupt" {
+        decoded = inflate_raw(body, max_body_bytes)
+    }
+    if Err(e) = decoded {
+        val why = e
+        if why == "decompressed data is too large" {
+            return err(ClientError.TooLarge)
+        }
+        return err(ClientError.BadResponse(format("cannot decode {} body: {}", name, why)))
+    }
+    val kept = mutable_array_new<Header>()
+    for h in headers {
+        val lname = to_lower(h.name, invariant)
+        if lname != "content-encoding" && lname != "content-length" {
+            push(kept, h)
+        }
+    }
+    return ok(Response { status: status, headers: snapshot(kept), body: unwrap(decoded) })
+}

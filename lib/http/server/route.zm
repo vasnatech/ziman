@@ -1,0 +1,143 @@
+// -------------------------------------------------------------- routing
+
+// Matches `path` against `pattern`: literal segments must be equal, and a
+// `{name}` segment captures any non-empty segment (percent-decoded). A
+// trailing slash is ignored on both sides. `None` if it doesn't match.
+pub fn path_params(pattern: string, path: string) -> Option<Params> {
+    return capture(compile_pattern(pattern), segments_of(path))
+}
+
+// A route pattern split into its segments once, so matching never splits or re-parses it: `parts[i]` is a
+// literal segment's text, or a `{name}` segment's name, and `is_param[i]` says which.
+struct Pattern {
+    parts: [string]
+    is_param: [bool]
+}
+
+// `path` without a trailing slash (the bare "/" stays) split on "/": what a path and a pattern are both
+// matched as.
+fn segments_of(path: string) -> [string] {
+    var p = path
+    if len(p) > 1 && ends_with(p, "/") {
+        p = substring(p, 0, len(p) - 1)
+    }
+    return split(p, "/")
+}
+
+fn compile_pattern(pattern: string) -> Pattern {
+    val parts = mutable_array_new<string>()
+    val is_param = mutable_array_new<bool>()
+    for segment in segments_of(pattern) {
+        if len(segment) >= 3 && starts_with(segment, "{") && ends_with(segment, "}") {
+            push(parts, substring(segment, 1, len(segment) - 1))
+            push(is_param, true)
+        } else {
+            push(parts, segment)
+            push(is_param, false)
+        }
+    }
+    return Pattern { parts: snapshot(parts), is_param: snapshot(is_param) }
+}
+
+// Whether the split path `got` has this pattern's shape: as many segments, every literal equal, every
+// `{name}` segment non-empty. Allocates nothing; percent-decoding a captured segment waits for `capture`.
+fn shape_matches(p: Pattern, got: [string]) -> bool {
+    if len(p.parts) != len(got) {
+        return false
+    }
+    var i = 0
+    while i < len(got) {
+        if p.is_param[i] {
+            if got[i] == "" {
+                return false
+            }
+        } else if p.parts[i] != got[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// The captures of the split path `got` under `p`, percent-decoded, or None if it does not match (a
+// captured segment that is not valid percent-encoding is no match).
+fn capture(p: Pattern, got: [string]) -> Option<Params> {
+    if !shape_matches(p, got) {
+        return Option<Params>.None
+    }
+    val names = mutable_array_new<string>()
+    val values = mutable_array_new<string>()
+    var i = 0
+    while i < len(got) {
+        if p.is_param[i] {
+            if Ok(decoded) = percent_decode(got[i], false) {
+                push(names, p.parts[i])
+                push(values, decoded)
+            } else {
+                return Option<Params>.None
+            }
+        }
+        i = i + 1
+    }
+    return Option<Params>.Some(Params { names: snapshot(names), values: snapshot(values) })
+}
+
+// `Some(params)` if the request's method is `method` and its path matches
+// `pattern`, else `None` -- the one-line test a route function is built
+// from: `val m = server.route(req, HttpMethod.Get, "/patients/{id}")`.
+pub fn route(req: Request, method: HttpMethod, pattern: string) -> Option<Params> {
+    if req.method != method {
+        return Option<Params>.None
+    }
+    return path_params(pattern, req.path)
+}
+
+// A captured parameter by name. Asking for a name the pattern doesn't
+// have is a bug in the route function, so it is a fatal error rather than
+// a value to check.
+pub fn param(p: Params, name: string) -> string {
+    var i = 0
+    while i < len(p.names) {
+        if p.names[i] == name {
+            return p.values[i]
+        }
+        i = i + 1
+    }
+    val missing: Result<string, string> = err(concat("no route parameter named ", name))
+    return unwrap(missing)
+}
+
+// What to answer when no route matched. `routes` lists every route as
+// "METHOD /pattern": if the path matches some route under a *different*
+// method the answer is 405 with an Allow header, otherwise 404.
+pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Response {
+    val allowed = mutable_array_new<string>()
+    for r in routes {
+        val parts = split(r, " ")
+        if len(parts) == 2 && Option.is_Some(path_params(parts[1], req.path)) {
+            push(allowed, parts[0])
+        }
+    }
+    val methods = snapshot(allowed)
+    return if len(methods) > 0 { method_not_allowed(methods) } else { not_found() }
+}
+
+// A query-string value by name, percent-decoded ("+" is a space); the
+// first one if it is repeated. `None` if absent.
+pub fn query_param(req: Request, name: string) -> Option<string> {
+    for pair in split(req.query, "&") {
+        val kv = split_once(pair, "=")
+        if Some(parts) = kv {
+            if Ok(key) = percent_decode(parts[0], true) {
+                if key == name {
+                    if Ok(value) = percent_decode(parts[1], true) {
+                        return Option<string>.Some(value)
+                    }
+                }
+            }
+        } else if pair == name {
+            return Option<string>.Some("")
+        }
+    }
+    return Option<string>.None
+}

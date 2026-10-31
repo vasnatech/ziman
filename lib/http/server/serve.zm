@@ -1,0 +1,566 @@
+// ------------------------------------------------------------------- serve
+//
+// The accept loop and the per-connection request loop, so an application only
+// supplies its handler. A handler is a *function value*: a named function, or a
+// lambda that captures what it needs (a database connection, a configuration):
+//
+//     server.serve(listener, fn(req) { route(conn, req) }, options)
+//
+// One thread per connection, at most `max_connections` at once (the limit is a
+// channel used as a counting semaphore: a client past it waits in the kernel's
+// accept queue). `serve` returns when a shutdown has been requested
+// (`os.install_shutdown_handler()` makes SIGINT/SIGTERM do that) and every
+// connection already being served has finished -- an idle keep-alive
+// connection ends at `idle_timeout_ms` at the latest. It does not close the
+// listener or install the signal handler; the caller owns both.
+//
+// `idle_timeout_ms` is how long a client may take over anything else: a keep-alive connection waiting for its next request, a body, a
+// stalled read. `header_timeout_ms` (use a few seconds; it should not exceed `idle_timeout_ms`) is how long a new connection may take to send its first byte, and any
+// request to send its head once it has begun: an honest client needs milliseconds, so a client that opens connections and dawdles is dropped fast and cannot hold
+// every one of the `max_connections` slots for `idle_timeout_ms` at a time. It cannot tell one client from another, so a determined flood from many
+// addresses is a job for a firewall or the proxy in front (see the roadmap).
+// One finished exchange, for `ServeOptions.on_request`.
+//
+// A struct rather than a handful of parameters **because the library builds it and the application
+// only reads it**: a field added here later cannot break a caller, which is the opposite of the
+// `ServeOptions` literal problem F61 ran into, where every field of a struct the *caller* builds is
+// required. So this is a shape that can grow.
+//
+// `duration_ms` is the time to *serve*: from the request being fully read to its response being
+// written. It deliberately excludes the client's own slowness in sending and the idle wait on a
+// keep-alive connection, neither of which is work this server did -- a log line blaming the server
+// for a client typing slowly would be worse than no line at all.
+//
+// `response_bytes` is the body's size, which is what a `HEAD` request reports without sending, and
+// is measured *after* `compressed` has had its say, so it is what went on the wire.
+//
+// `peer` is the transport address, `None` on a request that did not come off a socket. It is not
+// `X-Forwarded-For`, which is `forwarded_for`'s job and a different question.
+pub struct RequestLog {
+    method: HttpMethod
+    target: string
+    status: int
+    duration_ms: int
+    response_bytes: int
+    peer: Option<string>
+}
+
+pub struct ServeOptions {
+    idle_timeout_ms: int
+    header_timeout_ms: int
+    // The most requests served at once -- not the most clients connected. A connection holds one
+    // of these only while it is actually serving a request; between requests it is parked with the
+    // poller and holds nothing, so a server can hold far more keep-alive clients than this number
+    // (`net.wait_readable`, and `park_loop` below).
+    //
+    // It used to mean the other thing, and the difference is worth knowing if you are carrying a
+    // size forward: a connection held a slot for its whole life, so under keep-alive an occupant
+    // kept one through `idle_timeout_ms` of doing nothing and a 65th client against a cap of 64
+    // waited for a *timeout* rather than for a request. 256 keep-alive clients against a cap of 64
+    // took one full idle timeout whatever the request count -- 31.5s -- where they now take
+    // 1.5-2.0s and a cap of 64 measures the same as a cap of 256 (docs/reviews/tasks/ F139).
+    //
+    // So size it by the concurrency of *work* you want to admit, which is what a thread-per-request
+    // server can usefully run at once, and let the client count follow from sockets.
+    max_connections: int
+    log_requests: bool
+    // The largest request body to accept, or 0 for the library's 1 MiB default. A body over it is
+    // refused with 413 before the handler is reached, and the limit applies to what arrives on the
+    // wire -- the encoded body, `multipart` boundaries included.
+    max_body_bytes: int
+    // How to render a rejection the server makes before the handler is ever reached -- a 400 for a malformed
+    // request line, a 408 when the client stops mid-request, a 413 for too large a body, a 431 for too large a
+    // header block, a 501 for a method the parser will not take. `None` uses the library's own JSON shape.
+    //
+    // Pass the same renderer the application gives `dispatch`, and a client sees one error shape from the whole
+    // server instead of two: a browser that cannot read the body of its own 413 because it arrived in a
+    // different shape with none of the application's headers is the reason this exists. Whatever it returns is
+    // written as-is, so an HSTS header it adds is on the rejection too.
+    //
+    // It gets a status and a sentence, not the Request: these failures happen while the request is being read,
+    // so there may be no parsed request to pass -- which is also why a per-request header like
+    // `Access-Control-Allow-Origin` cannot be set here, there being no `Origin` to answer.
+    fault: Option<fn(int, string) -> Response>
+    // Called once per finished exchange, with everything the server knows about it. This is the
+    // composable half of request logging: `log_requests` gives the library's one fixed line, and
+    // this gives the application the fields to write its own -- through the `log` module, as JSON,
+    // with a request id, or wherever its logs actually go. The two are independent; setting both
+    // prints the built-in line *and* calls this.
+    //
+    // A field on the options, not a wrapper around `dispatch` as the roadmap first imagined: a
+    // wrapper would have to return a closure and allocate one per request, which is the same reason
+    // the CORS pair is two plain functions (tasks.md F59). One function value is stored here once.
+    //
+    // **Only completed exchanges.** A request the server rejects before parsing one -- a malformed
+    // request line, a client that stops mid-head, a body over the cap -- never reaches this, because
+    // there is no request to describe; the same reason `fault` above takes a status and a sentence
+    // rather than a `Request`. Those rejections are `fault`'s to render.
+    //
+    // Typed `fn(RequestLog)` and not `fn(RequestLog) -> unit`: a void function's type *is* the
+    // former, so an application writes `fn note(entry: RequestLog) { ... }` and passes it, with no
+    // `-> unit` to remember. This is the library's first callback that returns nothing, so the
+    // spelling is set here.
+    on_request: Option<fn(RequestLog)>
+    // Whether to record `http_open_connections` and the two byte counters. Per-request metrics are
+    // separate, on the route table (`metered_routes`), because only something that matched the request
+    // knows the pattern to label it with -- and a pattern is the only label worth having.
+    metrics: bool
+    // Gzip a response when the client offers it and the body is at least 1 KiB -- see `compressed`,
+    // which this simply turns on. Off by default on purpose: compressing a response that carries a
+    // secret alongside attacker-influenced text leaks it through the length (BREACH), and an API
+    // whose login answer holds a JWT is that shape. Ask for it per server rather than inheriting it.
+    compress_responses: bool
+    // How many connections one address may hold at once. 0 is off, and is the default a server should keep
+    // unless it is reached directly by clients: behind a reverse proxy every connection carries the
+    // proxy's address, so any cap would be a cap on the proxy.
+    //
+    // This is the half a request throttle cannot cover. A client that opens connections and never sends a
+    // request is counted by no rate limit, and can fill every `max_connections` slot;
+    // `header_timeout_ms` frees such a slot within seconds, which bounds how long the flood holds one, not
+    // how many it holds at once. A refusal here closes the socket without writing anything -- answering
+    // would mean writing to a flooding client from the accept loop, where one slow read stalls every other
+    // connection's accept.
+    //
+    // The address is the socket's, necessarily: at accept time there is no request yet, so there is no
+    // `X-Forwarded-For` to consult even if it were trustworthy. That is the same reason the default is off.
+    max_connections_per_client: int
+}
+
+// What a connection's thread does when a runtime error in the handler (or anywhere in the thread) ends it: the error goes to stderr, and the client is answered
+// `500` with a generic body, as best it can be (the connection may be half way through a response) -- nothing about the error reaches the client. The thread's
+// own deferred calls (giving its slot back, closing the socket) run after this, and the server goes on serving everyone else.
+// A connection the poller is holding: everything about it that outlives a single request, which is
+// more than the socket. `client_key` is what the per-client cap counted it under and must be
+// released exactly once; `deadline_ms` is when an idle connection has waited long enough.
+struct Parked {
+    session: Session
+    client_key: string
+    deadline_ms: int
+}
+
+// What one burst of serving answers: the connection as it now stands, and whether it should stay
+// open. Two values, so a struct -- `open` cannot be folded into the session, since a connection
+// that must close still has one.
+struct Served {
+    conn: Parked
+    open: bool
+}
+
+fn fail_connection(sock: Socket, message: string) {
+    os.write_stderr(format(
+        "ziman: {}\nziman: a request handler failed; the client is answered 500 and the server goes on\n",
+        message
+    ))
+    val body = "{\"status\":500,\"message\":\"An unexpected error occurred\"}"
+    val head = format(
+        "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        byte_len(body)
+    )
+    val _ = net.write_text(sock, concat(head, body))
+}
+
+// The key a connection is counted under: its address, or "" when the cap is off. Empty rather than an
+// Option so `serve_connection`'s release is unconditional -- a `defer` that has to ask whether to run is
+// how a release gets skipped on the path nobody tested.
+fn connection_key(sock: Socket, limit: int) -> string {
+    if limit < 1 {
+        return ""
+    }
+    return get_or(net.peer_address(sock), "")
+}
+
+// One burst of serving on a connection the poller handed over: requests are served while the next
+// one is already buffered, and the moment nothing more is there this returns rather than blocking
+// on a read. That return is the whole point -- a connection waiting for its next keep-alive request
+// goes back to the poller and costs no thread, where this function used to sit in `read_request`
+// holding one for up to `idle_timeout_ms` (docs/reviews/tasks/ F139).
+//
+// Draining the buffer before returning is not an optimisation but a correctness requirement: a
+// pipelined request is already *in* the session's buffer, so a connection parked with bytes pending
+// would wait for the socket to become readable again and might wait forever.
+fn serve_burst(
+    start: Parked,
+    handler: fn(Request) -> Response,
+    log_requests: bool,
+    compress_responses: bool,
+    fault: Option<fn(int, string) -> Response>,
+    on_request: Option<fn(RequestLog)>,
+    meter: bool
+) -> Served {
+    val conn = start
+    val sock = conn.session.sock
+    var session = conn.session
+    var open = true
+    while open {
+        val next = read_request(session)
+        if Err(e) = next {
+            val _ = write_error_with(sock, e, fault)  // 400/408/413/431/501, or nothing if the peer is gone
+            open = false
+        } else {
+            val exchange = unwrap(next)
+            session = exchange.session  // carries any bytes read past this request
+            // The clock starts once the request is *read*, so the idle wait on a keep-alive
+            // connection and a client that drips its request are not counted as time this server
+            // spent. What is left is the work: the handler, and writing the answer.
+            val serve_started = clock.monotonic_millis()
+            if meter {
+                metrics.add(received_metric, (len(exchange.request.body) as float))
+            }
+            val response = handler(exchange.request)
+            if meter {
+                metrics.add(sent_metric, (len(response.body) as float))
+            }
+            // 1 KiB: below a packet's worth there is nothing to win, and gzip's own 18-byte
+            // header plus a short body can come out larger -- which `compressed` checks anyway.
+            val to_send = if compress_responses {
+                compressed(exchange.request, response, 1024)
+            } else {
+                response
+            }
+            switch write_response(sock, exchange.request, to_send) {
+                Ok(k) {
+                    if !k {
+                        open = false
+                    }
+                }
+                Err(_) { open = false }
+            }
+            // Reported after the write, not before it: only here are the status and the bytes that
+            // actually went out both known, `compressed` having possibly replaced the body. The
+            // built-in line and the hook describe the same completed exchange, so neither can
+            // disagree with the other about what happened.
+            if log_requests {
+                printf(
+                    "{} {} -> {}\n",
+                    method_name(exchange.request.method),
+                    exchange.request.target,
+                    to_send.status
+                )
+            }
+            if Some(report) = on_request {
+                report(RequestLog {
+                    method: exchange.request.method,
+                    target: exchange.request.target,
+                    status: to_send.status,
+                    duration_ms: clock.monotonic_millis() - serve_started,
+                    response_bytes: len(to_send.body),
+                    peer: exchange.request.peer
+                })
+            }
+        }
+        // Nothing more is buffered. Before giving the connection back to the poller, wait a
+        // moment to see whether the next request is already on its way -- which on a keep-alive
+        // connection doing back-to-back requests it almost always is.
+        //
+        // This is what keeps the parking cheap. Handing every request through the poller costs a
+        // thread spawn and two channel hops, and paying that per *request* rather than per
+        // *connection* measured at 9,876 -> 3,000 rps on 256 keep-alive clients. A few
+        // milliseconds of grace amortises it back across a busy connection's requests while a
+        // connection that is genuinely idle still parks and still costs no thread.
+        //
+        // `wait_readable` rather than a short read: a read that times out is indistinguishable
+        // from a client that stalled mid-request, and `read_request` would answer that with a 408.
+        // Peeking asks the question without consuming anything or deciding anything.
+        if open && len(session.buffer) == 0 {
+            if len(net.wait_readable([sock], keepalive_grace_ms)) == 0 {
+                return Served { conn: with conn { session: session }, open: true }
+            }
+        }
+    }
+    return Served { conn: with conn { session: session }, open: false }
+}
+
+// A worker: holds one of `slots` for exactly as long as it is serving, which is what makes
+// `max_connections` a limit on concurrent *requests* rather than on connected clients. Parks the
+// connection back with the poller when it stays open, and owns closing it when it does not --
+// including the per-client release and the gauge, each of which must happen once per connection and
+// so cannot live in `serve_burst`, which may run many times for one connection.
+fn worker(
+    conn: Parked,
+    handler: fn(Request) -> Response,
+    returns: Channel<Parked>,
+    slots: Channel<int>,
+    idle_timeout_ms: int,
+    log_requests: bool,
+    compress_responses: bool,
+    fault: Option<fn(int, string) -> Response>,
+    on_request: Option<fn(RequestLog)>,
+    meter: bool
+) {
+    defer send(slots, 1)
+    val served = serve_burst(conn, handler, log_requests, compress_responses, fault, on_request, meter)
+    if served.open {
+        send(returns, with served.conn { deadline_ms: clock.monotonic_millis() + idle_timeout_ms })
+        return
+    }
+    net.close(served.conn.session.sock)
+    conn_release_raw(served.conn.client_key)
+    connection_closed(meter)
+}
+
+// The poller, and the reason `serve` can now hold more connections than it has threads: it owns
+// every parked connection and spends a thread on one only when a request has actually arrived.
+//
+// It owns them because it must: `parked` is a `MutableArray`, which is `#[thread_bound]`, so one
+// thread has to be the single place connections live. Workers hand them over on `returns`, which
+// is also what keeps this loop from having to lock anything. A *newly accepted* connection never
+// comes here -- see the accept loop for why.
+//
+// Three things are checked every cycle, in this order. Connections that have waited past their
+// deadline are closed -- that is where `idle_timeout_ms` is now enforced, rather than inside a
+// blocking read. Connections whose next request is already buffered are ready without asking the
+// socket at all. And the rest are handed to `net.wait_readable` in a bounded slice, so a shutdown
+// is noticed between slices exactly as `accept` manages underneath.
+//
+// A slot is taken with `try_receive`, never `receive`: blocking here would stop the poller
+// reaping idle connections while every slot was busy, which is the failure this whole change is
+// about. A connection that finds no slot simply stays parked and is tried again next cycle.
+fn park_loop(
+    returns: Channel<Parked>,
+    slots: Channel<int>,
+    handler: fn(Request) -> Response,
+    idle_timeout_ms: int,
+    log_requests: bool,
+    compress_responses: bool,
+    fault: Option<fn(int, string) -> Response>,
+    on_request: Option<fn(RequestLog)>,
+    meter: bool
+) {
+    val parked = mutable_array_new<Parked>()
+    var running = true
+    while running {
+        var taking = true
+        while taking {
+            switch try_receive(returns) {
+                Some(c) { push(parked, c) }
+                None { taking = false }
+            }
+        }
+        if os.shutdown_requested() && len(parked) == 0 {
+            running = false
+        }
+        val now = clock.monotonic_millis()
+        // Highest index first, so removing one does not shift the next one being examined.
+        var i = len(parked) - 1
+        while i >= 0 {
+            val c = parked[i]
+            val buffered = len(c.session.buffer) > 0
+            val expired = now >= c.deadline_ms
+            if expired && !buffered {
+                remove(parked, i)
+                net.close(c.session.sock)
+                conn_release_raw(c.client_key)
+                connection_closed(meter)
+            } else if buffered {
+                if Some(_) = try_receive(slots) {
+                    remove(parked, i)
+                    spawn worker(
+                        c,
+                        handler,
+                        returns,
+                        slots,
+                        idle_timeout_ms,
+                        log_requests,
+                        compress_responses,
+                        fault,
+                        on_request,
+                        meter
+                    ) on_error fn(message: string) {
+                        // A handler that failed leaves the connection ours to finish. The worker's own
+                        // `defer` still returns the slot -- a defer runs even when a spawned function
+                        // aborts -- but closing the socket, releasing the per-client count and
+                        // decrementing the gauge each happen exactly once per connection, and the path
+                        // that would have done them did not run.
+                        fail_connection(c.session.sock, message)
+                        net.close(c.session.sock)
+                        conn_release_raw(c.client_key)
+                        connection_closed(meter)
+                    }
+                }
+            }
+            i = i - 1
+        }
+        if len(parked) > 0 {
+            var socks: [Socket] = []
+            for idx, c in snapshot(parked) {
+                socks = push(socks, c.session.sock)
+            }
+            val ready = net.wait_readable(socks, poll_slice_ms)
+            // Again highest first: these are indices into `parked` and removal shifts the rest.
+            var r = len(ready) - 1
+            while r >= 0 {
+                val at = ready[r]
+                if at < len(parked) {
+                    val c = parked[at]
+                    if Some(_) = try_receive(slots) {
+                        remove(parked, at)
+                        spawn worker(
+                            c,
+                            handler,
+                            returns,
+                            slots,
+                            idle_timeout_ms,
+                            log_requests,
+                            compress_responses,
+                            fault,
+                            on_request,
+                            meter
+                        ) on_error fn(message: string) {
+                            // A handler that failed leaves the connection ours to finish. The worker's own
+                            // `defer` still returns the slot -- a defer runs even when a spawned function
+                            // aborts -- but closing the socket, releasing the per-client count and
+                            // decrementing the gauge each happen exactly once per connection, and the path
+                            // that would have done them did not run.
+                            fail_connection(c.session.sock, message)
+                            net.close(c.session.sock)
+                            conn_release_raw(c.client_key)
+                            connection_closed(meter)
+                        }
+                    }
+                }
+                r = r - 1
+            }
+        } else if running {
+            clock.sleep_millis(poll_slice_ms)  // nothing parked: do not spin
+        }
+    }
+}
+// Serves `listener` until a shutdown is requested, answering each request with `handler`; see
+// `ServeOptions` for the limits and the description above for how connections and shutdown behave.
+// `ServeOptions` with defaults a small server can take as they are, to be narrowed with `with`:
+//
+//     server.serve(listener, handler, with server.serve_options() { log_requests: true })
+//
+// Prefer this to writing the struct out. Every field of a struct literal is required, so a server
+// that lists all of them stops compiling the day this struct gains one -- which is exactly what
+// happened to four fixtures and the reference backend when `compress_responses` was added
+// (tasks.md F61). Built with `with`, the same code keeps working and picks up the new field's
+// default.
+//
+// The defaults, and why: a 30-second idle timeout and 10-second header timeout, which are long
+// enough for a slow mobile client and short enough that a stalled one frees its thread; 64
+// connections -- which since F139 is a limit on requests in flight rather than on connected
+// clients, so it no longer caps how many clients a server can hold; no request logging, because a
+// log line per request is a
+// decision about volume; no `fault` renderer, so the library's own JSON shape is used; no metrics
+// and no response compression, both off for the reasons their own comments give; and no per-client
+// connection cap, which is wrong by default behind a reverse proxy where every connection carries
+// the proxy's address.
+pub fn serve_options() -> ServeOptions {
+    return ServeOptions {
+        idle_timeout_ms: 30000,
+        header_timeout_ms: 10000,
+        max_connections: 64,
+        log_requests: false,
+        max_body_bytes: 0,
+        compress_responses: false,
+        fault: Option<fn(int, string) -> Response>.None,
+        on_request: Option<fn(RequestLog)>.None,
+        metrics: false,
+        max_connections_per_client: 0
+    }
+}
+
+pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: ServeOptions) {
+    // Here rather than at interpreter start-up, so only a program that actually serves adopts it: this
+    // is a policy for thread-per-connection code that hashes passwords, not for every Ziman program.
+    // Ziman's own allocation does not use glibc's arenas at all (zgc.h routes it through Boehm, which
+    // takes memory from mmap), so what this caps is what third-party C libraries allocate -- which is
+    // exactly the Argon2id buffer being retained. Measured at every concurrency before being made a
+    // default: an authenticated read was 3.8% slower at 16 clients, 1.7% faster at 32, 7% faster at
+    // 64, and registrations were unchanged. The result is ignored: a server can do nothing useful
+    // about a failure, and on a platform without glibc there is nothing to fail.
+    //
+    // This cannot reach what the environment variable reaches (136 MB against 98 MB on the same run),
+    // because three threads are alive before `serve` is called and `mallopt` does not merge arenas that
+    // already exist. Taking the rest would mean doing this at interpreter start-up, which is the global
+    // policy for every Ziman program that this placement exists to avoid.
+    val _ = bound_malloc_arenas(1)
+    var limit = options.max_connections
+    if limit < 1 {
+        limit = 1
+    }
+    val slots: Channel<int> = channel_new()
+    for i in 0..limit {
+        send(slots, 1)
+    }
+    // Connections live with the poller, not with a thread each. This loop only admits them.
+    val returns: Channel<Parked> = channel_new()
+    val head_ms = if options.header_timeout_ms > 0 && options.header_timeout_ms < options.idle_timeout_ms {
+        options.header_timeout_ms
+    } else {
+        options.idle_timeout_ms
+    }
+    spawn park_loop(
+        returns,
+        slots,
+        handler,
+        options.idle_timeout_ms,
+        options.log_requests,
+        options.compress_responses,
+        options.fault,
+        options.on_request,
+        options.metrics
+    ) on_error fn(message: string) {
+        os.write_stderr(format("ziman: the connection poller failed: {}\n", message))
+    }
+    while !os.shutdown_requested() {
+        val client = net.accept(listener)
+        if Ok(accepted) = client {
+            // Decided here, before a slot is taken and before a thread exists: the whole point of a
+            // connection cap is that refusing costs less than admitting, and that is only true if the
+            // refusal happens before either. Closed without a reply, for the reason on
+            // `max_connections_per_client`.
+            val client_key = connection_key(accepted, options.max_connections_per_client)
+            if !conn_acquire_raw(client_key, options.max_connections_per_client) {
+                net.close(accepted)
+                continue
+            }
+            if options.metrics {
+                metrics.gauge_add(connections_metric, 1.0)
+            }
+            unwrap(net.set_timeout(accepted, head_ms))
+            // Served directly, not handed to the poller: a connection that has just been accepted
+            // has a request on its way, so there is nothing to park and nothing to wait for. Only
+            // a connection that has *finished* a request and may get another one goes to the
+            // poller. Routing new connections through it instead cost up to a `poll_slice_ms`
+            // of latency each -- the poller can be part-way through its wait when one arrives --
+            // which collapsed throughput on connection-per-request load badly enough that
+            // tests/bench/server_concurrency.sh stopped finishing inside ten minutes.
+            //
+            // So this blocks on a slot exactly as it did before the poller existed, and that is
+            // the right back-pressure now that a slot means "a request in flight" rather than "a
+            // client connected": connections past it wait in the kernel's accept queue.
+            val _ = receive(slots)
+            val fresh_conn = Parked {
+                session: with open_session_with_timeouts(accepted, options.idle_timeout_ms, head_ms) {
+                    max_body_bytes: options.max_body_bytes
+                },
+                client_key: client_key,
+                deadline_ms: clock.monotonic_millis() + options.idle_timeout_ms
+            }
+            spawn worker(
+                fresh_conn,
+                handler,
+                returns,
+                slots,
+                options.idle_timeout_ms,
+                options.log_requests,
+                options.compress_responses,
+                options.fault,
+                options.on_request,
+                options.metrics
+            ) on_error fn(message: string) {
+                fail_connection(accepted, message)
+                net.close(accepted)
+                conn_release_raw(client_key)
+                connection_closed(options.metrics)
+            }
+        } else if !os.shutdown_requested() {
+            clock.sleep_millis(accept_error_backoff_ms)  // an accept error must not become a busy loop
+        }
+    }
+    for i in 0..limit {
+        val _ = receive(slots)  // every slot back means every connection is done
+    }
+}

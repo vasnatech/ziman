@@ -1,0 +1,242 @@
+// ------------------------------------------------------------ CORS
+//
+// Browser-facing servers all write the same thirty lines: answer the preflight, and put
+// `Access-Control-Allow-Origin` on everything else -- but only for an origin on the list, because a
+// wildcard with credentials is the one combination browsers refuse outright. These two functions are that,
+// generalised from the reference backend's own `route_cors`.
+//
+// Two functions rather than one wrapper taking a handler: a wrapper would have to return a closure and
+// allocate one per request, and this composes with anything -- `dispatch`, a hand-written router, a static
+// file handler -- by sitting either side of it.
+
+// Which origins may see an answer, and what a preflight is told the browser may then send. `allowed_origins`
+// is matched exactly; a single `"*"` allows any origin, which is only sound without credentials (a browser
+// rejects `*` together with `Access-Control-Allow-Credentials`, so `allow_credentials` is ignored then).
+pub struct CorsPolicy {
+    allowed_origins: [string]
+    allowed_methods: string
+    allowed_headers: string
+    max_age_seconds: int
+    allow_credentials: bool
+}
+
+// A policy for `origins` with the defaults a JSON API wants: the usual methods, `Authorization` and
+// `Content-Type` when the browser does not say which headers it needs, a one-hour preflight cache, and
+// credentials allowed. Override what differs with `with`.
+pub fn cors_policy(origins: [string]) -> CorsPolicy {
+    return CorsPolicy {
+        allowed_origins: origins,
+        allowed_methods: "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+        allowed_headers: "Authorization, Content-Type",
+        max_age_seconds: 3600,
+        allow_credentials: true
+    }
+}
+
+// `Vary: Origin`, unless the policy is a wildcard and so genuinely does not depend on the origin.
+// One function rather than the same `if` in two places, because the preflight refusal and the
+// ordinary answer must not drift apart on this.
+fn cors_vary(policy: CorsPolicy, answer: Response) -> Response {
+    if cors_wildcard(policy) {
+        return answer
+    }
+    return with_header(answer, "Vary", "Origin")
+}
+
+fn cors_origin_allowed(policy: CorsPolicy, origin: string) -> bool {
+    for allowed in policy.allowed_origins {
+        if allowed == "*" || allowed == origin {
+            return true
+        }
+    }
+    return false
+}
+
+fn cors_wildcard(policy: CorsPolicy) -> bool {
+    for allowed in policy.allowed_origins {
+        if allowed == "*" {
+            return true
+        }
+    }
+    return false
+}
+
+// The answer to a browser's preflight (`OPTIONS` carrying `Access-Control-Request-Method`), or None when
+// `req` is not one and should be routed normally. A preflight from an origin not on the list is
+// `fault(403, ...)` rather than a bare rejection, so it looks like every other refusal this server makes.
+pub fn cors_preflight(policy: CorsPolicy, req: Request, fault: fn(int, string) -> Response) -> Option<Response> {
+    val origin = switch header(req, "Origin") {
+        Some(value) { value }
+        None { return None }
+    }
+    if !HttpMethod.is_Options(req.method) || Option.is_None(header(req, "Access-Control-Request-Method")) {
+        return None
+    }
+    if !cors_origin_allowed(policy, origin) {
+        // The refusal varies by origin too -- this same request from an allowed origin is a 204 --
+        // so it carries `Vary: Origin` like every other answer here, which is what stops a shared
+        // cache serving this 403 to an origin that should have been allowed.
+        return Some(cors_vary(policy, fault(status_forbidden, "Invalid CORS request")))
+    }
+    val requested = switch header(req, "Access-Control-Request-Headers") {
+        Some(value) { value }
+        None { policy.allowed_headers }
+    }
+    val answer = with_header(
+        with_header(
+            with_header(response(status_no_content, []), "Access-Control-Allow-Methods", policy.allowed_methods),
+            "Access-Control-Allow-Headers",
+            requested
+        ),
+        "Access-Control-Max-Age",
+        str(policy.max_age_seconds)
+    )
+    return Some(cors_apply(policy, req, answer))
+}
+
+// `answer` with the CORS headers a browser needs to hand it to the page, when the request carried an `Origin`
+// on the list. Without an `Origin`, or from an origin not on it, `answer` is returned untouched -- which is
+// what makes the browser withhold it, and is the whole mechanism: a server does not refuse the request, it
+// declines to say the answer may be read.
+pub fn cors_apply(policy: CorsPolicy, req: Request, answer: Response) -> Response {
+    // `Vary: Origin` on every answer this touches, not only the ones that end up carrying
+    // `Access-Control-Allow-Origin` -- because whether that header is there *is* what varies by
+    // origin, so a shared cache that stores one answer and serves it to a different origin is wrong
+    // either way: it can hand an allowed origin's `Access-Control-Allow-Origin` to a page that must
+    // not see the answer (the hazard worth caring about), or hand a cached refusal to an origin that
+    // should have been allowed. Omitted only for a wildcard policy, where the answer genuinely does
+    // not depend on the origin.
+    //
+    // Appended rather than replacing any `Vary` the handler already set: several `Vary` fields mean
+    // the same thing as one comma-joined list, so this composes with a handler that varies on
+    // `Accept-Encoding` without having to know about it.
+    //
+    // The reference backend's own `route_cors` set this header; the first generalisation of that
+    // code into this module dropped it, and nothing noticed because the backend went on running its
+    // own copy (tasks.md F59).
+    val varied = cors_vary(policy, answer)
+    val origin = switch header(req, "Origin") {
+        Some(value) { value }
+        None { return varied }
+    }
+    if !cors_origin_allowed(policy, origin) {
+        return varied
+    }
+    // `*` is echoed as `*`, not as the origin: echoing turns a public API into one that looks
+    // origin-specific, and a browser will not accept `*` with credentials anyway.
+    val allow = if cors_wildcard(policy) { "*" } else { origin }
+    val with_origin = with_header(varied, "Access-Control-Allow-Origin", allow)
+    if policy.allow_credentials && !cors_wildcard(policy) {
+        return with_header(with_origin, "Access-Control-Allow-Credentials", "true")
+    }
+    return with_origin
+}
+
+// Calls the handler of the first endpoint whose method and pattern match `req`. When none does, the answer is
+// `fault(404, ...)`, or `fault(405, ...)` with an `Allow` header when the path exists under another method.
+//
+// A `HEAD` that matches nothing is tried again as `GET`, since RFC 9110 makes HEAD a GET without a body and a
+// path serving GET has to serve HEAD; the GET handler's body comes back as usual and `write_response` withholds
+// it on the wire while keeping the `Content-Length` it would have had. `Allow` therefore names HEAD wherever
+// GET is served.
+pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {
+    if table.meter {
+        // Timed and counted around the same work, so every exit -- a handler, the HEAD fallback, a
+        // 405, a 404 -- is recorded exactly once. `dispatch_inner` is the whole of what this used to
+        // be; nothing is recorded when a table is not metered, not even the clock read.
+        val start = clock.monotonic_millis()
+        val answer = dispatch_inner<C>(table, ctx, req, fault)
+        record_request(
+            req.method,
+            matched_pattern<C>(table, req),
+            answer.status,
+            clock.monotonic_millis() - start
+        )
+        return answer
+    }
+    return dispatch_inner<C>(table, ctx, req, fault)
+}
+
+// The pattern a request matched, as a label: the registered pattern itself, or `<unmatched>` when
+// nothing took it. Never the request's path, which carries ids and would grow the registry past its
+// series cap. This repeats `dispatch_inner`'s matching rather than threading a value out of it,
+// which costs one more walk of a short list on a metered table only, and keeps the matching in one
+// place instead of two that could disagree about what `{id}` matched.
+fn matched_pattern<C>(table: Routes<C>, req: Request) -> string {
+    val got = segments_of(req.path)
+    val none: [int] = []
+    for i in get_or(table.by_method, method_key(req.method, len(got)), none) {
+        if table.endpoints[i].method == req.method {
+            if Option.is_Some(capture(table.patterns[i], got)) {
+                return table.endpoints[i].pattern
+            }
+        }
+    }
+    if HttpMethod.is_Head(req.method) {
+        for i in get_or(table.by_method, method_key(HttpMethod.Get, len(got)), none) {
+            if HttpMethod.is_Get(table.endpoints[i].method) {
+                if Option.is_Some(capture(table.patterns[i], got)) {
+                    return table.endpoints[i].pattern
+                }
+            }
+        }
+    }
+    return "<unmatched>"
+}
+
+fn dispatch_inner<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {
+    val got = segments_of(req.path)
+    val none: [int] = []
+    for i in get_or(table.by_method, method_key(req.method, len(got)), none) {
+        val e = table.endpoints[i]
+        if e.method == req.method {
+            if Some(params) = capture(table.patterns[i], got) {
+                val h = e.handler
+                return h(ctx, req, params)
+            }
+        }
+    }
+    // No route took it as the method asked for. HEAD is the one method that must still be answered: RFC 9110
+    // makes it GET without a body, so a server that serves GET on a path has to serve HEAD on it too, and
+    // answering 405 there breaks caches and link checkers that use HEAD to ask whether a resource exists. The
+    // GET handler runs and returns its body as usual -- `write_response` withholds it for a HEAD request while
+    // still writing the `Content-Length` the body would have had, which is what RFC 9110 asks for, so there is
+    // nothing to strip here. The exact-method loop above ran first, so an application that registers its own
+    // HEAD route keeps it.
+    if HttpMethod.is_Head(req.method) {
+        for i in get_or(table.by_method, method_key(HttpMethod.Get, len(got)), none) {
+            val e = table.endpoints[i]
+            if HttpMethod.is_Get(e.method) {
+                if Some(params) = capture(table.patterns[i], got) {
+                    val h = e.handler
+                    return h(ctx, req, params)
+                }
+            }
+        }
+    }
+    val allowed = mutable_array_new<string>()
+    var serves_get = false
+    var serves_head = false
+    for i in get_or(table.by_length, len(got), none) {
+        if Option.is_Some(capture(table.patterns[i], got)) {
+            val m = table.endpoints[i].method
+            push(allowed, method_name(m))
+            if HttpMethod.is_Get(m) { serves_get = true }
+            if HttpMethod.is_Head(m) { serves_head = true }
+        }
+    }
+    // `Allow` has to name HEAD when the path serves GET, because the fallback above means it really is allowed;
+    // listing only GET would tell a client the opposite of what the server does.
+    if serves_get && !serves_head {
+        push(allowed, "HEAD")
+    }
+    val methods = snapshot(allowed)
+    val unmatched = if len(methods) > 0 { method_not_allowed(methods) } else { not_found() }
+    val message = if unmatched.status == status_method_not_allowed { "method not allowed" } else { "not found" }
+    val reply = fault(unmatched.status, message)
+    val allow = header_value(unmatched.headers, "Allow")
+    return switch allow {
+        Some(names) { with_header(reply, "Allow", names) }
+        None { reply }
+    }
+}

@@ -1,0 +1,291 @@
+// ------------------------------------------------------------ sending
+
+fn host_header(u: Url) -> string {
+    var host = u.host
+    if contains(host, ":") {
+        host = format("[{}]", host)
+    }
+    return if (u.secure && u.port == default_https_port) || (!u.secure && u.port == default_http_port) {
+        host
+    } else {
+        format("{}:{}", host, u.port)
+    }
+}
+
+// `Basic base64(user:password)` for the raw `user:password` of a URL or proxy (percent-decoded).
+fn basic_auth(userinfo: string) -> string {
+    return concat("Basic ", base64_encode(to_bytes(switch percent_decode(userinfo, false) {
+        Ok(v) { v }
+        Err(_) { userinfo }
+    })))
+}
+
+// Where connections to `u` are parked for reuse: the scheme, host and port, and the proxy if any.
+fn cache_key(u: Url, proxy: Option<Url>) -> string {
+    val base = format("{}://{}:{}", if u.secure { "https" } else { "http" }, u.host, u.port)
+    return switch proxy {
+        Some(p) { format("{} via {}:{}", base, p.host, p.port) }
+        None { base }
+    }
+}
+
+fn fail_closed(s: Socket, e: ClientError) -> Result<Socket, ClientError> {
+    net.close(s)
+    return err(e)
+}
+
+// Connects to `u`, directly or through `proxy` (an https target through a CONNECT tunnel). A plain
+// http target through a proxy needs no tunnel at all -- the proxy is just the next hop, and the
+// request line carries the full absolute URL instead (see `write_request`'s `via_http_proxy`); only
+// the https-through-proxy case is handled here.
+fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: int) -> Result<Socket, ClientError> {
+    if Some(p) = proxy {
+        val sock = try lift<Socket>(net.connect_timeout(p.host, p.port, timeout_ms))
+        if !u.secure {
+            return ok(sock)
+        }
+        val _ = net.set_timeout(sock, timeout_ms)
+        val target = format("{}:{}", u.host, u.port)
+        val request = format(
+            "CONNECT {} HTTP/1.1\r\nHost: {}\r\n{}\r\n",
+            target,
+            target,
+            if byte_len(p.userinfo) > 0 { format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)) } else { "" }
+        )
+        val sent = lift<int>(net.write_text(sock, request))
+        if Err(e) = sent {
+            return fail_closed(sock, e)
+        }
+        val head = read_head(sock)
+        if Err(e) = head {
+            return fail_closed(sock, e)
+        }
+        if unwrap(head).status != 200 {
+            return fail_closed(
+                sock,
+                ClientError.Network(format("proxy refused the tunnel: {}", unwrap(head).status_line))
+            )
+        }
+        return switch lift<unit>(net.start_tls(sock, u.host, net.TlsVerify.Full, ca_file)) {
+            Ok(_) { ok(sock) }
+            Err(e) { fail_closed(sock, e) }
+        }
+    }
+    // `timeout_ms` has to bound the *connect* as well, not only the reads and writes after it.
+    // Before this the connect used the OS's own SYN retry budget, so a request to an unroutable
+    // address with `timeout_ms: Some(1000)` took 135,942ms -- and then reported "request timed
+    // out", which read as if the caller's deadline had fired (ziman tasks.md F60).
+    //
+    // The TLS case connects and hands the socket to `net.start_tls` rather than calling
+    // `net.connect_tls`, which is that same pair with an untimed `connect` inside it. The
+    // handshake that follows is bounded by `set_timeout`, which every caller of this already sets.
+    val direct = try lift<Socket>(net.connect_timeout(u.host, u.port, timeout_ms))
+    if !u.secure {
+        return ok(direct)
+    }
+    val _ = net.set_timeout(direct, timeout_ms)
+    return switch lift<unit>(net.start_tls(direct, u.host, net.TlsVerify.Full, ca_file)) {
+        Ok(_) { ok(direct) }
+        Err(e) { fail_closed(direct, e) }
+    }
+}
+
+// What one exchange produced: the response, and whether the connection is fit for reuse.
+struct Reply {
+    response: Response
+    reusable: bool
+}
+
+// Writes a request on `s`: the request line, the headers this client always sets, the caller's headers,
+// and the body.
+fn write_request(
+    s: Socket,
+    method: HttpMethod,
+    u: Url,
+    proxy: Option<Url>,
+    headers: [Header],
+    body: Option<[byte]>,
+    want_compression: bool,
+    keep_alive: bool
+) -> Result<int, ClientError> {
+    val via_http_proxy = Option.is_Some(proxy) && !u.secure
+    val request_target = if via_http_proxy {
+        format("http://{}{}", host_header(u), u.target)
+    } else {
+        u.target
+    }
+    val out = mutable_array_new<string>()
+    push(out, format("{} {} HTTP/1.1\r\n", method_name(method), request_target))
+    var has_ua = false
+    var has_accept = false
+    var has_encoding = false
+    var has_auth = false
+    for h in headers {
+        val lname = to_lower(h.name, invariant)
+        if lname == "user-agent" {
+            has_ua = true
+        }
+        if lname == "accept" {
+            has_accept = true
+        }
+        if lname == "accept-encoding" {
+            has_encoding = true
+        }
+        if lname == "authorization" {
+            has_auth = true
+        }
+        // Host, Content-Length and Connection are always set below from this call's own
+        // arguments, so a caller-supplied one here would just be a duplicate.
+        if lname != "host" && lname != "content-length" && lname != "connection" {
+            push(out, format("{}: {}\r\n", h.name, h.value))
+        }
+    }
+    push(out, format("Host: {}\r\n", host_header(u)))
+    if !has_ua {
+        push(out, "User-Agent: ziman\r\n")
+    }
+    if !has_accept {
+        push(out, "Accept: */*\r\n")
+    }
+    if !has_encoding {
+        push(
+            out,
+            if want_compression { "Accept-Encoding: gzip, deflate\r\n" } else { "Accept-Encoding: identity\r\n" }
+        )
+    }
+    if !has_auth && byte_len(u.userinfo) > 0 {
+        push(out, format("Authorization: {}\r\n", basic_auth(u.userinfo)))
+    }
+    if via_http_proxy {
+        if Some(p) = proxy {
+            if p.userinfo != "" {
+                push(out, format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)))
+            }
+        }
+    }
+    push(out, if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" })
+    if Some(body) = body {
+        push(out, format("Content-Length: {}\r\n", len(body)))
+    } else {
+        if method == HttpMethod.Post || method == HttpMethod.Put || method == HttpMethod.Patch {
+            push(out, "Content-Length: 0\r\n")
+        }
+    }
+    push(out, "\r\n")
+    try lift<int>(net.write_text(s, join(pieces: snapshot(out), separator: "")))
+    if Some(body) = body && len(body) > 0 {
+        try lift<int>(net.write(s, body))
+    }
+    return ok(0)
+}
+
+// Writes the request on `s` and reads the response.
+fn exchange(
+    s: Socket,
+    method: HttpMethod,
+    u: Url,
+    proxy: Option<Url>,
+    headers: [Header],
+    body: Option<[byte]>,
+    want_compression: bool,
+    keep_alive: bool
+) -> Result<Reply, ClientError> {
+    try write_request(s, method, u, proxy, headers, body, want_compression, keep_alive)
+    val head = try read_head(s)
+    val payload = try read_body(s, head, method == HttpMethod.Head)
+    val decoded = try decode_body(head.status, head.headers, payload.bytes)
+    val connection = header_value(head.headers, "Connection")
+    val server_closes = switch connection {
+        Some(c) { contains(to_lower(c, invariant), "close") }
+        None { false }
+    }
+    val http_1_1 = starts_with(head.status_line, "HTTP/1.1")
+    return ok(Reply { response: decoded, reusable: payload.clean && !server_closes && http_1_1 && keep_alive })
+}
+
+fn take_or_open(
+    parked: Option<Socket>,
+    u: Url,
+    proxy: Option<Url>,
+    ca_file: Option<string>,
+    timeout_ms: int
+) -> Result<Socket, ClientError> {
+    if Some(sock) = parked {
+        return ok(sock)
+    }
+    return open_socket(u, proxy, ca_file, timeout_ms)
+}
+
+// One request on one connection: a parked one if `reuse` and there is one (retrying on a fresh
+// connection if it turns out to be dead), else a new one. The connection is parked again when the
+// exchange left it clean.
+fn send_once(
+    method: HttpMethod,
+    u: Url,
+    proxy: Option<Url>,
+    headers: [Header],
+    body: Option<[byte]>,
+    timeout_ms: int,
+    ca_file: Option<string>,
+    want_compression: bool,
+    reuse: bool
+) -> Result<Response, ClientError> {
+    val key = cache_key(u, proxy)
+    var attempt = 0
+    while attempt < 2 {
+        val parked = if reuse && attempt == 0 { net.idle_take(key) } else { Option<Socket>.None }
+        val reused = Option.is_Some(parked)
+        val sock = take_or_open(parked, u, proxy, ca_file, timeout_ms)
+        if Err(e) = sock {
+            return err(e)
+        }
+        val s = unwrap(sock)
+        val _ = net.set_timeout(s, timeout_ms)
+        switch exchange(s, method, u, proxy, headers, body, want_compression, reuse) {
+            Ok(reply) {
+                if reply.reusable && reuse {
+                    net.idle_put(key, s)
+                } else {
+                    net.close(s)
+                }
+                return ok(reply.response)
+            }
+            Err(why) {
+                net.close(s)
+                if !(reused && ClientError.is_Network(why)) {
+                    return err(why)
+                }
+            }
+        }
+        attempt = attempt + 1
+    }
+    return err(ClientError.Network("the connection was closed"))
+}
+
+// Closes every parked keep-alive connection.
+pub fn close_idle() {
+    net.idle_clear()
+}
+
+fn location_of(r: Response) -> Option<string> {
+    return header_value(r.headers, "Location")
+}
+
+// Resolves a redirect's Location against the URL it came from: an absolute URL, a path ("/x"), or
+// (rare) a relative one ("x", resolved against the directory).
+fn resolve_location(base: Url, location: string) -> Result<Url, string> {
+    if starts_with(location, "http://") || starts_with(location, "https://") {
+        return parse_url(location)
+    }
+    val scheme = if base.secure { "https" } else { "http" }
+    val authority = host_header(base)
+    if starts_with(location, "//") {
+        return parse_url(format("{}:{}", scheme, location))
+    }
+    if starts_with(location, "/") {
+        return parse_url(format("{}://{}{}", scheme, authority, location))
+    }
+    val path_only = split(split(base.target, "?")[0], "#")[0]
+    val dir_end = last_index_of(path_only, "/")
+    return parse_url(format("{}://{}{}{}", scheme, authority, substring(path_only, 0, dir_end + 1), location))
+}

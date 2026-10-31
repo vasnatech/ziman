@@ -1,0 +1,195 @@
+// client.zm -- an HTTP/1.1 *client*, written in Ziman on top of `net`, so a Ziman program can
+// call another service (the server side is `server`; the types they share are in `http`).
+//
+//   val r = client.get("https://example.com/api/items?limit=5")
+//   val resp = client.request(method: HttpMethod.Post, url: u, body: "{\"a\":1}",
+//                                 headers: [http.Header { name: "Content-Type", value: "application/json" }])
+//
+// `http://` and `https://` URLs (TLS with full certificate verification). What it does for you:
+//   * keep-alive: an idle connection is reused for the next request to the same place (and a request
+//     that finds the parked connection dead is sent again on a fresh one);
+//   * compression: it asks for `gzip`/`deflate` and decodes the body (see `compress`);
+//   * redirects: 301/302/303/307/308, up to `max_redirects` (default 5; 0 = don't follow); 303 and a
+//     301/302 answering a POST are re-sent as GET without a body, and an `Authorization` header is not
+//     sent to a different host;
+//   * proxies: `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment, or the `proxy` argument;
+//     https goes through a CONNECT tunnel;
+//   * cookies: with a `CookieJar` (`request_with_jar`), cookies a server sets are sent back;
+//   * credentials in the URL (`https://user:pass@host/`) become a Basic `Authorization` header.
+// Bodies are read by `Content-Length`, `Transfer-Encoding: chunked`, or until the server closes.
+//
+// A response comes back as an `http.Response` whose `body` is `[byte]`: images, files and other binary data as they are,
+// and text through `http.response_text` (or `bytes_to_string`). **Any** status, including 404 or 500, is `Ok` -- an `Err`
+// means the exchange itself failed (bad URL, network, timeout, malformed response, too large). Bodies are capped at 8 MiB
+// after decompression (`TooLarge`). Response bodies can be streamed block by block with `stream`.
+// Not yet: request bodies streamed from a file, HTTP/2, and mutual TLS.
+//
+// Mutual TLS is absent here rather than in `net`, which has the client-certificate surface: this
+// module threads a lone `ca_file` through six call layers and would have to carry that options
+// struct instead, which is mechanical but wide (docs/reviews/tasks/ F64).
+
+use clock.now_raw
+use compress.decompress
+use compress.inflate_raw
+use encoding
+use encoding.base64_encode
+use http.Header
+use http.HttpMethod
+use http.Response
+use http.method_name
+use http.percent_decode
+use http.percent_encode
+use locale
+use mime
+use net
+use net.NetError
+use net.Socket
+use net.net_error_message
+use number.int_from_hex
+use os
+use time.localdate_of
+use time.to_epoch_day
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
+
+// Why an exchange failed (any HTTP status, even 500, is a success).
+pub enum ClientError {
+    BadUrl(string)
+    Network(string)
+    Timeout
+    BadResponse(string)
+    TooLarge
+    TooManyRedirects
+}
+
+// The error as one line of text, for logging or showing to a user. Named `client_error_message`,
+// matching `net_error_message`/`db_error_message`/`jwt_error_message`'s own convention (and
+// freeing the bare `error_message` name for the builtin of that name, which dispatches to this
+// exact function for a `ClientError` -- see docs/design/journal/'s "A unified error_message builtin").
+pub fn client_error_message(e: ClientError) -> string {
+    return switch e {
+        BadUrl(text) { concat("bad URL: ", text) }
+        Network(text) { text }
+        Timeout { "request timed out" }
+        BadResponse(text) { concat("bad response: ", text) }
+        TooLarge { "response body is too large" }
+        TooManyRedirects { "too many redirects" }
+    }
+}
+
+// A parsed `http://` or `https://` URL. `target` is the path and query as they go on the request line
+// ("/" if the URL has none); a #fragment is dropped; `userinfo` is the raw `user:password` before an
+// `@` in the authority ("" if none).
+pub struct Url {
+    secure: bool
+    host: string
+    port: int
+    target: string
+    userinfo: string
+}
+
+val max_body_bytes = 8388608
+val max_header_bytes = 65536
+val default_timeout_ms = 30000
+val read_chunk_bytes = 8192
+val max_chunk_size_line_bytes = 1024
+val max_port = 65535
+val default_http_port = 80
+val default_https_port = 443
+val default_max_redirects = 5
+val status_no_content = 204
+val status_moved_permanently = 301
+val status_found = 302
+val status_see_other = 303
+val status_not_modified = 304
+val status_temporary_redirect = 307
+val status_permanent_redirect = 308
+val crlf: [byte] = [13b, 10b]
+val crlf_crlf: [byte] = [13b, 10b, 13b, 10b]
+
+// Parses an `http://` or `https://` URL. An Err says what is wrong: another scheme, a missing host, an
+// unterminated `[` in an IPv6 host, a bad port.
+pub fn parse_url(url: string) -> Result<Url, string> {
+    var secure = false
+    var rest = ""
+    if starts_with(url, "http://") {
+        rest = substring(url, 7, len(url))
+    } else {
+        if starts_with(url, "https://") {
+            secure = true
+            rest = substring(url, 8, len(url))
+        } else {
+            return err("only http:// and https:// URLs are supported")
+        }
+    }
+    val no_fragment = split(rest, "#")[0]
+    var authority = no_fragment
+    var target = "/"
+    val slash = index_of(no_fragment, "/", 0)
+    val qmark = index_of(no_fragment, "?", 0)
+    var cut = slash
+    if cut < 0 || (qmark >= 0 && qmark < cut) {
+        cut = qmark
+    }
+    if cut >= 0 {
+        authority = substring(no_fragment, 0, cut)
+        target = substring(no_fragment, cut, len(no_fragment))
+        if !starts_with(target, "/") {
+            target = concat("/", target)
+        }
+    }
+    var userinfo = ""
+    val at = last_index_of(authority, "@")
+    if at >= 0 {
+        userinfo = substring(authority, 0, at)
+        authority = substring(authority, at + 1, len(authority))
+    }
+    if authority == "" {
+        return err("missing host")
+    }
+    var host = authority
+    var port = default_http_port
+    if secure {
+        port = default_https_port
+    }
+    var port_text = ""
+    if starts_with(authority, "[") {
+        val close = index_of(authority, "]", 0)
+        if close < 0 {
+            return err("unterminated [ in host")
+        }
+        host = substring(authority, 1, close)
+        val after = substring(authority, close + 1, len(authority))
+        if after != "" {
+            if !starts_with(after, ":") {
+                return err("unexpected text after ] in host")
+            }
+            port_text = substring(after, 1, len(after))
+        }
+    } else {
+        val colon = last_index_of(authority, ":")
+        if colon >= 0 {
+            host = substring(authority, 0, colon)
+            port_text = substring(authority, colon + 1, len(authority))
+        }
+    }
+    if host == "" {
+        return err("missing host")
+    }
+    if port_text != "" {
+        port = switch parse_int(port_text) {
+            Ok(v) {
+                if v < 1 || v > max_port {
+                    return err(concat("invalid port: ", port_text))
+                }
+                v
+            }
+            Err(_) { return err(concat("invalid port: ", port_text)) }
+        }
+    }
+    return ok(Url { secure: secure, host: host, port: port, target: target, userinfo: userinfo })
+}

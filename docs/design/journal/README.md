@@ -284,5 +284,6 @@ them against the code.
 - [The second generator kind: a module generator (2026-10-29)](part-09.md#the-second-generator-kind-a-module-generator-2026-10-29)
 - [A string literal written over several lines (2026-10-29)](part-09.md#a-string-literal-written-over-several-lines-2026-10-29)
 - [Four documents become four folders (2026-10-30)](part-09.md#four-documents-become-four-folders-2026-10-30)
+- [A bundled module may be several files (2026-10-31)](part-09.md#a-bundled-module-may-be-several-files-2026-10-31)
 
 <!-- end index -->
