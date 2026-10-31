@@ -1264,7 +1264,7 @@ static Expr *wrap_bare_in_result(Expr *value, Type result_type, int is_ok) {
 
 /* The implicit value an omitted Option<T> parameter gets when its
  * declaration *did* give a `= expr` default -- a synthetic reference to
- * the global-env slot init_param_defaults (interpreter.c) will have
+ * the global-env slot init_module_globals (interpreter.c) will have
  * already filled in, once, before `main` runs, under this exact key
  * (see ast.h's Param.default_key). Reuses ordinary bare-name lookup
  * (EXPR_IDENT) wholesale: nothing in check_call's own env can ever
@@ -1319,7 +1319,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
      * type, at construction time. Re-running check_expr on one would,
      * at best, redo work for nothing; for a default-value reference in
      * particular it would actively fail, since the global-env slot it
-     * names isn't defined until interpretation starts (init_param_defaults),
+     * names isn't defined until interpretation starts (init_module_globals),
      * long after type-checking is done. */
     if (arg->resolved_type.kind != TY_VOID) {
         arg_type = arg->resolved_type;

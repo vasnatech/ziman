@@ -3,153 +3,64 @@
 Part of the [roadmap](README.md) -- see its preamble for what an entry's status means and how it goes stale.
 
 
-- **Module-level vals are initialised in file order, and that is a constraint on the program.**
-  (Raised while fixing F247, 2026-10-30. `src/interpreter.c`'s `init_param_defaults` recommends one
-  answer; this entry argues for a different one.)
+- ~~**Module-level vals are initialised in file order, and that is a constraint on the program.**~~
+  **DONE 2026-10-30, and not the way this entry recommended.** Initialisation is now **one pass,
+  depth-first on demand**: every module-level val and every omitted parameter's default is a node,
+  and a node runs when something reads it or when the file-order sweep reaches it, whichever comes
+  first. So the order is the dependency order, computed from the reads that actually happen.
 
-  ```ziman
-  val greeting = decorated("one")              // runs first
-
-  fn decorated(text: string) -> string {
-      return concat(prefix, text)
-  }
-
-  val prefix = "p:"                             // not initialised when decorated() reads it
-  ```
-
-  > `'prefix' is read before it is initialised: module-level vals are initialised in file order,
-  > and this one is reached by an initialiser that runs earlier -- move 'prefix' above the val
-  > whose initialiser uses it`
-
-  Pinned by `tests/lang/global_val_read_before_initialised`, and it **segfaulted** until
-  2026-10-26: the type checker proves the name resolves, so the only route to a NULL binding is a
-  val that resolves and has no value yet, and `EXPR_IDENT` returned `b->value` without looking.
-  The message is the fix for the crash, not for the problem.
-
-  There is a **second eager pass** beside it. `init_param_defaults` hoists every omitted
-  parameter's default to a module-level binding and runs *before* `init_global_vals`, because a
-  val's initialiser can reach a function that relies on one: `pub val iso_date_format =
-  datetime_format_of("yyyy-MM-dd")` calls `mutable_array_new<T>()` with both parameters omitted,
-  and the other order crashed. Its own comment records **the half that ordering does not address**
-  -- a default expression referencing a global val -- as unhit only because every default in the
-  codebase today is a self-contained literal (`20`, `2.0`). So there are two passes, a fixed order
-  between them, and a known gap in the pair. 288 module-level vals in `lib/`, 317 in the sample
-  backend.
-
-  ### The fix the source recommends, and why this entry does not
-
-  `init_param_defaults` says the real answer is **evaluating globals lazily, on first reference,
-  rather than two fixed eager passes**. That removes the constraint rather than reporting it, and it
-  closes the gap: a default referencing a val and a val referencing a default both just work.
-
-  But `g_global_env`'s own comment names the invariant it would cost:
-
-  > Built once, before `main` runs, from a single thread; never mutated afterward, so concurrent
-  > reads from a `spawn`ed thread are safe with no locking.
-
-  Lazy initialisation makes the global env **mutable after `main` starts**, so every global read
-  from a spawned thread needs synchronisation, or every lazy slot needs a once-guard. That is a
-  real cost paid by every program to fix an ordering mistake in a few, and it is the kind of change
-  that turns a data race into the next bug of this family rather than the last. Two smaller costs
-  follow it: an initialiser with observable effects runs at a less predictable time, and one that
-  is never referenced never runs at all.
-
-  ### What this entry recommends instead: initialise in dependency order
-
-  Keep initialisation **eager, single-threaded and before `main`** -- so the env stays immutable
-  and the threading invariant holds -- and stop using *file order* to decide it. Build the
-  dependency graph among module-level vals and hoisted parameter defaults, topologically sort it,
-  and initialise in that order. The type checker already resolves every name in every initialiser,
-  which is the information the graph needs.
-
-  What that buys:
-
-  * **The file-order constraint disappears**, which is the actual complaint.
-  * **The two passes become one.** No fixed order between defaults and vals, and the "unaddressed
-    half" is addressed by construction rather than by nothing having hit it yet.
-  * **A better error for the case that is genuinely impossible.** "read before it is initialised --
-    move it" becomes "these vals form a cycle: `a` → `tag` → `a`", which names a program that
-    cannot be initialised in any order rather than one whose author put a line in the wrong place.
-  * **No runtime cost at all.** The work is a sort at load time; a global read stays a slot read
-    with no guard and no branch.
-
-  What it gives up: the initialisation order stops being the order a reader sees in the file, which
-  matters for an initialiser with side effects. The honest answer is that a module-level val whose
-  initialiser has observable effects is already relying on something the language has never
-  promised, and a cycle error is the only case where any of this is visible.
-
-  ### The design pass, run 2026-10-30
-
-  Six shapes were written and run. Two of the three questions below answer themselves from what
-  they show, one finding corrects this entry, and one is a bug reachable today.
-
-  **The graph needs a call graph, not resolved names -- this entry had that wrong.** "The type
-  checker already resolves every name in every initialiser, which is the information the graph
-  needs" is not enough, because **a lexical forward reference from an initialiser is already a type
-  error**:
-
-  ```ziman
-  val greeting = apply(fn() -> string { return prefix })   // use of undefined variable 'prefix'
-  val prefix = "p:"
-  ```
-
-  `check_global_vals`' deliberate scope cut means an initialiser can only *see* vals above it. So a
-  topological sort over the references in initialisers would sort a graph with no forward edges in
-  it at all -- a no-op. Every forward dependency that exists runs **through a function body**, which
-  is exactly what this entry's own opening example does: `greeting`'s initialiser names `decorated`,
-  and `decorated`'s body names `prefix`. The graph is therefore "for each val, the globals read by
-  the transitive closure of the functions its initialiser can reach", which is a call-graph
-  reachability pass that has to be written, not a by-product of name resolution.
-
-  **And that closure cannot be exact, because a function value carries one too:**
+  **The design pass (same day) is why it is not the static topological sort recommended below.**
+  That recommendation rested on "the type checker already resolves every name in every initialiser,
+  which is the information the graph needs", and it is not: a lexical forward reference from an
+  initialiser is *already* a type error, so a sort over initialiser references has no forward edges
+  to sort. Every forward dependency there is runs through a function body -- as this entry's own
+  example does, `greeting` naming `decorated` and `decorated` naming `prefix` -- which makes it a
+  call-graph reachability problem. And a call graph cannot be exact, because a *function value*
+  carries a dependency too:
 
   ```ziman
   fn maker() -> fn() -> string { return fn() -> string { return prefix } }
   fn call_it(f: fn() -> string) -> string { return f() }
-  val g = call_it(maker())      // reads prefix at run time, through a value
+  val g = call_it(maker())      // reads prefix, through a value
   val prefix = "p:"
   ```
 
-  So a **fourth question** joins the list, and it is the one that decides whether this is worth
-  building: what an indirect call contributes to the graph. Treating it as a dependency on *every*
-  global is sound and would make `val x = apply(f)` refuse to initialise at all; ignoring it is
-  unsound and leaves this case exactly as it is today. The recommendation is to **ignore indirect
-  calls and keep the runtime check as the backstop** -- it already exists, it costs one NULL test
-  on a global read, and it is the only thing that can catch a dependency the call graph cannot see.
-  That means the sort makes the common case work and the runtime error becomes the rare case's
-  report rather than the normal one, which is a smaller claim than "the file-order constraint
-  disappears" but is the true one.
+  Running on demand sees all of them by construction, needs no AST walker -- so there is no kind of
+  expression it can silently fail to look inside, which is the failure mode a hand-written walker
+  has -- and needs no runtime backstop for the indirect case, since that case simply works.
 
-  **The unaddressed half is not unhit. It reproduces, and the message misdiagnoses it:**
+  **It is not the lazy initialisation `g_global_env`'s invariant forbids.** Every node runs before
+  `main` does, from one thread; the sweep guarantees it even for a node nothing referenced. The
+  global env is complete and immutable before any `spawn` can observe it, so concurrent reads still
+  need no locking -- the cost laziness would have imposed on every program is not paid.
+
+  **The bug it fixes was real, not hypothetical.** `init_param_defaults`' own comment called a
+  default referencing a global val "not yet hit by anything real in this codebase". It reproduces:
 
   ```ziman
   val limit = 20
-  fn take(n: Option<int> = limit) -> int { return Option.unwrap_Some(n) }
+  fn take(n: Option<int> = limit) -> int { ... }
   ```
 
-  > `'limit' is read before it is initialised: ... move 'limit' above the val whose initialiser
-  > uses it`
+  failed at run time advising a move that was already done, because the defaults pass ran wholesale
+  before the vals pass. `iso_date_format` needs the opposite order, so no fixed order between two
+  eager passes satisfies both; one dependency-ordered pass satisfies both without choosing.
 
-  `limit` **is** above it; file order is already correct and no move fixes this, because the cause
-  is that `init_param_defaults` runs before `init_global_vals` wholesale. The pair is genuinely
-  stuck: `iso_date_format` needs defaults first, this needs vals first, so no fixed order between
-  two eager passes satisfies both and **only the sort (or laziness) fixes it**. That is the
-  strongest argument for this entry that exists, and it was sitting in `init_param_defaults`' own
-  comment as a hypothetical.
+  **A cycle is now named as one.** `'a' cannot be initialised: it depends on itself through
+  a -> b -> a`, instead of "move it above", which was unachievable advice -- moving either val only
+  puts the other's reference out of reach. `tests/lang/global_val_cycle_rejected` pins it, and
+  `global_val_read_before_initialised` keeps its name while now pinning the fix.
 
-  **The answers.** (1) In **`typecheck`** -- the loader has no call graph, and typecheck resolves
-  calls -- while noting the pass is new work rather than a free read of existing information.
-  (2) A **type error**: `--check` passes on every failing shape above today, so these reach a user
-  at run time, and building the graph where the calls are resolved turns them into a `--check` and
-  `--lsp` diagnostic. (3) **Merge entirely.** Each hoisted default already has its own global slot
-  (`Param.default_key`), so it is a node like any other, and the fixed order between the two passes
-  -- the thing that causes the bug above -- is precisely what the sort replaces. A separate stage
-  would keep the defect.
+  Reordering is sound because **a global is read by name, not by slot**: `env_lookup_resolved`
+  returns depth -1 for anything found in the global scope, and its own comment already said why --
+  the checker's global env and the interpreter's were never ordered alike. What this gives up is
+  what the entry predicted: initialisation order is no longer the order a reader sees, which
+  matters only for an initialiser with observable effects. The file-order sweep keeps that order
+  wherever there is no cross-dependency to force otherwise.
 
-  F247's fix is unaffected either way -- that was one env slot holding two programs, not an
-  ordering question.
-
-
+  Evidence: 1,349 fixtures (two new), 420 library tests, the North Star's 64 suites / 2,670 checks,
+  `--emit-derived serve.zm` byte-identical at 34,801 lines, and `--gc-stress` over the 45 fixtures
+  that have module-level vals with no crash -- worth running because what is rooted when changed.
 - ~~**`meta`, redesigned.**~~ **DONE 2026-10-29.** Designed in
   [docs/design/meta.md](../design/meta.md), which is **built**: all five steps of its §11 shipped
   (F225-F229) -- `Reflect` and its fixture, `Type` and `Decl` as enums, `Field.attrs`,

@@ -598,7 +598,7 @@ typedef struct {
     Expr *default_expr;
     /* Set at parse time whenever `default_expr` is (NULL otherwise) --
      * a synthetic, unforgeable (contains '$', which no real Ziman
-     * identifier can) global-env key. init_param_defaults evaluates
+     * identifier can) global-env key. init_module_globals evaluates
      * `default_expr` exactly once, before `main` runs (the same timing
      * a global val's own initializer gets, and for the same reason:
      * Ziman values are immutable, so evaluating once up front and
@@ -1027,10 +1027,10 @@ typedef struct {
 
 /* `[pub] val NAME[: Type] = <expr>` at module top level -- a module-wide
  * constant, evaluated once before `main` runs (see interpreter.c's
- * init_global_vals), not per-call the way a same-shaped local `val`
+ * init_module_globals), not per-call the way a same-shaped local `val`
  * inside a function body is. Otherwise the exact same shape as a local
  * `val` (reused via a synthetic STMT_VAL in both typecheck.c and
- * interpreter.c -- see check_global_vals/init_global_vals), so it gets
+ * interpreter.c -- see check_global_vals/init_module_globals), so it gets
  * the same declared-vs-inferred type checking for free. Renamed to its
  * fully-qualified form by the loader exactly like a function/struct/enum
  * (see loader.c's self_qualify_module), and every bare reference -- a

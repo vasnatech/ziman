@@ -1,0 +1,16 @@
+// The one program dependency-ordered initialisation cannot run: a cycle. `a` is reached from
+// `tag`, which `b` calls, and `b` is read by `tag` -- so each is needed before the other and no
+// order exists. Worth its own fixture because the message is the thing the ordering change makes
+// possible: "read before it is initialised -- move it above" was the old answer and it is wrong
+// advice here, since moving `b` above `a` only puts `b`'s own reference to `a` out of reach.
+val a = tag()
+
+fn tag() -> string {
+    return concat("a:", b)
+}
+
+val b = concat("b:", a)
+
+fn main() {
+    print(a)
+}

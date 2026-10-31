@@ -97,9 +97,9 @@ Binding *env_lookup_resolved(Env *env, const char *name, int *out_depth, int *ou
                  *
                  *   - Global: the type checker's own g_global_env and the interpreter's are
                  *     built by two independently-ordered passes that don't actually agree --
-                 *     interpreter.c's init_param_defaults defines one slot per omitted-default
-                 *     parameter, anywhere in the whole program, *before* init_global_vals
-                 *     defines the real module-level vals, but the type checker never calls
+                 *     interpreter.c's init_module_globals defines one slot per omitted-default
+                 *     parameter, anywhere in the whole program, interleaved with the real
+                 *     module-level vals in dependency order, but the type checker never calls
                  *     env_define for those particular slots at all (a reference to one is a
                  *     synthetic Expr with its type pre-filled, bypassing this search entirely;
                  *     see make_default_ref_expr in typecheck.c). A global's index at check time

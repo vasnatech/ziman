@@ -2262,8 +2262,11 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
      * above (which don't need to, since they're looked up by exact name
      * regardless of list order): a global val's initializer is evaluated
      * eagerly, once, before `main` runs (see interpreter.c's
-     * init_global_vals), in the SAME order this list puts them in -- so a
-     * dependency's own globals must come before the entry module's,
+     * init_module_globals), and this list is the order its sweep *starts*
+     * in. Since 2026-10-30 that is a preference rather than a correctness
+     * requirement -- a node reached out of order is initialised on demand --
+     * but it is still what makes the common case run in the order a reader
+     * sees, so a dependency's own globals still come before the entry module's,
      * matching `ldr.loaded`'s own guarantee (a module is only ever
      * registered as loaded after everything it `use`s already is -- see
      * load_module) that it's already a valid dependency order. The

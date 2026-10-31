@@ -1,0 +1,1 @@
+'a' cannot be initialised: it depends on itself through a -> b -> a

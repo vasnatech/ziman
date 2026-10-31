@@ -123,7 +123,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s);
 
 /* The root of every function call's own scope (see call_function) --
  * holds every module-level `val`'s already-evaluated Value (see
- * init_global_vals), so a bare reference to one falls out of an
+ * init_module_globals), so a bare reference to one falls out of an
  * ordinary env_lookup exactly the way a reference to an enclosing
  * block's local already does, with no special-casing anywhere else in
  * this file. Built once, before `main` runs, from a single thread;
@@ -1313,6 +1313,9 @@ static int resolve_builtin(const char *name) {
 }
 
 
+/* Defined with the initialisation pass below: EXPR_IDENT needs it, and it needs exec_stmt. */
+static int ziman_init_on_demand(Module *module, const char *name, int line, int col);
+
 static Value eval_expr(Module *module, Env *env, Expr *e) {
     ZIMAN_STACK_CHECK();
     switch (e->kind) {
@@ -1331,7 +1334,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             /* **Not defensiveness: this is reachable, and it used to segfault.** The type checker
              * proves every name resolves, so the only way here is a name that resolves and has no
              * value *yet* -- a module-level val read before its own initialiser has run. Module
-             * vals are initialised in file order (see init_global_vals), so
+             * vals were initialised in file order until 2026-10-30 (see init_module_globals), so
              *
              *     val a = tag("one")        // runs first
              *     fn tag(t: string) -> string { return concat(base, t) }
@@ -1339,15 +1342,21 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
              *
              * dereferenced NULL. The order is a real constraint of eager initialisation and the
              * message says what to do about it; what it must not be is a crash with no name in it.
-             * See init_param_defaults' own comment, which records this as the unaddressed half of
-             * the same problem -- the fix it suggests, evaluating globals lazily on first
-             * reference, is the one that would remove the constraint rather than report it. */
+             * `init_module_globals` removed that constraint by running the nodes in dependency
+             * order, so this branch is now only reached by a name that is not an initialisation
+             * node at all -- it stays because the alternative is still a NULL dereference. */
+            if (b == NULL && ziman_init_on_demand(module, e->as.ident_name, e->line, e->col)) {
+                /* Initialised just now, out of file order, because this read is what asked for it.
+                 * By name, not by slot: a global's slot is not stable across the two envs (env.c's
+                 * env_lookup_resolved returns depth -1 for one, which is why this is sound). */
+                b = e->resolved_depth >= 0 ? env_at_slot(env, e->resolved_depth, e->resolved_slot)
+                                           : env_lookup(env, e->as.ident_name);
+            }
             if (b == NULL) {
                 ziman_error("runtime", e->line, e->col,
-                            "'%s' is read before it is initialised: module-level vals are initialised in file "
-                            "order, and this one is reached by an initialiser that runs earlier -- move '%s' "
-                            "above the val whose initialiser uses it",
-                            e->as.ident_name, e->as.ident_name);
+                            "'%s' is read before it is initialised, and it is not a module-level val or a "
+                            "parameter default that initialising on demand could reach",
+                            e->as.ident_name);
                 return value_int(0);
             }
             return b->value;
@@ -2377,22 +2386,57 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
     return no_ctrl();
 }
 
-/* Evaluates every module-level `val` in file order (see typecheck.c's
- * check_global_vals for why order matters and why that's a deliberate
- * scope cut), adding to g_global_env (already created by `interpret`,
- * shared with init_param_defaults) as it goes by reusing exec_stmt's
- * own STMT_VAL case wholesale (via a synthetic Stmt) rather than
- * re-deriving its declared-vs-inferred type logic here. Must run before
- * `main` -- typecheck() already proved every initializer well-typed, so
- * nothing here can fail the way check_global_vals's synthetic check
- * could. Runs after init_param_defaults (see that function's own
- * comment for why) -- a global val's own initializer calling a function
- * that relies on one of its own omitted, defaulted parameters
- * (`datetime_format_of` calling `mutable_array_new<T>()`, say) needs that default
- * to already exist; not the other way around. */
-static void init_global_vals(Module *module) {
-    for (int i = 0; i < module->vals.count; i++) {
-        GlobalValDecl *v = module->vals.items[i];
+/* ------------------------------------------------------- module initialisation, in dependency order
+ *
+ * **One pass, depth-first on demand, instead of two in file order.** Every module-level `val` and
+ * every omitted parameter's default is a node here; a node is run when something reads it, or when
+ * the sweep below reaches it, whichever comes first. So the order is the dependency order, computed
+ * from the reads that actually happen rather than from a static approximation of them -- which
+ * matters because the dependencies this has to respect run *through function bodies*:
+ *
+ *     val greeting = decorated("one")
+ *     fn decorated(text: string) -> string { return concat(prefix, text) }
+ *     val prefix = "p:"                      // reached from greeting's initialiser, declared after it
+ *
+ * A lexical forward reference from an initialiser is already a type error (check_global_vals' scope
+ * cut), so a sort over initialiser references alone would have no forward edges to sort; every
+ * forward dependency there is comes through a call, and one may equally come through a *function
+ * value*, which no call graph can see exactly. Running on demand sees all of them by construction
+ * and needs no AST walker, so there is no kind of expression it can silently fail to look inside.
+ *
+ * **This is not lazy initialisation, which is the thing `g_global_env`'s invariant forbids.** Every
+ * node is run before `main` does, from one thread; the sweep at the end guarantees it even for a
+ * node nothing referenced. The global env is complete and immutable by the time any `spawn` can
+ * observe it, so concurrent reads still need no locking -- the cost laziness would have imposed on
+ * every program is not paid here.
+ *
+ * **It also closes the gap the two eager passes could not.** `init_param_defaults` ran wholesale
+ * before `init_global_vals` because a val's initialiser can call a function relying on a default
+ * (`iso_date_format` calls `mutable_array_new<T>()` with both omitted); but a default can equally
+ * read a val -- `val limit = 20` then `fn take(n: Option<int> = limit)` -- which failed at run time
+ * advising a move that was already done. No fixed order between two passes satisfies both. One
+ * dependency-ordered pass satisfies both without having to choose.
+ *
+ * Reordering is safe because **a global is read by name, not by slot**: env.c's
+ * `env_lookup_resolved` returns depth -1 for anything found in the global scope, and its own
+ * comment says why -- the checker's global env and the interpreter's were never ordered alike. */
+typedef enum { INIT_PENDING, INIT_RUNNING, INIT_DONE } InitState;
+
+typedef struct {
+    const char *name;      /* the val's name, or the parameter's `default_key` */
+    GlobalValDecl *val;    /* exactly one of these is set */
+    FunctionDecl *fn;
+    int param;
+    InitState state;
+} InitNode;
+
+static InitNode *g_init_nodes = NULL;
+static int g_init_count = 0;
+static int g_init_phase = 0;
+
+static void run_init_node(Module *module, InitNode *node) {
+    if (node->val != NULL) {
+        GlobalValDecl *v = node->val;
         Stmt synthetic = {0};
         synthetic.kind = STMT_VAL;
         synthetic.line = v->line;
@@ -2401,45 +2445,107 @@ static void init_global_vals(Module *module) {
         synthetic.as.decl.declared_type = v->type;
         synthetic.as.decl.has_declared_type = v->has_declared_type;
         synthetic.as.decl.init = v->init;
+        /* Reusing exec_stmt's own STMT_VAL case wholesale rather than re-deriving its
+         * declared-vs-inferred type logic here. typecheck() already proved the initialiser
+         * well-typed, so nothing here can fail the way check_global_vals' synthetic check could. */
         exec_stmt(module, g_global_env, &synthetic);
+    } else {
+        Param *param = &node->fn->params.items[node->param];
+        /* Evaluated exactly once, which is the same timing a val's initialiser gets and for the
+         * reason in ast.h's `Param.default_key`: a default cannot reference its own function's
+         * other parameters, only what is in scope at program start, so re-evaluating it per
+         * omitted call would produce the same value every time. */
+        Value v = eval_expr(module, g_global_env, param->default_expr);
+        env_define(g_global_env, param->default_key, param->type, 0, v);
     }
 }
 
-/* Evaluates every parameter's own default expression exactly once,
- * before `main` runs -- the same timing a global val's own initializer
- * gets, and for the same reason (see ast.h's Param.default_key): a
- * default can't reference this function's other parameters, only
- * things already in scope at program start, so re-evaluating it fresh
- * on every omitted call would produce the exact same value every time
- * anyway, just wastefully.
- *
- * Runs *before* init_global_vals, not after -- a real crash (a NULL
- * env_lookup, dereferenced) surfaced the instant a global val's own
- * initializer called a function relying on one of its own omitted
- * parameter defaults: `pub val iso_date_format =
- * datetime_format_of("yyyy-MM-dd")` calls `mutable_array_new<T>()` internally with
- * both parameters omitted, and if init_global_vals ran first, that
- * default_key wouldn't exist in g_global_env yet when this exact call
- * needed it. A default expression could, in principle, also reference
- * an actual global val -- the reverse dependency, unaddressed either
- * way, and not yet hit by anything real in this codebase (every
- * existing default is a self-contained literal, `20`, `2.0`, ...). This
- * ordering fixes the case that actually happened; a genuine dependency
- * cycle between the two would need a real fix (evaluating both lazily,
- * on first reference, rather than two fixed eager passes) if one is
- * ever hit. */
-static void init_param_defaults(Module *module) {
+/* The chain of nodes currently being initialised, innermost last -- the message for a cycle, which
+ * is the one program this cannot initialise in any order. "read before it is initialised -- move
+ * it" was the old answer and it is wrong advice here: no move fixes a cycle, and the two vals in
+ * one are each above the other's reader. */
+static void report_init_cycle(const char *name, int line, int col) {
+    char chain[512];
+    size_t at = 0;
+    int started = 0;
+    for (int i = 0; i < g_init_count; i++) {
+        if (g_init_nodes[i].state != INIT_RUNNING) continue;
+        at += (size_t)snprintf(chain + at, sizeof chain - at, "%s%s", started ? " -> " : "",
+                               g_init_nodes[i].name);
+        started = 1;
+        if (at + 1 >= sizeof chain) break;
+    }
+    ziman_error("runtime", line, col,
+                "'%s' cannot be initialised: it depends on itself through %s -> %s. Module-level "
+                "vals and parameter defaults are initialised in dependency order, so this is a "
+                "genuine cycle rather than a line in the wrong place -- break it by computing one "
+                "of them where it is used instead of at module level",
+                name, chain, name);
+}
+
+static InitNode *find_init_node(const char *name) {
+    for (int i = 0; i < g_init_count; i++) {
+        if (strcmp(g_init_nodes[i].name, name) == 0) return &g_init_nodes[i];
+    }
+    return NULL;
+}
+
+static void ensure_init_node(Module *module, InitNode *node, int line, int col) {
+    if (node->state == INIT_DONE) return;
+    if (node->state == INIT_RUNNING) {
+        report_init_cycle(node->name, line, col);
+        return;
+    }
+    node->state = INIT_RUNNING;
+    run_init_node(module, node);
+    node->state = INIT_DONE;
+}
+
+/* The hook eval_expr's EXPR_IDENT calls when a name resolves but has no binding yet. Answers
+ * whether it initialised something, so the caller can look the binding up again. Outside the
+ * initialisation phase this does nothing and the caller's own error stands. */
+static int ziman_init_on_demand(Module *module, const char *name, int line, int col) {
+    if (!g_init_phase || name == NULL) return 0;
+    InitNode *node = find_init_node(name);
+    if (node == NULL || node->state == INIT_DONE) return 0;
+    ensure_init_node(module, node, line, col);
+    return 1;
+}
+
+static void init_module_globals(Module *module) {
+    int n = module->vals.count;
     for (int i = 0; i < module->functions.count; i++) {
         FunctionDecl *fn = module->functions.items[i];
         for (int j = 0; j < fn->params.count; j++) {
-            Param *param = &fn->params.items[j];
-            if (param->default_expr == NULL) {
-                continue;
-            }
-            Value default_value = eval_expr(module, g_global_env, param->default_expr);
-            env_define(g_global_env, param->default_key, param->type, 0, default_value);
+            if (fn->params.items[j].default_expr != NULL) n++;
         }
     }
+    g_init_nodes = n > 0 ? ziman_xmalloc((size_t)n * sizeof(InitNode)) : NULL;
+    g_init_count = 0;
+    for (int i = 0; i < module->vals.count; i++) {
+        GlobalValDecl *v = module->vals.items[i];
+        g_init_nodes[g_init_count++] = (InitNode){v->name, v, NULL, 0, INIT_PENDING};
+    }
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *fn = module->functions.items[i];
+        for (int j = 0; j < fn->params.count; j++) {
+            if (fn->params.items[j].default_expr == NULL) continue;
+            g_init_nodes[g_init_count++] =
+                (InitNode){fn->params.items[j].default_key, NULL, fn, j, INIT_PENDING};
+        }
+    }
+    g_init_phase = 1;
+    /* The sweep: file order still decides where to *start*, so a program with no cross-dependencies
+     * initialises in exactly the order it reads, and an initialiser with observable effects keeps
+     * the sequence its author saw. A node something else already pulled in is skipped here. */
+    for (int i = 0; i < g_init_count; i++) {
+        ensure_init_node(module, &g_init_nodes[i], g_init_nodes[i].val != NULL ? g_init_nodes[i].val->line : 0,
+                         g_init_nodes[i].val != NULL ? g_init_nodes[i].val->col : 0);
+    }
+    g_init_phase = 0;
+    free(g_init_nodes);
+    g_init_nodes = NULL;
+    g_init_count = 0;
 }
 
 static Module *g_program = NULL;
@@ -2497,8 +2603,7 @@ void ziman_init_module_globals(Module *module) {
     /* The frame `interpret` gives module initialisation, for the two reasons recorded there. */
     ziman_push_frame("<module initialisation>", NULL, 0, 0);
     ziman_set_frame_env(g_global_env);
-    init_param_defaults(module);
-    init_global_vals(module);
+    init_module_globals(module);
     ziman_pop_frame();
 }
 
@@ -2553,8 +2658,7 @@ void interpret(Module *module) {
      * only the read would have turned a crash into that. */
     ziman_push_frame("<module initialisation>", NULL, 0, 0);
     ziman_set_frame_env(g_global_env);
-    init_param_defaults(module);
-    init_global_vals(module);
+    init_module_globals(module);
     ziman_pop_frame();
     FunctionDecl *main_fn = find_function(module, "main");
     call_function(module, main_fn, NULL, 0, 0, main_fn->line, main_fn->col);
@@ -2629,7 +2733,7 @@ static int run_one_test(Module *module, FunctionDecl *fn, Value *args, int argc,
  * ast.h's FunctionDecl.is_test/test_cases; typecheck.c already rejected any
  * other shape). A plain `#[test]` runs once, labelled "<file_label>::name". A
  * `#[test(cases: NAME)]` one runs once per element of NAME's array (NAME
- * itself a global val, already evaluated by init_global_vals below, or a
+ * itself a global val, already evaluated by init_module_globals below, or a
  * zero-parameter function called here to build it -- also inside its own
  * boundary, so a broken case-builder is one reported failure, not a crash),
  * labelled "<file_label>::name[i]". Adds to out_run and out_failed rather
@@ -2642,8 +2746,7 @@ void interpret_tests(Module *module, const char *file_label, int *out_run, int *
     /* The same frame `interpret` gives module initialisation, for the same two reasons. */
     ziman_push_frame("<module initialisation>", NULL, 0, 0);
     ziman_set_frame_env(g_global_env);
-    init_param_defaults(module);
-    init_global_vals(module);
+    init_module_globals(module);
     ziman_pop_frame();
     char label[512];
     for (int i = 0; i < module->functions.count; i++) {

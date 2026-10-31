@@ -1,10 +1,13 @@
 // A module-level val whose initialiser reaches, through a function, a val declared below it.
-// **This segfaulted until 2026-10-26**: the type checker proves the name resolves, so the only way
+// **This segfaulted until 2026-10-26** (the type checker proves the name resolves, so the only way
 // to a NULL binding is a val that resolves and has no value yet, and `EXPR_IDENT` returned
-// `b->value` without looking.
+// `b->value` without looking), then reported "read before it is initialised -- move 'prefix'
+// above", because initialisation ran in file order.
 //
-// Module vals are initialised in file order, so the order is a real constraint of eager
-// initialisation. What it must not be is a crash with no name in it.
+// **It works since 2026-10-30**: initialisation is one pass, depth-first on demand, so reading
+// `prefix` here is what initialises it. The file keeps its name as the record of what it used to
+// pin, and the dependency it exercises is the one a static sort could not see without a call
+// graph -- `greeting`'s initialiser names `decorated`, not `prefix`.
 
 val greeting = decorated("one")
 
@@ -14,6 +17,16 @@ fn decorated(text: string) -> string {
 
 val prefix = "p:"
 
+// A parameter default reading a module-level val: the other half, which no fixed order between two
+// eager passes could satisfy, because a val's initialiser may equally call a function relying on a
+// default (`iso_date_format` calls `mutable_array_new<T>()` with both omitted).
+val limit = 20
+
+fn take(n: Option<int> = limit) -> int {
+    return Option.unwrap_Some(n)
+}
+
 fn main() {
     print(greeting)
+    print(str(take()))
 }

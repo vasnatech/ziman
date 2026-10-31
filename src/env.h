@@ -113,8 +113,8 @@ Binding *env_lookup(Env *env, const char *name);
  *   2. The match itself is in the global scope (`is_global`), lambda boundary or not. The type
  *      checker's own g_global_env and the interpreter's g_global_env are built by two
  *      independently-ordered passes that don't actually agree: interpreter.c's
- *      init_param_defaults defines one slot per omitted-default parameter, anywhere in the
- *      whole program, *before* init_global_vals defines the real module-level vals -- but the
+ *      init_module_globals defines one slot per omitted-default parameter, anywhere in the
+ *      whole program, interleaved with the real module-level vals in dependency order -- but the
  *      type checker never calls env_define for those particular slots at all (a reference to
  *      one is a synthetic Expr with its type pre-filled, bypassing this search entirely; see
  *      make_default_ref_expr in typecheck.c). So a global's index at check time and at run time
