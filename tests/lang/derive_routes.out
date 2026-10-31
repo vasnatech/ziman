@@ -91,7 +91,12 @@ pub val main_routes: [server.Endpoint<Ctx>] = [
         pattern: "/api/orders",
         handler: server.secure_handler(
             who: authenticated,
-            encoders: [json_list_encoder<model.OrderResponse>(model.order_response_to_json)],
+            encoders: [
+                list_encoder_of(json_format(), model.order_response_to_json),
+                list_encoder_of(yaml_format(), model.order_response_to_json),
+                list_encoder_of(ndjson_format(), model.order_response_to_json),
+                list_encoder_of(csv_format(), model.order_response_to_json)
+            ],
             run: handle_list,
             api: api
         )
@@ -101,8 +106,14 @@ pub val main_routes: [server.Endpoint<Ctx>] = [
         pattern: "/api/orders",
         handler: server.secure_body_handler(
             who: authenticated,
-            decoders: [json_decoder<model.OrderRequest>(model.order_request_from_json)],
-            encoders: [json_encoder<model.OrderResponse>(model.order_response_to_json)],
+            decoders: [
+                decoder_of(json_format(), model.order_request_from_json),
+                decoder_of(yaml_format(), model.order_request_from_json)
+            ],
+            encoders: [
+                encoder_of(json_format(), model.order_response_to_json),
+                encoder_of(yaml_format(), model.order_response_to_json)
+            ],
             status: 201,
             run: handle_create,
             api: api

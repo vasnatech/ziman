@@ -1,0 +1,50 @@
+// `consumes:` naming a format a request body cannot be. A body is one value, and CSV parses to an
+// array of rows -- so a CSV body has no lone model to become, whatever the handler's type says.
+// The tree formats are the candidates, and the refusal names them.
+//
+// The three routes are the three shapes that matter: a list, a create with a body and a 201, and a
+// delete with a path id and a 204. Nothing below says which handler constructor to use, which
+// decoder, which encoder, or what the JSON functions are called.
+#![derive(Routes)]
+
+use codec.decoder_of
+use codec.encoder_of
+use codec.json_format
+use codec.list_encoder_of
+use codec.ndjson_format
+use codec.yaml_format
+use codec.csv_format
+use derive_routes
+use http
+use model
+use server
+use server.uuid_param
+use uuid.Uuid
+use wiring.Ctx
+use wiring.Principal
+use wiring.api
+use wiring.authenticated
+
+// `produces: "all"` is every format an array can be written as, so one `Accept` header picks
+// between JSON, YAML, NDJSON and CSV. Nothing else about the handler changes.
+#[route(method: GET, path: "/api/orders", produces: "all")]
+pub fn handle_list(ctx: Ctx, who: Principal) -> Result<[model.OrderResponse], string> {
+    return err("x")
+}
+
+// A body may arrive as any tree format, and the answer comes back as whichever is asked for.
+#[route(method: POST, path: "/api/orders", status: 201, consumes: "csv")]
+pub fn handle_create(ctx: Ctx, who: Principal, data: model.OrderRequest) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+// `label:` names the noun in a bad-id message; it defaults to the module's own name, which is
+// `main` here and `order` is what it should say.
+#[route(method: DELETE, path: "/api/orders/{id}", status: 204, label: "order")]
+pub fn handle_delete(ctx: Ctx, who: Principal, id: Uuid) -> Result<unit, string> {
+    return err("x")
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}

@@ -1,0 +1,53 @@
+// `produces:` naming a format the *shape* cannot carry, refused where the attribute is written
+// rather than on the request that would have failed.
+//
+// A TOML document is a table at the top, so it cannot hold an array -- and `handle_list` answers
+// one. Spring accepts a `produces` it cannot honour and fails when a client asks for it; the
+// formats each shape allows are known here, so this is an error about the attribute.
+//
+// The three routes are the three shapes that matter: a list, a create with a body and a 201, and a
+// delete with a path id and a 204. Nothing below says which handler constructor to use, which
+// decoder, which encoder, or what the JSON functions are called.
+#![derive(Routes)]
+
+use codec.decoder_of
+use codec.encoder_of
+use codec.json_format
+use codec.list_encoder_of
+use codec.ndjson_format
+use codec.yaml_format
+use codec.csv_format
+use derive_routes
+use http
+use model
+use server
+use server.uuid_param
+use uuid.Uuid
+use wiring.Ctx
+use wiring.Principal
+use wiring.api
+use wiring.authenticated
+
+// `produces: "all"` is every format an array can be written as, so one `Accept` header picks
+// between JSON, YAML, NDJSON and CSV. Nothing else about the handler changes.
+#[route(method: GET, path: "/api/orders", produces: "toml")]
+pub fn handle_list(ctx: Ctx, who: Principal) -> Result<[model.OrderResponse], string> {
+    return err("x")
+}
+
+// A body may arrive as any tree format, and the answer comes back as whichever is asked for.
+#[route(method: POST, path: "/api/orders", status: 201, consumes: "json, yaml", produces: "json yaml")]
+pub fn handle_create(ctx: Ctx, who: Principal, data: model.OrderRequest) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+// `label:` names the noun in a bad-id message; it defaults to the module's own name, which is
+// `main` here and `order` is what it should say.
+#[route(method: DELETE, path: "/api/orders/{id}", status: 204, label: "order")]
+pub fn handle_delete(ctx: Ctx, who: Principal, id: Uuid) -> Result<unit, string> {
+    return err("x")
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}

@@ -29,6 +29,10 @@ source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all,
 
 ```
 * `method:` and `path:`, which are its whole content.
+* `consumes:` and `produces:`, Spring's words, naming `codec`'s formats -- `"json"`, `"yaml"`,
+  `"toml"`, `"ndjson"`, `"csv"`, or `"all"`. Omitted means JSON. Which of them a shape can
+  carry *is* derivable and is checked here, so `produces: "toml"` on a list is refused at the
+  attribute rather than on the request that asks for it.
 * `who:`, because two authorisation functions have the same signature. Defaults to
   `authenticated`.
 * `status:`, because 201-versus-200 on a create is a decision, not a type.

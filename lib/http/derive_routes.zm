@@ -22,6 +22,10 @@
 // **Four things no signature holds, so the attribute carries them:**
 //
 //   * `method:` and `path:`, which are its whole content.
+//   * `consumes:` and `produces:`, Spring's words, naming `codec`'s formats -- `"json"`, `"yaml"`,
+//     `"toml"`, `"ndjson"`, `"csv"`, or `"all"`. Omitted means JSON. Which of them a shape can
+//     carry *is* derivable and is checked here, so `produces: "toml"` on a list is refused at the
+//     attribute rather than on the request that asks for it.
 //   * `who:`, because two authorisation functions have the same signature. Defaults to
 //     `authenticated`.
 //   * `status:`, because 201-versus-200 on a create is a decision, not a type.
@@ -49,7 +53,12 @@ use template
 //             pattern: "/api/orders",
 //             handler: server.secure_handler(
 //                 who: authenticated,
-//                 encoders: [json_list_encoder<model.OrderResponse>(model.order_response_to_json)],
+//                 encoders: [
+//                     list_encoder_of(json_format(), model.order_response_to_json),
+//                     list_encoder_of(yaml_format(), model.order_response_to_json),
+//                     list_encoder_of(ndjson_format(), model.order_response_to_json),
+//                     list_encoder_of(csv_format(), model.order_response_to_json)
+//                 ],
 //                 run: handle_list,
 //                 api: api
 //             )
@@ -59,8 +68,14 @@ use template
 //             pattern: "/api/orders",
 //             handler: server.secure_body_handler(
 //                 who: authenticated,
-//                 decoders: [json_decoder<model.OrderRequest>(model.order_request_from_json)],
-//                 encoders: [json_encoder<model.OrderResponse>(model.order_response_to_json)],
+//                 decoders: [
+//                     decoder_of(json_format(), model.order_request_from_json),
+//                     decoder_of(yaml_format(), model.order_request_from_json)
+//                 ],
+//                 encoders: [
+//                     encoder_of(json_format(), model.order_response_to_json),
+//                     encoder_of(yaml_format(), model.order_response_to_json)
+//                 ],
 //                 status: 201,
 //                 run: handle_create,
 //                 api: api
@@ -80,9 +95,10 @@ use template
 //         }
 //     ]
 //
-// -- `secure_handler` versus `secure_body_handler` versus `secure_path_handler`, the three
-// encoders, and `order_request_from_json`/`order_response_to_json` are all read off the handlers'
-// signatures. Only the method, the path, the two statuses and the `"order"` label were written.
+// -- `secure_handler` versus `secure_body_handler` versus `secure_path_handler`, which builder each
+// encoder needs, and `order_request_from_json`/`order_response_to_json` are all read off the
+// handlers' signatures. What was written is the method, the path, the two statuses, the `"order"`
+// label, and the `consumes:`/`produces:` that say which media types each endpoint speaks.
 val sheet = template.must_parse("""
 @template table
 pub val @{module}_routes: [server.Endpoint<Ctx>] = [
@@ -98,7 +114,7 @@ pub val @{module}_routes: [server.Endpoint<Ctx>] = [
             path: uuid_param("@{e.label}"),
 @end
 @if e.has_body
-            decoders: [json_decoder<@{e.body}>(@{e.from_json})],
+            decoders: @{e.decoders},
 @end
             encoders: @{e.encoders},
 @if e.has_status
@@ -116,7 +132,12 @@ pub val @{module}_routes: [server.Endpoint<Ctx>] = [
 
 pub fn attributes() -> [meta.AttrSpec] {
     return [
-        meta.attr_spec("route", "method:name,path:string,who:name?,status:int?,label:string?", "function")
+        meta.attr_spec(
+            "route",
+            "method:name,path:string,who:name?,status:int?,label:string?," \
+                "consumes:string?,produces:string?",
+            "function"
+        )
     ]
 }
 
@@ -155,10 +176,10 @@ fn row_for(f: meta.Function, module_name: string, comma: string) -> Result<templ
     }
     val encoders = try encoders_for(f)
     var body_name = ""
-    var from_json = ""
+    var decoders = "[]"
     if Some(name) = body {
         body_name = name
-        from_json = concat(json_stem(name), "_from_json")
+        decoders = try decoders_for(f, name)
     }
     return ok(template.row([
         template.text("method", capitalise(arg_or(f, "method", "GET"))),
@@ -170,7 +191,7 @@ fn row_for(f: meta.Function, module_name: string, comma: string) -> Result<templ
         template.text("label", arg_or(f, "label", replace(module_name, "_", " "))),
         template.flag("has_body", Option.is_Some(body)),
         template.text("body", body_name),
-        template.text("from_json", from_json),
+        template.text("decoders", decoders),
         template.text("encoders", encoders),
         template.flag("has_status", Option.is_Some(meta.fn_attr_arg(f, "route", "status"))),
         template.text("status", arg_or(f, "status", "")),
@@ -179,20 +200,103 @@ fn row_for(f: meta.Function, module_name: string, comma: string) -> Result<templ
     ]))
 }
 
-// What encodes the answer, from the return type alone.
+// **`consumes:` and `produces:`, as Spring spells them**, naming `codec`'s formats: `"json"`,
+// `"yaml"`, `"toml"`, `"ndjson"`, `"csv"`, or `"all"` for every one the shape allows. Omitted means
+// JSON, which is what every route wrote before these existed.
+//
+// **Which formats a shape allows is checked here, when the code is generated**, not at run time:
+// a lone object cannot be NDJSON (a sequence of documents) or CSV (a table), and an array cannot
+// be TOML (a document is a table at the top). Spring would accept `produces` it cannot honour and
+// fail on the request; this refuses the attribute and names the format.
+fn formats_named(spelt: string, allowed: [string], what: string, fn_name: string) -> Result<[string], string> {
+    val wanted = mutable_array_new<string>()
+    for piece in split(replace(spelt, ",", " "), " ") {
+        val one = trim(piece)
+        if prelude.len(one) == 0 {
+            continue
+        }
+        if one == "all" {
+            return ok(allowed)
+        }
+        if !contains(allowed, one) {
+            val subject = if what == "consumes" { "request body" } else { "answer" }
+            return err(prelude.format(
+                "#[route] on '{}' says {}: \"{}\", and '{}' is not one this {} can carry -- it takes {}",
+                fn_name,
+                what,
+                spelt,
+                one,
+                subject,
+                join(separator: ", ", pieces: allowed)
+            ))
+        }
+        push(wanted, one)
+    }
+    if prelude.len(wanted) == 0 {
+        return ok(["json"])
+    }
+    return ok(snapshot(wanted))
+}
+
+// The formats a lone tree can be written as, and the ones an array can.
+fn tree_names() -> [string] {
+    return ["json", "yaml", "toml"]
+}
+
+fn sequence_names() -> [string] {
+    return ["json", "yaml", "ndjson", "csv"]
+}
+
+// The list literal the template drops in. One entry stays on its line; several wrap, because a
+// route offering four formats otherwise writes a line nobody can read -- and generated code is
+// read, by whoever is working out what an endpoint does.
+fn as_list(items: [string]) -> string {
+    if prelude.len(items) < 2 {
+        return join(prefix: "[", suffix: "]", separator: ", ", pieces: items)
+    }
+    return join(
+        prefix: "[\n                ",
+        suffix: "\n            ]",
+        separator: ",\n                ",
+        pieces: items
+    )
+}
+
+// What encodes the answer: the return type decides the shape and the builder, `produces:` the
+// formats.
 fn encoders_for(f: meta.Function) -> Result<string, string> {
     if ResultOf(r) = f.returns {
         if Array(inner) = r.ok {
             if Some(name) = named_of(inner) {
-                return ok(concat("[json_list_encoder<", name, ">(", json_stem(name), "_to_json)]"))
+                val names = try formats_named(
+                    arg_or(f, "produces", "json"),
+                    sequence_names(),
+                    "produces",
+                    f.name
+                )
+                return ok(as_list(built(names, "list_encoder_of", name, "_to_json")))
             }
         }
-        // A `unit` answer has no body, which is what a 204 means.
+        // A `unit` answer has no body, which is what a 204 means -- and nothing to negotiate, so
+        // `produces:` on one is a mistake worth naming rather than ignoring.
         if Unit = r.ok {
+            if Some(_) = meta.fn_attr_arg(f, "route", "produces") {
+                return err(prelude.format(
+                    "#[route] on '{}' says produces:, and it answers unit -- there is no body to " \
+                        "encode, which is what its 204 means",
+                    f.name
+                ))
+            }
             return ok("[]")
         }
         if Some(name) = named_of(r.ok) {
-            return ok(concat("[json_encoder<", name, ">(", json_stem(name), "_to_json)]"))
+            val names = try formats_named(
+                arg_or(f, "produces", "json"),
+                tree_names(),
+                "produces",
+                f.name
+            )
+            return ok(as_list(built(names, "encoder_of", name, "_to_json")))
         }
     }
     return err(prelude.format(
@@ -200,6 +304,22 @@ fn encoders_for(f: meta.Function) -> Result<string, string> {
             "success is a struct, an array of one, or unit",
         f.name
     ))
+}
+
+// What decodes the body. A body is one value, so the tree formats are the candidates: CSV parses
+// to an array and NDJSON to a sequence, neither of which is a lone model.
+fn decoders_for(f: meta.Function, body: string) -> Result<string, string> {
+    val names = try formats_named(arg_or(f, "consumes", "json"), tree_names(), "consumes", f.name)
+    return ok(as_list(built(names, "decoder_of", body, "_from_json")))
+}
+
+// `decoder_of(json_format(), model.order_request_from_json)`, one per format named.
+fn built(names: [string], builder: string, type_name: string, suffix: string) -> [string] {
+    val out = mutable_array_new<string>()
+    for n in names {
+        push(out, concat(builder, "(", n, "_format(), ", json_stem(type_name), suffix, ")"))
+    }
+    return snapshot(out)
 }
 
 // The type as the source wrote it, which is what generated text repeats: `model.OrderResponse`
