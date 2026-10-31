@@ -822,6 +822,61 @@ static ZimanTarget target_for(Module *module, StructDecl *sd) {
     return t;
 }
 
+/* **A module generator of a project's own** (user-generators.md §5c), run from the loader once the
+ * module's imports are resolved -- which is what makes the target name resolvable at all.
+ *
+ * `Repository` does not come through here: its input is a `meta.Target`, entity-shaped, and
+ * `generate_repository_functions` below assembles it. That asymmetry is the one §5c predicted and
+ * accepted; what it buys is that nothing else has to pretend to have an entity.
+ *
+ * The functions are handed over **as the module declares them**, each carrying its own `attrs`, so
+ * a generator reads `#[route(..)]` off them rather than being told about routes by the compiler.
+ * The compiler's whole part is: collect, call, splice. */
+void generate_project_module(Module *module) {
+    if (module->module_derive_target == NULL) return;
+    if (strcmp(module->module_derive_target, "Repository") == 0) return;
+    int line = module->module_derive_line;
+    int col = module->module_derive_col;
+
+    const char **defined = ziman_xmalloc(sizeof(char *) * (size_t)(module->functions.count > 0 ? module->functions.count : 1));
+    int defined_count = 0;
+    FunctionDecl **fns = ziman_xmalloc(sizeof(FunctionDecl *) * (size_t)(module->functions.count > 0 ? module->functions.count : 1));
+    int fn_count = 0;
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *fn = module->functions.items[i];
+        if (fn->name == NULL) continue;
+        /* **Not a derived function.** Generation appends to this same list, so a second pass over a
+         * module would hand a generator its own output -- and `defined` exists precisely so a
+         * generator can skip what is already written. */
+        if (fn->derived_from != NULL) continue;
+        defined[defined_count++] = fn->name;
+        fns[fn_count++] = fn;
+    }
+
+    ZimanModuleTarget mt;
+    mt.args = module->module_derive_args != NULL ? module->module_derive_args->args : NULL;
+    mt.arg_count = module->module_derive_args != NULL ? module->module_derive_args->arg_count : 0;
+    mt.functions = fns;
+    mt.function_count = fn_count;
+    mt.defined = defined;
+    mt.defined_count = defined_count;
+
+    char *text = ziman_generate_module_for(module, module->module_derive_target, &mt, line, col);
+    if (text == NULL) {
+        ziman_error("module", line, col,
+                    "'#![derive(%s)]' names a module generator, and no module in this file's `use` "
+                    "list exports a 'generate_module' for it -- a module generator is a module "
+                    "carrying '#![generator(%s)]' with a 'pub fn generate_module(m: meta.ModuleTarget) "
+                    "-> string'",
+                    module->module_derive_target, module->module_derive_target);
+        return;
+    }
+    /* Nothing to add is a legitimate answer -- a module whose functions carry no attribute the
+     * generator reads. */
+    if (text[0] == '\0') return;
+    parse_and_splice(module, text, line, col, fmt_str("derive(%s) for this module", module->module_derive_target));
+}
+
 /* The nine, as `lib/db/derive_repository.zm` wrote them.
  *
  * **Everything above this function is still C and that is the division**: the generator answers

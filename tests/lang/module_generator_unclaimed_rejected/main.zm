@@ -1,0 +1,9 @@
+// `#![derive(X)]` whose X no module in the `use` list claims. Refused as the module-level fact it
+// is, before the generator program is loaded -- it said "the module generator for 'Nobody' failed:
+// no such function" when the check fell through to the bundled lookup, which describes the
+// compiler's search rather than the reader's mistake.
+#![derive(Nobody)]
+
+fn main() {
+    print(1)
+}

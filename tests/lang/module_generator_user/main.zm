@@ -1,0 +1,21 @@
+// `#![derive(Greet)]` names a module generator of this project's own, resolved through the `use`
+// list exactly as `#[derive(X)]` on a struct is. The attribute on each function is the generator's
+// too, so the compiler knows neither `Greet` nor `greet`.
+#![derive(Greet)]
+
+use derive_greet
+
+#[greet(who: "Ada")]
+pub fn first() { }
+
+#[greet(who: "Grace")]
+pub fn second() { }
+
+// No attribute, so the generator skips it -- but it still counts among `defined`.
+pub fn plain() { }
+
+fn main() {
+    for g in greetings {
+        print(g)
+    }
+}

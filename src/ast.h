@@ -1128,6 +1128,10 @@ typedef struct Module {
      * see the parser's own note (docs/design/user-generators.md §5b). */
     const char *module_derive_target;
     FieldAttr *module_derive_args;
+    /* Where `#![derive(X(..))]` was written, for a project's own module generator -- the
+     * Repository path keeps its own `repository_line`/`repository_col` because it is reported
+     * against the entity it names. */
+    int module_derive_line, module_derive_col;
     const char *repository_entity;
     /* `#![repository(Medication, label: "Medication")]`'s label: the entity **as a person says
      * it**, for the `DbError.NotFound` a derived query raises when it answers one row and finds

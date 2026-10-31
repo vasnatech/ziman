@@ -867,6 +867,83 @@ char *ziman_generate_module_in_ziman(const ZimanTarget *t, int line, int col) {
                          "the repository generator", caller_file, line, col);
 }
 
+/* `meta.ModuleTarget`. One guard over the whole value for the reason `reify_target_guarded` has:
+ * every nested reification allocates, and a collection landing between two of them would sweep
+ * whichever finished first. */
+static Value reify_module_target(const ZimanModuleTarget *mt, int line, int col) {
+    native_gc_unsafe_enter();
+    Value *args = ziman_xmalloc(sizeof(Value) * (size_t)(mt->arg_count > 0 ? mt->arg_count : 1));
+    for (int i = 0; i < mt->arg_count; i++) {
+        Value pair[3] = {value_string(ziman_xstrdup(mt->args[i].name)),
+                         value_string(ziman_xstrdup(mt->args[i].value)),
+                         value_string(ziman_xstrdup(mt->args[i].kind))};
+        args[i] = call_meta("attr_arg", pair, 3, line, col);
+    }
+    Value *fns = ziman_xmalloc(sizeof(Value) * (size_t)(mt->function_count > 0 ? mt->function_count : 1));
+    for (int i = 0; i < mt->function_count; i++) {
+        fns[i] = reify_function(mt->functions[i], line, col);
+    }
+    Value *defined = ziman_xmalloc(sizeof(Value) * (size_t)(mt->defined_count > 0 ? mt->defined_count : 1));
+    for (int i = 0; i < mt->defined_count; i++) {
+        defined[i] = value_string(ziman_xstrdup(mt->defined[i]));
+    }
+    Value all[3] = {array_of(args, mt->arg_count),
+                    array_of(fns, mt->function_count),
+                    array_of(defined, mt->defined_count)};
+    Value v = call_meta("module_target", all, 3, line, col);
+    native_gc_unsafe_leave();
+    return v;
+}
+
+char *ziman_generate_module_for(Module *module, const char *target, const ZimanModuleTarget *mt,
+                                int line, int col) {
+    const char *caller_file = ziman_error_file();
+    const char *user_path = NULL;
+    Module *user = find_user_generator(module, target, &user_path);
+    /* **Answered before the generator program is loaded**, so "no generator claims this name" is
+     * reported by the caller as the module-level fact it is, rather than arriving from inside a
+     * call as "no such function" -- which is what it said when this fell through to the bundled
+     * lookup unconditionally. */
+    if (user == NULL) {
+        char *snake = ziman_pascal_to_snake(target);
+        char *mod = ziman_xmalloc(strlen(snake) + 8);
+        sprintf(mod, "derive_%s", snake);
+        int bundled = 0;
+        for (size_t i = 0; i < sizeof MODULE_GENERATOR_MODULES / sizeof MODULE_GENERATOR_MODULES[0]; i++) {
+            if (strcmp(MODULE_GENERATOR_MODULES[i], mod) == 0) bundled = 1;
+        }
+        free(snake);
+        free(mod);
+        if (!bundled) return NULL;
+    }
+    load_generators();
+    ziman_set_error_file(caller_file);
+    if (g_generators == NULL) return NULL;
+    Value v = reify_module_target(mt, line, col);
+    char what[96];
+    snprintf(what, sizeof what, "the module generator for '%s'", target);
+    if (user != NULL) {
+        Module *program = ready_user_generator(user_path, user->source_file, line, col);
+        if (program == NULL) {
+            ziman_error("module", line, col,
+                        "the module generator for '%s' is '%s', which could not be loaded as a program "
+                        "of its own", target, user_path);
+        }
+        char *fn = ziman_xmalloc(strlen(user_path) + 24);
+        sprintf(fn, "%s::generate_module", user_path);
+        return run_generator_in(program, fn, &v, 1, what, caller_file, line, col);
+    }
+    /* A bundled generator of this name, for symmetry with the declaration kind -- there is none
+     * but `derive_repository` today, which has its own entry point above because its input is a
+     * `Target` rather than a `ModuleTarget`. */
+    char *fn = ziman_xmalloc(strlen(target) + 32);
+    sprintf(fn, "derive_%s::generate_module", target);
+    for (char *c = fn; *c != '\0'; c++) {
+        if (*c >= 'A' && *c <= 'Z') *c = (char)(*c - 'A' + 'a');
+    }
+    return run_generator(fn, &v, 1, what, caller_file, line, col);
+}
+
 char *ziman_generate_query_in_ziman(const ZimanTarget *t, FunctionDecl *fn, int line, int col) {
     const char *caller_file = ziman_error_file();
     load_generators();

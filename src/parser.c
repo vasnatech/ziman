@@ -3045,37 +3045,48 @@ static void parse_module_attributes(Parser *p, Module *module) {
                  * `meta.Target` is entity-shaped (`entity: Decl`, `crud`, `label`), so there is
                  * nothing decided for a module generator to *receive*. See §5c of
                  * docs/design/user-generators.md for the shape that would settle it. */
-                if (strcmp(claim.name, "Repository") != 0) {
-                    ziman_error("syntax", target->line, target->col,
-                                "'#![derive(%s)]' cannot be seated: a module generator of your own "
-                                "is not supported yet -- `meta.Target` carries an entity, so there "
-                                "is nothing for one to receive. 'Repository' is the only module "
-                                "generator, and a declaration target (`#[derive(%s)]` on a struct) "
-                                "can be your own", claim.name, claim.name);
-                }
-                const char *entity = NULL;
-                for (int ai = 0; ai < claim.arg_count; ai++) {
-                    const FieldAttrArg *one = &claim.args[ai];
-                    if (strcmp(one->name, "value") == 0) {
-                        entity = one->value;
-                    } else if (strcmp(one->name, "label") == 0) {
-                        module->repository_label = one->value;
-                    } else if (strcmp(one->name, "crud") == 0) {
-                        module->repository_no_crud = strcmp(one->value, "false") == 0;
-                    } else {
-                        ziman_error("syntax", one->line, one->col,
-                                    "'#![derive(Repository)]' has no argument '%s' -- it takes the "
-                                    "entity, 'label:' and 'crud:'", one->name);
+                /* **A module generator of a project's own, since 2026-10-31.** This refused
+                 * anything but `Repository`, and the reason it gave was true at the time: there was
+                 * nothing decided for one to *receive*, because `meta.Target` is entity-shaped.
+                 * `meta.ModuleTarget` is that decision (user-generators.md §5c) -- the attribute's
+                 * own arguments, the module's functions and the names it defines, none of it about
+                 * an entity. `Repository` keeps its own input, so the asymmetry §5c warned about is
+                 * real and is resolved the way it preferred: two reifications, one mechanism.
+                 *
+                 * The name is still resolved rather than allowed: `resolve_module_generator` in
+                 * src/derive.c refuses one that no generator in the `use` list claims, which is
+                 * where a declaration target's name is checked too. The parser cannot do it --
+                 * imports are not resolved yet. */
+                module->module_derive_line = target->line;
+                module->module_derive_col = target->col;
+                if (strcmp(claim.name, "Repository") == 0) {
+                    /* `Repository`'s own arguments, which only it has: the entity it is over, the
+                     * label for a 404 and whether to write the nine CRUD functions. A project's
+                     * generator receives its arguments unread, as `ModuleTarget.args`. */
+                    const char *entity = NULL;
+                    for (int ai = 0; ai < claim.arg_count; ai++) {
+                        const FieldAttrArg *one = &claim.args[ai];
+                        if (strcmp(one->name, "value") == 0) {
+                            entity = one->value;
+                        } else if (strcmp(one->name, "label") == 0) {
+                            module->repository_label = one->value;
+                        } else if (strcmp(one->name, "crud") == 0) {
+                            module->repository_no_crud = strcmp(one->value, "false") == 0;
+                        } else {
+                            ziman_error("syntax", one->line, one->col,
+                                        "'#![derive(Repository)]' has no argument '%s' -- it takes the "
+                                        "entity, 'label:' and 'crud:'", one->name);
+                        }
                     }
+                    if (entity == NULL) {
+                        ziman_error("syntax", target->line, target->col,
+                                    "'#![derive(Repository)]' needs the entity it is over -- "
+                                    "'#![derive(Repository(Note))]'");
+                    }
+                    module->repository_entity = entity;
+                    module->repository_line = target->line;
+                    module->repository_col = target->col;
                 }
-                if (entity == NULL) {
-                    ziman_error("syntax", target->line, target->col,
-                                "'#![derive(Repository)]' needs the entity it is over -- "
-                                "'#![derive(Repository(Note))]'");
-                }
-                module->repository_entity = entity;
-                module->repository_line = target->line;
-                module->repository_col = target->col;
             } else {
                 ziman_error("syntax", name->line, name->col,
                             "unknown module attribute '%.*s' (the four are 'experimental', 'deprecated', "

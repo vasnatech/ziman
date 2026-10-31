@@ -1,0 +1,37 @@
+// **A module generator the compiler does not know.** `Greet` is not `Repository`, and until
+// 2026-10-31 that was the whole of the refusal: `meta.Target` carries an entity, so there was
+// nothing decided for any other module generator to receive. `meta.ModuleTarget` is that decision
+// (docs/design/user-generators.md §5c) -- the attribute's arguments, the module's functions and
+// the names it already defines, none of it about an entity.
+//
+// It also declares its own *function* attribute, so `#[greet(who:)]` costs the compiler no
+// vocabulary: the name means something in a module that imports this one and nowhere else.
+#![generator(Greet)]
+
+use meta
+
+pub fn attributes() -> [meta.AttrSpec] {
+    // The third argument is the position. Without it a spec means a struct field, which is the
+    // only place an attribute could go before this.
+    return [meta.attr_spec("greet", "who:string", "function")]
+}
+
+pub fn generate_module(m: meta.ModuleTarget) -> string {
+    val lines = mutable_array_new<string>()
+    for f in meta.functions_with(m, "greet") {
+        val who = switch meta.fn_attr_arg(f, "greet", "who") {
+            Some(w) { w }
+            None { "world" }
+        }
+        push(lines, concat("    \"", f.name, " greets ", who, "!\""))
+    }
+    // `defined` is what the module already declares: proof the generator can see it, and what it
+    // would check before writing a name of its own.
+    push(lines, concat("    \"", str(prelude.len(m.defined)), " functions were written by hand\""))
+    return join(
+        prefix: "pub val greetings: [string] = [\n",
+        suffix: "\n]\n",
+        separator: ",\n",
+        pieces: snapshot(lines)
+    )
+}

@@ -1,0 +1,14 @@
+// A function attribute is checked against what the module's generators declare, in the same pass
+// and by the same rule as a field's -- so the misspelling that actually happens is an error rather
+// than an attribute nobody reads. That silence is what F259 closed for every other position, and
+// opening the function position would have reopened it.
+#![derive(Greet)]
+
+use derive_greet
+
+#[gret(who: "Ada")]
+pub fn first() { }
+
+fn main() {
+    print(prelude.len(greetings))
+}

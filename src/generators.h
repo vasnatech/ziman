@@ -55,6 +55,25 @@ typedef struct {
  * module did not load. A refusal raises at `line`/`col` -- the module attribute. */
 char *ziman_generate_module_in_ziman(const ZimanTarget *t, int line, int col);
 
+/* A module generator of a project's own: `meta.ModuleTarget` reified -- the attribute's arguments,
+ * the module's functions (each carrying its own attributes), and the names it already defines.
+ * Unlike `ZimanTarget` this is not entity-shaped, which is the whole point (user-generators.md
+ * §5c): a generator over routes, or a client over an interface, has no entity. */
+typedef struct {
+    const FieldAttrArg *args;     /* `#![derive(X(a: 1))]`'s arguments; NULL when written bare */
+    int arg_count;
+    FunctionDecl **functions;
+    int function_count;
+    const char **defined;
+    int defined_count;
+} ZimanModuleTarget;
+
+/* Runs `<generator>::generate_module` for a project's own module target, where `generator` is the
+ * module the target name resolved to through the importing module's `use` list -- the same
+ * resolution a declaration target goes through (F254). NULL when no generator claims the name. */
+char *ziman_generate_module_for(Module *module, const char *target, const ZimanModuleTarget *mt,
+                                int line, int col);
+
 /* One bodyless `pub fn`'s body, from its name read against the entity. **Called once per such
  * function, and that is the point**: a refusal raises at `fn`'s own position, so an unreadable
  * name is reported where it is written and three of them in one file are three errors. */

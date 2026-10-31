@@ -1206,6 +1206,21 @@ pub fn fn_has_attr(f: Function, name: string) -> bool
 
 pub fn fn_attr_arg(f: Function, attr: string, arg: string) -> Option<string>
 
+pub struct ModuleTarget {
+    // `#![derive(Routes(prefix: "/api"))]`'s arguments, as a declaration target's are.
+    args: [AttrArg]
+    // The module's functions, each with its own `attrs` -- which is where a `#[route(..)]` is read.
+    functions: [Function]
+    // What the module declares, so a generator skips a name that is already written by hand.
+    defined: [string]
+}
+
+pub fn module_target(args: [AttrArg], functions: [Function], defined: [string]) -> ModuleTarget
+
+pub fn module_arg(m: ModuleTarget, name: string) -> Option<string>
+
+pub fn functions_with(m: ModuleTarget, attr: string) -> [Function]
+
 pub fn target(entity: Decl, label: Option<string>, crud: bool, defined: [string]) -> Target
 
 pub fn label_of(t: Target) -> string

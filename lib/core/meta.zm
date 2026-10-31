@@ -607,6 +607,50 @@ pub fn fn_attr_arg(f: Function, attr: string, arg: string) -> Option<string> {
     return Option<string>.None
 }
 
+// One `#![derive(X(..))]` on a module, as a generator of a project's own sees it -- the shape
+// docs/design/user-generators.md §5c wrote down and this is.
+//
+// **Deliberately not `Target`.** `Target` is the *repository idea* reified: it carries an entity,
+// a label and a `crud` flag, which is Repository's own shape and nobody else's. Seating every
+// module generator on an entity would put that idea back in the mechanism, which is the mistake
+// F258 took `repository` out of the parser's vocabulary to avoid. So a module generator receives
+// what is true of any module: the attribute's own arguments, the functions it declares, and the
+// names it already defines.
+pub struct ModuleTarget {
+    // `#![derive(Routes(prefix: "/api"))]`'s arguments, as a declaration target's are.
+    args: [AttrArg]
+    // The module's functions, each with its own `attrs` -- which is where a `#[route(..)]` is read.
+    functions: [Function]
+    // What the module declares, so a generator skips a name that is already written by hand.
+    defined: [string]
+}
+
+pub fn module_target(args: [AttrArg], functions: [Function], defined: [string]) -> ModuleTarget {
+    return ModuleTarget { args: args, functions: functions, defined: defined }
+}
+
+// `#![derive(X(<name>: ...))]`'s value, or `None`.
+pub fn module_arg(m: ModuleTarget, name: string) -> Option<string> {
+    for a in m.args {
+        if a.name == name {
+            return Option<string>.Some(a.value)
+        }
+    }
+    return Option<string>.None
+}
+
+// The module's functions carrying `#[<attr>]`, in declaration order -- which is what a generator
+// over a module is almost always after.
+pub fn functions_with(m: ModuleTarget, attr: string) -> [Function] {
+    val out = mutable_array_new<Function>()
+    for f in m.functions {
+        if fn_has_attr(f, attr) {
+            push(out, f)
+        }
+    }
+    return snapshot(out)
+}
+
 pub fn target(entity: Decl, label: Option<string>, crud: bool, defined: [string]) -> Target {
     return Target { entity: entity, label: label, crud: crud, defined: defined }
 }

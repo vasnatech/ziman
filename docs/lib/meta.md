@@ -684,6 +684,52 @@ pub fn fn_attr_arg(f: Function, attr: string, arg: string) -> Option<string>
 `#[<attr>(<arg>: ...)]`'s value on a function, or `None` when the attribute or the argument is
 absent -- the counterpart of `attr_arg_of` for a field.
 
+### `ModuleTarget`
+
+```
+pub struct ModuleTarget {
+    // `#![derive(Routes(prefix: "/api"))]`'s arguments, as a declaration target's are.
+    args: [AttrArg]
+    // The module's functions, each with its own `attrs` -- which is where a `#[route(..)]` is read.
+    functions: [Function]
+    // What the module declares, so a generator skips a name that is already written by hand.
+    defined: [string]
+}
+```
+
+One `#![derive(X(..))]` on a module, as a generator of a project's own sees it -- the shape
+docs/design/user-generators.md §5c wrote down and this is.
+
+**Deliberately not `Target`.** `Target` is the *repository idea* reified: it carries an entity,
+a label and a `crud` flag, which is Repository's own shape and nobody else's. Seating every
+module generator on an entity would put that idea back in the mechanism, which is the mistake
+F258 took `repository` out of the parser's vocabulary to avoid. So a module generator receives
+what is true of any module: the attribute's own arguments, the functions it declares, and the
+names it already defines.
+
+### `module_target`
+
+```
+pub fn module_target(args: [AttrArg], functions: [Function], defined: [string]) -> ModuleTarget
+```
+
+### `module_arg`
+
+```
+pub fn module_arg(m: ModuleTarget, name: string) -> Option<string>
+```
+
+`#![derive(X(<name>: ...))]`'s value, or `None`.
+
+### `functions_with`
+
+```
+pub fn functions_with(m: ModuleTarget, attr: string) -> [Function]
+```
+
+The module's functions carrying `#[<attr>]`, in declaration order -- which is what a generator
+over a module is almost always after.
+
 ### `target`
 
 ```

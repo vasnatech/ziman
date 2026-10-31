@@ -21,6 +21,10 @@ void generate_derived_functions(Module *module);
  * module defines itself is not generated; see the comment on the implementation. */
 void generate_repository_functions(Module *module, StructDecl *sd, const char *entity_module);
 
+/* Runs a project's own module generator for `#![derive(X)]`, X not Repository. Called from the
+ * loader after imports resolve, which is what makes X resolvable. */
+void generate_project_module(Module *module);
+
 /* `#[repository]` on a bodyless `pub fn`: fills in the body of every **derived query** in
  * `module` from `sd`, the `#![repository(Entity)]` entity's struct -- the function's own name is
  * its predicate (`find_by_id_and_patient_id`) and its return type is its cardinality. See

@@ -1,0 +1,1 @@
+'#![derive(Nobody)]' names a module generator, and no module in this file's `use` list exports a 'generate_module' for it

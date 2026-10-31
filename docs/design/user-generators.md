@@ -6,9 +6,9 @@ per importing module (F250, F261); `#[derive(X)]` resolves through the `use` lis
 can write its own derive** (F254); its target takes named typed arguments (F253); and
 `#![repository]`/`#[repository]` are gone, `derive` being the only target mechanism (F256-F258).
 
-What is **not** built is `#![derive(X(..))]` naming a project's own *module* generator -- §5c says
-why: `meta.Target` is the repository idea reified, so there is nothing decided for a generic one to
-receive, and nothing is asking. §12.5's `--lsp` measurement is **done** (2026-10-30): §8 carries the numbers
+`#![derive(X(..))]` naming a project's own **module** generator is built too (F263, 2026-10-31):
+§5c's `ModuleTarget` as written, with a function able to carry a generator-declared attribute and
+`AttrSpec` saying which position it is for. §12.5's `--lsp` measurement is **done** (2026-10-30): §8 carries the numbers
 and keeps its answer, and names a derived-output cache as the follow-on it argues for.
 
 ## 1. What exists today
@@ -434,6 +434,25 @@ struct ModuleTarget {
 `generate_module(m: ModuleTarget)` for the declarations it adds, `generate_query(m, f)` per
 bodyless function -- the two entry points that already exist, with their input generalised.
 
+**Built 2026-10-31, as written above and for the reason the next paragraph says was missing: a
+module generator other than `Repository` was asked for.** A routing table from `#[route(..)]` on
+controller functions -- 108 hand-written endpoints in the North Star, each restating what its
+handler's signature already says. `meta.ModuleTarget` is exactly the three fields above;
+`module_arg`, `functions_with` and `fn_has_attr`/`fn_attr_arg` are the readers a generator wants.
+`tests/lang/module_generator_user` is one end to end.
+
+Two things it needed beyond this section. **A function can carry a generator's own attribute**:
+`#[greet(who:)]` is declared by the generator through `attributes()`, so the compiler learns no
+name -- which is what makes the attribute half of a routing feature cost no C. And **`AttrSpec`
+gained `on`**, because without a position the two populations mix and a field attribute would be
+accepted on a function by the generator that declared it for a field.
+
+The asymmetry below is real and resolved the way this section preferred: **`Repository` keeps its
+specialised input.** Its entity has to be *resolved* -- `find_loaded` plus the struct, which only
+the loader can do -- so it keeps `meta.Target` and its own entry point, and `ModuleTarget` carries
+no `Option<Decl>` that one generator fills and the rest ignore. Two reifications over one
+mechanism, which is the trade `meta.md` argues for against a field nobody reads.
+
 **And `Repository` would then be asymmetric, which is the part worth knowing before starting.** It
 needs its entity *resolved* -- `find_loaded` plus the struct, which only the loader can do -- so
 either `ModuleTarget` keeps an `Option<Decl>` that one generator fills and the rest ignore (a field
@@ -441,7 +460,8 @@ nobody reads, which `meta.md` argues against), or `Repository` keeps a specialis
 are two kinds of module generator after all. Neither is obviously right, and nothing is asking:
 **no module generator but `Repository` exists or has been requested.** So this is a designed
 decision rather than a built feature, by the same reasoning §5b's own open questions were left
-open.
+open. *(Asked for on 2026-10-31 and built; the paragraphs above record what it took. This one is
+kept because the argument it makes is the reason the shape is what it is.)*
 
 ## 6. Initialisation and ordering, which is the real cost
 

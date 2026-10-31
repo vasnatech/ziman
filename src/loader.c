@@ -2087,6 +2087,11 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
     link_uses(ldr, mod);
     generate_derived_functions(mod);
     resolve_repository(ldr, mod);
+    /* A project's own module generator, after `link_uses` above, because the target name is
+     * resolved through this module's `use` list (user-generators.md §5c). Beside
+     * `resolve_repository` rather than inside it: that one is about finding an entity, which this
+     * kind of target does not have. */
+    generate_project_module(mod);
     ziman_finish_errors();
     for (int i = uses_before_derive; i < mod->uses.count; i++) {
         UseDecl *u = &mod->uses.items[i];
@@ -2211,6 +2216,7 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
     link_uses(&ldr, entry_mod);
     generate_derived_functions(entry_mod);
     resolve_repository(&ldr, entry_mod);
+    generate_project_module(entry_mod);   /* the entry module may carry one too */
     ziman_finish_errors();
     for (int i = entry_uses_before_derive; i < entry_mod->uses.count; i++) {
         UseDecl *u = &entry_mod->uses.items[i];
