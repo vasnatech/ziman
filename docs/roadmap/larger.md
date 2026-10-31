@@ -61,6 +61,48 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   Evidence: 1,349 fixtures (two new), 420 library tests, the North Star's 64 suites / 2,670 checks,
   `--emit-derived serve.zm` byte-identical at 34,801 lines, and `--gc-stress` over the 45 fixtures
   that have module-level vals with no crash -- worth running because what is rooted when changed.
+- **Decode a request body straight into the object, with no `Json` tree in between.** -- not
+  started; measured 2026-10-31 and the measurement changes which half of it is worth doing.
+
+  `codec.decoder_of(format, from_json)` is two passes over the input: the format's parser builds a
+  whole `Json` tree, and the type's derived `<snake>_from_json` then walks that tree allocating
+  fields. The tree exists only to be walked once and dropped. **Raised as "remove the middleman",
+  and that is the right instinct -- but not for the formats it was raised about.**
+
+  Measured on one 61-byte order, 20,000 rounds, and on a 1.3 MB body of 20,000 of them:
+
+  | | parse to tree | tree to object | the tree's share |
+  | --- | --- | --- | --- |
+  | JSON, one order | 37 ms | 74 ms | **33%** |
+  | YAML, one order | 863 ms | 74 ms | 92% |
+  | JSON, 1.3 MB | 46 ms | 69 ms | 40% |
+  | YAML, 1.3 MB | 1,392 ms | 138 ms | 91% |
+
+  So for **JSON** the middleman is a third of the work and worth removing. For **YAML** the tree is
+  not the cost at all -- its parser is 23 times slower than JSON's, and removing the binding step
+  saves 8%. The entry that would pay for itself on YAML is a faster YAML parser, which is a
+  different item; and `codec`'s other formats are JSON's parser (NDJSON) or a table reader (CSV).
+
+  **What it needs, and why it is not a small change.** No parser in the library has an incremental
+  API: `json`, `yaml`, `toml`, `csv`, `xml` and `ndjson` each build a value and hand it back whole.
+  "Direct" therefore means a **reader abstraction** -- a token or event stream, with `next_key`,
+  `read_string` and the rest -- that each format implements and that `#[derive(Json)]`'s generated
+  decoder is rewritten against. That is Jackson's own split (a streaming `JsonParser` under
+  databind), and it is the shape that keeps the work at one generator and *M* readers rather than
+  *M* × *N* generators. The generated decoder stops being a tree walk and becomes a state machine,
+  which is a much larger generator than the one that exists.
+
+  **`Json` does not go away either.** `expr` evaluates over it, `template` renders from it, and
+  anything schemaless -- a config file, a pass-through payload -- has no struct to decode into.
+  This would add a second path for the typed case, not replace the first.
+
+  **To settle before building**: whether the JSON-only win justifies the reader abstraction, or
+  whether the cheaper order is a faster YAML parser first and this after; whether the derived
+  decoder can be generated against events at all without losing the per-field error messages
+  `from_json` gives today (`"item: expected a string"` names the field because the walk knows where
+  it is); and whether `from_json` stays for the schemaless and expression cases, which would mean
+  two generated decoders per type rather than one.
+
 - ~~**`meta`, redesigned.**~~ **DONE 2026-10-29.** Designed in
   [docs/design/meta.md](../design/meta.md), which is **built**: all five steps of its §11 shipped
   (F225-F229) -- `Reflect` and its fixture, `Type` and `Decl` as enums, `Field.attrs`,
