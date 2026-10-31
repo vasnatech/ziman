@@ -38,7 +38,8 @@ against it, which is the distinction that matters when deciding where something 
   structure to validate what this library wrote; it is not a reader.)
 - Text shaping, so Arabic and Indic join correctly -- named in phase 3 and refused there rather
   than approximated.
-- A document layout layer, which is phase 6 (`phase-6-layout.md`), designed and not built.
+- Text shaping is the real remaining gap. The document layout layer that was listed here as
+  "designed and not built" is **built** -- `lib/graphics/layout.zm`, phase 6 (F146); see below.
 
 ## The architecture, and why it is Java 2D's
 
@@ -121,9 +122,21 @@ in a pure-language rasteriser.
 
 ## The layer above: document layout (phase 6)
 
-**Designed as of 2026-10-16, in `phase-6-layout.md`** -- and that document opens by saying it is a
-guess, because the export it exists for still has not been written. The argument below is why it
-exists; the document is the shape it should take, and the export is allowed to contradict it.
+**Built** -- `lib/graphics/layout.zm`, 926 lines, designed 2026-10-16 in `phase-6-layout.md` and
+shipped as F146: a closed `Block` enum (paragraph, table, spacer, rule, picture, keep-together,
+page break) with three exhaustive switches over it -- `measure`, `split_block`, `draw` -- and
+`paginate(doc, page) -> Result<[Scene], string>` as the one entry point, because `pdf.render_pages`
+already takes a list of scenes for exactly this reason. Greedy line breaking rather than
+Knuth-Plass, with the measurement that would justify changing it named in the design. Page numbers
+by laying out twice, the only one of three options that changes no type elsewhere. Worked example in
+`docs/lib/examples/graphics/layout_example.zm`, pinned by `tests/lang/graphics_layout`.
+
+*Update 2026-10-30: this section and the gap list above still said "designed and not built", found
+by asking what was next. The design document opens by calling itself a guess because the export it
+exists for had not been written -- that reservation stands, and the export is still allowed to
+contradict it.*
+
+The argument below is why it exists.
 
 Every phase here is a *drawing* API: it puts a path or a glyph at a coordinate. The motivating use
 case -- a health record exported as a PDF -- does not think in coordinates. It thinks in headings,

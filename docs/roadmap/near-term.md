@@ -247,8 +247,11 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   purpose (a wrapper-struct convention, a cross-module qualified name, and an unrelated vocabulary
   guess -- none an edit-distance-close name). Fixtures: `tests/lang/diag_let_keyword`,
   `diag_map_as_function`, `diag_undefined_function_suggestion`, `diag_map_membership`.
-- **`#[deprecated]` and `#[experimental]` as interpreted attributes, not just
-  prose.** ~~`#[deprecated]` on a *function*~~ Done 2026-10-05, in the shape this entry's own
+- ~~**`#[deprecated]` and `#[experimental]` as interpreted attributes, not just
+  prose.**~~ **DONE** -- every open bullet in this entry is struck through and dated, the last on
+  2026-10-11 (F68, F69), and `#![experimental]` is read by `tools/check_experimental.py` and the
+  documentation generators. *Update 2026-10-30: only the headline was still unmarked, found by
+  asking this file what was next.* ~~`#[deprecated]` on a *function*~~ Done 2026-10-05, in the shape this entry's own
   "at minimum" asked for: `#[deprecated]` / `#[deprecated("use X instead")]` on a function, with a
   cross-module call or value reference reported by `ziman --lint` (quoting the message when given),
   and same-module use deliberately silent. `lib/http/server.zm`'s `open_session_with_timeout` --

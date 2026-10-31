@@ -6,6 +6,19 @@ exported as a PDF -- does not think in points, and something has to be the thing
 
 Read `README.md` first for the architecture and the invariants; this phase inherits all five.
 
+## Status
+
+**Built as `lib/graphics/layout.zm` (F146), and the export it was a guess about now exists**:
+`service/export/export_pdf.zm` in the health-record backend imports `layout`, `pdf`, `scene`,
+`paint`, `geom` and `font`, so the reservation below is discharged -- the design was written against
+a guess and the first real export did not contradict it. Worked example in
+`docs/lib/examples/graphics/layout_example.zm`, pinned by `tests/lang/graphics_layout`.
+
+*Update 2026-10-30: the warning below still said "the export has still not been written: nothing in
+the health-record backend imports a `lib/graphics` module yet". It is kept as written, because it is
+the record of what was known when the shape was chosen, and because the judgement it describes --
+design ahead of the user, and let the user overrule it -- is the thing worth keeping.*
+
 ## A warning about this document
 
 **Phases 1-5 were each designed against something concrete** -- a PDF content stream, a TrueType

@@ -610,9 +610,13 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   built (F141-F145).** One `Scene` renders two ways: to PDF (vector paths, gradients, the standard
   fourteen fonts, an embedded TrueType face carrying Unicode text, images with alpha) and to an
   image (anti-aliased fills under both winding rules, stroking with caps/joins/dashes, clip paths,
-  cached glyph rendering). **Phase 6, a document layout layer, is now designed and not built**
-  (`docs/graphics/phase-6-layout.md`, F146) -- and that document says plainly that it is a guess,
-  because nothing has used the drawing model yet.
+  cached glyph rendering). **Phase 6, the document layout layer, is built too**
+  (`lib/graphics/layout.zm`, F146, designed in `docs/graphics/phase-6-layout.md`): a closed `Block`
+  enum with exhaustive `measure`/`split_block`/`draw` switches and `paginate(doc, page) ->
+  Result<[Scene], string>` as the one entry point, pinned by `tests/lang/graphics_layout`. *Update
+  2026-10-30: this said "designed and not built", found by asking this file what was next. The
+  design document's own reservation -- that it is a guess until the export it exists for is
+  written -- still stands.*
   Raised 2026-10-16 out of asking what reaching export parity with the Spring backend would take.
   Of the reference backend's ~13 export formats, seven are reachable with the modules Ziman already
   has (csv, flat-json, html, markdown, plain text, xml, vcard, all served by `csv`/`json`/`xml`/
