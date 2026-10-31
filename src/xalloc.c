@@ -119,3 +119,13 @@ char *ziman_xstrdup_at(const char *file, int line, const char *s) {
     if (copy == NULL) die_oom("a string copy", strlen(s) + 1, file, line);
     return copy;
 }
+
+unsigned long long ziman_hash_text(const char *s) {
+    unsigned long long h = 1469598103934665603ULL;   /* FNV-1a offset basis */
+    if (s == NULL) return 0;
+    for (; *s != '\0'; s++) {
+        h ^= (unsigned char)*s;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}

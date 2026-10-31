@@ -2053,6 +2053,9 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
      * vs. different *package*, never which file's declarations a `use` of that name actually
      * sees -- gets the same corelib-like internal reach its stand-in is shadowing, not a loss. */
     mod->is_corelib = !from_disk || corelib_source_for(use_path) != NULL;
+    /* Set for a bundled module as well as a project one: the generated-code memo keys on it, and a
+     * bundled module carries `#[derive]`s of its own. */
+    mod->source_hash = ziman_hash_text(source);
     if (from_disk) {
         mod->source_file = file_path;
         for (int i = 0; i < mod->functions.count; i++) mod->functions.items[i]->source_file = file_path;

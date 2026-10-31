@@ -317,6 +317,25 @@ diagnostics_for(main_uri)
 r = goto(3, 24)
 check("a switch arm binder goes to its arm", r and r["uri"] == main_uri and r["range"]["start"]["line"] == 3, r)
 
+# **The generated-code memo tracks an edit** (src/generators.c). Derived text is cached across
+# reparses, keyed on the module's source hash -- without which `--lsp` re-ran all 292 of the North
+# Star's generator calls on every keystroke, 1,847 ms of it. The risk a cache carries is serving
+# yesterday's generated code, which is a silent wrong compile rather than a slow one, so: edit a
+# `#[derive(Json)]`d struct so the *generated* function must change, and the diagnostic has to
+# follow. Back to the first version afterwards, because an entry is *replaced* when its file is
+# edited (so the table stays the size of the project, not of the session) and reverting must then
+# regenerate rather than find a hole.
+derive_v1 = ('use json\n\n#[derive(Json)]\nstruct User {\n    name: string\n}\n\n'
+             'fn main() {\n    val u = User { name: "a" }\n    print(json.format(user_to_json(u)))\n}\n')
+derive_v2 = derive_v1.replace("    name: string", "    label: string")
+notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 20}, "contentChanges": [{"text": derive_v1}]})
+check("a #[derive(Json)] struct and its generated function type-check", diagnostics_for(main_uri) == [])
+notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 21}, "contentChanges": [{"text": derive_v2}]})
+d = diagnostics_for(main_uri)
+check("renaming the field re-runs the generator rather than serving the memo", len(d) > 0, d)
+notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 22}, "contentChanges": [{"text": derive_v1}]})
+check("reverting the edit regenerates, the replaced entry being gone", diagnostics_for(main_uri) == [])
+
 messy = 'fn main(){\nval x=1\nprint(x)\n}\n'
 notify("textDocument/didChange", {"textDocument": {"uri": main_uri, "version": 3}, "contentChanges": [{"text": messy}]})
 diagnostics_for(main_uri)

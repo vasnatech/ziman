@@ -543,10 +543,22 @@ output is a function of its declaration and its generator, so it is cacheable pe
 a fast incomplete mode and a second thing for everything downstream to get wrong, or restricting a
 generator's reach (3), which is a bigger design and does not make anything faster.
 
-So: **(1) stands, (2) and (3) stay rejected, and the follow-on is a derived-output cache**, filed
-rather than built here because it is a loader change and this document is about what a project can
-write. Until it lands, the honest statement for the manual is that `--lsp` on a large project
-re-runs its generators on every edit, and that the entry module is the expensive file to sit in.
+So: **(1) stands, (2) and (3) stay rejected, and the follow-on was a derived-output cache --
+built the same day.** `src/generators.c` memoises the text a generator returns, keyed on the
+module's source hash, the declaration's name, the target and (for a project's own generator) that
+generator's own source hash. A reparse of `serve.zm` went **1,847 ms -> 807 ms** and `main.zm`
+**395 ms -> 198 ms**, holding steady over a 30-edit session; `--emit-derived serve.zm` is
+byte-identical, which is the property the cache spends.
+
+**What it assumes is what this document already requires: a generator is pure.** One reading the
+clock, an environment variable or a file would be served a stale answer -- and would already break
+`--emit-derived`'s byte identity, which this repository checks on every compiler change. So (3),
+restricting what a generator may reach, is no longer only about honesty regarding `--check`: it is
+what would make the cache's assumption enforced rather than relied upon. That is the strongest
+argument for (3) that exists, and it is new since this section was written.
+
+What remains in a reparse is the other half -- `typecheck` at 37.2% and parsing -- which is not
+generator work and not this section's subject.
 
 ## 9. What it deliberately does not cover
 

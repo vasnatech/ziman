@@ -1082,6 +1082,14 @@ typedef struct Module {
      * generator as its own program**: the use path and this together give the project root that
      * `use`s inside it resolve against (docs/design/user-generators.md §3). */
     const char *source_file;
+    /* A 64-bit hash of this module's own source text, set in `load_module` beside `source_file`,
+     * and 0 for a module that was not loaded from text (a synthesised one). It is the cache key
+     * for generated code: a declaration's derived output is a function of the declaration and the
+     * generator, and the declaration is fixed by the text it was parsed from -- so unchanged text
+     * means the generator would produce what it produced last time. `--lsp` reparses the whole
+     * graph on every keystroke, where that is the difference between running 292 generators and
+     * running the handful whose file was actually edited (see src/generators.c's memo). */
+    unsigned long long source_hash;
     /* `#![experimental]` at the top of this module's own file (before any declaration), the
      * module-level form of an attribute -- `#[...]` applies to the declaration after it, `#![...]`
      * to the file it is in, the same inner/outer split Rust draws. Carries no compile-time or

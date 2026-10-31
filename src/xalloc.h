@@ -44,4 +44,11 @@ char *ziman_xstrdup_at(const char *file, int line, const char *s);
 #define ziman_xrealloc(p, n) ziman_xrealloc_at(__FILE__, __LINE__, (p), (n))
 #define ziman_xstrdup(s) ziman_xstrdup_at(__FILE__, __LINE__, (s))
 
+/* FNV-1a over a NUL-terminated string. Here rather than in a module of its own because it has
+ * exactly one caller family -- the generated-code memo keys on a module's source text -- and it is
+ * a content hash for a cache, never a security claim: a collision would serve one module's
+ * generated code for another, which is why the memo compares the declaration's name and the
+ * generator's identity as well, not the hash alone. */
+unsigned long long ziman_hash_text(const char *s);
+
 #endif

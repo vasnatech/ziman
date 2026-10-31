@@ -598,10 +598,125 @@ const ZimanAttrSpec *ziman_module_attr_specs(Module *module, int *count) {
     return merged;
 }
 
+/* ---------------------------------------------------------- the generated-code memo
+ *
+ * A declaration's derived text is a function of the declaration and the generator, and nothing
+ * else. The declaration is fixed by the source text it was parsed from, so an unchanged module
+ * means an unchanged answer -- the same property that makes `--emit-derived serve.zm`
+ * byte-identical across unrelated compiler changes, which this repository checks on every such
+ * change. This memo is that property spent.
+ *
+ * **Measured, which is why it exists** (docs/design/user-generators.md §8): `--lsp` reparses the
+ * whole graph on every `didChange`, and on the North Star -- 227 files, 220 declarations carrying
+ * a derive, 292 generator calls -- a reparse of the entry module cost **1,847 ms**, of which
+ * callgrind put 51.7% in the derive pass and 41.3% in `ziman_call_in_module`, the interpreter
+ * running generator code written in Ziman. After an edit in one file, 291 of those 292 calls
+ * produce exactly what they produced before.
+ *
+ * **The key is the whole of what a generator can see.** The module's source hash covers the
+ * declaration, its attributes and the `use` list the per-module attribute specs come from; the
+ * declaration's own name picks it out within that module (so a hash collision alone cannot serve
+ * one declaration's code for another's); the target names the generator; and a project's own
+ * generator contributes its own module's source hash, so editing a generator invalidates
+ * everything it produced. A bundled generator contributes 0: its source is in this binary.
+ *
+ * **What it assumes: a generator is pure.** One that read the clock, an environment variable or a
+ * file would be cached wrongly -- but it would also already break `--emit-derived`'s byte
+ * identity, so this depends on something the project already requires rather than on something
+ * new. §8's option (3), restricting what a generator may reach, is what would make it enforced.
+ *
+ * In-process only. A stale entry is unreachable rather than wrong, because the key is content --
+ * but it must not be *kept*, which the first version got wrong: every keystroke gives the edited
+ * module a new hash, so its entries accumulated for the life of the server and the scan below got
+ * slower the longer the session ran. An entry is therefore replaced when the same declaration of
+ * the same file is generated again under a different hash, which caps the table at one entry per
+ * (file, declaration, target) -- the size of the project rather than the length of the session. A
+ * bundled module needs no eviction: its text cannot change while the process runs. */
+typedef struct {
+    unsigned long long module_hash;
+    unsigned long long generator_hash;
+    const char *source_file;  /* the module's file, or NULL for a bundled one: the eviction key */
+    const char *target;      /* interned by the caller: a derive target name from the AST */
+    const char *decl_name;   /* likewise */
+    const char *attr_name;   /* the field attribute, for a generator keyed on one; NULL otherwise */
+    char *text;              /* the generated source, owned here */
+} GeneratedMemo;
+
+static GeneratedMemo *g_memo = NULL;
+static int g_memo_count = 0, g_memo_cap = 0;
+
+static int memo_same(const GeneratedMemo *m, unsigned long long mh, unsigned long long gh,
+                     const char *target, const char *decl_name, const char *attr_name) {
+    if (m->module_hash != mh || m->generator_hash != gh) return 0;
+    if (strcmp(m->target, target) != 0) return 0;
+    if (strcmp(m->decl_name, decl_name) != 0) return 0;
+    if ((m->attr_name == NULL) != (attr_name == NULL)) return 0;
+    return m->attr_name == NULL || strcmp(m->attr_name, attr_name) == 0;
+}
+
+static char *memo_get(unsigned long long mh, unsigned long long gh, const char *target,
+                      const char *decl_name, const char *attr_name) {
+    if (mh == 0) return NULL;   /* a module with no source text of its own: nothing to key on */
+    for (int i = 0; i < g_memo_count; i++) {
+        if (memo_same(&g_memo[i], mh, gh, target, decl_name, attr_name)) {
+            return ziman_xstrdup(g_memo[i].text);
+        }
+    }
+    return NULL;
+}
+
+static int memo_same_slot(const GeneratedMemo *m, const char *source_file, const char *target,
+                          const char *decl_name, const char *attr_name) {
+    if ((m->source_file == NULL) != (source_file == NULL)) return 0;
+    if (m->source_file != NULL && strcmp(m->source_file, source_file) != 0) return 0;
+    if (strcmp(m->target, target) != 0 || strcmp(m->decl_name, decl_name) != 0) return 0;
+    if ((m->attr_name == NULL) != (attr_name == NULL)) return 0;
+    return m->attr_name == NULL || strcmp(m->attr_name, attr_name) == 0;
+}
+
+static void memo_put(unsigned long long mh, unsigned long long gh, const char *source_file,
+                     const char *target, const char *decl_name, const char *attr_name,
+                     const char *text) {
+    if (mh == 0 || text == NULL) return;
+    /* The same declaration of the same file, generated again after an edit: replace rather than
+     * append, so the table is the size of the project and not of the session. */
+    for (int i = 0; i < g_memo_count; i++) {
+        if (!memo_same_slot(&g_memo[i], source_file, target, decl_name, attr_name)) continue;
+        free(g_memo[i].text);
+        g_memo[i].module_hash = mh;
+        g_memo[i].generator_hash = gh;
+        g_memo[i].text = ziman_xstrdup(text);
+        return;
+    }
+    if (g_memo_count == g_memo_cap) {
+        g_memo_cap = g_memo_cap == 0 ? 64 : g_memo_cap * 2;
+        g_memo = ziman_xrealloc(g_memo, (size_t)g_memo_cap * sizeof(GeneratedMemo));
+    }
+    g_memo[g_memo_count].module_hash = mh;
+    g_memo[g_memo_count].generator_hash = gh;
+    g_memo[g_memo_count].source_file = source_file;
+    g_memo[g_memo_count].target = target;
+    g_memo[g_memo_count].decl_name = decl_name;
+    g_memo[g_memo_count].attr_name = attr_name;
+    g_memo[g_memo_count].text = ziman_xstrdup(text);
+    g_memo_count++;
+}
+
 char *ziman_generate_in_ziman(Module *module, const char *target, StructDecl *sd, EnumDecl *ed, const FieldAttr *attr, int line, int col) {
     if (!ziman_has_ziman_generator(module, target)) return NULL;
     const char *user_path = NULL;
     Module *user = find_user_generator(module, target, &user_path);
+    /* The memo, looked up before the generator program is loaded, which is itself part of the cost
+     * on a bundled target's first call. `user` is resolved first because its own source hash is
+     * part of the key. */
+    const char *decl_name = sd != NULL ? sd->name : (ed != NULL ? ed->name : NULL);
+    const char *attr_name = attr != NULL ? attr->name : NULL;
+    unsigned long long module_hash = module->source_hash;
+    unsigned long long generator_hash = user != NULL ? user->source_hash : 0;
+    if (decl_name != NULL) {
+        char *hit = memo_get(module_hash, generator_hash, target, decl_name, attr_name);
+        if (hit != NULL) return hit;
+    }
     /* **Captured before anything else runs.** Loading the generator program and then running it
      * both set the error file to a generator's own module, and the declaration being derived is
      * in the *user's* file -- so a refusal reported below would name the wrong file, or none.
@@ -648,9 +763,17 @@ char *ziman_generate_in_ziman(Module *module, const char *target, StructDecl *sd
         }
         char *fn = ziman_xmalloc(strlen(user_path) + 16);
         sprintf(fn, "%s::generate", user_path);
-        return run_generator_in(program, fn, &decl, 1, what, caller_file, line, col);
+        char *text = run_generator_in(program, fn, &decl, 1, what, caller_file, line, col);
+        if (decl_name != NULL) {
+            memo_put(module_hash, generator_hash, module->source_file, target, decl_name, attr_name, text);
+        }
+        return text;
     }
-    return run_generator(generate_name_for(target), &decl, 1, what, caller_file, line, col);
+    char *text = run_generator(generate_name_for(target), &decl, 1, what, caller_file, line, col);
+    if (decl_name != NULL) {
+        memo_put(module_hash, generator_hash, module->source_file, target, decl_name, attr_name, text);
+    }
+    return text;
 }
 
 /* ---- the second generator kind: a module generator ----------------------------------------
