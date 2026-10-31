@@ -176,7 +176,7 @@ pub struct Encoder<O> {
     encode: fn(O) -> [byte]
 }
 
-pub struct Format {
+pub struct TreeFormat {
     // What to call it to a person: `JSON`, not `application/json`. The media type is the wire's
     // name for a format and a poor word for a message -- "malformed application/json" reads as
     // machinery where "malformed JSON" reads as a sentence. The Java interface this answers to
@@ -187,25 +187,25 @@ pub struct Format {
     format: fn(Json) -> Result<string, string>
 }
 
-pub fn format_of(
+pub fn tree_format_of(
 
-pub fn json_format() -> Format
+pub fn json_format() -> TreeFormat
 
-pub fn yaml_format() -> Format
+pub fn yaml_format() -> TreeFormat
 
-pub fn toml_format() -> Format
+pub fn toml_format() -> TreeFormat
 
-pub fn ndjson_format() -> Format
+pub fn ndjson_format() -> TreeFormat
 
-pub fn csv_format() -> Format
+pub fn csv_format() -> TreeFormat
 
-pub fn formats() -> [Format]
+pub fn formats() -> [TreeFormat]
 
-pub fn tree_formats() -> [Format]
+pub fn tree_formats() -> [TreeFormat]
 
-pub fn sequence_formats() -> [Format]
+pub fn sequence_formats() -> [TreeFormat]
 
-pub fn format_for(media: mime.MediaType) -> Option<Format>
+pub fn tree_format_for(media: mime.MediaType) -> Option<TreeFormat>
 
 pub fn decoder<I>(media: mime.MediaType, decode: fn([byte]) -> Result<I, string>) -> Decoder<I>
 
@@ -215,11 +215,11 @@ pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O>
 
 pub fn text_encoder<O>(media: mime.MediaType, encode: fn(O) -> string) -> Encoder<O>
 
-pub fn encoder_of<O>(f: Format, to_json: fn(O) -> Json) -> Encoder<O>
+pub fn encoder_of<O>(f: TreeFormat, to_json: fn(O) -> Json) -> Encoder<O>
 
-pub fn list_encoder_of<O>(f: Format, to_json: fn(O) -> Json) -> Encoder<[O]>
+pub fn list_encoder_of<O>(f: TreeFormat, to_json: fn(O) -> Json) -> Encoder<[O]>
 
-pub fn decoder_of<I>(f: Format, from_json: fn(Json) -> Result<I, string>) -> Decoder<I>
+pub fn decoder_of<I>(f: TreeFormat, from_json: fn(Json) -> Result<I, string>) -> Decoder<I>
 
 pub fn encoders_of<O>(to_json: fn(O) -> Json) -> [Encoder<O>]
 

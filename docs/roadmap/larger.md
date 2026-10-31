@@ -61,6 +61,36 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   Evidence: 1,349 fixtures (two new), 420 library tests, the North Star's 64 suites / 2,670 checks,
   `--emit-derived serve.zm` byte-identical at 34,801 lines, and `--gc-stress` over the 45 fixtures
   that have module-level vals with no crash -- worth running because what is rooted when changed.
+- **`#[derive(Xml)]`, so XML is a derived format and not a hand-written one.** -- not started;
+  raised 2026-10-31 out of asking whether an XML request body works.
+
+  It does: `codec.Encoder<T>`/`Decoder<T>` are `T -> [byte]` and `[byte] -> T`, the server
+  negotiates on `Content-Type` and `Accept` without caring which format, and
+  `tests/lang/codec_xml_decoder` posts XML to an endpoint and gets 200, with a JSON body to the
+  same endpoint refused 415. **What is missing is the reader**, which that fixture writes by hand:
+  `#[derive(Json)]` writes `from_json`/`to_json`, and there is no `#[derive(Xml)]`, so every XML
+  request type costs a reader per type.
+
+  **XML is not a `codec.TreeFormat` and must not be made one.** `xml.parse` answers a `Document`
+  -- attributes, namespaces, element order -- and no `Json` carries those.
+  `<order id="7"><item>desk</item></order>` and `<order><id>7</id><item>desk</item></order>` hold
+  the same information in structurally different ways, so any XML-to-`Json` bridge picks one
+  convention and is wrong for every schema that chose the other. Jackson has the same problem and
+  answers it with a separate `XmlMapper` plus `@JacksonXmlProperty`, which is the shape this would
+  take: field attributes (`#[xml_attribute]`, `#[xml_name("...")]`) declared by the generator, as
+  §5a's are.
+
+  **It shares its central question with the entry below**, which is why they are next to each
+  other. A derived XML reader wants to walk the input *once*, not build a `Document` and walk that
+  -- so it wants the same reader abstraction, and XML is the format that proves the abstraction
+  cannot be `Json`-shaped. Designing them apart would mean designing the reader twice, once for a
+  tree pivot and once for a document model.
+
+  Worth doing on evidence rather than symmetry: the Spring backend serves XML among its thirteen
+  export formats, and export parity is the open item with the most left in it. But export *writes*
+  one fixed document shape, which `xml.format` plus a hand-written writer already does -- so the
+  case for deriving it rests on XML *requests*, which nothing in the North Star has yet.
+
 - **Decode a request body straight into the object, with no `Json` tree in between.** -- not
   started; measured 2026-10-31 and the measurement changes which half of it is worth doing.
 

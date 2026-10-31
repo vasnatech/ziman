@@ -1,0 +1,97 @@
+// **`Encoder`/`Decoder` is `T -> [byte]` and `[byte] -> T`, and XML is why that matters.**
+//
+// `codec.TreeFormat` is a shortcut for the four formats whose document is a `Json`-shaped tree.
+// XML is not one: `xml.parse` answers a `Document` -- attributes, namespaces, element order --
+// which no `Json` carries, and bending it into one would pick a convention and lose. So XML joins
+// through the interface itself, with `codec.text_decoder`, and is a first-class member of it: the
+// server negotiates on `Content-Type` exactly as it does for JSON, including the 415.
+//
+// What it does *not* have is a derived reader: `#[derive(Json)]` writes `from_json`, and there is
+// no `#[derive(Xml)]`, so `order_from_xml` below is written by hand. That is the cost this fixture
+// exists to show.
+use codec
+use http
+use mime
+use server
+use xml
+
+struct Order {
+    id: int
+    item: string
+}
+
+struct Ctx {
+    name: string
+}
+
+fn order_from_xml(text: string) -> Result<Order, string> {
+    val doc = try xml.parse(text)
+    val id_text = switch xml.child(doc.root, "id") {
+        Some(e) { xml.text_of(e) }
+        None { return err("no <id>") }
+    }
+    val item = switch xml.child(doc.root, "item") {
+        Some(e) { xml.text_of(e) }
+        None { return err("no <item>") }
+    }
+    return ok(Order { id: try parse_int(id_text), item: item })
+}
+
+fn failure(e: string) -> http.Response {
+    return server.text_response(500, e)
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, concat("fault: ", message))
+}
+
+fn handle(ctx: Ctx, o: Order) -> Result<Order, string> {
+    return ok(o)
+}
+
+fn posted(content_type: string, body: string) -> http.Request {
+    return http.Request {
+        method: http.method_parse("POST"),
+        target: "/orders",
+        path: "/orders",
+        query: "",
+        version: "HTTP/1.1",
+        headers: [http.Header { name: "Content-Type", value: content_type }],
+        body: to_bytes(body),
+        peer: None
+    }
+}
+
+fn main() {
+    val dec = codec.text_decoder<Order>(mime.application_xml(), order_from_xml)
+    val enc = codec.text_encoder<Order>(mime.application_xml(), fn(o: Order) -> string {
+        return prelude.format("<order><id>{}</id><item>{}</item></order>", str(o.id), o.item)
+    })
+    val table = server.routes<Ctx>([
+        server.Endpoint<Ctx> {
+            method: http.HttpMethod.Post,
+            pattern: "/orders",
+            handler: server.public_body_handler(
+                decoders: [dec],
+                encoders: [enc],
+                run: handle,
+                api: server.Api<string> { failure: failure, fault: fault }
+            )
+        }
+    ])
+    val ctx = Ctx { name: "x" }
+    for sent in [["application/xml", "<order><id>7</id><item>desk</item></order>"],
+        ["application/json", "{\"id\":7}"]] {
+        val answer = server.dispatch<Ctx>(table, ctx, posted(sent[0], sent[1]), fault)
+        val text = switch bytes_to_string(answer.body) {
+            Ok(t) { t }
+            Err(_) { "<not text>" }
+        }
+        print(prelude.format("{}  ->  {} {}", sent[0], str(answer.status), text))
+    }
+    // XML is not a tree format, and saying so is the point.
+    switch codec.tree_format_for(mime.application_xml()) {
+        Some(_) { print("xml is a TreeFormat -- it should not be") }
+        None { print("xml is not a TreeFormat, as intended") }
+    }
+}

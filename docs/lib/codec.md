@@ -1,7 +1,7 @@
 # `codec`
 
 A value as bytes, in a named media type, and back: the typed `Encoder`/`Decoder` pair and the
-`Format`s they can be built from.
+`TreeFormat`s they can be built from.
 
 **This is serialization, not HTTP**, which is why it is here. The pair lived in
 `lib/http/server/` until 2026-10-31 and could only be reached by something building an endpoint
@@ -9,16 +9,17 @@ A value as bytes, in a named media type, and back: the typed `Encoder`/`Decoder`
 to write its own. Nothing in either type mentions a request or a response; what *is* HTTP is
 choosing between several of them from an `Accept` header, and that stayed in `server`.
 
-**`Json` is the pivot, and it has to be.** Ziman has no runtime reflection, so there is no
+**`Json` is the pivot for the *tree* formats only.** Ziman has no runtime reflection, so there is no
 `encode(value, SomeType)` that inspects a value at run time -- the Java interface this is
 answering to passes a `Class` token for exactly that and cannot be translated. What ziman has
 instead is `#[derive(Json)]`, which gives every type a `<snake>_to_json` and
-`<snake>_from_json` at compile time; `encoder_of` takes one of those and a `Format`, and that
+`<snake>_from_json` at compile time; `encoder_of` takes one of those and a `TreeFormat`, and that
 composition is what "the same value in any of five media types" means here. The type is checked
 where the encoder is built rather than hoped for at run time.
 
-A format that is not a tree -- a PDF, a spreadsheet -- is not a `Format` and should not be bent
-into one: build its `Encoder` with `encoder` directly, from whatever writes it.
+A format that is not a Json-shaped tree -- XML, a PDF, a spreadsheet -- is not a `TreeFormat`
+and must not be bent into one: build its `Encoder` with `encoder` directly. `Encoder`/`Decoder`
+is the interface; `TreeFormat` is a shortcut for the four formats it happens to fit.
 
 `use codec` -- or `use codec.Name` to bring one item in bare.
 
@@ -45,10 +46,10 @@ pub struct Encoder<O> {
 
 How to encode an `O` as `media`.
 
-### `Format`
+### `TreeFormat`
 
 ```
-pub struct Format {
+pub struct TreeFormat {
     // What to call it to a person: `JSON`, not `application/json`. The media type is the wire's
     // name for a format and a poor word for a message -- "malformed application/json" reads as
     // machinery where "malformed JSON" reads as a sentence. The Java interface this answers to
@@ -60,46 +61,58 @@ pub struct Format {
 }
 ```
 
-A tree format: its media type, and the two directions over `Json`.
+**A format whose document is a `Json`-shaped tree**, and nothing more general than that: its
+media type and the two directions over `Json`.
+
+**This is a convenience over `Encoder`/`Decoder`, not the interface.** The interface is
+`T -> [byte]` and `[byte] -> T` above, and it has to be: a format joins by being able to write
+*a value*, not by being able to write a `Json`. Routing every format through a `Json` pivot is
+what shut **XML** out -- `xml.parse` answers a `Document`, with attributes, namespaces and an
+order that no `Json` carries, and bending it into one would pick a convention and lose. The same
+pivot is the middleman the roadmap entry on decoding straight into the object is about.
+
+So: the four formats that genuinely *are* Json-shaped get this shortcut. Anything else -- XML, a
+PDF, a spreadsheet -- builds its `Encoder` with `encoder` directly, from whatever writes it, and
+is a first-class member of the same interface when it does.
 
 **`format` answers a `Result` even for the three formats that cannot fail.** `toml.format` can
-(a table cannot hold every tree a JSON document can), and a `Format` whose shape changed with
+(a table cannot hold every tree a JSON document can), and a `TreeFormat` whose shape changed with
 the format would not be one type. The infallible ones wrap in `ok`, which costs nothing and
 keeps one signature.
 
-### `format_of`
+### `tree_format_of`
 
 ```
-pub fn format_of(
+pub fn tree_format_of(
     name: string,
     media: mime.MediaType,
     parse: fn(string) -> Result<Json, string>,
     format: fn(Json) -> Result<string, string>
-) -> Format
+) -> TreeFormat
 ```
 
 ### `json_format`
 
 ```
-pub fn json_format() -> Format
+pub fn json_format() -> TreeFormat
 ```
 
 ### `yaml_format`
 
 ```
-pub fn yaml_format() -> Format
+pub fn yaml_format() -> TreeFormat
 ```
 
 ### `toml_format`
 
 ```
-pub fn toml_format() -> Format
+pub fn toml_format() -> TreeFormat
 ```
 
 ### `ndjson_format`
 
 ```
-pub fn ndjson_format() -> Format
+pub fn ndjson_format() -> TreeFormat
 ```
 
 Newline-delimited JSON. `parse` answers the array of documents as one `JArray`, so that a reader
@@ -108,7 +121,7 @@ sees the same shape the other formats give; `ndjson.parse` itself answers `[Json
 ### `csv_format`
 
 ```
-pub fn csv_format() -> Format
+pub fn csv_format() -> TreeFormat
 ```
 
 CSV, which is a table rather than a tree: `csv.format` accepts the `Json` shapes it can flatten
@@ -117,7 +130,7 @@ and refuses the rest, which is why this one's `Result` is load-bearing.
 ### `formats`
 
 ```
-pub fn formats() -> [Format]
+pub fn formats() -> [TreeFormat]
 ```
 
 Every format, for looking one up by media type or listing what `--format` takes. JSON first,
@@ -126,7 +139,7 @@ which is the one to pick when a client expresses no preference.
 ### `tree_formats`
 
 ```
-pub fn tree_formats() -> [Format]
+pub fn tree_formats() -> [TreeFormat]
 ```
 
 **Which formats can write which shape is a fact about the format**, so it belongs here rather
@@ -146,13 +159,13 @@ the object, and TOML refused the array.
 ### `sequence_formats`
 
 ```
-pub fn sequence_formats() -> [Format]
+pub fn sequence_formats() -> [TreeFormat]
 ```
 
-### `format_for`
+### `tree_format_for`
 
 ```
-pub fn format_for(media: mime.MediaType) -> Option<Format>
+pub fn tree_format_for(media: mime.MediaType) -> Option<TreeFormat>
 ```
 
 The format whose media type matches `media`, or `None`. Compared by `mime.essence`, so a
@@ -197,7 +210,7 @@ An encoder for `media` whose output is text.
 ### `encoder_of`
 
 ```
-pub fn encoder_of<O>(f: Format, to_json: fn(O) -> Json) -> Encoder<O>
+pub fn encoder_of<O>(f: TreeFormat, to_json: fn(O) -> Json) -> Encoder<O>
 ```
 
 **The composition this module exists for**: a type's own derived `to_json`, plus a format, is an
@@ -211,7 +224,7 @@ message is the format's own.
 ### `list_encoder_of`
 
 ```
-pub fn list_encoder_of<O>(f: Format, to_json: fn(O) -> Json) -> Encoder<[O]>
+pub fn list_encoder_of<O>(f: TreeFormat, to_json: fn(O) -> Json) -> Encoder<[O]>
 ```
 
 The same for a list, which is what a collection endpoint answers.
@@ -219,7 +232,7 @@ The same for a list, which is what a collection endpoint answers.
 ### `decoder_of`
 
 ```
-pub fn decoder_of<I>(f: Format, from_json: fn(Json) -> Result<I, string>) -> Decoder<I>
+pub fn decoder_of<I>(f: TreeFormat, from_json: fn(Json) -> Result<I, string>) -> Decoder<I>
 ```
 
 A decoder from a type's own derived `from_json`.

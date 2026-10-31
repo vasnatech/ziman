@@ -1,0 +1,3 @@
+application/xml  ->  200 <order><id>7</id><item>desk</item></order>
+application/json  ->  415 fault: unsupported media type: send application/xml
+xml is not a TreeFormat, as intended

@@ -45,8 +45,10 @@ fn main() {
         Ok(o) { print(prelude.format("yaml  ->  {} {}", str(o.id), o.item)) }
         Err(message) { print(concat("refused: ", message)) }
     }
-    // A media type names its format, which is what content negotiation needs.
-    switch codec.format_for(mime.text_csv()) {
+    // A media type names its tree format, which is what content negotiation needs. XML is
+    // deliberately not one: `xml.parse` answers a `Document` and not a `Json`, so it joins the
+    // same `Encoder`/`Decoder` interface through `codec.encoder`/`decoder` instead.
+    switch codec.tree_format_for(mime.text_csv()) {
         Some(f) { print(concat("text/csv is a known format: ", mime.essence(f.media))) }
         None { print("text/csv is not a known format") }
     }
