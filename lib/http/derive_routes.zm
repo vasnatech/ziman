@@ -1,0 +1,271 @@
+// `#![derive(Routes)]` on a module, and `#[route(..)]` on the functions it routes to: the endpoint
+// table written from the handlers' own signatures.
+//
+//     #![derive(Routes)]
+//
+//     #[route(method: POST, path: "/api/orders", status: 201)]
+//     pub fn handle_create(ctx: Ctx, who: Principal, data: model.OrderRequest)
+//         -> Result<model.OrderResponse, ApiError> { .. }
+//
+// writes `pub val <module>_routes: [server.Endpoint<Ctx>]`, which the application appends to its
+// own table. One attribute per handler replaces about ten lines of `server.Endpoint` literal.
+//
+// **Almost all of it comes from the signature, not the attribute.** Whether the endpoint is
+// secured is whether its second parameter is a `Principal`; whether its input is in the path or
+// the body is whether it takes a `Uuid` or a struct; and those three facts choose one of
+// `server`'s eight handler constructors. The answer's encoder comes from the return type -- a
+// `[T]` takes `endpoint.list_encoder`, a `unit` takes none at all, anything else takes
+// `endpoint.json_encoder`. The decoder and encoder *functions* are named from the types as the
+// source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all, so
+// `model.order_request_from_json` is `#[derive(Json)]`'s own convention read backwards.
+//
+// **Four things no signature holds, so the attribute carries them:**
+//
+//   * `method:` and `path:`, which are its whole content.
+//   * `who:`, because two authorisation functions have the same signature. Defaults to
+//     `authenticated`.
+//   * `status:`, because 201-versus-200 on a create is a decision, not a type.
+//   * `label:`, the noun in a bad-id message ("invalid order id"), defaulting to the module's own
+//     name with underscores as spaces -- which is what an application names them anyway.
+//
+// **What the application must have in scope where this is spliced**: `Ctx` (its context type),
+// `api` (its `server.Api`, which says how its own error type renders), the `who` function each
+// route names, and `use endpoint` for the decoders and encoders. Those are the four things this
+// module cannot know, and emitting them as bare names is what keeps it from inventing a
+// vocabulary for an application's error type -- see docs/design/user-generators.md §5c.
+#![generator(Routes)]
+
+use meta
+use template
+
+// What it writes for a module with three routes -- a list, a create with a body and a 201, and a
+// delete with a path id and a 204. The module is `tests/lang/derive_routes/main.zm`, which pins
+// this text:
+//
+//     pub val main_routes: [server.Endpoint<Ctx>] = [
+//         server.Endpoint<Ctx> {
+//             method: http.HttpMethod.Get,
+//             pattern: "/api/orders",
+//             handler: server.secure_handler(
+//                 who: authenticated,
+//                 encoders: [endpoint.list_encoder<model.OrderResponse>(model.order_response_to_json)],
+//                 run: handle_list,
+//                 api: api
+//             )
+//         },
+//         server.Endpoint<Ctx> {
+//             method: http.HttpMethod.Post,
+//             pattern: "/api/orders",
+//             handler: server.secure_body_handler(
+//                 who: authenticated,
+//                 decoders: [endpoint.json_decoder<model.OrderRequest>(model.order_request_from_json)],
+//                 encoders: [endpoint.json_encoder<model.OrderResponse>(model.order_response_to_json)],
+//                 status: 201,
+//                 run: handle_create,
+//                 api: api
+//             )
+//         },
+//         server.Endpoint<Ctx> {
+//             method: http.HttpMethod.Delete,
+//             pattern: "/api/orders/{id}",
+//             handler: server.secure_path_handler(
+//                 who: authenticated,
+//                 path: endpoint.uuid_param("order"),
+//                 encoders: [],
+//                 status: 204,
+//                 run: handle_delete,
+//                 api: api
+//             )
+//         }
+//     ]
+//
+// -- `secure_handler` versus `secure_body_handler` versus `secure_path_handler`, the three
+// encoders, and `order_request_from_json`/`order_response_to_json` are all read off the handlers'
+// signatures. Only the method, the path, the two statuses and the `"order"` label were written.
+val sheet = template.must_parse("""
+@template table
+pub val @{module}_routes: [server.Endpoint<Ctx>] = [
+@for e in endpoints
+    server.Endpoint<Ctx> {
+        method: http.HttpMethod.@{e.method},
+        pattern: "@{e.path}",
+        handler: server.@{e.flavour}(
+@if e.secured
+            who: @{e.who},
+@end
+@if e.has_path
+            path: endpoint.uuid_param("@{e.label}"),
+@end
+@if e.has_body
+            decoders: [endpoint.json_decoder<@{e.body}>(@{e.from_json})],
+@end
+            encoders: @{e.encoders},
+@if e.has_status
+            status: @{e.status},
+@end
+            run: @{e.run},
+            api: api
+        )
+    }@{e.comma}
+@end
+]
+
+@end
+""")
+
+pub fn attributes() -> [meta.AttrSpec] {
+    return [
+        meta.attr_spec("route", "method:name,path:string,who:name?,status:int?,label:string?", "function")
+    ]
+}
+
+pub fn generate_module(m: meta.ModuleTarget) -> Result<string, string> {
+    val routed = meta.functions_with(m, "route")
+    // A module carrying the attribute but no routed function writes nothing, which is a legitimate
+    // answer rather than an error: the attribute may have been added before the handlers.
+    if prelude.len(routed) == 0 {
+        return ok("")
+    }
+    val rows = mutable_array_new<template.Row>()
+    for i, f in routed {
+        val last = i == prelude.len(routed) - 1
+        push(rows, try row_for(f, m.name, if last { "" } else { "," }))
+    }
+    return template.render(sheet, "table", [
+        template.text("module", m.name),
+        template.rows("endpoints", snapshot(rows))
+    ])
+}
+
+fn row_for(f: meta.Function, module_name: string, comma: string) -> Result<template.Row, string> {
+    // Position 0 is the context. Position 1 is a `Principal` on a secured endpoint, and whatever
+    // follows is the input: a `Uuid` is the path, a struct is the body.
+    val secured = prelude.len(f.params) > 1 && is_principal(f.params[1].type)
+    val first_input = if secured { 2 } else { 1 }
+    var has_path = false
+    var body = Option<string>.None
+    for i in first_input..prelude.len(f.params) {
+        val t = f.params[i].type
+        if is_uuid(t) {
+            has_path = true
+        } else if Some(name) = named_of(t) {
+            body = Option<string>.Some(name)
+        }
+    }
+    val encoders = try encoders_for(f)
+    var body_name = ""
+    var from_json = ""
+    if Some(name) = body {
+        body_name = name
+        from_json = concat(json_stem(name), "_from_json")
+    }
+    return ok(template.row([
+        template.text("method", capitalise(arg_or(f, "method", "GET"))),
+        template.text("path", arg_or(f, "path", "/")),
+        template.text("flavour", flavour(secured, has_path, Option.is_Some(body))),
+        template.flag("secured", secured),
+        template.text("who", arg_or(f, "who", "authenticated")),
+        template.flag("has_path", has_path),
+        template.text("label", arg_or(f, "label", replace(module_name, "_", " "))),
+        template.flag("has_body", Option.is_Some(body)),
+        template.text("body", body_name),
+        template.text("from_json", from_json),
+        template.text("encoders", encoders),
+        template.flag("has_status", Option.is_Some(meta.fn_attr_arg(f, "route", "status"))),
+        template.text("status", arg_or(f, "status", "")),
+        template.text("run", f.name),
+        template.text("comma", comma)
+    ]))
+}
+
+// What encodes the answer, from the return type alone.
+fn encoders_for(f: meta.Function) -> Result<string, string> {
+    if ResultOf(r) = f.returns {
+        if Array(inner) = r.ok {
+            if Some(name) = named_of(inner) {
+                return ok(concat("[endpoint.list_encoder<", name, ">(", json_stem(name), "_to_json)]"))
+            }
+        }
+        // A `unit` answer has no body, which is what a 204 means.
+        if Unit = r.ok {
+            return ok("[]")
+        }
+        if Some(name) = named_of(r.ok) {
+            return ok(concat("[endpoint.json_encoder<", name, ">(", json_stem(name), "_to_json)]"))
+        }
+    }
+    return err(prelude.format(
+        "#[route] on '{}' cannot see what encodes its answer: it has to return a Result whose " \
+            "success is a struct, an array of one, or unit",
+        f.name
+    ))
+}
+
+// The type as the source wrote it, which is what generated text repeats: `model.OrderResponse`
+// stays qualified, because the generated code sits in the module that wrote that `use`.
+fn named_of(t: meta.Type) -> Option<string> {
+    if Named(n) = t {
+        return Option<string>.Some(n.name)
+    }
+    return Option<string>.None
+}
+
+// `model.OrderResponse` -> `model.order_response`, the stem both derived JSON functions are named
+// from. The qualifier passes through untouched; only the type's own name is recased.
+fn json_stem(qualified: string) -> string {
+    if prelude.len(qualified) == 0 {
+        return ""
+    }
+    val parts = split(qualified, ".")
+    val bare = parts[prelude.len(parts) - 1]
+    val snake = snake_case(bare)
+    if prelude.len(parts) == 1 {
+        return snake
+    }
+    return concat(substring(qualified, 0, prelude.len(qualified) - prelude.len(bare)), snake)
+}
+
+// **By suffix, not by equality.** A loaded module's declarations are self-qualified, so the type
+// arrives as `common::Principal` from one file and `common.Principal` from another.
+fn is_principal(t: meta.Type) -> bool {
+    if Some(name) = named_of(t) {
+        return ends_with(name, "Principal")
+    }
+    return false
+}
+
+fn is_uuid(t: meta.Type) -> bool {
+    if Some(name) = named_of(t) {
+        return ends_with(name, "Uuid")
+    }
+    return false
+}
+
+fn arg_or(f: meta.Function, name: string, fallback: string) -> string {
+    if Some(v) = meta.fn_attr_arg(f, "route", name) {
+        return v
+    }
+    return fallback
+}
+
+// `secure_path_body_handler` and its seven siblings, named from the three facts that pick one.
+fn flavour(secured: bool, has_path: bool, has_body: bool) -> string {
+    val parts = mutable_array_new<string>()
+    push(parts, if secured { "secure" } else { "public" })
+    if has_path {
+        push(parts, "path")
+    }
+    if has_body {
+        push(parts, "body")
+    }
+    push(parts, "handler")
+    return join(separator: "_", pieces: snapshot(parts))
+}
+
+// `GET` -> `Get`, which is how `http.HttpMethod`'s variants are spelled.
+fn capitalise(word: string) -> string {
+    if prelude.len(word) == 0 {
+        return word
+    }
+    return concat(to_upper(substring(word, 0, 1)), to_lower(substring(word, 1, prelude.len(word))))
+}

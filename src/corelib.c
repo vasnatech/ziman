@@ -44,6 +44,8 @@
 #include "pg_source.h"
 #include "http_source.h"
 #include "server_source.h"
+#include "endpoint_source.h"
+#include "derive_routes_source.h"
 #include "os_source.h"
 #include "sqlite_source.h"
 #include "mysql_source.h"
@@ -128,6 +130,8 @@ static const CoreModule CORE_MODULES[] = {
     {"pg", PG_SOURCE},
     {"http", HTTP_SOURCE},
     {"server", SERVER_SOURCE},
+    {"endpoint", ENDPOINT_SOURCE},
+    {"derive_routes", DERIVE_ROUTES_SOURCE},
     {"os", OS_SOURCE},
     {"sqlite", SQLITE_SOURCE},
     {"mysql", MYSQL_SOURCE},

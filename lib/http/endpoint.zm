@@ -1,0 +1,89 @@
+// What every JSON endpoint is built from: the media type, the decoders and encoders over a model's
+// own `#[derive(Json)]` functions, and the readers that turn a captured path segment into a `Uuid`.
+//
+// **Why these are here and not in each application.** They were a project's own file until
+// 2026-10-31 -- eight declarations, and not one of them mentioned anything of that project's: a
+// decoder over `from_json` is the same decoder in every application that derives JSON, and
+// `uuid_param` is the same reader. Keeping them per-project meant every application rewrote them
+// and `#![derive(Routes)]` (lib/http/derive_routes.zm) could not name them.
+//
+// **What deliberately stayed behind.** An application's `Api` -- how *its* error type renders --
+// and the `who` functions an endpoint names, because both are about types this module cannot see.
+// `#![derive(Routes)]` emits those as bare names, resolved where the generated code is spliced.
+
+use http
+use json
+use json.Json
+use json.int_to_json
+use json.parse
+use mime
+use server
+use uuid
+use uuid.Uuid
+
+// JSON, which is the one media type these helpers are about. An endpoint answering something
+// else builds its own `server.Encoder` and does not come through here.
+pub val application_json = mime.application_json()
+
+// A decoder for JSON bodies of any model: the bytes are parsed, and `from_json` -- the model's own derived decoder (`#[derive(Json)]`'s
+// `<type>_from_json`) -- reads the tree. A body that is not JSON is a 400 `malformed JSON: ...`, one that does not fit the model a 400 naming the field.
+pub fn json_decoder<I>(from_json: fn(Json) -> Result<I, string>) -> server.Decoder<I> {
+    return server.decoder<I>(application_json, fn(data: [byte]) -> Result<I, string> {
+        return switch parse(data) {
+            Ok(json) { from_json(json) }
+            Err(message) { err(concat("malformed JSON: ", message)) }
+        }
+    })
+}
+
+// The other direction, and the counterpart of `json_decoder`. `to_json` is the model's own derived
+// encoder, `#[derive(Json)]`'s `<type>_to_json`.
+pub fn json_encoder<O>(to_json: fn(O) -> Json) -> server.Encoder<O> {
+    return server.encoder<O>(application_json, fn(value: O) -> [byte] {
+        return json.to_bytes(to_json(value))
+    })
+}
+
+// A `Json` value as the whole body, for an endpoint answering a tree it passes through rather than a
+// model of its own.
+pub fn json_value_encoder() -> server.Encoder<Json> {
+    return server.encoder<Json>(application_json, fn(value: Json) -> [byte] {
+        return json.to_bytes(value)
+    })
+}
+
+pub fn count_encoder() -> server.Encoder<int> {
+    return server.encoder<int>(application_json, fn(value: int) -> [byte] {
+        return json.to_bytes(int_to_json(value))
+    })
+}
+
+pub fn list_encoder<O>(to_json: fn(O) -> Json) -> server.Encoder<[O]> {
+    return server.encoder<[O]>(application_json, fn(items: [O]) -> [byte] {
+        return json.to_bytes(Json.JArray(map(items, to_json)))
+    })
+}
+
+// A `{id}` path parameter is just a string; this turns it into a `Uuid`, and a bad one is answered 400
+// before the endpoint runs. `kind` names what the id belongs to, for the message ("invalid order id").
+pub fn uuid_param(kind: string) -> fn(server.Params) -> Result<Uuid, string> {
+    return fn(params: server.Params) -> Result<Uuid, string> {
+        val text = server.param(params, "id")
+        return switch uuid.parse(text) {
+            Ok(id) { id }
+            Err(_) { format("invalid {} id: {}", kind, text) }
+        }
+    }
+}
+
+// The same as `uuid_param`, but for a captured segment named something other than `{id}`: a pattern with
+// two captures (`{orderId}/items/{itemId}`) needs to say which it means.
+pub fn named_uuid_param(name: string, kind: string) -> fn(server.Params) -> Result<Uuid, string> {
+    return fn(params: server.Params) -> Result<Uuid, string> {
+        val text = server.param(params, name)
+        return switch uuid.parse(text) {
+            Ok(id) { id }
+            Err(_) { format("invalid {} id: {}", kind, text) }
+        }
+    }
+}

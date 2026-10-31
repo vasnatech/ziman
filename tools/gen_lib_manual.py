@@ -27,7 +27,7 @@ GROUPS = [
     ("Time", "time", ["time", "zone", "schedule"]),
     ("System", "core", ["fs", "os", "process", "thread", "log", "metrics", "random", "clock", "locale"]),
     ("Networking", "core", ["net", "url"]),
-    ("HTTP", "http", ["http", "server", "client"]),
+    ("HTTP", "http", ["http", "server", "client", "endpoint"]),
     ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql", "memdb", "sql", "eql"]),
     ("Testing", "core", ["test"]),
     # Its own group rather than a line under Data, because the rules and the generator are one
@@ -46,6 +46,10 @@ GROUPS = [
     # one -- the group is about how you meet a module, the folder about what it is built on.
     ("Deriving", "core", ["meta", "template", "derive_ord", "derive_properties", "derive_json", "derive_reflect"]),
     ("Deriving for SQL", "db", ["derive_row", "derive_entity", "derive_repository"]),
+    # Beside the SQL generators and for the same reason: what `#![derive(Routes)]` writes is
+    # `server.Endpoint`s over `endpoint`'s decoders, so it belongs with HTTP rather than with
+    # `meta` -- and it is still its own group because a reader meets it through the attribute.
+    ("Deriving for HTTP", "http", ["derive_routes"]),
     ("Graphics", "graphics", ["geom", "shape", "paint", "scene", "pdfobj", "pdf", "truetype", "font", "image", "stroker", "raster", "layout"]),
 ]
 

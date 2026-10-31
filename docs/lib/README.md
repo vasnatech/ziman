@@ -74,6 +74,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`http`](http.md) | What an HTTP server and an HTTP client have in common. |
 | [`server`](server.md) | An HTTP/1.1 *server* toolkit, written in Ziman on top of `net`. |
 | [`client`](client.md) | An HTTP/1.1 *client*, written in Ziman on top of `net`, so a Ziman program can call another service. |
+| [`endpoint`](endpoint.md) | What every JSON endpoint is built from. |
 
 ## Databases
 
@@ -120,6 +121,12 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`derive_row`](derive_row.md) | `#[derive(Row)]`, written in Ziman. |
 | [`derive_entity`](derive_entity.md) | `#[derive(Entity)]`, written in Ziman. |
 | [`derive_repository`](derive_repository.md) | `#![derive(Repository(Entity))]`, written in Ziman. |
+
+## Deriving for HTTP
+
+| Module | What it is |
+|---|---|
+| [`derive_routes`](derive_routes.md) | `#![derive(Routes)]` on a module, and `#[route(..)]` on the functions it routes to. |
 
 ## Graphics
 

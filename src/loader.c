@@ -2197,6 +2197,11 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
     char *entry_module_name = module_name_of(entry_path);
     if (corelib_source_for(entry_module_name) != NULL) entry_mod->is_corelib = 1;
     free(entry_module_name);
+    /* **The module's own `source_file`, not only its declarations'** (2026-10-31). `load_module`
+     * sets both for an imported module; the entry set only the declarations, so anything asking
+     * the *module* where it came from got NULL -- which gave a module generator on the entry file
+     * an empty name, and `pub val _routes` for what should have been `main_routes`. */
+    entry_mod->source_file = entry_path;
     for (int i = 0; i < entry_mod->functions.count; i++) entry_mod->functions.items[i]->source_file = entry_path;
     for (int i = 0; i < entry_mod->structs.count; i++) entry_mod->structs.items[i]->source_file = entry_path;
     for (int i = 0; i < entry_mod->enums.count; i++) entry_mod->enums.items[i]->source_file = entry_path;

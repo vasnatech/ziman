@@ -1,0 +1,124 @@
+// derive(Json) for 'OrderRequest'
+pub fn order_request_to_json(v: OrderRequest) -> Json {
+    val field_item_json = Json.JString(v.item)
+    return Json.JObject(Map<string, Json> {
+        "item": field_item_json
+    })
+}
+
+pub fn order_request_from_json(j: Json) -> Result<OrderRequest, string> {
+    if !Json.is_JObject(j) { return err("expected a JSON object for OrderRequest") }
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("item: expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return OrderRequest {
+        item: field_item
+    }
+}
+
+pub fn order_request_from_json_all(j: Json) -> Result<OrderRequest, [string]> {
+    if !Json.is_JObject(j) { return err(["expected a JSON object for OrderRequest"]) }
+    val problems = mutable_array_new<string>()
+    val get_item = fn() -> Result<string, string> {
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return ok(field_item)
+    }
+    val got_item = get_item()
+    if Err(problem_item) = got_item { push(problems, concat("item: ", problem_item)) }
+    if len(problems) > 0 { return err(snapshot(problems)) }
+    return ok(OrderRequest {
+        item: unwrap(got_item)
+    })
+}
+
+// derive(Json) for 'OrderResponse'
+pub fn order_response_to_json(v: OrderResponse) -> Json {
+    val field_id_json = int_to_json(v.id)
+    val field_item_json = Json.JString(v.item)
+    return Json.JObject(Map<string, Json> {
+        "id": field_id_json,
+        "item": field_item_json
+    })
+}
+
+pub fn order_response_from_json(j: Json) -> Result<OrderResponse, string> {
+    if !Json.is_JObject(j) { return err("expected a JSON object for OrderResponse") }
+    val field_id_raw = try json.require(j, "id")
+    val field_id = switch int_from_json(field_id_raw) {
+        Ok(__derive_ok_0) { __derive_ok_0 }
+        Err(__derive_err_1) { return err(concat("id: ", __derive_err_1)) }
+    }
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("item: expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return OrderResponse {
+        id: field_id,
+        item: field_item
+    }
+}
+
+pub fn order_response_from_json_all(j: Json) -> Result<OrderResponse, [string]> {
+    if !Json.is_JObject(j) { return err(["expected a JSON object for OrderResponse"]) }
+    val problems = mutable_array_new<string>()
+    val get_id = fn() -> Result<int, string> {
+    val field_id_raw = try json.require(j, "id")
+    val field_id = try int_from_json(field_id_raw)
+    return ok(field_id)
+    }
+    val got_id = get_id()
+    if Err(problem_id) = got_id { push(problems, concat("id: ", problem_id)) }
+    val get_item = fn() -> Result<string, string> {
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return ok(field_item)
+    }
+    val got_item = get_item()
+    if Err(problem_item) = got_item { push(problems, concat("item: ", problem_item)) }
+    if len(problems) > 0 { return err(snapshot(problems)) }
+    return ok(OrderResponse {
+        id: unwrap(got_id),
+        item: unwrap(got_item)
+    })
+}
+
+// derive(Routes) for this module
+pub val main_routes: [server.Endpoint<Ctx>] = [
+    server.Endpoint<Ctx> {
+        method: http.HttpMethod.Get,
+        pattern: "/api/orders",
+        handler: server.secure_handler(
+            who: authenticated,
+            encoders: [endpoint.list_encoder<model.OrderResponse>(model.order_response_to_json)],
+            run: handle_list,
+            api: api
+        )
+    },
+    server.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/api/orders",
+        handler: server.secure_body_handler(
+            who: authenticated,
+            decoders: [endpoint.json_decoder<model.OrderRequest>(model.order_request_from_json)],
+            encoders: [endpoint.json_encoder<model.OrderResponse>(model.order_response_to_json)],
+            status: 201,
+            run: handle_create,
+            api: api
+        )
+    },
+    server.Endpoint<Ctx> {
+        method: http.HttpMethod.Delete,
+        pattern: "/api/orders/{id}",
+        handler: server.secure_path_handler(
+            who: authenticated,
+            path: endpoint.uuid_param("order"),
+            encoders: [],
+            status: 204,
+            run: handle_delete,
+            api: api
+        )
+    }
+]
+

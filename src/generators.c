@@ -25,7 +25,7 @@ static const char *const GENERATOR_MODULES[] = {"derive_ord", "derive_row", "der
 /* The module generators -- the second kind (docs/design/meta.md §8). One, so far, and the list
  * exists anyway: `load_generators` has to import it, and a second module-level feature should
  * change this line rather than that function. */
-static const char *const MODULE_GENERATOR_MODULES[] = {"derive_repository"};
+static const char *const MODULE_GENERATOR_MODULES[] = {"derive_repository", "derive_routes"};
 
 static Module *g_generators = NULL;
 static int g_tried = 0;

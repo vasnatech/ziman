@@ -1,0 +1,10 @@
+#[derive(Json)]
+pub struct OrderRequest {
+    item: string
+}
+
+#[derive(Json)]
+pub struct OrderResponse {
+    id: int
+    item: string
+}

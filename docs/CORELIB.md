@@ -3141,6 +3141,36 @@ pub fn stream(
 
 ```
 
+## `derive_routes`
+
+```
+pub fn attributes() -> [meta.AttrSpec]
+
+pub fn generate_module(m: meta.ModuleTarget) -> Result<string, string>
+
+```
+
+## `endpoint`
+
+```
+pub val application_json = mime.application_json()
+
+pub fn json_decoder<I>(from_json: fn(Json) -> Result<I, string>) -> server.Decoder<I>
+
+pub fn json_encoder<O>(to_json: fn(O) -> Json) -> server.Encoder<O>
+
+pub fn json_value_encoder() -> server.Encoder<Json>
+
+pub fn count_encoder() -> server.Encoder<int>
+
+pub fn list_encoder<O>(to_json: fn(O) -> Json) -> server.Encoder<[O]>
+
+pub fn uuid_param(kind: string) -> fn(server.Params) -> Result<Uuid, string>
+
+pub fn named_uuid_param(name: string, kind: string) -> fn(server.Params) -> Result<Uuid, string>
+
+```
+
 ## `http`
 
 ```

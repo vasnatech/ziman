@@ -1,0 +1,39 @@
+// `#![derive(Routes)]`, whose whole input is the `#[route(..)]`s on this module's own functions
+// and what their signatures say. Run with `--emit-derived`, so the `.out` is the table it writes.
+//
+// The three routes are the three shapes that matter: a list, a create with a body and a 201, and a
+// delete with a path id and a 204. Nothing below says which handler constructor to use, which
+// decoder, which encoder, or what the JSON functions are called.
+#![derive(Routes)]
+
+use derive_routes
+use endpoint
+use http
+use model
+use server
+use uuid.Uuid
+use wiring.Ctx
+use wiring.Principal
+use wiring.api
+use wiring.authenticated
+
+#[route(method: GET, path: "/api/orders")]
+pub fn handle_list(ctx: Ctx, who: Principal) -> Result<[model.OrderResponse], string> {
+    return err("x")
+}
+
+#[route(method: POST, path: "/api/orders", status: 201)]
+pub fn handle_create(ctx: Ctx, who: Principal, data: model.OrderRequest) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+// `label:` names the noun in a bad-id message; it defaults to the module's own name, which is
+// `main` here and `order` is what it should say.
+#[route(method: DELETE, path: "/api/orders/{id}", status: 204, label: "order")]
+pub fn handle_delete(ctx: Ctx, who: Principal, id: Uuid) -> Result<unit, string> {
+    return err("x")
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}
