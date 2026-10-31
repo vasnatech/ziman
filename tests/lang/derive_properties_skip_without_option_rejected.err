@@ -1,0 +1,4 @@
+ziman: type error at 4:1 in tests/lang/derive_properties_skip_without_option_rejected.zm: derive(Properties): 'computed_at' is skipped, and 'string' has no absent value to build it from -- Ziman has no field defaults, so make it an Option<string>
+  |
+4 | struct Server {
+  | ^

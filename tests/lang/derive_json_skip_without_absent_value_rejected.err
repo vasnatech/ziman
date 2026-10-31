@@ -1,0 +1,4 @@
+ziman: type error at 5:1 in tests/lang/derive_json_skip_without_absent_value_rejected.zm: derive(Json): 'seen' is skipped while reading, and 'int' has no absent value to build it from -- Ziman has no field defaults, so make it an Option<int> (or an array, a map or a set), or skip only the writing with skip_write: true
+  |
+5 | struct Counter {
+  | ^

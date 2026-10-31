@@ -334,6 +334,31 @@ pub fn attr_value(f: Field, attr: string, arg: string) -> Option<string> {
     return Option<string>.None
 }
 
+// One boolean argument of one attribute: `attr_flag(f, "xml", "skip")` is the `true` of
+// `#[xml(skip: true)]`, and `false` when the attribute or the argument is absent.
+//
+// **A third state is not worth modelling.** Every argument arrives as text, so this could answer
+// an `Option<bool>` and let a caller tell "written false" from "not written" -- and no generator
+// wants that distinction: an option that defaults to off reads the same either way, and the one
+// case where it would matter (`#[xml(attribute: false)]` meaning "an element, explicitly") is
+// answered by the *other* argument being present rather than by this one's absence.
+pub fn attr_flag(f: Field, attr: string, arg: string) -> bool {
+    if Some(text) = attr_value(f, attr, arg) {
+        return text == "true"
+    }
+    return false
+}
+
+// Whether the argument was written at all, whatever its value -- for the pair of flags that name
+// one choice from either side (`attribute:`/`element:`), where "not given" and "given as false"
+// have to be told apart.
+pub fn attr_has_arg(f: Field, attr: string, arg: string) -> bool {
+    if Some(_) = attr_value(f, attr, arg) {
+        return true
+    }
+    return false
+}
+
 // An attribute as source spells it: `pk`, `column(name: "start_date")`, `min(value: 1)`. For a
 // generator that prints what it was handed (`derive_reflect`), and for a refusal that quotes an
 // attribute back.

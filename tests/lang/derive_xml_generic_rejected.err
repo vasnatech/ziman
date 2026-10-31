@@ -1,0 +1,4 @@
+ziman: type error at 6:1 in tests/lang/derive_xml_generic_rejected.zm: derive(Xml) does not support a generic type ('Box' takes 1) -- #[derive(Json)] takes a converter per type parameter, and the equivalent for XML is not built
+  |
+6 | struct Box<T> {
+  | ^

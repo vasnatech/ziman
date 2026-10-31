@@ -1,0 +1,13 @@
+// An `#[xml_name]` that is not a legal XML name is caught at the declaration, where the message
+// can name the field -- not later inside `xml.format`, which sees only an element it cannot write.
+use xml
+
+#[derive(Xml)]
+struct Bag {
+    #[xml(name: "2bad")]
+    item: string
+}
+
+fn main() {
+    print(1)
+}

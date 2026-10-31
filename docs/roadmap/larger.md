@@ -61,35 +61,58 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   Evidence: 1,349 fixtures (two new), 420 library tests, the North Star's 64 suites / 2,670 checks,
   `--emit-derived serve.zm` byte-identical at 34,801 lines, and `--gc-stress` over the 45 fixtures
   that have module-level vals with no crash -- worth running because what is rooted when changed.
-- **`#[derive(Xml)]`, so XML is a derived format and not a hand-written one.** -- not started;
-  raised 2026-10-31 out of asking whether an XML request body works.
+- **`#[derive(Xml)]`, so XML is a derived format and not a hand-written one.** -- **done**
+  2026-10-31, `lib/core/derive_xml.zm`. Raised the same day out of asking whether an XML request
+  body works.
 
-  It does: `codec.Encoder<T>`/`Decoder<T>` are `T -> [byte]` and `[byte] -> T`, the server
+  It already did: `codec.Encoder<T>`/`Decoder<T>` are `T -> [byte]` and `[byte] -> T`, the server
   negotiates on `Content-Type` and `Accept` without caring which format, and
   `tests/lang/codec_xml_decoder` posts XML to an endpoint and gets 200, with a JSON body to the
-  same endpoint refused 415. **What is missing is the reader**, which that fixture writes by hand:
-  `#[derive(Json)]` writes `from_json`/`to_json`, and there is no `#[derive(Xml)]`, so every XML
-  request type costs a reader per type.
+  same endpoint refused 415. What was missing was the reader, which that fixture writes by hand.
+  Now `#[derive(Xml)]` writes `<snake>_to_xml`/`_from_xml` over `xml.Document`, plus the
+  `_to_element`/`_from_element` pair a nested struct composes from, and
+  `codec.xml_encoder`/`xml_decoder`/`xml_list_encoder` complete the interface so an XML body
+  negotiates beside every other format.
 
-  **XML is not a `codec.TreeFormat` and must not be made one.** `xml.parse` answers a `Document`
-  -- attributes, namespaces, element order -- and no `Json` carries those.
-  `<order id="7"><item>desk</item></order>` and `<order><id>7</id><item>desk</item></order>` hold
-  the same information in structurally different ways, so any XML-to-`Json` bridge picks one
-  convention and is wrong for every schema that chose the other. Jackson has the same problem and
-  answers it with a separate `XmlMapper` plus `@JacksonXmlProperty`, which is the shape this would
-  take: field attributes (`#[xml_attribute]`, `#[xml_name("...")]`) declared by the generator, as
-  §5a's are.
+  **XML is not a `codec.TreeFormat` and was not made one**, which is what the entry was mostly
+  about. `xml.parse` answers a `Document` -- attributes, namespaces, element order -- and no `Json`
+  carries those. `<order id="7"><item>desk</item></order>` and
+  `<order><id>7</id><item>desk</item></order>` hold the same information in structurally different
+  ways, so any XML-to-`Json` bridge picks one convention and is wrong for every schema that chose
+  the other. Jackson has the same problem and answers it with a separate `XmlMapper` plus
+  `@JacksonXmlProperty`; this generator writes the document model directly and the field attribute
+  is `#[xml(attribute:, element:, name:, skip:, skip_write:, skip_read:)]`, declared by the
+  generator as §5a's are.
 
-  **It shares its central question with the entry below**, which is why they are next to each
-  other. A derived XML reader wants to walk the input *once*, not build a `Document` and walk that
-  -- so it wants the same reader abstraction, and XML is the format that proves the abstraction
-  cannot be `Json`-shaped. Designing them apart would mean designing the reader twice, once for a
-  tree pivot and once for a document model.
+  **The attribute shape came back and changed the other two generators.** It shipped as
+  `#[xml_attribute]` plus `#[xml_name("..")]`, and that pair was wrong twice over: the name said
+  what one of them did, so renaming a *child element* had nowhere to live once `name:` belonged to
+  `xml_attribute`, and the next option would have been a third name rather than a third argument.
+  One attribute named after the format, with every choice an argument, generalised -- so
+  `#[derive(Json)]` and `#[derive(Properties)]` gained `#[json(..)]` and `#[properties(..)]` the
+  same day, neither of which had a field attribute at all before. `#[json(name:)]` was the gap a
+  model answering an external API had to be written out by hand for; `#[properties(name:)]` is the
+  one place a config key and a field name genuinely cannot agree, since a key is dotted and a
+  field name is not.
 
-  Worth doing on evidence rather than symmetry: the Spring backend serves XML among its thirteen
-  export formats, and export parity is the open item with the most left in it. But export *writes*
-  one fixed document shape, which `xml.format` plus a hand-written writer already does -- so the
-  case for deriving it rests on XML *requests*, which nothing in the North Star has yet.
+  **What `skip` cost is the thing worth remembering**: Ziman has no struct field defaults, so a
+  field skipped while *reading* has nothing to be built from -- there is no value waiting in the
+  struct for the decoder to leave alone. So a skipped field is built from its type's own absent
+  value and the attribute is refused where there is none (`int`, `string`, a nested struct), with
+  the fix in the message. `skip_write:`/`skip_read:` need no absent value in the one direction
+  that still reads, which is what lets a write-only `new_password` stay a plain `string`.
+  `#[properties(..)]` has no direction pair at all, because configuration only ever reads.
+
+  Deliberately narrower than `#[derive(Json)]`: an enum, a map, a set, a generic parameter and a
+  non-scalar attribute each get their own refusal. Reaching the enum one needed the enum half of
+  the user-generator path in `src/derive.c`, missing until now -- a generator written in Ziman
+  could be reached for a struct and not for an enum, so `#[derive(Xml)]` on one reported "unknown
+  derive target 'Xml'" instead of the generator's own answer, and a project's generator that
+  *wanted* enums could not have them at all.
+
+  Also added `xml.parse_bool`, because `xs:boolean` has four lexical forms -- `true`, `false`, `1`
+  and `0` -- and a reader that knows only the first turns a document written by a Java or .NET
+  serialiser silently into `false`.
 
 - **Decode a request body straight into the object, with no `Json` tree in between.** -- not
   started; measured 2026-10-31 and the measurement changes which half of it is worth doing.

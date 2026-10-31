@@ -1,0 +1,12 @@
+// Ziman has no struct field defaults, so a field skipped while reading has nothing to be built
+// from. Only a type that already spells absence has one, and zero is a number the body could have
+// carried rather than the absence of one.
+#[derive(Json)]
+struct Counter {
+    #[json(skip: true)]
+    seen: int
+}
+
+fn main() {
+    print(1)
+}

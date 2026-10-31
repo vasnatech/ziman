@@ -1,0 +1,293 @@
+// Unit tests for `#[derive(Xml)]`. `tests/lang/derive_xml` pins the generated *text*; this file is
+// about whether that text does the right thing when it runs.
+//
+// **The round trip is the main claim.** A value written with `_to_xml`, formatted, parsed back and
+// read with `_from_xml` has to be the value it started as -- and the places that breaks are the
+// ones with two spellings of the same thing: an attribute against a child element, an absent
+// `Option` against an empty element, an empty array against a missing one, and a bool that a Java
+// or .NET writer spelled `1`.
+//
+// The error cases are the other half. A request body is the usual source of these, so every
+// failure has to name the element a client got wrong rather than report a bare parse message.
+
+use test
+use xml
+
+#[derive(Xml)]
+struct Part {
+    #[xml(attribute: true)]
+    code: string
+
+    label: string
+}
+
+#[derive(Xml)]
+struct Widget {
+    #[xml(attribute: true)]
+    id: int
+
+    #[xml(attribute: true)]
+    note: Option<string>
+
+    #[xml(name: "display-name")]
+    name: string
+
+    price: decimal
+
+    weight: float
+
+    active: bool
+
+    serial: Option<bigint>
+
+    tags: [string]
+
+    main_part: Part
+
+    spares: [Part]
+
+    backup: Option<Part>
+}
+
+fn sample() -> Widget {
+    return Widget {
+        id: 7,
+        note: Option<string>.Some("urgent"),
+        name: "Left flange",
+        price: 19.95d,
+        weight: 2.5,
+        active: true,
+        serial: Option<bigint>.Some(90071992547409910n),
+        tags: ["metal", "stocked"],
+        main_part: Part { code: "P-1", label: "flange" },
+        spares: [Part { code: "P-2", label: "bolt" }, Part { code: "P-3", label: "nut" }],
+        backup: Option<Part>.Some(Part { code: "P-4", label: "spare flange" })
+    }
+}
+
+fn round_trip(w: Widget) -> Widget {
+    val text = test.assert_ok(xml.format(widget_to_xml(w)))
+    return test.assert_ok(widget_from_xml(test.assert_ok(xml.parse(text))))
+}
+
+#[test]
+fn a_full_value_survives_the_round_trip() {
+    val back = round_trip(sample())
+    test.assert_eq(7, back.id)
+    test.assert_eq("urgent", test.assert_some(back.note))
+    test.assert_eq("Left flange", back.name)
+    test.assert_eq(19.95d, back.price)
+    test.assert_eq(2.5, back.weight)
+    test.assert_eq(true, back.active)
+    test.assert_eq(90071992547409910n, test.assert_some(back.serial))
+    test.assert_eq(["metal", "stocked"], back.tags)
+    test.assert_eq("P-1", back.main_part.code)
+    test.assert_eq("flange", back.main_part.label)
+    test.assert_len(2, back.spares)
+    test.assert_eq("P-3", back.spares[1].code)
+    test.assert_eq("spare flange", test.assert_some(back.backup).label)
+}
+
+// **XML has no null**, so an `Option`'s `None` is the element simply not being there. The round
+// trip has to agree in both directions: nothing written, nothing found.
+#[test]
+fn absent_options_and_empty_arrays_survive_the_round_trip() {
+    val w = with sample() {
+        note: Option<string>.None,
+        serial: Option<bigint>.None,
+        backup: Option<Part>.None,
+        tags: [],
+        spares: []
+    }
+    val back = round_trip(w)
+    test.assert_none(back.note)
+    test.assert_none(back.serial)
+    test.assert_none(back.backup)
+    test.assert_empty(back.tags)
+    test.assert_empty(back.spares)
+}
+
+// The two field attributes, read off the document rather than off the round trip -- which would
+// pass whichever place the generator had put them.
+#[test]
+fn attribute_true_writes_an_attribute_and_name_renames_the_element() {
+    val e = widget_to_element(sample())
+    test.assert_eq("widget", e.name.local)
+    test.assert_eq("7", test.assert_some(xml.attr(e, "id")))
+    test.assert_eq("urgent", test.assert_some(xml.attr(e, "note")))
+    // Renamed by `name:`, so neither the field's name nor its camelCase form is there.
+    test.assert_eq("Left flange", xml.text_of(test.assert_some(xml.child(e, "display-name"))))
+    test.assert_none(xml.child(e, "name"))
+    // And the default is `#[derive(Json)]`'s key, so one model names its parts the same either way.
+    test.assert_eq("P-1", test.assert_some(xml.attr(test.assert_some(xml.child(e, "mainPart")), "code")))
+}
+
+// A nested element is named after the **field**, not after its type: `main_part: Part` is
+// `<mainPart>`, which is what the `local: string` overload exists for.
+#[test]
+fn a_nested_element_takes_the_fields_name_and_a_repeated_one_repeats() {
+    val e = widget_to_element(sample())
+    test.assert_none(xml.child(e, "part"))
+    test.assert_len(2, xml.children_named(e, "spares"))
+    test.assert_eq(["metal", "stocked"], [
+        xml.text_of(xml.children_named(e, "tags")[0]),
+        xml.text_of(xml.children_named(e, "tags")[1])
+    ])
+}
+
+fn read(body: string) -> Result<Widget, string> {
+    return widget_from_xml(test.assert_ok(xml.parse(body)))
+}
+
+#[test]
+fn a_missing_required_element_names_itself() {
+    val body = "<widget id=\"7\"><display-name>n</display-name></widget>"
+    test.assert_eq("price: missing element", test.assert_err(read(body)))
+}
+
+#[test]
+fn a_missing_required_attribute_names_itself() {
+    val body = "<widget><display-name>n</display-name></widget>"
+    test.assert_eq("id: missing attribute", test.assert_err(read(body)))
+}
+
+// The parse failure is prefixed with the element, not reported bare: "not a number" alone tells a
+// client nothing about which field to fix.
+#[test]
+fn a_malformed_number_names_the_element_it_came_from() {
+    val body = "<widget id=\"7\"><display-name>n</display-name><price>cheap</price></widget>"
+    test.assert_starts_with(test.assert_err(read(body)), "price: ")
+}
+
+#[test]
+fn a_malformed_attribute_names_the_attribute_it_came_from() {
+    val body = "<widget id=\"many\"><display-name>n</display-name></widget>"
+    test.assert_starts_with(test.assert_err(read(body)), "id: ")
+}
+
+// `xml.parse_bool` takes all four of `xs:boolean`'s lexical forms, which is what makes a document
+// written by a Java or .NET serialiser readable: `1` means true there and would silently mean
+// false to a reader that only knew "true".
+#[test]
+fn a_bool_spelled_one_or_zero_reads_as_xml_schema_says() {
+    val one = "<widget id=\"1\"><display-name>n</display-name><price>1</price><weight>1.0</weight>" \
+        "<active>1</active><mainPart code=\"c\"><label>l</label></mainPart></widget>"
+    test.assert_eq(true, test.assert_ok(read(one)).active)
+    val zero = "<widget id=\"1\"><display-name>n</display-name><price>1</price><weight>1.0</weight>" \
+        "<active>  0  </active><mainPart code=\"c\"><label>l</label></mainPart></widget>"
+    test.assert_eq(false, test.assert_ok(read(zero)).active)
+}
+
+#[test]
+fn a_bool_that_is_neither_is_an_error_naming_the_element() {
+    val body = "<widget id=\"1\"><display-name>n</display-name><price>1</price><weight>1.0</weight>" \
+        "<active>yes</active><mainPart code=\"c\"><label>l</label></mainPart></widget>"
+    val why = test.assert_err(read(body))
+    test.assert_starts_with(why, "active: ")
+    test.assert_contains(why, "true, false, 1 or 0")
+}
+
+// A failure inside a nested struct propagates with the nested element's own name -- which is the
+// `try` in the generated `_from_element`, not something this generator formats.
+#[test]
+fn a_failure_inside_a_nested_element_propagates() {
+    val body = "<widget id=\"1\"><display-name>n</display-name><price>1</price><weight>1.0</weight>" \
+        "<active>true</active><mainPart><label>l</label></mainPart></widget>"
+    test.assert_eq("code: missing attribute", test.assert_err(read(body)))
+}
+
+// Text split by a CDATA section is one value, because the reader uses `xml.text_of` rather than
+// the element's first text child.
+#[test]
+fn a_value_split_by_cdata_reads_as_one_string() {
+    val body = "<widget id=\"1\"><display-name>a<![CDATA[&b]]>c</display-name><price>1</price>" \
+        "<weight>1.0</weight><active>true</active>" \
+        "<mainPart code=\"c\"><label>l</label></mainPart></widget>"
+    test.assert_eq("a&bc", test.assert_ok(read(body)).name)
+}
+
+// Characters XML has to escape go out escaped and come back as themselves, which is `xml.format`'s
+// job -- asserted here because a derived writer that built text itself would get it wrong.
+#[test]
+fn markup_characters_in_a_value_survive_the_round_trip() {
+    val w = with sample() { name: "a < b & c > \"d\"", note: Option<string>.Some("x'y\"z") }
+    val back = round_trip(w)
+    test.assert_eq("a < b & c > \"d\"", back.name)
+    test.assert_eq("x'y\"z", test.assert_some(back.note))
+}
+
+// ---- `skip` ----------------------------------------------------------------------------------
+
+#[derive(Xml)]
+struct Session {
+    #[xml(element: true, name: "login-name")]
+    login: string
+
+    // Neither written nor read: an `Option` has a `None` to be built from.
+    #[xml(skip: true)]
+    cached_at: Option<string>
+
+    // Arrives, never leaves. No absent value is needed, because it is still read.
+    #[xml(skip_write: true)]
+    new_password: string
+
+    // Leaves, never arrives: an array is built empty.
+    #[xml(skip_read: true)]
+    roles: [string]
+}
+
+fn a_session() -> Session {
+    return Session {
+        login: "ada",
+        cached_at: Option<string>.Some("yesterday"),
+        new_password: "hunter2",
+        roles: ["admin", "auditor"]
+    }
+}
+
+#[test]
+fn element_true_is_the_explicit_spelling_of_the_default_and_name_still_applies() {
+    val e = session_to_element(a_session())
+    test.assert_eq("ada", xml.text_of(test.assert_some(xml.child(e, "login-name"))))
+    // Written as a child element, not as an attribute.
+    test.assert_none(xml.attr(e, "login-name"))
+}
+
+#[test]
+fn skip_true_leaves_the_field_off_the_wire_in_both_directions() {
+    val e = session_to_element(a_session())
+    test.assert_none(xml.child(e, "cachedAt"))
+    // And a document that carries it anyway is not read from: the field comes back None.
+    val body = "<session><login-name>ada</login-name><cachedAt>today</cachedAt>" \
+        "<newPassword>p</newPassword></session>"
+    val back = test.assert_ok(session_from_xml(test.assert_ok(xml.parse(body))))
+    test.assert_none(back.cached_at)
+}
+
+#[test]
+fn skip_write_keeps_the_field_readable_but_never_writes_it() {
+    val e = session_to_element(a_session())
+    test.assert_none(xml.child(e, "newPassword"))
+    val body = "<session><login-name>ada</login-name><newPassword>hunter2</newPassword></session>"
+    test.assert_eq("hunter2", test.assert_ok(session_from_xml(test.assert_ok(xml.parse(body)))).new_password)
+}
+
+// A `skip_write` field is still *required* when reading -- that is the whole point of skipping
+// only the writing, and it is what lets the field be a plain `string` rather than an `Option`.
+#[test]
+fn a_skip_write_field_is_still_required_when_reading() {
+    val body = "<session><login-name>ada</login-name></session>"
+    test.assert_eq(
+        "newPassword: missing element",
+        test.assert_err(session_from_xml(test.assert_ok(xml.parse(body))))
+    )
+}
+
+#[test]
+fn skip_read_writes_the_field_and_builds_it_empty_when_reading() {
+    val e = session_to_element(a_session())
+    test.assert_len(2, xml.children_named(e, "roles"))
+    val body = "<session><login-name>ada</login-name><newPassword>p</newPassword>" \
+        "<roles>admin</roles></session>"
+    test.assert_empty(test.assert_ok(session_from_xml(test.assert_ok(xml.parse(body)))).roles)
+}

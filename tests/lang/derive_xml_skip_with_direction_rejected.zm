@@ -1,0 +1,13 @@
+// `skip: true` is already both directions, so writing it beside `skip_write:` or `skip_read:`
+// either says the same thing twice or contradicts itself. Neither is worth guessing at.
+use xml
+
+#[derive(Xml)]
+struct Widget {
+    #[xml(skip: true, skip_write: true)]
+    code: Option<string>
+}
+
+fn main() {
+    print(1)
+}

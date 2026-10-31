@@ -1,0 +1,13 @@
+// An XML attribute holds text, so `#[xml(attribute: true)]` on anything but a scalar (or an Option of
+// one) is refused naming the type -- rather than written as the string an array happens to print.
+use xml
+
+#[derive(Xml)]
+struct Bag {
+    #[xml(attribute: true)]
+    items: [string]
+}
+
+fn main() {
+    print(1)
+}

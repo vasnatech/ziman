@@ -19,6 +19,7 @@ flowchart LR
         derive_properties["derive_properties"]
         derive_reflect["derive_reflect"]
         derive_validate["derive_validate"]
+        derive_xml["derive_xml"]
         encoding["encoding"]
         expr["expr"]
         fs["fs"]
@@ -78,6 +79,7 @@ flowchart LR
     codec --> mime
     codec --> ndjson
     codec --> toml
+    codec --> xml
     codec --> yaml
     crypto --> encoding
     crypto --> random
@@ -108,6 +110,8 @@ flowchart LR
     derive_row --> template
     derive_validate --> meta
     derive_validate --> template
+    derive_xml --> meta
+    derive_xml --> template
     encoding --> locale
     encoding --> number
     eql --> datasource
@@ -266,7 +270,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `template`, `time`, `uuid` |
-| 5 | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
+| 5 | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
 | 6 | `codec`, `derive_repository` |
 
 ## Each module
@@ -275,7 +279,7 @@ otherwise: everything on a layer depends only on lower layers.
 |---|---|---|
 | `bits` | - | `image` |
 | `clock` | - | `datasource`, `jwt`, `log`, `os`, `schedule`, `time`, `uuid` |
-| `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `yaml` | - |
+| `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | - |
 | `compress` | - | `image`, `pdfobj` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | `codec` |
@@ -290,6 +294,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `derive_routes` | `meta`, `template` | - |
 | `derive_row` | `meta`, `template` | `derive_repository` |
 | `derive_validate` | `meta`, `template` | - |
+| `derive_xml` | `meta`, `template` | - |
 | `encoding` | `locale`, `number` | `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `expr` | `json`, `regex` | `template` |
@@ -306,7 +311,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `markdown` | `math` | - |
 | `math` | - | `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
 | `memdb` | `db`, `locale`, `sql` | - |
-| `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate` |
+| `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `metrics` | `os` | - |
 | `migrate` | `crypto`, `datasource`, `db`, `encoding`, `fs`, `os`, `time` | - |
 | `mime` | `locale` | `codec`, `http` |
@@ -331,7 +336,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
-| `template` | `expr`, `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate` |
+| `template` | `expr`, `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `test` | `regex` | - |
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `eql`, `migrate`, `schedule`, `toml` |
@@ -340,7 +345,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `url` | `locale`, `number` | `db`, `http` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | `eql` |
 | `validate` | `regex` | - |
-| `xml` | `locale` | - |
+| `xml` | `locale` | `codec` |
 | `yaml` | `json`, `locale`, `number` | `codec` |
 | `zone` | `fs`, `number`, `os` | `time` |
 

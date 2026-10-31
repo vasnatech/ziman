@@ -1,0 +1,783 @@
+// `#[derive(Xml)]`, written in Ziman: a struct's `<name>_to_xml`/`<name>_from_xml` over
+// `xml.Document`, and the `_to_element`/`_from_element` pair a nested struct composes from.
+//
+// **Why this is not `#[derive(Json)]` with a different writer.** XML is not a `Json`-shaped tree.
+// A field can be an attribute or a child element, elements are ordered and repeat under one name,
+// and a name can be namespaced -- none of which a `Json` object carries. Routing XML through
+// `Json` would have to pick one convention for all of that and then be wrong for every schema
+// that chose the other, which is why `codec.TreeFormat` deliberately excludes XML. So this
+// generator writes the `Document` model directly, and `codec.encoder`/`codec.decoder` take the
+// result: `T -> [byte]` and `[byte] -> T`, the interface every format joins by.
+//
+// **The wire names are `#[derive(Json)]`'s.** A field's element or attribute is `camel_case` of
+// its name, which is the key the JSON derive uses -- so one model serialised either way names its
+// parts the same, and a client switching `Accept` sees one vocabulary rather than two.
+// `#[xml(name: "...")]` overrides one field's, `#[xml(attribute: true)]` makes a scalar field an
+// attribute rather than a child element, and `#[xml(skip: true)]` leaves it off the wire
+// altogether -- one attribute, every choice an argument of it.
+//
+// **A deriving module must `use xml`**, as a `#[derive(Json)]` one must `use json`: the spliced
+// code names `xml.Element` and `xml.text_element`.
+//
+// Deliberately narrower than `#[derive(Json)]`, and **every gap is refused by name rather than
+// mis-generated**: an enum, a map, a set, a generic parameter and a non-scalar attribute each get
+// their own message. The JSON derive grew its coverage over many commits; this one starts with
+// the shapes a request or response body actually has, and says where it stops.
+#![experimental]
+#![generator(Xml)]
+
+use meta
+use template
+
+// What it writes for a `Product` of three fields -- `sku` carrying `#[xml(attribute: true)]`, a plain
+// `name`, and a `tags: [string]` that repeats under one element name. The struct is the head of
+// `tests/lang/derive_xml.zm`, which pins this text:
+//
+//     pub fn product_to_element(v: Product, local: string) -> xml.Element {
+//         val attrs = mutable_array_new<xml.Attribute>()
+//         push(attrs, xml.attribute("sku", v.sku))
+//         val kids = mutable_array_new<xml.Node>()
+//         push(kids, xml.Node.Element(xml.text_element("name", v.name)))
+//         for one_tags in v.tags {
+//             push(kids, xml.Node.Element(xml.text_element("tags", one_tags)))
+//         }
+//         return xml.Element {
+//             name: xml.name(local),
+//             attributes: snapshot(attrs),
+//             children: snapshot(kids)
+//         }
+//     }
+//
+// followed by the two one-liners that give the element the type's own name and wrap it in a
+// `Document`, then `product_from_element`/`product_from_xml`. The whole of it, over every type
+// this reaches, is tests/lang/derive_xml.out.
+//
+// **`_to_element` takes the element's name.** A nested struct's element is named after the field
+// it sits in rather than after its type, and the alternative -- rebuilding the returned element
+// under a new name -- needs a helper function that two deriving structs in one module would both
+// emit. A parameter costs one overload and nothing else.
+val sheet = template.must_parse("""
+@template to_element
+pub fn @{snake}_to_element(v: @{self}, local: string) -> xml.Element {
+    val attrs = mutable_array_new<xml.Attribute>()
+@for a in attributes
+@yield a.write
+@end
+    val kids = mutable_array_new<xml.Node>()
+@for f in children
+@yield f.write
+@end
+    return xml.Element {
+        name: xml.name(local),
+        attributes: snapshot(attrs),
+        children: snapshot(kids)
+    }
+}
+
+pub fn @{snake}_to_element(v: @{self}) -> xml.Element {
+    return @{snake}_to_element(v, "@{root}")
+}
+
+pub fn @{snake}_to_xml(v: @{self}) -> xml.Document {
+    return xml.document(@{snake}_to_element(v))
+}
+
+@end
+
+@template attribute
+    push(attrs, xml.attribute("@{wire}", @{text}))
+@end
+
+@template optional_attribute
+    if Some(@{bind}) = v.@{field} {
+        push(attrs, xml.attribute("@{wire}", @{text}))
+    }
+@end
+
+@template scalar_child
+    push(kids, xml.Node.Element(xml.text_element("@{wire}", @{text})))
+@end
+
+@template optional_child
+    if Some(@{bind}) = v.@{field} {
+        push(kids, xml.Node.Element(xml.text_element("@{wire}", @{text})))
+    }
+@end
+
+@template nested_child
+    push(kids, xml.Node.Element(@{call}(v.@{field}, "@{wire}")))
+@end
+
+@template optional_nested_child
+    if Some(@{bind}) = v.@{field} {
+        push(kids, xml.Node.Element(@{call}(@{bind}, "@{wire}")))
+    }
+@end
+
+@template repeated_child
+    for @{bind} in v.@{field} {
+        push(kids, xml.Node.Element(xml.text_element("@{wire}", @{text})))
+    }
+@end
+
+@template repeated_nested_child
+    for @{bind} in v.@{field} {
+        push(kids, xml.Node.Element(@{call}(@{bind}, "@{wire}")))
+    }
+@end
+
+@template from_element
+pub fn @{snake}_from_element(e: xml.Element) -> Result<@{self}, string> {
+@for f in fields
+@yield f.read
+@end
+    return ok(@{self} {
+@for f in fields
+        @{f.name}: field_@{f.name}@{f.comma}
+@end
+    })
+}
+
+pub fn @{snake}_from_xml(doc: xml.Document) -> Result<@{self}, string> {
+    return @{snake}_from_element(doc.root)
+}
+
+@end
+
+@template read_attribute
+    val text_@{field} = switch xml.attr(e, "@{wire}") {
+        Some(found) { found }
+        None { return err("@{wire}: missing attribute") }
+    }
+@if parsed
+    val field_@{field} = switch @{parse} {
+        Ok(good) { good }
+        Err(why) { return err(concat("@{wire}: ", why)) }
+    }
+@else
+    val field_@{field} = text_@{field}
+@end
+@end
+
+@template read_optional_attribute
+    var field_@{field} = Option<@{inner}>.None
+    if Some(text_@{field}) = xml.attr(e, "@{wire}") {
+@if parsed
+        field_@{field} = switch @{parse} {
+            Ok(good) { Option<@{inner}>.Some(good) }
+            Err(why) { return err(concat("@{wire}: ", why)) }
+        }
+@else
+        field_@{field} = Option<@{inner}>.Some(text_@{field})
+@end
+    }
+@end
+
+@template read_scalar
+    val node_@{field} = switch xml.child(e, "@{wire}") {
+        Some(found) { found }
+        None { return err("@{wire}: missing element") }
+    }
+@if parsed
+    val field_@{field} = switch @{parse} {
+        Ok(good) { good }
+        Err(why) { return err(concat("@{wire}: ", why)) }
+    }
+@else
+    val field_@{field} = @{text}
+@end
+@end
+
+@template read_optional
+    var field_@{field} = Option<@{inner}>.None
+    if Some(node_@{field}) = xml.child(e, "@{wire}") {
+@if parsed
+        field_@{field} = switch @{parse} {
+            Ok(good) { Option<@{inner}>.Some(good) }
+            Err(why) { return err(concat("@{wire}: ", why)) }
+        }
+@else
+        field_@{field} = Option<@{inner}>.Some(@{text})
+@end
+    }
+@end
+
+@template read_nested
+    val field_@{field} = switch xml.child(e, "@{wire}") {
+        Some(found) { try @{call}(found) }
+        None { return err("@{wire}: missing element") }
+    }
+@end
+
+@template read_optional_nested
+    var field_@{field} = Option<@{inner}>.None
+    if Some(found_@{field}) = xml.child(e, "@{wire}") {
+        field_@{field} = Option<@{inner}>.Some(try @{call}(found_@{field}))
+    }
+@end
+
+@template read_repeated
+    val acc_@{field} = mutable_array_new<@{inner}>()
+    for node_@{field} in xml.children_named(e, "@{wire}") {
+@if parsed
+        val one_@{field} = switch @{parse} {
+            Ok(good) { good }
+            Err(why) { return err(concat("@{wire}: ", why)) }
+        }
+        push(acc_@{field}, one_@{field})
+@else
+        push(acc_@{field}, @{text})
+@end
+    }
+    val field_@{field} = snapshot(acc_@{field})
+@end
+
+@template read_skipped
+    val field_@{field}: @{type} = @{absent}
+@end
+
+@template read_repeated_nested
+    val acc_@{field} = mutable_array_new<@{inner}>()
+    for found_@{field} in xml.children_named(e, "@{wire}") {
+        push(acc_@{field}, try @{call}(found_@{field}))
+    }
+    val field_@{field} = snapshot(acc_@{field})
+@end
+""")
+
+// **One attribute, named after the format, and every choice an argument of it** -- this was
+// `#[xml_attribute]` plus `#[xml_name("..")]` for a day, and the pair was wrong twice over. The
+// name said what one of them did, so renaming a *child element* (the common case:
+// `code` -> `<product-code>`) had nowhere to live once `name:` belonged to `xml_attribute`; and
+// the next option would have been a third name rather than a third argument. `#[xml(..)]` has
+// room for all of it, and a reader meets one name instead of counting them.
+//
+// `attribute:` and `element:` are **two names for one choice**, so either may be written with
+// either value and giving both must agree; a child element is the default and `element: true` is
+// its explicit spelling. The three `skip` arguments are separate booleans rather than one
+// `skip: "out"`, because an argument has one kind in the spec and a `skip` that took a bool here
+// and a string there could not be declared at all.
+pub fn attributes() -> [meta.AttrSpec] {
+    return [
+        meta.attr_spec(
+            "xml",
+            "attribute:bool?,element:bool?,name:string?,skip:bool?,skip_write:bool?,skip_read:bool?"
+        )
+    ]
+}
+
+pub fn generate(d: meta.Decl) -> Result<string, string> {
+    if prelude.len(d.type_params) > 0 {
+        return err(prelude.format(
+            "derive(Xml) does not support a generic type ('{}' takes {}) -- #[derive(Json)] " \
+                "takes a converter per type parameter, and the equivalent for XML is not built",
+            d.name,
+            str(prelude.len(d.type_params))
+        ))
+    }
+    switch d.body {
+        Struct(fields) { return for_struct(d, fields) }
+        // An enum has no agreed spelling in XML: which variant it is can be the element's own
+        // name, a wrapper element, or an attribute, and the three give incompatible schemas.
+        // Choosing one here would be this generator settling a schema question on its caller's
+        // behalf and silently, so it refuses and leaves the choice where it belongs.
+        Enum(_) {
+            return err(prelude.format(
+                "derive(Xml) does not support an enum ('{}') -- how a variant is spelled in XML " \
+                    "(the element's own name, a wrapper, an attribute) is a schema decision with " \
+                    "no default, so write the two functions by hand and keep the choice",
+                d.name
+            ))
+        }
+    }
+}
+
+fn for_struct(d: meta.Decl, fields: [meta.Field]) -> Result<string, string> {
+    val attributes = mutable_array_new<template.Row>()
+    val children = mutable_array_new<template.Row>()
+    val reads = mutable_array_new<template.Row>()
+    val last = prelude.len(fields) - 1
+
+    for i in 0..prelude.len(fields) {
+        val f = fields[i]
+        val wire = wire_name(f)
+        try check_name(f, wire)
+        try check_skip(f)
+        val as_attribute = try is_attribute(f)
+        if !skips_write(f) {
+            if as_attribute {
+                push(attributes, template.row([
+                    template.text("write", without_newline(try attribute_write(f, wire)))
+                ]))
+            } else {
+                push(children, template.row([
+                    template.text("write", without_newline(try child_write(f, wire)))
+                ]))
+            }
+        }
+        // **A skipped field still has to be built**, because Ziman has no field defaults: there
+        // is no value waiting in the struct for the reader to leave alone. So the read becomes an
+        // assignment of the type's own absent value, and a type that has none is refused rather
+        // than given a zero this generator invented.
+        val read = if skips_read(f) {
+            try skipped_read(f)
+        } else {
+            try field_read(f, wire, as_attribute)
+        }
+        push(reads, template.row([
+            template.text("name", f.name),
+            template.text("read", without_newline(read)),
+            template.text("comma", if i < last { "," } else { "" })
+        ]))
+    }
+
+    val writer = try template.render(sheet, "to_element", [
+        template.text("snake", d.snake_name),
+        template.text("self", d.name),
+        template.text("root", camel_case(d.snake_name)),
+        template.rows("attributes", snapshot(attributes)),
+        template.rows("children", snapshot(children))
+    ])
+    val reader = try template.render(sheet, "from_element", [
+        template.text("snake", d.snake_name),
+        template.text("self", d.name),
+        template.rows("fields", snapshot(reads))
+    ])
+    return ok(concat(writer, "\n", reader))
+}
+
+// A wire name becomes an element or attribute name, and `xml.format` refuses one that is not a
+// legal XML name -- at the point the document is written, which is a long way from the
+// declaration that caused it. Caught here instead, where the message can name the field.
+fn check_name(f: meta.Field, wire: string) -> Result<unit, string> {
+    if prelude.len(wire) == 0 {
+        return err(prelude.format("derive(Xml): '{}' has an empty #[xml(name: \"\")]", f.name))
+    }
+    for i in 0..prelude.len(wire) {
+        val c = char_at(wire, i)
+        var fine = is_alpha(c) || c == "_"
+        if i > 0 {
+            fine = fine || is_digit(c) || c == "-" || c == "."
+        }
+        if !fine {
+            return err(prelude.format(
+                "derive(Xml): '{}' would be written as <{}>, which is not a legal XML name " \
+                    "('{}' at position {}) -- give the field an #[xml(name: \"..\")] that is one",
+                f.name,
+                wire,
+                c,
+                str(i)
+            ))
+        }
+    }
+    return unit
+}
+
+fn wire_name(f: meta.Field) -> string {
+    if Some(given) = meta.attr_value(f, "xml", "name") {
+        return given
+    }
+    return camel_case(f.name)
+}
+
+// ---- the choices `#[xml(..)]` carries --------------------------------------------------------
+
+// Whether the field is written as an XML attribute rather than as a child element. `attribute:`
+// and `element:` are the same question asked from either side, so each may be written with either
+// value -- and writing both only to disagree is a mistake worth naming rather than resolving by
+// which one this function happens to read first.
+fn is_attribute(f: meta.Field) -> Result<bool, string> {
+    val said_attribute = meta.attr_has_arg(f, "xml", "attribute")
+    val said_element = meta.attr_has_arg(f, "xml", "element")
+    val as_attribute = meta.attr_flag(f, "xml", "attribute")
+    val as_element = meta.attr_flag(f, "xml", "element")
+    if said_attribute && said_element {
+        if as_attribute == as_element {
+            return err(prelude.format(
+                "derive(Xml): '{}' says both attribute: {} and element: {} -- they are one choice " \
+                    "asked from either side, so written together they have to disagree; keep one",
+                f.name,
+                str(as_attribute),
+                str(as_element)
+            ))
+        }
+        return ok(as_attribute)
+    }
+    if said_attribute {
+        return ok(as_attribute)
+    }
+    if said_element {
+        return ok(!as_element)
+    }
+    return ok(false)
+}
+
+// `skip: true` is both directions; `skip_write:` and `skip_read:` are one each. Written together
+// they say the same thing twice or contradict each other, and neither is worth guessing at.
+fn check_skip(f: meta.Field) -> Result<unit, string> {
+    if !meta.attr_flag(f, "xml", "skip") {
+        return unit
+    }
+    if meta.attr_has_arg(f, "xml", "skip_write") || meta.attr_has_arg(f, "xml", "skip_read") {
+        return err(prelude.format(
+            "derive(Xml): '{}' carries skip: true as well as skip_write: or skip_read: -- skip is " \
+                "already both directions, so drop it or drop the other",
+            f.name
+        ))
+    }
+    return unit
+}
+
+fn skips_write(f: meta.Field) -> bool {
+    return meta.attr_flag(f, "xml", "skip") || meta.attr_flag(f, "xml", "skip_write")
+}
+
+fn skips_read(f: meta.Field) -> bool {
+    return meta.attr_flag(f, "xml", "skip") || meta.attr_flag(f, "xml", "skip_read")
+}
+
+// What a field that is never read is built from. **Only a type that already spells absence has
+// one**: an `Option` has `None`, and an array, a map and a set have empty. An `int` does not --
+// zero is a number a document could have carried, not the absence of one -- so a skipped `int`
+// is refused with the fix in the message rather than defaulted silently.
+fn skipped_read(f: meta.Field) -> Result<string, string> {
+    return template.render(sheet, "read_skipped", [
+        template.text("field", f.name),
+        template.text("type", meta.type_text(f.type)),
+        template.text("absent", try absent_value(f))
+    ])
+}
+
+fn absent_value(f: meta.Field) -> Result<string, string> {
+    if Optional(inner) = f.type {
+        return ok(concat("Option<", meta.type_text(inner), ">.None"))
+    }
+    if Array(_) = f.type {
+        return ok("[]")
+    }
+    if SetOf(elem) = f.type {
+        return ok(concat("Set<", meta.type_text(elem), "> {}"))
+    }
+    if MapOf(m) = f.type {
+        return ok(concat("Map<", meta.type_text(m.key), ", ", meta.type_text(m.value), "> {}"))
+    }
+    return err(prelude.format(
+        "derive(Xml): '{}' is skipped while reading, and '{}' has no absent value to build it " \
+            "from -- Ziman has no field defaults, so make it an Option<{}> (or an array, a map or " \
+            "a set), or skip only the writing with skip_write: true",
+        f.name,
+        meta.type_text(f.type),
+        meta.type_text(f.type)
+    ))
+}
+
+// ---- writing ---------------------------------------------------------------------------------
+
+// An attribute holds text and nothing else, so only a scalar field can be one -- but an **`Option`
+// of a scalar can be**: an absent attribute is simply not pushed, which is why `attrs` is built as
+// a mutable array rather than as one literal.
+fn attribute_write(f: meta.Field, wire: string) -> Result<string, string> {
+    if Some(inner) = optional_of(f.type) {
+        if !is_scalar(inner) {
+            return err(attribute_refusal(f))
+        }
+        val bind = concat("one_", f.name)
+        return template.render(sheet, "optional_attribute", [
+            template.text("bind", bind),
+            template.text("field", f.name),
+            template.text("wire", wire),
+            template.text("text", text_of(inner, bind))
+        ])
+    }
+    if !is_scalar(f.type) {
+        return err(attribute_refusal(f))
+    }
+    return template.render(sheet, "attribute", [
+        template.text("wire", wire),
+        template.text("text", text_of(f.type, concat("v.", f.name)))
+    ])
+}
+
+fn attribute_refusal(f: meta.Field) -> string {
+    return prelude.format(
+        "derive(Xml): '{}' is of type '{}' and asks for attribute: true -- an XML attribute holds " \
+            "text, so only a scalar field, or an Option of one, can be one; drop it and the " \
+            "field becomes a child element instead",
+        f.name,
+        meta.type_text(f.type)
+    )
+}
+
+fn child_write(f: meta.Field, wire: string) -> Result<string, string> {
+    if Some(inner) = optional_of(f.type) {
+        val bind = concat("one_", f.name)
+        if is_scalar(inner) {
+            return template.render(sheet, "optional_child", [
+                template.text("bind", bind),
+                template.text("field", f.name),
+                template.text("wire", wire),
+                template.text("text", text_of(inner, bind))
+            ])
+        }
+        if Some(call) = nested_call(inner, "_to_element") {
+            return template.render(sheet, "optional_nested_child", [
+                template.text("bind", bind),
+                template.text("field", f.name),
+                template.text("wire", wire),
+                template.text("call", call)
+            ])
+        }
+        return err(unsupported(f))
+    }
+    if Array(elem) = f.type {
+        val bind = concat("one_", f.name)
+        if is_scalar(elem) {
+            return template.render(sheet, "repeated_child", [
+                template.text("bind", bind),
+                template.text("field", f.name),
+                template.text("wire", wire),
+                template.text("text", text_of(elem, bind))
+            ])
+        }
+        if Some(call) = nested_call(elem, "_to_element") {
+            return template.render(sheet, "repeated_nested_child", [
+                template.text("bind", bind),
+                template.text("field", f.name),
+                template.text("wire", wire),
+                template.text("call", call)
+            ])
+        }
+        return err(unsupported(f))
+    }
+    if is_scalar(f.type) {
+        return template.render(sheet, "scalar_child", [
+            template.text("wire", wire),
+            template.text("text", text_of(f.type, concat("v.", f.name)))
+        ])
+    }
+    if Some(call) = nested_call(f.type, "_to_element") {
+        return template.render(sheet, "nested_child", [
+            template.text("field", f.name),
+            template.text("wire", wire),
+            template.text("call", call)
+        ])
+    }
+    return err(unsupported(f))
+}
+
+// ---- reading ---------------------------------------------------------------------------------
+
+// **A missing element is an error and an absent `Option` is not**, which is the one asymmetry
+// worth stating out loud: XML has no null, so an `Option<T>`'s `None` is spelled by the element
+// not being there at all. A required field whose element is missing fails naming that element,
+// which is what a 400 carries.
+fn field_read(f: meta.Field, wire: string, is_attr: bool) -> Result<string, string> {
+    if Some(inner) = optional_of(f.type) {
+        if is_attr {
+            if !is_scalar(inner) {
+                return err(attribute_refusal(f))
+            }
+            return template.render(sheet, "read_optional_attribute", [
+                template.text("field", f.name),
+                template.text("wire", wire),
+                template.text("inner", meta.type_text(inner)),
+                template.flag("parsed", needs_parse(inner)),
+                template.text("parse", try parse_of(inner, concat("text_", f.name)))
+            ])
+        }
+        if is_scalar(inner) {
+            return template.render(sheet, "read_optional", [
+                template.text("field", f.name),
+                template.text("wire", wire),
+                template.text("inner", meta.type_text(inner)),
+                template.flag("parsed", needs_parse(inner)),
+                template.text("text", text_source(f.name)),
+                template.text("parse", try parse_of(inner, text_source(f.name)))
+            ])
+        }
+        if Some(call) = nested_call(inner, "_from_element") {
+            return template.render(sheet, "read_optional_nested", [
+                template.text("field", f.name),
+                template.text("wire", wire),
+                template.text("inner", meta.type_text(inner)),
+                template.text("call", call)
+            ])
+        }
+        return err(unsupported(f))
+    }
+    if Array(elem) = f.type {
+        if is_scalar(elem) {
+            return template.render(sheet, "read_repeated", [
+                template.text("field", f.name),
+                template.text("wire", wire),
+                template.text("inner", meta.type_text(elem)),
+                template.flag("parsed", needs_parse(elem)),
+                template.text("text", text_source(f.name)),
+                template.text("parse", try parse_of(elem, text_source(f.name)))
+            ])
+        }
+        if Some(call) = nested_call(elem, "_from_element") {
+            return template.render(sheet, "read_repeated_nested", [
+                template.text("field", f.name),
+                template.text("wire", wire),
+                template.text("inner", meta.type_text(elem)),
+                template.text("call", call)
+            ])
+        }
+        return err(unsupported(f))
+    }
+    if is_attr {
+        if !is_scalar(f.type) {
+            return err(attribute_refusal(f))
+        }
+        return template.render(sheet, "read_attribute", [
+            template.text("field", f.name),
+            template.text("wire", wire),
+            template.flag("parsed", needs_parse(f.type)),
+            template.text("parse", try parse_of(f.type, concat("text_", f.name)))
+        ])
+    }
+    if is_scalar(f.type) {
+        return template.render(sheet, "read_scalar", [
+            template.text("field", f.name),
+            template.text("wire", wire),
+            template.flag("parsed", needs_parse(f.type)),
+            template.text("text", text_source(f.name)),
+            template.text("parse", try parse_of(f.type, text_source(f.name)))
+        ])
+    }
+    if Some(call) = nested_call(f.type, "_from_element") {
+        return template.render(sheet, "read_nested", [
+            template.text("field", f.name),
+            template.text("wire", wire),
+            template.text("call", call)
+        ])
+    }
+    return err(unsupported(f))
+}
+
+// `text_of` rather than the element's first text child, so a value split by a CDATA section or an
+// entity reference reads back as one string.
+fn text_source(field: string) -> string {
+    return concat("xml.text_of(node_", field, ")")
+}
+
+// ---- types -----------------------------------------------------------------------------------
+
+// **Everything in XML is text**, so a scalar is a type `str` writes and a `parse_*` reads back.
+// `byte` is absent because there is no `parse_byte`, and the date-and-time types are absent
+// because `#[derive(Json)]`'s short converters (`to_instant`) have no XML counterpart yet -- a
+// field of one is refused by name rather than written as whatever `str` happens to print.
+fn is_scalar(t: meta.Type) -> bool {
+    if String = t {
+        return true
+    }
+    if Int = t {
+        return true
+    }
+    if Float = t {
+        return true
+    }
+    if Bool = t {
+        return true
+    }
+    if Bigint = t {
+        return true
+    }
+    if Decimal = t {
+        return true
+    }
+    return false
+}
+
+// A `string` field reads straight out of `text_of` and cannot fail, so it gets an assignment
+// where every other scalar gets a `switch` over a `Result`. **Not uniformity for its own sake**:
+// there is no `parse_string` to call, and wrapping the text in an `ok(..)` only to unwrap it
+// would leave the generated code with a `Result` whose error type nothing determines.
+fn needs_parse(t: meta.Type) -> bool {
+    if String = t {
+        return false
+    }
+    return true
+}
+
+fn text_of(t: meta.Type, src: string) -> string {
+    if String = t {
+        return src
+    }
+    return concat("str(", src, ")")
+}
+
+// Reading one back, as a `Result` expression the templates wrap in a `switch` that prefixes the
+// element's name -- so a malformed number reports `price: ..` rather than the bare parse failure.
+fn parse_of(t: meta.Type, src: string) -> Result<string, string> {
+    if String = t {
+        return ok(src)
+    }
+    if Int = t {
+        return ok(concat("parse_int(", src, ")"))
+    }
+    if Float = t {
+        return ok(concat("parse_float(", src, ")"))
+    }
+    if Bigint = t {
+        return ok(concat("parse_bigint(", src, ")"))
+    }
+    if Decimal = t {
+        return ok(concat("parse_decimal(", src, ")"))
+    }
+    if Bool = t {
+        return ok(concat("xml.parse_bool(", src, ")"))
+    }
+    return err(concat("derive(Xml) cannot read a '", meta.type_text(t), "' from text"))
+}
+
+fn optional_of(t: meta.Type) -> Option<meta.Type> {
+    if Optional(inner) = t {
+        return Option<meta.Type>.Some(inner)
+    }
+    return Option<meta.Type>.None
+}
+
+// The companion function on a nested struct, named from the type as the source spelled it:
+// `model.OrderLine` gives `model.order_line_from_element`, keeping the module alias, which is how
+// `#[derive(Json)]` reaches `model.order_line_from_json`.
+fn nested_call(t: meta.Type, suffix: string) -> Option<string> {
+    if Named(n) = t {
+        if prelude.len(n.args) > 0 {
+            return Option<string>.None
+        }
+        val cut = last_dot(n.name)
+        if cut < 0 {
+            return Option<string>.Some(concat(snake_case(n.name), suffix))
+        }
+        val alias = substring(n.name, 0, cut + 1)
+        val bare = substring(n.name, cut + 1, prelude.len(n.name))
+        return Option<string>.Some(concat(alias, snake_case(bare), suffix))
+    }
+    return Option<string>.None
+}
+
+fn last_dot(name: string) -> int {
+    var at = -1
+    for i in 0..prelude.len(name) {
+        if char_at(name, i) == "." {
+            at = i
+        }
+    }
+    return at
+}
+
+fn unsupported(f: meta.Field) -> string {
+    return prelude.format(
+        "derive(Xml) does not support field '{}' of type '{}' -- it writes a scalar (string, " \
+            "int, float, bool, bigint, decimal), a struct that also derives Xml, and an Option " \
+            "or an array of either",
+        f.name,
+        meta.type_text(f.type)
+    )
+}
+
+fn without_newline(text: string) -> string {
+    return substring(text, 0, prelude.len(text) - 1)
+}

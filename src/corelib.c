@@ -26,6 +26,7 @@
 #include "regex_source.h"
 #include "validate_source.h"
 #include "derive_validate_source.h"
+#include "derive_xml_source.h"
 #include "locale_source.h"
 #include "random_source.h"
 #include "uuid_source.h"
@@ -61,7 +62,6 @@
 #include "client_cookie_source.h"
 #include "client_request_source.h"
 #include "client_stream_source.h"
-#include "endpoint_source.h"
 #include "derive_routes_source.h"
 #include "os_source.h"
 #include "sqlite_source.h"
@@ -127,6 +127,7 @@ static const CoreModule CORE_MODULES[] = {
     {"expr", EXPR_SOURCE, EXPR_SOURCE_PATH},
     {"validate", VALIDATE_SOURCE, VALIDATE_SOURCE_PATH},
     {"derive_validate", DERIVE_VALIDATE_SOURCE, DERIVE_VALIDATE_SOURCE_PATH},
+    {"derive_xml", DERIVE_XML_SOURCE, DERIVE_XML_SOURCE_PATH},
     {"url", URL_SOURCE, URL_SOURCE_PATH},
     {"fs", FS_SOURCE, FS_SOURCE_PATH},
     {"log", LOG_SOURCE, LOG_SOURCE_PATH},
@@ -156,7 +157,6 @@ static const CoreModule CORE_MODULES[] = {
      * `server` whether it is one file or ten. `corelib_source_for` answers NULL for both. */
     {"server", NULL, "lib/http/server/server.zm"},
     {"client", NULL, "lib/http/client/client.zm"},
-    {"endpoint", ENDPOINT_SOURCE, ENDPOINT_SOURCE_PATH},
     {"derive_routes", DERIVE_ROUTES_SOURCE, DERIVE_ROUTES_SOURCE_PATH},
     {"os", OS_SOURCE, OS_SOURCE_PATH},
     {"sqlite", SQLITE_SOURCE, SQLITE_SOURCE_PATH},

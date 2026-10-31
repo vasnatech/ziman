@@ -1,0 +1,222 @@
+// derive(Xml) for 'Product'
+pub fn product_to_element(v: Product, local: string) -> xml.Element {
+    val attrs = mutable_array_new<xml.Attribute>()
+    push(attrs, xml.attribute("sku", v.sku))
+    val kids = mutable_array_new<xml.Node>()
+    push(kids, xml.Node.Element(xml.text_element("name", v.name)))
+    for one_tags in v.tags {
+        push(kids, xml.Node.Element(xml.text_element("tags", one_tags)))
+    }
+    return xml.Element {
+        name: xml.name(local),
+        attributes: snapshot(attrs),
+        children: snapshot(kids)
+    }
+}
+
+pub fn product_to_element(v: Product) -> xml.Element {
+    return product_to_element(v, "product")
+}
+
+pub fn product_to_xml(v: Product) -> xml.Document {
+    return xml.document(product_to_element(v))
+}
+
+
+pub fn product_from_element(e: xml.Element) -> Result<Product, string> {
+    val text_sku = switch xml.attr(e, "sku") {
+        Some(found) { found }
+        None { return err("sku: missing attribute") }
+    }
+    val field_sku = text_sku
+    val node_name = switch xml.child(e, "name") {
+        Some(found) { found }
+        None { return err("name: missing element") }
+    }
+    val field_name = xml.text_of(node_name)
+    val acc_tags = mutable_array_new<string>()
+    for node_tags in xml.children_named(e, "tags") {
+        push(acc_tags, xml.text_of(node_tags))
+    }
+    val field_tags = snapshot(acc_tags)
+    return ok(Product {
+        sku: field_sku,
+        name: field_name,
+        tags: field_tags
+    })
+}
+
+pub fn product_from_xml(doc: xml.Document) -> Result<Product, string> {
+    return product_from_element(doc.root)
+}
+
+// derive(Xml) for 'Line'
+pub fn line_to_element(v: Line, local: string) -> xml.Element {
+    val attrs = mutable_array_new<xml.Attribute>()
+    push(attrs, xml.attribute("quantity", str(v.quantity)))
+    if Some(one_note) = v.note {
+        push(attrs, xml.attribute("note", one_note))
+    }
+    val kids = mutable_array_new<xml.Node>()
+    push(kids, xml.Node.Element(xml.text_element("product-code", v.code)))
+    push(kids, xml.Node.Element(xml.text_element("unitPrice", str(v.unit_price))))
+    push(kids, xml.Node.Element(xml.text_element("inStock", str(v.in_stock))))
+    if Some(one_weight) = v.weight {
+        push(kids, xml.Node.Element(xml.text_element("weight", str(one_weight))))
+    }
+    push(kids, xml.Node.Element(product_to_element(v.product, "product")))
+    for one_alternates in v.alternates {
+        push(kids, xml.Node.Element(product_to_element(one_alternates, "alternates")))
+    }
+    if Some(one_replacement) = v.replacement {
+        push(kids, xml.Node.Element(product_to_element(one_replacement, "replacement")))
+    }
+    for one_serials in v.serials {
+        push(kids, xml.Node.Element(xml.text_element("serials", str(one_serials))))
+    }
+    return xml.Element {
+        name: xml.name(local),
+        attributes: snapshot(attrs),
+        children: snapshot(kids)
+    }
+}
+
+pub fn line_to_element(v: Line) -> xml.Element {
+    return line_to_element(v, "line")
+}
+
+pub fn line_to_xml(v: Line) -> xml.Document {
+    return xml.document(line_to_element(v))
+}
+
+
+pub fn line_from_element(e: xml.Element) -> Result<Line, string> {
+    val text_quantity = switch xml.attr(e, "quantity") {
+        Some(found) { found }
+        None { return err("quantity: missing attribute") }
+    }
+    val field_quantity = switch parse_int(text_quantity) {
+        Ok(good) { good }
+        Err(why) { return err(concat("quantity: ", why)) }
+    }
+    var field_note = Option<string>.None
+    if Some(text_note) = xml.attr(e, "note") {
+        field_note = Option<string>.Some(text_note)
+    }
+    val node_code = switch xml.child(e, "product-code") {
+        Some(found) { found }
+        None { return err("product-code: missing element") }
+    }
+    val field_code = xml.text_of(node_code)
+    val node_unit_price = switch xml.child(e, "unitPrice") {
+        Some(found) { found }
+        None { return err("unitPrice: missing element") }
+    }
+    val field_unit_price = switch parse_decimal(xml.text_of(node_unit_price)) {
+        Ok(good) { good }
+        Err(why) { return err(concat("unitPrice: ", why)) }
+    }
+    val node_in_stock = switch xml.child(e, "inStock") {
+        Some(found) { found }
+        None { return err("inStock: missing element") }
+    }
+    val field_in_stock = switch xml.parse_bool(xml.text_of(node_in_stock)) {
+        Ok(good) { good }
+        Err(why) { return err(concat("inStock: ", why)) }
+    }
+    var field_weight = Option<float>.None
+    if Some(node_weight) = xml.child(e, "weight") {
+        field_weight = switch parse_float(xml.text_of(node_weight)) {
+            Ok(good) { Option<float>.Some(good) }
+            Err(why) { return err(concat("weight: ", why)) }
+        }
+    }
+    val field_product = switch xml.child(e, "product") {
+        Some(found) { try product_from_element(found) }
+        None { return err("product: missing element") }
+    }
+    val acc_alternates = mutable_array_new<Product>()
+    for found_alternates in xml.children_named(e, "alternates") {
+        push(acc_alternates, try product_from_element(found_alternates))
+    }
+    val field_alternates = snapshot(acc_alternates)
+    var field_replacement = Option<Product>.None
+    if Some(found_replacement) = xml.child(e, "replacement") {
+        field_replacement = Option<Product>.Some(try product_from_element(found_replacement))
+    }
+    val acc_serials = mutable_array_new<bigint>()
+    for node_serials in xml.children_named(e, "serials") {
+        val one_serials = switch parse_bigint(xml.text_of(node_serials)) {
+            Ok(good) { good }
+            Err(why) { return err(concat("serials: ", why)) }
+        }
+        push(acc_serials, one_serials)
+    }
+    val field_serials = snapshot(acc_serials)
+    return ok(Line {
+        quantity: field_quantity,
+        note: field_note,
+        code: field_code,
+        unit_price: field_unit_price,
+        in_stock: field_in_stock,
+        weight: field_weight,
+        product: field_product,
+        alternates: field_alternates,
+        replacement: field_replacement,
+        serials: field_serials
+    })
+}
+
+pub fn line_from_xml(doc: xml.Document) -> Result<Line, string> {
+    return line_from_element(doc.root)
+}
+
+// derive(Xml) for 'Account'
+pub fn account_to_element(v: Account, local: string) -> xml.Element {
+    val attrs = mutable_array_new<xml.Attribute>()
+    val kids = mutable_array_new<xml.Node>()
+    push(kids, xml.Node.Element(xml.text_element("login-name", v.login)))
+    for one_roles in v.roles {
+        push(kids, xml.Node.Element(xml.text_element("roles", one_roles)))
+    }
+    return xml.Element {
+        name: xml.name(local),
+        attributes: snapshot(attrs),
+        children: snapshot(kids)
+    }
+}
+
+pub fn account_to_element(v: Account) -> xml.Element {
+    return account_to_element(v, "account")
+}
+
+pub fn account_to_xml(v: Account) -> xml.Document {
+    return xml.document(account_to_element(v))
+}
+
+
+pub fn account_from_element(e: xml.Element) -> Result<Account, string> {
+    val node_login = switch xml.child(e, "login-name") {
+        Some(found) { found }
+        None { return err("login-name: missing element") }
+    }
+    val field_login = xml.text_of(node_login)
+    val field_cached_at: Option<string> = Option<string>.None
+    val node_new_password = switch xml.child(e, "newPassword") {
+        Some(found) { found }
+        None { return err("newPassword: missing element") }
+    }
+    val field_new_password = xml.text_of(node_new_password)
+    val field_roles: [string] = []
+    return ok(Account {
+        login: field_login,
+        cached_at: field_cached_at,
+        new_password: field_new_password,
+        roles: field_roles
+    })
+}
+
+pub fn account_from_xml(doc: xml.Document) -> Result<Account, string> {
+    return account_from_element(doc.root)
+}
+

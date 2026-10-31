@@ -1,0 +1,13 @@
+// The shapes `#[derive(Xml)]` does not reach are refused by name, and a `Map` is the one a reader
+// coming from `#[derive(Json)]` will try first: a JSON object has keys and an XML element has
+// child names, and which of a map's keys becomes an element name is a schema decision.
+use xml
+
+#[derive(Xml)]
+struct Bag {
+    items: Map<string, int>
+}
+
+fn main() {
+    print(1)
+}

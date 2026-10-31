@@ -1,0 +1,11 @@
+// `skip: true` is already both directions, so writing it beside `skip_write:` or `skip_read:`
+// either says the same thing twice or contradicts itself.
+#[derive(Json)]
+struct Account {
+    #[json(skip: true, skip_read: true)]
+    cached_at: Option<string>
+}
+
+fn main() {
+    print(1)
+}

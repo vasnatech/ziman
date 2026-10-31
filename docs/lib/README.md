@@ -112,6 +112,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`derive_ord`](derive_ord.md) | `#[derive(Ord)]`, written in Ziman. |
 | [`derive_properties`](derive_properties.md) | `#[derive(Properties)]`, written in Ziman. |
 | [`derive_json`](derive_json.md) | `#[derive(Json)]`, written in Ziman. |
+| [`derive_xml`](derive_xml.md) | `#[derive(Xml)]`, written in Ziman. |
 | [`derive_reflect`](derive_reflect.md) | `#[derive(Reflect)]`: prints the declaration a generator was handed, and generates nothing. |
 
 ## Deriving for SQL

@@ -1,0 +1,14 @@
+// `attribute:` and `element:` are one choice asked from either side, so written together they
+// have to disagree. Saying both the same way is a mistake worth naming rather than resolving by
+// whichever one the generator happens to read first.
+use xml
+
+#[derive(Xml)]
+struct Widget {
+    #[xml(attribute: true, element: true)]
+    code: string
+}
+
+fn main() {
+    print(1)
+}

@@ -1027,6 +1027,13 @@ static const FieldAttr *derive_attr(const StructDecl *sd, int d) {
     return &sd->derive_args[d];
 }
 
+/* The same for an enum. Two functions rather than one over a union, because `derives` and
+ * `derive_args` are declared on both types independently and C has no way to say so once. */
+static const FieldAttr *enum_derive_attr(const EnumDecl *ed, int d) {
+    if (ed == NULL || ed->derive_args == NULL) return NULL;
+    return &ed->derive_args[d];
+}
+
 /* How many arguments a target carries. A bare `#[derive(Json)]` carries none. */
 static int derive_arg_count(const StructDecl *sd, int d) {
     const FieldAttr *a = derive_attr(sd, d);
@@ -1312,6 +1319,23 @@ void generate_derived_functions(Module *module) {
                 const char *ord_label = fmt_str("derive(Ord) for '%s'", ed->name);
                 parse_and_splice(module, generated_in_ziman(module, "Ord", NULL, ed, NULL, ed->line, ed->col),
                                  ed->line, ed->col, ord_label);
+                ziman_recovery_pop();
+                continue;
+            }
+            /* **A target a Ziman generator answers** -- the enum half of the struct loop's
+             * `is_user` path, and missing until 2026-10-31. Without it a generator written in
+             * Ziman could be reached for a struct and not for an enum: the "unknown derive
+             * target" below fired first, so `#[derive(Xml)]` on an enum reported that the
+             * compiler had never heard of `Xml` instead of `derive_xml`'s own refusal, which
+             * says why an enum has no agreed spelling in XML. A project's generator that
+             * *wanted* enums could not have them at all. Every target the compiler knows is
+             * handled above, so `Json` is the only name left to exclude. */
+            if (strcmp(ed->derives[d], "Json") != 0 && ziman_has_ziman_generator(module, ed->derives[d])) {
+                parse_and_splice(module,
+                                 generated_in_ziman(module, ed->derives[d], NULL, ed,
+                                                    enum_derive_attr(ed, d), ed->line, ed->col),
+                                 ed->line, ed->col,
+                                 fmt_str("derive(%s) for '%s'", ed->derives[d], ed->name));
                 ziman_recovery_pop();
                 continue;
             }

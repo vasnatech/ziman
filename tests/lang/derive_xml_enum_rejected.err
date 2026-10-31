@@ -1,0 +1,4 @@
+ziman: type error at 8:1 in tests/lang/derive_xml_enum_rejected.zm: derive(Xml) does not support an enum ('Colour') -- how a variant is spelled in XML (the element's own name, a wrapper, an attribute) is a schema decision with no default, so write the two functions by hand and keep the choice
+  |
+8 | enum Colour {
+  | ^

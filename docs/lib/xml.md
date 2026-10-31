@@ -399,6 +399,20 @@ All the text under `e`, with its elements flattened away and comments and proces
 instructions left out: the usual way to read a leaf whose content may be split by a CDATA
 section or an entity. `text_of(<p>Take <b>2</b></p>)` is "Take 2".
 
+### `parse_bool`
+
+```
+pub fn parse_bool(text: string) -> Result<bool, string>
+```
+
+A boolean as XML spells one. **XML Schema gives `xs:boolean` four lexical forms** -- "true",
+"false", "1" and "0" -- so a document written by a Java or .NET serialiser may hold either
+pair, and a reader that only knows "true" silently turns a `1` into `false`. Surrounding
+whitespace is insignificant in a boolean's lexical space, so it is trimmed.
+
+An `Err` rather than a fallback, because a field that was meant to say yes or no and says
+neither is a malformed document, not a false one.
+
 ### `find`
 
 ```

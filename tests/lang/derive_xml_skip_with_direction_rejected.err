@@ -1,0 +1,4 @@
+ziman: type error at 6:1 in tests/lang/derive_xml_skip_with_direction_rejected.zm: derive(Xml): 'code' carries skip: true as well as skip_write: or skip_read: -- skip is already both directions, so drop it or drop the other
+  |
+6 | struct Widget {
+  | ^

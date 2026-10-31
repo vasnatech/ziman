@@ -24,6 +24,7 @@ use json.Json
 use mime
 use ndjson
 use toml
+use xml
 use yaml
 
 // How to decode bytes of type `media` into an `I`. An `Err` message is for whoever asked -- the
@@ -298,6 +299,70 @@ pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]> {
 pub fn count_encoder() -> Encoder<int> {
     return encoder<int>(mime.application_json(), fn(value: int) -> [byte] {
         return json.to_bytes(json.int_to_json(value))
+    })
+}
+
+// ---- XML -------------------------------------------------------------------------------------
+//
+// **The pair `TreeFormat` deliberately cannot give.** XML is not a Json-shaped tree -- a field can
+// be an attribute or a child element, elements are ordered and repeat under one name -- so it has
+// no `parse`/`format` over `Json` to be a `TreeFormat` with. What it has instead is
+// `#[derive(Xml)]`, which writes `<snake>_to_xml`/`<snake>_from_xml` over `xml.Document` the way
+// `#[derive(Json)]` writes its pair over `Json`; these two take one of those and complete the
+// `Encoder`/`Decoder` interface for it, so an XML body negotiates against an `Accept` header
+// beside every other format rather than being a special case in whoever serves it.
+
+// An encoder for `application/xml`, from a type's derived `<snake>_to_xml`.
+pub fn xml_encoder<O>(to_xml: fn(O) -> xml.Document) -> Encoder<O> {
+    val build = to_xml
+    return Encoder<O> {
+        media: mime.application_xml(),
+        encode: fn(value: O) -> [byte] {
+            return switch xml.xml_to_bytes(build(value)) {
+                Ok(data) { data }
+                // `xml.format` refuses a document it cannot write -- an element name that is not a
+                // legal XML name, a text value holding a character XML has no escape for. The
+                // encoder's own signature cannot fail, so the refusal becomes the body, as
+                // `encoder_of` does for a tree a format rejects and for the same reason: the status
+                // is already 200 by the time encoding runs.
+                Err(message) { to_bytes(format("cannot write this value as XML: {}", message)) }
+            }
+        }
+    }
+}
+
+// A decoder for `application/xml`, from a type's derived `<snake>_from_xml`.
+//
+// The two failures are kept apart, as `decoder_of` keeps them apart: a body that is not XML at all
+// gets the parser's own message, and a body that is XML but not this model gets the reader's,
+// which names the element at fault.
+pub fn xml_decoder<I>(from_xml: fn(xml.Document) -> Result<I, string>) -> Decoder<I> {
+    val read = from_xml
+    return decoder<I>(mime.application_xml(), fn(data: [byte]) -> Result<I, string> {
+        return switch xml.parse(data) {
+            Ok(doc) { read(doc) }
+            Err(message) { err(concat("malformed XML: ", message)) }
+        }
+    })
+}
+
+// Every value of a list as one XML document, under a root element the caller names: a list has no
+// element name of its own, and `<widgets><widget/>..</widgets>` is the shape a client expects --
+// which `list_encoder_of` gets for free from a JSON array and this cannot.
+pub fn xml_list_encoder<O>(root: string, each: string, to_element: fn(O, string) -> xml.Element) -> Encoder<[O]> {
+    val build = to_element
+    val item = each
+    val outer = root
+    return encoder<[O]>(mime.application_xml(), fn(values: [O]) -> [byte] {
+        val kids = mutable_array_new<xml.Node>()
+        for one in values {
+            push(kids, xml.Node.Element(build(one, item)))
+        }
+        val doc = xml.document(xml.element(xml.name(outer), [], snapshot(kids)))
+        return switch xml.xml_to_bytes(doc) {
+            Ok(data) { data }
+            Err(message) { to_bytes(format("cannot write this value as XML: {}", message)) }
+        }
     })
 }
 

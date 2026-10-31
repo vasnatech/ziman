@@ -1,0 +1,15 @@
+// An enum has no agreed spelling in XML, so `#[derive(Xml)]` refuses one and says why rather
+// than picking a convention for its caller. Reaching the generator's own message at all needed
+// the enum half of the user-generator path in `src/derive.c`: before 2026-10-31 this reported
+// "unknown derive target 'Xml'", which was the compiler answering a question it was not asked.
+use xml
+
+#[derive(Xml)]
+enum Colour {
+    Red
+    Green
+}
+
+fn main() {
+    print(1)
+}

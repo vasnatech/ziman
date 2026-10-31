@@ -44,10 +44,10 @@ GROUPS = [
     # queries, so they belong beside `eql` and `db` rather than beside `meta`. They stay in this
     # group because a reader still reaches them through `#[derive(Row)]` rather than by importing
     # one -- the group is about how you meet a module, the folder about what it is built on.
-    ("Deriving", "core", ["meta", "template", "derive_ord", "derive_properties", "derive_json", "derive_reflect"]),
+    ("Deriving", "core", ["meta", "template", "derive_ord", "derive_properties", "derive_json", "derive_xml", "derive_reflect"]),
     ("Deriving for SQL", "db", ["derive_row", "derive_entity", "derive_repository"]),
     # Beside the SQL generators and for the same reason: what `#![derive(Routes)]` writes is
-    # `server.Endpoint`s over `endpoint`'s decoders, so it belongs with HTTP rather than with
+    # `server.Endpoint`s over `codec`'s decoders, so it belongs with HTTP rather than with
     # `meta` -- and it is still its own group because a reader meets it through the attribute.
     ("Deriving for HTTP", "http", ["derive_routes"]),
     ("Graphics", "graphics", ["geom", "shape", "paint", "scene", "pdfobj", "pdf", "truetype", "font", "image", "stroker", "raster", "layout"]),

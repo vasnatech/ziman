@@ -1,0 +1,4 @@
+ziman: type error at 7:1 in tests/lang/derive_xml_map_field_rejected.zm: derive(Xml) does not support field 'items' of type 'Map<string, int>' -- it writes a scalar (string, int, float, bool, bigint, decimal), a struct that also derives Xml, and an Option or an array of either
+  |
+7 | struct Bag {
+  | ^

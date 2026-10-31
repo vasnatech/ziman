@@ -10,9 +10,9 @@
 the only one that reaches arrays, maps, sets, generics and type variables. Structs and enums
 are both here, so with this module `src/derive.c` no longer generates any JSON at all.
 
-Keys are camelCase (`middle_name` -> `middleName`), which is the one transform here; `Row`'s
-column names are the field names as written, and the difference is deliberate -- JSON is read
-by other systems and a SQL column is not.
+Keys are camelCase (`middle_name` -> `middleName`) unless `#[json(name: "..")]` says otherwise;
+`Row`'s column names are the field names as written, and the difference is deliberate -- JSON is
+read by other systems and a SQL column is not.
 
 `use derive_json` -- or `use derive_json.Name` to bring one item in bare.
 
@@ -67,6 +67,25 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 ```
 
 Three functions for a struct, two for an enum -- the order `src/derive.c` spliced them in.
+
+## `#[json(..)]`
+
+### `attributes`
+
+```
+pub fn attributes() -> [meta.AttrSpec]
+```
+
+**One attribute, every choice an argument of it** -- the shape `#[xml(..)]` and
+`#[properties(..)]` also take, so a field that is on two wires reads the same way for both.
+This generator had none at all until 2026-10-31: the key was `camel_case` of the field name,
+full stop, and a model answering an external API that spells one key its own way had to be
+written out by hand.
+
+`name:` is the key. The three `skip` arguments are separate booleans rather than one
+`skip: "out"`, because an argument has one kind in the spec; `skip: true` is both directions,
+and the one-direction pair is what a write-only secret (`new_password`) and a read-only
+computed field need.
 
 ### `to_json`
 

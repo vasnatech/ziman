@@ -5,9 +5,9 @@
 // the only one that reaches arrays, maps, sets, generics and type variables. Structs and enums
 // are both here, so with this module `src/derive.c` no longer generates any JSON at all.
 //
-// Keys are camelCase (`middle_name` -> `middleName`), which is the one transform here; `Row`'s
-// column names are the field names as written, and the difference is deliberate -- JSON is read
-// by other systems and a SQL column is not.
+// Keys are camelCase (`middle_name` -> `middleName`) unless `#[json(name: "..")]` says otherwise;
+// `Row`'s column names are the field names as written, and the difference is deliberate -- JSON is
+// read by other systems and a SQL column is not.
 #![experimental]
 #![generator(Json)]
 
@@ -125,6 +125,10 @@ pub fn @{snake}_from_json_all@{params}(j: Json@{converters}) -> Result<@{self}, 
     })
 }
 
+@end
+
+@template read_skipped
+    val field_@{name}: @{type} = @{absent}
 @end
 
 @template from_required_field
@@ -749,10 +753,11 @@ pub fn from_json(d: meta.Decl, members: [meta.Field]) -> Result<string, string> 
     val last = prelude.len(members) - 1
     for i in 0..prelude.len(members) {
         val m = members[i]
-        val key = camel_case(m.name)
+        val key = wire_key(m)
+        try check_skip(m)
         push(fields, template.row([
             template.text("name", m.name),
-            template.text("read", without_newline(try field_read(m, key, Option<string>.Some(key), n))),
+            template.text("read", without_newline(try member_read(m, key, false, n))),
             template.text("comma", if i < last { "," } else { "" })
         ]))
     }
@@ -778,13 +783,12 @@ pub fn from_json_all(d: meta.Decl, members: [meta.Field]) -> Result<string, stri
     val last = prelude.len(members) - 1
     for i in 0..prelude.len(members) {
         val m = members[i]
+        try check_skip(m)
         push(fields, template.row([
             template.text("name", m.name),
-            template.text("key", camel_case(m.name)),
+            template.text("key", wire_key(m)),
             template.text("type", meta.type_text(m.type)),
-            template.text("read", without_newline(
-                try field_read(m, camel_case(m.name), Option<string>.None, n)
-            )),
+            template.text("read", without_newline(try member_read(m, wire_key(m), true, n))),
             template.text("comma", if i < last { "," } else { "" })
         ]))
     }
@@ -912,17 +916,127 @@ pub fn generate(d: meta.Decl) -> Result<string, string> {
     }
 }
 
+// ---- `#[json(..)]` ---------------------------------------------------------------------------
+
+// **One attribute, every choice an argument of it** -- the shape `#[xml(..)]` and
+// `#[properties(..)]` also take, so a field that is on two wires reads the same way for both.
+// This generator had none at all until 2026-10-31: the key was `camel_case` of the field name,
+// full stop, and a model answering an external API that spells one key its own way had to be
+// written out by hand.
+//
+// `name:` is the key. The three `skip` arguments are separate booleans rather than one
+// `skip: "out"`, because an argument has one kind in the spec; `skip: true` is both directions,
+// and the one-direction pair is what a write-only secret (`new_password`) and a read-only
+// computed field need.
+pub fn attributes() -> [meta.AttrSpec] {
+    return [
+        meta.attr_spec("json", "name:string?,skip:bool?,skip_write:bool?,skip_read:bool?")
+    ]
+}
+
+// The key a field is written under: `#[json(name: "..")]`, or `camel_case` of its name -- the
+// transform this generator has always made, and the one `#[derive(Xml)]` matches so that a model
+// serialised either way names its parts the same.
+fn wire_key(m: meta.Field) -> string {
+    if Some(given) = meta.attr_value(m, "json", "name") {
+        return given
+    }
+    return camel_case(m.name)
+}
+
+fn skips_write(m: meta.Field) -> bool {
+    return meta.attr_flag(m, "json", "skip") || meta.attr_flag(m, "json", "skip_write")
+}
+
+fn skips_read(m: meta.Field) -> bool {
+    return meta.attr_flag(m, "json", "skip") || meta.attr_flag(m, "json", "skip_read")
+}
+
+// `skip: true` is already both directions, so writing it beside one of the others either says the
+// same thing twice or contradicts itself.
+fn check_skip(m: meta.Field) -> Result<unit, string> {
+    if !meta.attr_flag(m, "json", "skip") {
+        return unit
+    }
+    if meta.attr_has_arg(m, "json", "skip_write") || meta.attr_has_arg(m, "json", "skip_read") {
+        return err(prelude.format(
+            "derive(Json): '{}' carries skip: true as well as skip_write: or skip_read: -- skip " \
+                "is already both directions, so drop it or drop the other",
+            m.name
+        ))
+    }
+    return unit
+}
+
+// **A skipped field still has to be built**, because Ziman has no field defaults: there is no
+// value sitting in the struct for the decoder to leave alone. Only a type that already spells
+// absence has one -- an `Option` has `None`, and an array, a map and a set have empty. An `int`
+// does not, since zero is a number the document could have carried, so it is refused with the fix
+// in the message rather than defaulted silently.
+//
+// This is also what makes `from_json_all` need no change of its own: a skipped field's "read" is
+// an assignment that cannot fail, so its generated lambda simply always succeeds.
+fn skipped_read(m: meta.Field) -> Result<string, string> {
+    return template.render(sheet, "read_skipped", [
+        template.text("name", m.name),
+        template.text("type", meta.type_text(m.type)),
+        template.text("absent", try absent_value(m))
+    ])
+}
+
+fn absent_value(m: meta.Field) -> Result<string, string> {
+    if Optional(inner) = m.type {
+        return ok(concat("Option<", meta.type_text(inner), ">.None"))
+    }
+    if Array(_) = m.type {
+        return ok("[]")
+    }
+    if SetOf(elem) = m.type {
+        return ok(concat("Set<", meta.type_text(elem), "> {}"))
+    }
+    if MapOf(mt) = m.type {
+        return ok(concat("Map<", meta.type_text(mt.key), ", ", meta.type_text(mt.value), "> {}"))
+    }
+    return err(prelude.format(
+        "derive(Json): '{}' is skipped while reading, and '{}' has no absent value to build it " \
+            "from -- Ziman has no field defaults, so make it an Option<{}> (or an array, a map " \
+            "or a set), or skip only the writing with skip_write: true",
+        m.name,
+        meta.type_text(m.type),
+        meta.type_text(m.type)
+    ))
+}
+
+// The read for one field, whichever of the two it is.
+fn member_read(m: meta.Field, key: string, all: bool, n: Mutable<int>) -> Result<string, string> {
+    if skips_read(m) {
+        return skipped_read(m)
+    }
+    val recorded = if all { Option<string>.None } else { Option<string>.Some(key) }
+    return field_read(m, key, recorded, n)
+}
+
 // `<name>_to_json` for a struct. The five pieces are exported individually as well as through
 // `generate`, so `tests/lang/derive_json_in_ziman` can hold each to the bytes the C emitted.
 pub fn to_json(d: meta.Decl, members: [meta.Field]) -> Result<string, string> {
     val n = mutable_new<int>(0)
     val fields = mutable_array_new<template.Row>()
-    val last = prelude.len(members) - 1
-    for i in 0..prelude.len(members) {
-        val m = members[i]
+    // **The kept fields, not all of them**, so the trailing comma falls where the object actually
+    // ends: a skipped last field would otherwise leave `"a": x,` with nothing after it.
+    val written = mutable_array_new<meta.Field>()
+    for m in members {
+        try check_skip(m)
+        if !skips_write(m) {
+            push(written, m)
+        }
+    }
+    val kept = snapshot(written)
+    val last = prelude.len(kept) - 1
+    for i in 0..prelude.len(kept) {
+        val m = kept[i]
         push(fields, template.row([
             template.text("name", m.name),
-            template.text("key", camel_case(m.name)),
+            template.text("key", wire_key(m)),
             template.text("conv", without_newline(
                 try emit_to_json(m.type, concat("v.", m.name), concat("field_", m.name, "_json"), n)
             )),

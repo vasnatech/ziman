@@ -303,6 +303,30 @@ pub fn text_of(e: Element) -> string {
     return snapshot(out)
 }
 
+// A boolean as XML spells one. **XML Schema gives `xs:boolean` four lexical forms** -- "true",
+// "false", "1" and "0" -- so a document written by a Java or .NET serialiser may hold either
+// pair, and a reader that only knows "true" silently turns a `1` into `false`. Surrounding
+// whitespace is insignificant in a boolean's lexical space, so it is trimmed.
+//
+// An `Err` rather than a fallback, because a field that was meant to say yes or no and says
+// neither is a malformed document, not a false one.
+pub fn parse_bool(text: string) -> Result<bool, string> {
+    val t = trim(text)
+    if t == "true" {
+        return ok(true)
+    }
+    if t == "1" {
+        return ok(true)
+    }
+    if t == "false" {
+        return ok(false)
+    }
+    if t == "0" {
+        return ok(false)
+    }
+    return err(prelude.format("expected a boolean (true, false, 1 or 0), got '{}'", text))
+}
+
 fn gather_text(e: Element, out: MutableString) {
     for c in e.children {
         switch c {

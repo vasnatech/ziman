@@ -479,6 +479,31 @@ the model of a declaration and knows nothing about columns. A caller writes
 `get_or(meta.attr_value(f, "column", "name"), f.name)` and the SQL meaning stays in the SQL
 generator.
 
+### `attr_flag`
+
+```
+pub fn attr_flag(f: Field, attr: string, arg: string) -> bool
+```
+
+One boolean argument of one attribute: `attr_flag(f, "xml", "skip")` is the `true` of
+`#[xml(skip: true)]`, and `false` when the attribute or the argument is absent.
+
+**A third state is not worth modelling.** Every argument arrives as text, so this could answer
+an `Option<bool>` and let a caller tell "written false" from "not written" -- and no generator
+wants that distinction: an option that defaults to off reads the same either way, and the one
+case where it would matter (`#[xml(attribute: false)]` meaning "an element, explicitly") is
+answered by the *other* argument being present rather than by this one's absence.
+
+### `attr_has_arg`
+
+```
+pub fn attr_has_arg(f: Field, attr: string, arg: string) -> bool
+```
+
+Whether the argument was written at all, whatever its value -- for the pair of flags that name
+one choice from either side (`attribute:`/`element:`), where "not given" and "given as false"
+have to be told apart.
+
 ### `attr_text`
 
 ```

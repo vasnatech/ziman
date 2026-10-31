@@ -307,10 +307,15 @@ fn main() {
   as the nearest float, read from its shortest text -- `#[derive(Row)]` stores it as TEXT,
   keeping scale, instead); (4) `Option<U>`/`[U]`, recursing into `U`. Anything else (`bigint`,
   `byte`, `Result`, `Channel`, a generic struct/enum) is a compile error, not a wrong answer.
-- **Field names map `snake_case` -> `camelCase`** for the JSON key (Jackson's default), fixed,
-  not configurable. **`Option<U>` fields tolerate absence**: a missing key or explicit `null`
-  both decode to `None`; every other field is required. **Deserialization is lenient**: an
-  unrecognized extra key is silently ignored.
+- **Field names map `snake_case` -> `camelCase`** for the JSON key (Jackson's default), unless
+  `#[json(name: "..")]` says otherwise -- it was "fixed, not configurable" until 2026-10-31, and
+  a model answering an external API that spells one key its own way had to be written out by hand.
+  `#[json(skip: true)]` leaves a field off the wire entirely, `skip_write:`/`skip_read:` one
+  direction each; a field skipped while *reading* has to be a type that spells absence
+  (`Option`, an array, a map, a set), because Ziman has no field defaults and so nothing is
+  waiting in the struct for the decoder to leave alone. **`Option<U>` fields tolerate absence**: a
+  missing key or explicit `null` both decode to `None`; every other field is required.
+  **Deserialization is lenient**: an unrecognized extra key is silently ignored.
 - **A decode error names the field**: `{"email": 5}` against `{ email: string }` reports
   `"email: expected a string"`, composing one level per nesting (`"address: zipCode: expected a
   string"`); an array/set/map-value element has no field name, so decodes with the bare message.

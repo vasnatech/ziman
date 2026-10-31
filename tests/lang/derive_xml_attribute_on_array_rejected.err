@@ -1,0 +1,4 @@
+ziman: type error at 6:1 in tests/lang/derive_xml_attribute_on_array_rejected.zm: derive(Xml): 'items' is of type '[string]' and asks for attribute: true -- an XML attribute holds text, so only a scalar field, or an Option of one, can be one; drop it and the field becomes a child element instead
+  |
+6 | struct Bag {
+  | ^

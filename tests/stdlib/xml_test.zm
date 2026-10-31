@@ -618,3 +618,24 @@ fn str_of_byte(b: int) -> string {
     val arr: [byte] = [b as byte]
     return unwrap(bytes_to_string(arr))
 }
+
+// `xs:boolean` has four lexical forms, not one. A reader that knows only "true" turns a document
+// written by a Java or .NET serialiser -- which may spell it `1` -- silently into `false`, and
+// silently wrong is the failure this exists to prevent. Whitespace is insignificant in a
+// boolean's lexical space, so it is trimmed; anything else is an error rather than a default,
+// because a field meant to say yes or no and saying neither is a malformed document.
+#[test]
+fn parse_bool_takes_all_four_forms_xml_schema_gives_it() {
+    test.assert_eq(true, test.assert_ok(xml.parse_bool("true")))
+    test.assert_eq(true, test.assert_ok(xml.parse_bool("1")))
+    test.assert_eq(false, test.assert_ok(xml.parse_bool("false")))
+    test.assert_eq(false, test.assert_ok(xml.parse_bool("0")))
+    test.assert_eq(true, test.assert_ok(xml.parse_bool("  true\n")))
+}
+
+#[test]
+fn parse_bool_refuses_anything_else_rather_than_defaulting() {
+    test.assert_contains(test.assert_err(xml.parse_bool("yes")), "true, false, 1 or 0")
+    test.assert_contains(test.assert_err(xml.parse_bool("TRUE")), "true, false, 1 or 0")
+    test.assert_contains(test.assert_err(xml.parse_bool("")), "true, false, 1 or 0")
+}

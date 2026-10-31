@@ -1,0 +1,4 @@
+ziman: type error at 6:1 in tests/lang/derive_xml_bad_name_rejected.zm: derive(Xml): 'item' would be written as <2bad>, which is not a legal XML name ('2' at position 0) -- give the field an #[xml(name: "..")] that is one
+  |
+6 | struct Bag {
+  | ^

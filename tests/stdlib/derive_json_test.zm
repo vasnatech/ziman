@@ -1,0 +1,141 @@
+// Runtime tests for `#[json(..)]`, the field attribute `#[derive(Json)]` gained on 2026-10-31.
+// `tests/lang/derive_json_name_and_skip` pins the generated *text*; this file is about whether it
+// does the right thing when it runs.
+//
+// The generated text for every *type* `#[derive(Json)]` reaches is pinned in
+// `tests/lang/derive_json_in_ziman`, and the shapes of the conversion are tested through that. All
+// this file adds is the attribute: a renamed key, and the three shapes of `skip`.
+
+use test
+use json
+use json.Json
+
+#[derive(Json)]
+struct Account {
+    #[json(name: "loginName")]
+    login: string
+
+    #[json(skip: true)]
+    cached_at: Option<string>
+
+    #[json(skip_write: true)]
+    new_password: string
+
+    #[json(skip_read: true)]
+    roles: [string]
+}
+
+fn an_account() -> Account {
+    return Account {
+        login: "ada",
+        cached_at: Option<string>.Some("yesterday"),
+        new_password: "hunter2",
+        roles: ["admin", "auditor"]
+    }
+}
+
+fn keys_of(j: Json) -> [string] {
+    val out = mutable_array_new<string>()
+    if Json.is_JObject(j) {
+        for k, _ in Json.unwrap_JObject(j) {
+            push(out, k)
+        }
+    }
+    return snapshot(out)
+}
+
+#[test]
+fn name_renames_the_key_and_nothing_else() {
+    val j = account_to_json(an_account())
+    test.assert_eq("ada", test.assert_ok(json.require_string(j, "loginName")))
+    test.assert_none(json.get(j, "login"))
+}
+
+// The written object holds exactly the fields that are not skipped on the way out -- which is the
+// claim the generated text's trailing comma depends on, and the one a round trip cannot see.
+#[test]
+fn the_written_object_holds_only_the_fields_that_are_not_skipped() {
+    val written = keys_of(account_to_json(an_account()))
+    test.assert_len(2, written)
+    test.assert_contains(written, "loginName")
+    test.assert_contains(written, "roles")
+    test.assert_not_contains(written, "cachedAt")
+    test.assert_not_contains(written, "newPassword")
+}
+
+fn read(body: string) -> Result<Account, string> {
+    return account_from_json(test.assert_ok(json.parse(body)))
+}
+
+#[test]
+fn skip_true_is_not_read_even_when_the_body_carries_it() {
+    val back = test.assert_ok(read("{\"loginName\":\"ada\",\"cachedAt\":\"today\",\"newPassword\":\"p\"}"))
+    test.assert_none(back.cached_at)
+}
+
+#[test]
+fn skip_write_is_still_required_when_reading() {
+    test.assert_eq("ada", test.assert_ok(read("{\"loginName\":\"ada\",\"newPassword\":\"p\"}")).login)
+    // Skipping only the *writing* is what lets this be a plain string rather than an Option, so
+    // it is still required on the way in.
+    test.assert_contains(test.assert_err(read("{\"loginName\":\"ada\"}")), "newPassword")
+}
+
+#[test]
+fn skip_read_builds_the_field_empty_whatever_the_body_says() {
+    val back = test.assert_ok(read("{\"loginName\":\"ada\",\"newPassword\":\"p\",\"roles\":[\"admin\"]}"))
+    test.assert_empty(back.roles)
+}
+
+// `from_json_all` needed no special case of its own: a skipped field's read is an assignment that
+// cannot fail, so its generated lambda always succeeds and nothing is reported for it. What this
+// asserts is that the *other* fields' problems still accumulate, with the renamed key in the
+// message rather than the field name.
+#[test]
+fn from_json_all_reports_the_renamed_key_and_nothing_for_a_skipped_field() {
+    val problems = test.assert_err(account_from_json_all(test.assert_ok(json.parse("{}"))))
+    test.assert_len(2, problems)
+    test.assert_any_match(problems, fn(p: string) -> bool { return contains(p, "loginName: ") })
+    test.assert_any_match(problems, fn(p: string) -> bool { return contains(p, "newPassword: ") })
+    test.assert_none_match(problems, fn(p: string) -> bool { return contains(p, "cachedAt") })
+    test.assert_none_match(problems, fn(p: string) -> bool { return contains(p, "roles") })
+}
+
+// ---- `#[properties(..)]` ---------------------------------------------------------------------
+//
+// Here rather than in a file of its own: the attribute is the same shape and the two are read
+// together. A dotted key is the thing `name:` exists for -- a config key can hold a `.` and a
+// field name cannot, so binding a nested section used to need one struct per level.
+
+use properties
+
+#[derive(Properties)]
+struct Pool {
+    #[properties(name: "db.pool.max")]
+    max_size: int
+
+    idle_timeout_ms: int
+
+    #[properties(skip: true)]
+    bound_at: Option<string>
+}
+
+#[test]
+fn a_properties_name_can_be_a_dotted_key_a_field_name_could_not_be() {
+    val props = test.assert_ok(properties.parse("app.db.pool.max=10\napp.idle-timeout-ms=250\n", "test"))
+    val pool = test.assert_ok(pool_from_properties(props, "app"))
+    test.assert_eq(10, pool.max_size)
+    test.assert_eq(250, pool.idle_timeout_ms)
+}
+
+// A skipped field binds no key, so it must not appear in `<name>_keys` either: that list is what a
+// configuration report shows and what an "unknown key" check is made against.
+#[test]
+fn a_skipped_field_is_absent_from_the_reader_and_from_the_key_list() {
+    val props = test.assert_ok(properties.parse("app.db.pool.max=1\napp.idle-timeout-ms=2\n", "test"))
+    test.assert_none(test.assert_ok(pool_from_properties(props, "app")).bound_at)
+    val keys = pool_keys("app")
+    test.assert_len(2, keys)
+    test.assert_contains(keys, "app.db.pool.max")
+    test.assert_not_contains(keys, "app.bound-at")
+}

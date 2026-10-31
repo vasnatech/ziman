@@ -283,6 +283,38 @@ pub fn count_encoder() -> Encoder<int>
 A bare JSON number as the whole output, which is what a count endpoint answers: Spring returns a
 `Long` there rather than an object, and a client reading it wants the scalar.
 
+## XML
+
+### `xml_encoder`
+
+```
+pub fn xml_encoder<O>(to_xml: fn(O) -> xml.Document) -> Encoder<O>
+```
+
+An encoder for `application/xml`, from a type's derived `<snake>_to_xml`.
+
+### `xml_decoder`
+
+```
+pub fn xml_decoder<I>(from_xml: fn(xml.Document) -> Result<I, string>) -> Decoder<I>
+```
+
+A decoder for `application/xml`, from a type's derived `<snake>_from_xml`.
+
+The two failures are kept apart, as `decoder_of` keeps them apart: a body that is not XML at all
+gets the parser's own message, and a body that is XML but not this model gets the reader's,
+which names the element at fault.
+
+### `xml_list_encoder`
+
+```
+pub fn xml_list_encoder<O>(root: string, each: string, to_element: fn(O, string) -> xml.Element) -> Encoder<[O]>
+```
+
+Every value of a list as one XML document, under a root element the caller names: a list has no
+element name of its own, and `<widgets><widget/>..</widgets>` is the shape a client expects --
+which `list_encoder_of` gets for free from a JSON array and this cannot.
+
 ### `json_value_encoder`
 
 ```

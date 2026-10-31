@@ -1,0 +1,4 @@
+ziman: type error at 8:1 in tests/lang/derive_xml_skip_without_absent_value_rejected.zm: derive(Xml): 'seen' is skipped while reading, and 'int' has no absent value to build it from -- Ziman has no field defaults, so make it an Option<int> (or an array, a map or a set), or skip only the writing with skip_write: true
+  |
+8 | struct Counter {
+  | ^

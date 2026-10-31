@@ -1,0 +1,12 @@
+// `#[derive(Json)]` takes a converter per type parameter; the equivalent for XML is not built, so
+// a generic struct is refused rather than generated against a `T` with no reader.
+use xml
+
+#[derive(Xml)]
+struct Box<T> {
+    value: T
+}
+
+fn main() {
+    print(1)
+}

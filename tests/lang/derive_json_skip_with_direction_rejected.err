@@ -1,0 +1,4 @@
+ziman: type error at 4:1 in tests/lang/derive_json_skip_with_direction_rejected.zm: derive(Json): 'cached_at' carries skip: true as well as skip_write: or skip_read: -- skip is already both directions, so drop it or drop the other
+  |
+4 | struct Account {
+  | ^

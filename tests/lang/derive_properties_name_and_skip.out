@@ -1,0 +1,16 @@
+// derive(Properties) for 'Pool'
+pub fn pool_from_properties(props: properties.Properties, prefix: string) -> Result<Pool, string> {
+    val field_max_size = try properties.get_int(props, properties.key(prefix, "db.pool.max"))
+    val field_idle_timeout_ms = try properties.get_int(props, properties.key(prefix, "idle-timeout-ms"))
+    val field_bound_at: Option<string> = Option<string>.None
+    return Pool {
+        max_size: field_max_size,
+        idle_timeout_ms: field_idle_timeout_ms,
+        bound_at: field_bound_at
+    }
+}
+
+pub fn pool_keys(prefix: string) -> [string] {
+    return [properties.key(prefix, "db.pool.max"), properties.key(prefix, "idle-timeout-ms")]
+}
+

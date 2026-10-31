@@ -1,0 +1,70 @@
+// What `#[derive(Xml)]` writes, pinned byte for byte -- the generated *text*, since round-tripping
+// a document through it is tested in tests/stdlib/derive_xml_test.zm where a person can read it.
+//
+// Four things this fixture is for: the wire name (`unitPrice`, not `unit_price`, matching
+// `#[derive(Json)]`), the split between `#[xml(attribute: true)]` and a child element, the asymmetry
+// between a missing required element (an error) and an absent `Option` (a `None`), and the
+// `local: string` overload that lets a nested struct's element take the field's name.
+use xml
+
+#[derive(Xml)]
+struct Product {
+    #[xml(attribute: true)]
+    sku: string
+
+    name: string
+
+    tags: [string]
+}
+
+#[derive(Xml)]
+struct Line {
+    #[xml(attribute: true)]
+    quantity: int
+
+    #[xml(attribute: true)]
+    note: Option<string>
+
+    #[xml(name: "product-code")]
+    code: string
+
+    unit_price: decimal
+
+    in_stock: bool
+
+    weight: Option<float>
+
+    product: Product
+
+    alternates: [Product]
+
+    replacement: Option<Product>
+
+    serials: [bigint]
+}
+
+// The three shapes of `skip`, and `element: true` as the explicit spelling of the default.
+#[derive(Xml)]
+struct Account {
+    #[xml(element: true, name: "login-name")]
+    login: string
+
+    // Neither written nor read: an `Option` has a `None` to be built from.
+    #[xml(skip: true)]
+    cached_at: Option<string>
+
+    // Arrives in the body, never leaves -- no absent value needed, because it is still read.
+    #[xml(skip_write: true)]
+    new_password: string
+
+    // Leaves, never arrives: an array is built empty.
+    #[xml(skip_read: true)]
+    roles: [string]
+}
+
+fn main() {
+    print(1)
+}
+
+// The worked example in `lib/core/derive_xml.zm`'s own comment, pinned here -- that comment is a
+// copy of generated text and `make template-example-check` holds it to this fixture.

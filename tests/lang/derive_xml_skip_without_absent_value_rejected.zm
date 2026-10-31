@@ -1,0 +1,15 @@
+// Ziman has no struct field defaults, so a field skipped while *reading* has nothing to be built
+// from. Only a type that already spells absence has one -- an `Option`, an array, a map, a set --
+// and a skipped `int` is refused rather than given a zero the generator invented, since zero is a
+// number a document could have carried.
+use xml
+
+#[derive(Xml)]
+struct Counter {
+    #[xml(skip: true)]
+    seen: int
+}
+
+fn main() {
+    print(1)
+}

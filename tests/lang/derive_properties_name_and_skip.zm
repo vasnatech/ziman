@@ -1,0 +1,20 @@
+// `#[properties(..)]`: the key override and `skip`.
+//
+// `name:` is the one place a config key and a field name genuinely cannot agree -- a key is dotted
+// and a field name is not -- so binding a nested section used to need one struct per level.
+// `skip: true` leaves the field out of both the reader and `<name>_keys`, because a key nothing
+// binds is one the struct does not have.
+#[derive(Properties)]
+struct Pool {
+    #[properties(name: "db.pool.max")]
+    max_size: int
+
+    idle_timeout_ms: int
+
+    #[properties(skip: true)]
+    bound_at: Option<string>
+}
+
+fn main() {
+    print(1)
+}

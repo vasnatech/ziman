@@ -1,0 +1,4 @@
+ziman: type error at 7:1 in tests/lang/derive_xml_attribute_and_element_agreeing_rejected.zm: derive(Xml): 'code' says both attribute: true and element: true -- they are one choice asked from either side, so written together they have to disagree; keep one
+  |
+7 | struct Widget {
+  | ^

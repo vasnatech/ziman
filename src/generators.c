@@ -20,7 +20,7 @@
  * which is docs/design/user-generators.md's design and is not built. */
 static const char *const GENERATOR_MODULES[] = {"derive_ord", "derive_row", "derive_properties",
                                                 "derive_json", "derive_reflect", "derive_entity",
-                                                "derive_validate"};
+                                                "derive_validate", "derive_xml"};
 
 /* The module generators -- the second kind (docs/design/meta.md §8). One, so far, and the list
  * exists anyway: `load_generators` has to import it, and a second module-level feature should

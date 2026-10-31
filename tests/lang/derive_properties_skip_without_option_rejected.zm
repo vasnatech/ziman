@@ -1,0 +1,13 @@
+// Properties binds four types -- int, float, bool, string -- and none of them spells absence, so
+// a skipped field has to be an `Option`. Refused rather than bound to a zero the generator chose.
+#[derive(Properties)]
+struct Server {
+    port: int
+
+    #[properties(skip: true)]
+    computed_at: string
+}
+
+fn main() {
+    print(1)
+}

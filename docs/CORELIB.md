@@ -233,6 +233,12 @@ pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]>
 
 pub fn count_encoder() -> Encoder<int>
 
+pub fn xml_encoder<O>(to_xml: fn(O) -> xml.Document) -> Encoder<O>
+
+pub fn xml_decoder<I>(from_xml: fn(xml.Document) -> Result<I, string>) -> Decoder<I>
+
+pub fn xml_list_encoder<O>(root: string, each: string, to_element: fn(O, string) -> xml.Element) -> Encoder<[O]>
+
 pub fn json_value_encoder() -> Encoder<Json>
 
 ```
@@ -381,6 +387,8 @@ pub fn enum_from_json(d: meta.Decl, variants: [meta.Variant]) -> Result<string, 
 
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
+pub fn attributes() -> [meta.AttrSpec]
+
 pub fn to_json(d: meta.Decl, members: [meta.Field]) -> Result<string, string>
 
 ```
@@ -399,6 +407,8 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 **Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
+pub fn attributes() -> [meta.AttrSpec]
+
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
@@ -413,6 +423,17 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 ```
 
 ## `derive_validate`
+
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
+
+```
+pub fn attributes() -> [meta.AttrSpec]
+
+pub fn generate(d: meta.Decl) -> Result<string, string>
+
+```
+
+## `derive_xml`
 
 **Experimental** (see docs/design/journal/ "Experimental modules"). 
 
@@ -1219,6 +1240,10 @@ pub fn attr_arg(name: string, value: string, kind: string) -> AttrArg
 pub fn has_attr(f: Field, name: string) -> bool
 
 pub fn attr_value(f: Field, attr: string, arg: string) -> Option<string>
+
+pub fn attr_flag(f: Field, attr: string, arg: string) -> bool
+
+pub fn attr_has_arg(f: Field, attr: string, arg: string) -> bool
 
 pub fn attr_text(a: Attr) -> string
 
@@ -2302,6 +2327,8 @@ pub fn children_named(e: Element, local: string) -> [Element]
 pub fn child(e: Element, local: string) -> Option<Element>
 
 pub fn text_of(e: Element) -> string
+
+pub fn parse_bool(text: string) -> Result<bool, string>
 
 pub fn find(e: Element, path: string) -> [Element]
 

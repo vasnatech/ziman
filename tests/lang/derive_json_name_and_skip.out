@@ -1,0 +1,73 @@
+// derive(Json) for 'Account'
+pub fn account_to_json(v: Account) -> Json {
+    val field_login_json = Json.JString(v.login)
+    val __derive_ab_2 = mutable_array_new<Json>()
+    for __derive_item_0 in v.roles {
+        val __derive_item_json_1 = Json.JString(__derive_item_0)
+        push<Json>(__derive_ab_2, __derive_item_json_1)
+    }
+    val field_roles_json = Json.JArray(snapshot(__derive_ab_2))
+    return Json.JObject(Map<string, Json> {
+        "loginName": field_login_json,
+        "roles": field_roles_json
+    })
+}
+
+pub fn account_from_json(j: Json) -> Result<Account, string> {
+    if !Json.is_JObject(j) { return err("expected a JSON object for Account") }
+    val field_login_raw = try json.require(j, "loginName")
+    if !Json.is_JString(field_login_raw) { return err("loginName: expected a string") }
+    val field_login = Json.unwrap_JString(field_login_raw)
+    val field_cached_at: Option<string> = Option<string>.None
+    val field_new_password_raw = try json.require(j, "newPassword")
+    if !Json.is_JString(field_new_password_raw) { return err("newPassword: expected a string") }
+    val field_new_password = Json.unwrap_JString(field_new_password_raw)
+    val field_roles: [string] = []
+    return Account {
+        login: field_login,
+        cached_at: field_cached_at,
+        new_password: field_new_password,
+        roles: field_roles
+    }
+}
+
+pub fn account_from_json_all(j: Json) -> Result<Account, [string]> {
+    if !Json.is_JObject(j) { return err(["expected a JSON object for Account"]) }
+    val problems = mutable_array_new<string>()
+    val get_login = fn() -> Result<string, string> {
+    val field_login_raw = try json.require(j, "loginName")
+    if !Json.is_JString(field_login_raw) { return err("expected a string") }
+    val field_login = Json.unwrap_JString(field_login_raw)
+    return ok(field_login)
+    }
+    val got_login = get_login()
+    if Err(problem_login) = got_login { push(problems, concat("loginName: ", problem_login)) }
+    val get_cached_at = fn() -> Result<Option<string>, string> {
+    val field_cached_at: Option<string> = Option<string>.None
+    return ok(field_cached_at)
+    }
+    val got_cached_at = get_cached_at()
+    if Err(problem_cached_at) = got_cached_at { push(problems, concat("cachedAt: ", problem_cached_at)) }
+    val get_new_password = fn() -> Result<string, string> {
+    val field_new_password_raw = try json.require(j, "newPassword")
+    if !Json.is_JString(field_new_password_raw) { return err("expected a string") }
+    val field_new_password = Json.unwrap_JString(field_new_password_raw)
+    return ok(field_new_password)
+    }
+    val got_new_password = get_new_password()
+    if Err(problem_new_password) = got_new_password { push(problems, concat("newPassword: ", problem_new_password)) }
+    val get_roles = fn() -> Result<[string], string> {
+    val field_roles: [string] = []
+    return ok(field_roles)
+    }
+    val got_roles = get_roles()
+    if Err(problem_roles) = got_roles { push(problems, concat("roles: ", problem_roles)) }
+    if len(problems) > 0 { return err(snapshot(problems)) }
+    return ok(Account {
+        login: unwrap(got_login),
+        cached_at: unwrap(got_cached_at),
+        new_password: unwrap(got_new_password),
+        roles: unwrap(got_roles)
+    })
+}
+
