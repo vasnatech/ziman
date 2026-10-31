@@ -33,6 +33,14 @@ source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all,
   `"toml"`, `"ndjson"`, `"csv"`, or `"all"`. Omitted means JSON. Which of them a shape can
   carry *is* derivable and is checked here, so `produces: "toml"` on a list is refused at the
   attribute rather than on the request that asks for it.
+
+  **`"xml"` is not among them, and is refused with its own message saying why.** XML is not a
+  `codec.TreeFormat`: `xml.parse` answers a `Document`, with attributes, namespaces and
+  element order that no `Json` carries. An endpoint can still answer XML -- through a
+  hand-written `codec.text_encoder`, which negotiates like any other -- but not through this
+  attribute, because there is no derived `to_xml` for the generator to name. That is a
+  roadmap item, and it wants the same reader abstraction as decoding straight into the
+  object.
 * `who:`, because two authorisation functions have the same signature. Defaults to
   `authenticated`.
 * `status:`, because 201-versus-200 on a create is a decision, not a type.

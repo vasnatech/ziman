@@ -1,0 +1,1 @@
+says produces: "xml", which this cannot write. XML is not one of `codec`'s tree formats

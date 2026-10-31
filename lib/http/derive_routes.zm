@@ -26,6 +26,14 @@
 //     `"toml"`, `"ndjson"`, `"csv"`, or `"all"`. Omitted means JSON. Which of them a shape can
 //     carry *is* derivable and is checked here, so `produces: "toml"` on a list is refused at the
 //     attribute rather than on the request that asks for it.
+//
+//     **`"xml"` is not among them, and is refused with its own message saying why.** XML is not a
+//     `codec.TreeFormat`: `xml.parse` answers a `Document`, with attributes, namespaces and
+//     element order that no `Json` carries. An endpoint can still answer XML -- through a
+//     hand-written `codec.text_encoder`, which negotiates like any other -- but not through this
+//     attribute, because there is no derived `to_xml` for the generator to name. That is a
+//     roadmap item, and it wants the same reader abstraction as decoding straight into the
+//     object.
 //   * `who:`, because two authorisation functions have the same signature. Defaults to
 //     `authenticated`.
 //   * `status:`, because 201-versus-200 on a create is a decision, not a type.
@@ -219,16 +227,7 @@ fn formats_named(spelt: string, allowed: [string], what: string, fn_name: string
             return ok(allowed)
         }
         if !contains(allowed, one) {
-            val subject = if what == "consumes" { "request body" } else { "answer" }
-            return err(prelude.format(
-                "#[route] on '{}' says {}: \"{}\", and '{}' is not one this {} can carry -- it takes {}",
-                fn_name,
-                what,
-                spelt,
-                one,
-                subject,
-                join(separator: ", ", pieces: allowed)
-            ))
+            return err(try refusal(one, allowed, what, fn_name))
         }
         push(wanted, one)
     }
@@ -236,6 +235,53 @@ fn formats_named(spelt: string, allowed: [string], what: string, fn_name: string
         return ok(["json"])
     }
     return ok(snapshot(wanted))
+}
+
+// **Three reasons a name is refused, and they are three different mistakes.** Saying "not one this
+// answer can carry" to all of them told whoever wrote `produces: "xml"` nothing: XML is not a
+// misspelling and not a shape mismatch, it is a format this mechanism cannot reach, and the useful
+// answer names the reason and the way round it.
+fn refusal(one: string, allowed: [string], what: string, fn_name: string) -> Result<string, string> {
+    val subject = if what == "consumes" { "a request body" } else { "an answer" }
+    if one == "xml" {
+        return ok(prelude.format(
+            "#[route] on '{}' says {}: \"xml\", which this cannot write. XML is not one of " \
+                "`codec`'s tree formats: `xml.parse` answers a `Document` -- attributes, " \
+                "namespaces and element order that no `Json` carries -- so there is no " \
+                "`xml_format()` to name. An endpoint answers XML through a hand-written " \
+                "`codec.text_encoder` or `text_decoder`, which negotiates like any other (see " \
+                "tests/lang/codec_xml_decoder); deriving the reader and writer is a roadmap item",
+            fn_name,
+            what
+        ))
+    }
+    if contains(known_formats(), one) {
+        return ok(prelude.format(
+            "#[route] on '{}' says {}: \"{}\", and {} cannot be written as {} -- it takes {}",
+            fn_name,
+            what,
+            one,
+            subject,
+            one,
+            join(separator: ", ", pieces: allowed)
+        ))
+    }
+    return ok(prelude.format(
+        "#[route] on '{}' says {}: \"{}\", which is not a format -- `codec`'s are {}, and {} " \
+            "takes {}",
+        fn_name,
+        what,
+        one,
+        join(separator: ", ", pieces: known_formats()),
+        subject,
+        join(separator: ", ", pieces: allowed)
+    ))
+}
+
+// Every format `codec` has, as `consumes:`/`produces:` spell them -- so a name that is one of
+// these but wrong for the shape gets a different sentence from a name that is not one at all.
+fn known_formats() -> [string] {
+    return ["json", "yaml", "toml", "ndjson", "csv"]
 }
 
 // The formats a lone tree can be written as, and the ones an array can.
