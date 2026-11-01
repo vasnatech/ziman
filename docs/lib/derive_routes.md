@@ -19,8 +19,9 @@ own table. One attribute per handler replaces about ten lines of `server.Endpoin
 secured is whether its second parameter is a `Principal`; whether its input is in the path or
 the body is whether it takes a `Uuid` or a struct; and those three facts choose one of
 `server`'s eight handler constructors. The answer's encoder comes from the return type -- a
-`[T]` takes `json_list_encoder`, a `unit` takes none at all, anything else takes
-`json_encoder` -- `codec`'s. The decoder and encoder *functions* are named from the types as the
+`[T]` takes `json_list_encoder`, a `unit` takes none at all, a `Json` and an `int` take
+`codec`'s two builders that hold no converter (`json_value_encoder()` and `count_encoder()`,
+the second being what a count endpoint answers), anything else takes `json_encoder`. The decoder and encoder *functions* are named from the types as the
 source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all, so
 `model.order_request_from_json` is `#[derive(Json)]`'s own convention read backwards.
 

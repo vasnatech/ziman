@@ -1,0 +1,24 @@
+// `produces:` on an answer `codec` has a fixed builder for. `count_encoder` writes JSON and
+// nothing else -- there is no derived converter in it to write another format with -- so naming a
+// format is asking for something it cannot give, and is refused rather than ignored. That is the
+// rule `unit` already follows for the same reason.
+#![derive(Routes)]
+
+use codec.count_encoder
+use derive_routes
+use http
+use model
+use server
+use wiring.Ctx
+use wiring.Principal
+use wiring.api
+use wiring.authenticated
+
+#[route(method: GET, path: "/api/orders/count", produces: "yaml")]
+pub fn handle_count(ctx: Ctx, who: Principal) -> Result<int, string> {
+    return err("x")
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}

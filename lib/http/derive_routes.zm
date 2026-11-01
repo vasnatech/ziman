@@ -14,8 +14,9 @@
 // secured is whether its second parameter is a `Principal`; whether its input is in the path or
 // the body is whether it takes a `Uuid` or a struct; and those three facts choose one of
 // `server`'s eight handler constructors. The answer's encoder comes from the return type -- a
-// `[T]` takes `json_list_encoder`, a `unit` takes none at all, anything else takes
-// `json_encoder` -- `codec`'s. The decoder and encoder *functions* are named from the types as the
+// `[T]` takes `json_list_encoder`, a `unit` takes none at all, a `Json` and an `int` take
+// `codec`'s two builders that hold no converter (`json_value_encoder()` and `count_encoder()`,
+// the second being what a count endpoint answers), anything else takes `json_encoder`. The decoder and encoder *functions* are named from the types as the
 // source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all, so
 // `model.order_request_from_json` is `#[derive(Json)]`'s own convention read backwards.
 //
@@ -369,6 +370,20 @@ fn encoders_for(f: meta.Function) -> Result<string, string> {
             }
             return ok("[]")
         }
+        // **Two answers that are not a model, and `codec` has a builder for each.** A `Json` is a
+        // tree the handler passes through rather than a type of its own, and an `int` is what a
+        // count endpoint answers -- Spring returns a bare `Long` there and a client reading it
+        // wants the scalar, not an object wrapping one.
+        //
+        // Both were refusals until 2026-10-31, and the `Json` one was the bad kind: `named_of`
+        // answers `"Json"` like any other type name, so this emitted
+        // `encoder_of(json_format(), json_to_json)` and the error was an unresolved name rather
+        // than a sentence about the shape. Found by classifying the North Star's 110 hand-written
+        // endpoints before converting them.
+        if Some(builder) = fixed_encoder(r.ok) {
+            try only_json(f, builder)
+            return ok(concat("[", builder, "]"))
+        }
         if Some(name) = named_of(r.ok) {
             val names = try formats_named(
                 arg_or(f, "produces", "json"),
@@ -381,9 +396,42 @@ fn encoders_for(f: meta.Function) -> Result<string, string> {
     }
     return err(prelude.format(
         "#[route] on '{}' cannot see what encodes its answer: it has to return a Result whose " \
-            "success is a struct, an array of one, or unit",
+            "success is a struct, an array of one, a Json, an int, or unit",
         f.name
     ))
+}
+
+// The answers `codec` encodes without a derived converter, because there is nothing to derive one
+// from: a `Json` is already the tree, and an `int` is one number.
+fn fixed_encoder(ok_type: meta.Type) -> Option<string> {
+    if Int = ok_type {
+        return Option<string>.Some("count_encoder()")
+    }
+    if Some(name) = named_of(ok_type) {
+        if meta.bare_name(name) == "Json" {
+            return Option<string>.Some("json_value_encoder()")
+        }
+    }
+    return Option<string>.None
+}
+
+// Neither builder has a format to choose, so `produces:` on one is asking for something it cannot
+// give. Refused rather than ignored, which is the rule `unit` already follows.
+fn only_json(f: meta.Function, builder: string) -> Result<unit, string> {
+    if Some(spelt) = meta.fn_attr_arg(f, "route", "produces") {
+        if trim(spelt) != "json" {
+            return err(prelude.format(
+                "#[route] on '{}' says produces: \"{}\", and it answers {} -- `{}` writes JSON " \
+                    "and nothing else, because there is no derived converter to write another " \
+                    "format with",
+                f.name,
+                spelt,
+                if builder == "count_encoder()" { "an int" } else { "a Json" },
+                builder
+            ))
+        }
+    }
+    return unit
 }
 
 // What decodes the body. A body is one value, so the tree formats are the candidates: CSV parses

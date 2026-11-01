@@ -1,0 +1,37 @@
+// **Two answers that are not a model**, and `codec` has a builder for each with no derived
+// converter inside it: a `Json` the handler passes through rather than a type of its own, and the
+// `int` a count endpoint answers -- Spring returns a bare `Long` there, and a client reading it
+// wants the scalar rather than an object wrapping one.
+//
+// Both were refusals until 2026-10-31, and the `Json` one was the bad kind: `named_of` answers
+// `"Json"` like any other type name, so `produces:` emitted
+// `encoder_of(json_format(), json_to_json)` and the error a reader got was an unresolved name
+// rather than a sentence about the shape. Found by classifying the North Star's 110 hand-written
+// endpoints before converting them to `#[route]` -- three of them answer one of these two.
+#![derive(Routes)]
+
+use codec.count_encoder
+use codec.json_value_encoder
+use derive_routes
+use http
+use json.Json
+use model
+use server
+use wiring.Ctx
+use wiring.Principal
+use wiring.api
+use wiring.authenticated
+
+#[route(method: GET, path: "/api/orders/count")]
+pub fn handle_count(ctx: Ctx, who: Principal) -> Result<int, string> {
+    return err("x")
+}
+
+#[route(method: GET, path: "/api/orders/raw")]
+pub fn handle_raw(ctx: Ctx, who: Principal) -> Result<Json, string> {
+    return err("x")
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}

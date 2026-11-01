@@ -1,0 +1,192 @@
+// derive(Json) for 'OrderRequest'
+pub fn order_request_to_json(v: OrderRequest) -> Json {
+    val field_item_json = Json.JString(v.item)
+    return Json.JObject(Map<string, Json> {
+        "item": field_item_json
+    })
+}
+
+pub fn order_request_from_json(j: Json) -> Result<OrderRequest, string> {
+    if !Json.is_JObject(j) { return err("expected a JSON object for OrderRequest") }
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("item: expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return OrderRequest {
+        item: field_item
+    }
+}
+
+pub fn order_request_from_json_all(j: Json) -> Result<OrderRequest, [string]> {
+    if !Json.is_JObject(j) { return err(["expected a JSON object for OrderRequest"]) }
+    val problems = mutable_array_new<string>()
+    val get_item = fn() -> Result<string, string> {
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return ok(field_item)
+    }
+    val got_item = get_item()
+    if Err(problem_item) = got_item { push(problems, concat("item: ", problem_item)) }
+    if len(problems) > 0 { return err(snapshot(problems)) }
+    return ok(OrderRequest {
+        item: unwrap(got_item)
+    })
+}
+
+// derive(Xml) for 'OrderRequest'
+pub fn order_request_to_element(v: OrderRequest, local: string) -> xml.Element {
+    val attrs = mutable_array_new<xml.Attribute>()
+    val kids = mutable_array_new<xml.Node>()
+    push(kids, xml.Node.Element(xml.text_element("item", v.item)))
+    return xml.Element {
+        name: xml.name(local),
+        attributes: snapshot(attrs),
+        children: snapshot(kids)
+    }
+}
+
+pub fn order_request_to_element(v: OrderRequest) -> xml.Element {
+    return order_request_to_element(v, "orderRequest")
+}
+
+pub fn order_request_to_xml(v: OrderRequest) -> xml.Document {
+    return xml.document(order_request_to_element(v))
+}
+
+
+pub fn order_request_from_element(e: xml.Element) -> Result<OrderRequest, string> {
+    val node_item = switch xml.child(e, "item") {
+        Some(found) { found }
+        None { return err("item: missing element") }
+    }
+    val field_item = xml.text_of(node_item)
+    return ok(OrderRequest {
+        item: field_item
+    })
+}
+
+pub fn order_request_from_xml(doc: xml.Document) -> Result<OrderRequest, string> {
+    return order_request_from_element(doc.root)
+}
+
+// derive(Json) for 'OrderResponse'
+pub fn order_response_to_json(v: OrderResponse) -> Json {
+    val field_id_json = int_to_json(v.id)
+    val field_item_json = Json.JString(v.item)
+    return Json.JObject(Map<string, Json> {
+        "id": field_id_json,
+        "item": field_item_json
+    })
+}
+
+pub fn order_response_from_json(j: Json) -> Result<OrderResponse, string> {
+    if !Json.is_JObject(j) { return err("expected a JSON object for OrderResponse") }
+    val field_id_raw = try json.require(j, "id")
+    val field_id = switch int_from_json(field_id_raw) {
+        Ok(__derive_ok_0) { __derive_ok_0 }
+        Err(__derive_err_1) { return err(concat("id: ", __derive_err_1)) }
+    }
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("item: expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return OrderResponse {
+        id: field_id,
+        item: field_item
+    }
+}
+
+pub fn order_response_from_json_all(j: Json) -> Result<OrderResponse, [string]> {
+    if !Json.is_JObject(j) { return err(["expected a JSON object for OrderResponse"]) }
+    val problems = mutable_array_new<string>()
+    val get_id = fn() -> Result<int, string> {
+    val field_id_raw = try json.require(j, "id")
+    val field_id = try int_from_json(field_id_raw)
+    return ok(field_id)
+    }
+    val got_id = get_id()
+    if Err(problem_id) = got_id { push(problems, concat("id: ", problem_id)) }
+    val get_item = fn() -> Result<string, string> {
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return ok(field_item)
+    }
+    val got_item = get_item()
+    if Err(problem_item) = got_item { push(problems, concat("item: ", problem_item)) }
+    if len(problems) > 0 { return err(snapshot(problems)) }
+    return ok(OrderResponse {
+        id: unwrap(got_id),
+        item: unwrap(got_item)
+    })
+}
+
+// derive(Xml) for 'OrderResponse'
+pub fn order_response_to_element(v: OrderResponse, local: string) -> xml.Element {
+    val attrs = mutable_array_new<xml.Attribute>()
+    val kids = mutable_array_new<xml.Node>()
+    push(kids, xml.Node.Element(xml.text_element("id", str(v.id))))
+    push(kids, xml.Node.Element(xml.text_element("item", v.item)))
+    return xml.Element {
+        name: xml.name(local),
+        attributes: snapshot(attrs),
+        children: snapshot(kids)
+    }
+}
+
+pub fn order_response_to_element(v: OrderResponse) -> xml.Element {
+    return order_response_to_element(v, "orderResponse")
+}
+
+pub fn order_response_to_xml(v: OrderResponse) -> xml.Document {
+    return xml.document(order_response_to_element(v))
+}
+
+
+pub fn order_response_from_element(e: xml.Element) -> Result<OrderResponse, string> {
+    val node_id = switch xml.child(e, "id") {
+        Some(found) { found }
+        None { return err("id: missing element") }
+    }
+    val field_id = switch parse_int(xml.text_of(node_id)) {
+        Ok(good) { good }
+        Err(why) { return err(concat("id: ", why)) }
+    }
+    val node_item = switch xml.child(e, "item") {
+        Some(found) { found }
+        None { return err("item: missing element") }
+    }
+    val field_item = xml.text_of(node_item)
+    return ok(OrderResponse {
+        id: field_id,
+        item: field_item
+    })
+}
+
+pub fn order_response_from_xml(doc: xml.Document) -> Result<OrderResponse, string> {
+    return order_response_from_element(doc.root)
+}
+
+// derive(Routes) for this module
+pub val main_routes: [server.Endpoint<Ctx>] = [
+    server.Endpoint<Ctx> {
+        method: http.HttpMethod.Get,
+        pattern: "/api/orders/count",
+        handler: server.secure_handler(
+            who: authenticated,
+            encoders: [count_encoder()],
+            run: handle_count,
+            api: api
+        )
+    },
+    server.Endpoint<Ctx> {
+        method: http.HttpMethod.Get,
+        pattern: "/api/orders/raw",
+        handler: server.secure_handler(
+            who: authenticated,
+            encoders: [json_value_encoder()],
+            run: handle_raw,
+            api: api
+        )
+    }
+]
+
