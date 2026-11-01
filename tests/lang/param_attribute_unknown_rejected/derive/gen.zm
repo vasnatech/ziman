@@ -1,0 +1,48 @@
+// A generator that declares a parameter attribute and prints what it was handed, so the boundary
+// `src/ast.h`'s `Param.attrs` opened on 2026-11-01 has a fixture of its own.
+//
+// Before that date the slot existed and its comment said so: "this list is always empty on a
+// function parameter, which is why it lives on the shared `Param` without meaning anything there".
+// What fills it is a route binding one request value per parameter instead of a struct and a
+// reader function per endpoint -- but the mechanism is general, and this is the smallest thing
+// that exercises it.
+#![experimental]
+#![generator(Bindings)]
+
+use meta
+
+// `on: "parameter"` is the third position an attribute can be declared for, after a struct field
+// and a function.
+pub fn attributes() -> [meta.AttrSpec] {
+    return [
+        meta.attr_spec("bind", "from:name,name:string?", "parameter"),
+        meta.attr_spec("skip_me", "", "parameter"),
+        meta.attr_spec("bound", "", "function")
+    ]
+}
+
+pub fn generate_module(m: meta.ModuleTarget) -> Result<string, string> {
+    val out = mutable_string_new()
+    for f in m.functions {
+        if !meta.fn_has_attr(f, "bound") {
+            continue
+        }
+        append(out, concat("// ", f.name, "\n"))
+        for p in f.params {
+            append(out, concat("//   ", p.name, ": ", meta.type_text(p.type)))
+            if Some(role) = meta.param_role(p, ["bind", "skip_me"]) {
+                append(out, concat("  #[", role, "]"))
+                if Some(from) = meta.param_attr_value(p, "bind", "from") {
+                    append(out, concat(" from=", from))
+                }
+                if Some(name) = meta.param_attr_value(p, "bind", "name") {
+                    append(out, concat(" name=\"", name, "\""))
+                }
+            } else {
+                append(out, "  (no attribute)")
+            }
+            append(out, "\n")
+        }
+    }
+    return ok(snapshot(out))
+}

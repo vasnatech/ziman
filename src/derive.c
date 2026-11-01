@@ -592,6 +592,12 @@ void ziman_check_field_attributes(Module *module) {
      * other position. */
     for (int i = 0; i < module->functions.count && !any; i++) {
         if (module->functions.items[i]->attrs.count > 0) any = 1;
+        /* **And a parameter's**, since 2026-11-01. A misspelled `#[quary]` on a parameter would
+         * otherwise be accepted and read by nobody -- the same hole this pass closed for a field
+         * (F259) and then for a function. */
+        for (int a = 0; a < module->functions.items[i]->params.count && !any; a++) {
+            if (module->functions.items[i]->params.items[a].attrs.count > 0) any = 1;
+        }
     }
     if (!any) return;
     int count = 0;
@@ -614,6 +620,12 @@ void ziman_check_field_attributes(Module *module) {
     for (int i = 0; i < module->functions.count; i++) {
         const FieldAttrList *attrs = &module->functions.items[i]->attrs;
         for (int a = 0; a < attrs->count; a++) check_field_attribute(&attrs->items[a], "function");
+        const ParamList *ps = &module->functions.items[i]->params;
+        for (int n = 0; n < ps->count; n++) {
+            for (int a = 0; a < ps->items[n].attrs.count; a++) {
+                check_field_attribute(&ps->items[n].attrs.items[a], "parameter");
+            }
+        }
     }
     g_specs = NULL;
     g_spec_count = 0;

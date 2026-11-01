@@ -1270,6 +1270,14 @@ pub fn type_text(d: Decl) -> string
 pub struct Param {
     name: string
     type: Type
+    // The attributes written on this parameter, in source order -- `#[path]`, `#[query(name: "q")]`.
+    //
+    // **Added 2026-11-01, and `src/ast.h`'s `Param.attrs` had been waiting for it**: the slot was
+    // already on the shared `Param` and its comment said "this list is always empty on a function
+    // parameter, which is why it lives on the shared `Param` without meaning anything there". What
+    // fills it is a route binding one request value per parameter (`#[path] id: Uuid`) instead of
+    // the struct-plus-reader-function an endpoint needed per path or query before.
+    attrs: [Attr]
 }
 
 pub struct Function {
@@ -1300,6 +1308,14 @@ pub struct Target {
 }
 
 pub fn param(name: string, type: Type) -> Param
+
+pub fn param_with(name: string, type: Type, attrs: [Attr]) -> Param
+
+pub fn param_has_attr(p: Param, name: string) -> bool
+
+pub fn param_attr_value(p: Param, attr: string, arg: string) -> Option<string>
+
+pub fn param_role(p: Param, names: [string]) -> Option<string>
 
 pub fn function(name: string, params: [Param], returns: Type, attrs: [Attr]) -> Function
 

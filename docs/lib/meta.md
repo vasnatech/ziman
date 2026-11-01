@@ -624,6 +624,14 @@ has to spell it.
 pub struct Param {
     name: string
     type: Type
+    // The attributes written on this parameter, in source order -- `#[path]`, `#[query(name: "q")]`.
+    //
+    // **Added 2026-11-01, and `src/ast.h`'s `Param.attrs` had been waiting for it**: the slot was
+    // already on the shared `Param` and its comment said "this list is always empty on a function
+    // parameter, which is why it lives on the shared `Param` without meaning anything there". What
+    // fills it is a route binding one request value per parameter (`#[path] id: Uuid`) instead of
+    // the struct-plus-reader-function an endpoint needed per path or query before.
+    attrs: [Attr]
 }
 ```
 
@@ -684,6 +692,47 @@ A grant this wide is hard to take back once a generator depends on it, so it sta
 ```
 pub fn param(name: string, type: Type) -> Param
 ```
+
+A parameter with no attributes -- what the compiler built before one could carry any, kept so a
+generator that writes a signature does not have to pass an empty list.
+
+### `param_with`
+
+```
+pub fn param_with(name: string, type: Type, attrs: [Attr]) -> Param
+```
+
+**`param_with`, not a second `param`**: `src/generators.c` reaches these constructors through
+`call_meta`, which resolves a bare name in this module and cannot say which overload it means --
+so two `param`s of different arity is a coin toss that segfaulted the whole route suite when it
+was tried. `attr`/`attr_with` beside this already set the convention for the same reason.
+
+### `param_has_attr`
+
+```
+pub fn param_has_attr(p: Param, name: string) -> bool
+```
+
+Whether `p` carries `#[<name>]`, whatever arguments it was written with. The parameter twin of
+`has_attr`; separate because `Field` and `Param` are different types and ziman has no methods.
+
+### `param_attr_value`
+
+```
+pub fn param_attr_value(p: Param, attr: string, arg: string) -> Option<string>
+```
+
+One argument of one attribute on a parameter: `param_attr_value(p, "query", "name")` is the
+`"entityId"` of `#[query(name: "entityId")]`.
+
+### `param_role`
+
+```
+pub fn param_role(p: Param, names: [string]) -> Option<string>
+```
+
+Which attribute of `names` the parameter carries, or `None` -- so a reader that must pick exactly
+one role per parameter asks once instead of testing each name and then counting.
 
 ### `function`
 

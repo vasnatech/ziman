@@ -1,0 +1,7 @@
+// derive(Bindings) for this module
+// handle
+//   ctx: string  (no attribute)
+//   id: Uuid  #[bind] from=path
+//   entity_type: string  #[bind] from=query name="entityType"
+//   internal: int  #[skip_me]
+//   data: string  (no attribute)

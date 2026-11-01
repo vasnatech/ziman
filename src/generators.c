@@ -278,6 +278,10 @@ static char *copy_string(Value v) {
     return out;
 }
 
+/* **`name` must be unambiguous in `meta`**: this resolves a bare name in that module and has no
+ * way to say which overload it means. `meta.param` and `meta.param_with` are two names rather than
+ * one overloaded on arity because the overloaded form was a coin toss -- it crashed every route
+ * fixture. Keep new reify constructors distinctly named. */
 static Value call_meta(const char *name, Value *args, int argc, int line, int col) {
     Value out;
     const char *problem = NULL;
@@ -825,9 +829,13 @@ static Value reify_attrs(const FieldAttrList *attrs, int line, int col) {
 static Value reify_function(FunctionDecl *fn, int line, int col) {
     Value *params = ziman_xmalloc(sizeof(Value) * (size_t)(fn->params.count > 0 ? fn->params.count : 1));
     for (int i = 0; i < fn->params.count; i++) {
-        Value a[2] = {value_string(ziman_xstrdup(fn->params.items[i].name)),
-                      reify_type(fn->params.items[i].type, line, col)};
-        params[i] = call_meta("param", a, 2, line, col);
+        /* Three arguments, not two: a parameter's attributes are what lets a route bind one
+         * request value per parameter. `reify_attrs` is the same one the function's own
+         * attributes go through. */
+        Value a[3] = {value_string(ziman_xstrdup(fn->params.items[i].name)),
+                      reify_type(fn->params.items[i].type, line, col),
+                      reify_attrs(&fn->params.items[i].attrs, line, col)};
+        params[i] = call_meta("param_with", a, 3, line, col);
     }
     Value args[4] = {value_string(ziman_xstrdup(fn->name != NULL ? fn->name : "")),
                      array_of(params, fn->params.count),

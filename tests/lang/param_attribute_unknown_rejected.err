@@ -1,0 +1,4 @@
+ziman: syntax error at 10:30 in tests/lang/param_attribute_unknown_rejected/main.zm: unknown parameter attribute 'bnid' -- a parameter takes one of: bind, skip_me
+   |
+10 | pub fn handle(ctx: string, #[bnid(from: path)] id: Uuid) -> string {
+   |                              ^

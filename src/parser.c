@@ -2151,10 +2151,43 @@ static int eat_ellipsis(Parser *p) {
     return 1;
 }
 
+/* `#[name]` / `#[name(args)]`, zero or more, in source order. Shared by a struct's fields and a
+ * function's parameters: the two had one copy of this loop each until parameters could carry one,
+ * and a second copy is a second place for `#[min(8)]`'s unnamed-argument rule to be got wrong.
+ *
+ * **Pushed without being read or judged.** Whether a name and its arguments are legal is decided
+ * once per module, after the generators have loaded and can say which attributes exist and in
+ * which position -- `ziman_check_field_attributes` in src/derive.c. */
+static FieldAttrList parse_attr_list(Parser *p, const char *what) {
+    FieldAttrList attrs;
+    memset(&attrs, 0, sizeof attrs);
+    while (check(p, TOK_HASH)) {
+        expect(p, TOK_HASH, "'#'");
+        expect(p, TOK_LBRACKET, "'['");
+        Token *attr = expect(p, TOK_IDENT, what);
+        FieldAttr one;
+        memset(&one, 0, sizeof one);
+        one.name = dup_token_text(attr);
+        one.line = attr->line;
+        one.col = attr->col;
+        parse_attr_args(p, &one, attr->line, attr->col);
+        field_attr_list_push(&attrs, one);
+        expect(p, TOK_RBRACKET, "']'");
+        skip_newlines(p);
+    }
+    return attrs;
+}
+
 static ParamList parse_params(Parser *p) {
     ParamList params = {0};
     if (!check(p, TOK_RPAREN)) {
         for (;;) {
+            /* **A parameter may carry attributes** (2026-11-01): `#[path] id: Uuid`,
+             * `#[query(default: "30")] days: int`. `Param.attrs` existed before they could be
+             * written and said so -- "this list is always empty on a function parameter" -- and
+             * what fills it is `derive_routes` binding one request value per parameter instead of
+             * a struct and a reader function per endpoint. */
+            FieldAttrList param_attrs = parse_attr_list(p, "a parameter attribute name");
             Token *param_name = expect(p, TOK_IDENT, "a parameter name");
             require_lower_start(param_name, "a parameter name");
             expect(p, TOK_COLON, "':'");
@@ -2176,7 +2209,7 @@ static ParamList parse_params(Parser *p) {
                 default_expr = parse_expr(p);
                 default_key = param_default_key(param_name->start, param_name->length);
             }
-            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col, 0, {NULL, 0, 0}};
+            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col, 0, param_attrs};
             param_list_push(&params, param);
             skip_newlines(p);
             if (!match(p, TOK_COMMA)) break;
@@ -2548,25 +2581,7 @@ static StructDecl *parse_struct_decl(Parser *p) {
          * `#[min(8)]` and `#[min(value: 8)]` are the same thing: a single unnamed argument is
          * stored under the name `value`, which is Java's own convention and what lets a constraint
          * with one obvious argument read the way a reader of Bean Validation expects. */
-        FieldAttrList field_attrs;
-        memset(&field_attrs, 0, sizeof field_attrs);
-        while (check(p, TOK_HASH)) {
-            expect(p, TOK_HASH, "'#'");
-            expect(p, TOK_LBRACKET, "'['");
-            Token *attr = expect(p, TOK_IDENT, "a field attribute name");
-            FieldAttr one;
-            memset(&one, 0, sizeof one);
-            one.name = dup_token_text(attr);
-            one.line = attr->line;
-            one.col = attr->col;
-            parse_attr_args(p, &one, attr->line, attr->col);
-            /* **Pushed without being read or judged.** Whether the name and its arguments are
-             * legal is decided once per module, after the generators have loaded and can say
-             * which attributes exist -- `ziman_check_field_attributes` in src/derive.c. */
-            field_attr_list_push(&field_attrs, one);
-            expect(p, TOK_RBRACKET, "']'");
-            skip_newlines(p);
-        }
+        FieldAttrList field_attrs = parse_attr_list(p, "a field attribute name");
         Token *field_name = expect(p, TOK_IDENT, "a field name");
         require_lower_start(field_name, "a field name");
         expect(p, TOK_COLON, "':'");

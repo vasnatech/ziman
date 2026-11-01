@@ -1,0 +1,22 @@
+#![derive(Bindings)]
+
+use derive/gen as bindings
+use uuid.Uuid
+
+// Every shape a parameter attribute can take: one with a required argument, one with both, one
+// bare, and one with none at all -- and `#[bound]` on the function so the generator knows which
+// signatures to report.
+#[bound]
+pub fn handle(
+    ctx: string,
+    #[bind(from: path)] id: Uuid,
+    #[bind(from: query, name: "entityType")] entity_type: string,
+    #[skip_me] internal: int,
+    data: string
+) -> string {
+    return concat(ctx, entity_type, data, str(internal))
+}
+
+fn main() {
+    print("ok\n")
+}

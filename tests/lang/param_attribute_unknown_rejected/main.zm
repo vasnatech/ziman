@@ -1,0 +1,16 @@
+// A misspelled parameter attribute is refused, naming the position. Without this pass a `#[bnid]`
+// would be accepted and read by nobody -- the hole F259 closed for a struct field and 2026-10-31
+// closed for a function, now closed for a parameter too.
+#![derive(Bindings)]
+
+use derive/gen as bindings
+use uuid.Uuid
+
+#[bound]
+pub fn handle(ctx: string, #[bnid(from: path)] id: Uuid) -> string {
+    return concat(ctx, str(id))
+}
+
+fn main() {
+    print("ok\n")
+}
