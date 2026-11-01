@@ -283,6 +283,16 @@ pub fn count_encoder() -> Encoder<int>
 A bare JSON number as the whole output, which is what a count endpoint answers: Spring returns a
 `Long` there rather than an object, and a client reading it wants the scalar.
 
+### `json_value_list_encoder`
+
+```
+pub fn json_value_list_encoder() -> Encoder<[Json]>
+```
+
+Several `Json` values as one JSON array, for a handler answering a list of trees it passes
+through. The lone-value case above with `list_encoder_of` would need an identity function spelled
+out at every call site, which is what this replaces.
+
 ## XML
 
 ### `xml_encoder`

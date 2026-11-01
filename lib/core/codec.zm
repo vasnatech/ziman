@@ -302,6 +302,15 @@ pub fn count_encoder() -> Encoder<int> {
     })
 }
 
+// Several `Json` values as one JSON array, for a handler answering a list of trees it passes
+// through. The lone-value case above with `list_encoder_of` would need an identity function spelled
+// out at every call site, which is what this replaces.
+pub fn json_value_list_encoder() -> Encoder<[Json]> {
+    return encoder<[Json]>(mime.application_json(), fn(values: [Json]) -> [byte] {
+        return json.to_bytes(Json.JArray(values))
+    })
+}
+
 // ---- XML -------------------------------------------------------------------------------------
 //
 // **The pair `TreeFormat` deliberately cannot give.** XML is not a Json-shaped tree -- a field can

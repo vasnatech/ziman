@@ -1,0 +1,38 @@
+// **Which `Uuid` reader a path needs is in the path.** `uuid_param` reads the segment captured as
+// `{id}`; a pattern that captures it under another name needs `named_uuid_param` with that name --
+// `/api/orders/{orderId}/lines` is the order's id, and `{id}` there would mean the line's.
+//
+// Neither is an attribute argument, because the pattern already says which. Two of the North
+// Star's endpoints were hand-written only because the generator did not look at a pattern it had
+// already read.
+#![derive(Routes)]
+
+use codec.encoder_of
+use codec.json_format
+use derive_routes
+use http
+use model
+use server
+use server.named_uuid_param
+use server.uuid_param
+use uuid.Uuid
+use wiring.Ctx
+use wiring.Principal
+use wiring.api
+use wiring.authenticated
+
+// `{id}`, so `uuid_param`.
+#[route(method: GET, path: "/api/orders/{id}", label: "order")]
+pub fn handle_get(ctx: Ctx, who: Principal, id: Uuid) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+// `{orderId}`, so `named_uuid_param` -- and the label still names the noun in the message.
+#[route(method: GET, path: "/api/orders/{orderId}/summary", label: "order")]
+pub fn handle_summary(ctx: Ctx, who: Principal, id: Uuid) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}

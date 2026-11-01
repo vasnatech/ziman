@@ -57,7 +57,7 @@ source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all,
 **What the application must have in scope where this is spliced**: `Ctx` (its context type),
 `api` (its `server.Api`, which says how its own error type renders), the `who` function each
 route names, and the four names below from `codec` and `server` -- `json_decoder`,
-`json_encoder`, `json_list_encoder`, `uuid_param`. They are emitted bare rather than qualified
+`json_encoder`, `json_list_encoder`, `uuid_param`/`named_uuid_param`. They are emitted bare rather than qualified
 so that an application is free to bring them in by per-name import, and so that this module
 invents no vocabulary for an application's error type (user-generators.md §5c).
 

@@ -49,7 +49,7 @@
 // **What the application must have in scope where this is spliced**: `Ctx` (its context type),
 // `api` (its `server.Api`, which says how its own error type renders), the `who` function each
 // route names, and the four names below from `codec` and `server` -- `json_decoder`,
-// `json_encoder`, `json_list_encoder`, `uuid_param`. They are emitted bare rather than qualified
+// `json_encoder`, `json_list_encoder`, `uuid_param`/`named_uuid_param`. They are emitted bare rather than qualified
 // so that an application is free to bring them in by per-name import, and so that this module
 // invents no vocabulary for an application's error type (user-generators.md §5c).
 #![generator(Routes)]
@@ -133,7 +133,7 @@ pub val @{module}_routes: [server.Endpoint<Ctx>] = [
             who: @{e.who},
 @end
 @if e.has_path
-            path: uuid_param("@{e.label}"),
+            path: @{e.path_reader},
 @end
 @if e.has_body
             decoders: @{e.decoders},
@@ -211,6 +211,10 @@ fn row_for(f: meta.Function, module_name: string, comma: string) -> Result<templ
         template.text("who", arg_or(f, "who", "authenticated")),
         template.flag("has_path", has_path),
         template.text("label", arg_or(f, "label", replace(module_name, "_", " "))),
+        template.text("path_reader", path_reader(
+            arg_or(f, "path", "/"),
+            arg_or(f, "label", replace(module_name, "_", " "))
+        )),
         template.flag("has_body", Option.is_Some(body)),
         template.text("body", body_name),
         template.text("decoders", decoders),
@@ -348,7 +352,13 @@ fn as_list(items: [string]) -> string {
 fn encoders_for(f: meta.Function) -> Result<string, string> {
     if ResultOf(r) = f.returns {
         if Array(inner) = r.ok {
+            // `[Json]` has no converter to derive either, and a list of trees needs its own
+            // builder rather than `list_encoder_of` with an identity function spelled out.
             if Some(name) = named_of(inner) {
+                if meta.bare_name(name) == "Json" {
+                    try only_json(f, "json_value_list_encoder()")
+                    return ok("[json_value_list_encoder()]")
+                }
                 val names = try formats_named(
                     arg_or(f, "produces", "json"),
                     sequence_names(),
@@ -530,6 +540,44 @@ fn arg_or(f: meta.Function, name: string, fallback: string) -> string {
         return v
     }
     return fallback
+}
+
+// **Which `Uuid` reader a path needs is in the path**, so neither is an attribute argument.
+// `uuid_param` reads the segment captured as `{id}`; a pattern that captures it under another name
+// -- `/api/me/medications/{medicationId}/doses`, where `{id}` would be the dose and the id in the
+// path is the medication's -- needs `named_uuid_param` with that name. The generator read the
+// pattern already, to no purpose; two of the North Star's endpoints were hand-written only because
+// it did not look.
+//
+// More than one placeholder means a path *struct* and a reader written by hand, which an attribute
+// cannot carry -- it holds values, not functions. Those keep their literal endpoint, and
+// `has_path` is false for them because the signature takes a struct rather than a `Uuid`.
+fn path_reader(pattern: string, label: string) -> string {
+    val captured = placeholders(pattern)
+    if prelude.len(captured) == 1 && captured[0] != "id" {
+        return concat("named_uuid_param(\"", captured[0], "\", \"", label, "\")")
+    }
+    return concat("uuid_param(\"", label, "\")")
+}
+
+// The names between braces, in order: `/a/{x}/b/{y}` gives `["x", "y"]`.
+fn placeholders(pattern: string) -> [string] {
+    val out = mutable_array_new<string>()
+    val letters = chars(pattern)
+    var at = 0
+    while at < prelude.len(letters) {
+        if letters[at] == "{" {
+            val name = mutable_string_new()
+            at = at + 1
+            while at < prelude.len(letters) && letters[at] != "}" {
+                append(name, letters[at])
+                at = at + 1
+            }
+            push(out, snapshot(name))
+        }
+        at = at + 1
+    }
+    return snapshot(out)
 }
 
 // `secure_path_body_handler` and its seven siblings, named from the three facts that pick one.

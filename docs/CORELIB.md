@@ -233,6 +233,8 @@ pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]>
 
 pub fn count_encoder() -> Encoder<int>
 
+pub fn json_value_list_encoder() -> Encoder<[Json]>
+
 pub fn xml_encoder<O>(to_xml: fn(O) -> xml.Document) -> Encoder<O>
 
 pub fn xml_decoder<I>(from_xml: fn(xml.Document) -> Result<I, string>) -> Decoder<I>
