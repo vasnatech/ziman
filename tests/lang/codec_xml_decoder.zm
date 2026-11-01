@@ -6,35 +6,28 @@
 // through the interface itself, with `codec.text_decoder`, and is a first-class member of it: the
 // server negotiates on `Content-Type` exactly as it does for JSON, including the 415.
 //
-// What it does *not* have is a derived reader: `#[derive(Json)]` writes `from_json`, and there is
-// no `#[derive(Xml)]`, so `order_from_xml` below is written by hand. That is the cost this fixture
-// exists to show.
+// **It now has a derived reader too** (2026-10-31): `#[derive(Xml)]` writes `order_to_xml` and
+// `order_from_xml`, and `codec.xml_decoder`/`xml_encoder`/`xml_list_encoder` complete the
+// interface for them. This fixture existed to show the cost of *not* having that -- it carried a
+// hand-written `order_from_xml`, 12 lines of `xml.child` and `parse_int` -- and now shows the
+// whole stack instead: a derived pair, negotiated on `Content-Type` and `Accept` like any other
+// format, including the 415 for a body in a format the endpoint does not take.
 use codec
 use http
 use mime
 use server
 use xml
 
+#[derive(Xml)]
 struct Order {
+    #[xml(attribute: true)]
     id: int
+
     item: string
 }
 
 struct Ctx {
     name: string
-}
-
-fn order_from_xml(text: string) -> Result<Order, string> {
-    val doc = try xml.parse(text)
-    val id_text = switch xml.child(doc.root, "id") {
-        Some(e) { xml.text_of(e) }
-        None { return err("no <id>") }
-    }
-    val item = switch xml.child(doc.root, "item") {
-        Some(e) { xml.text_of(e) }
-        None { return err("no <item>") }
-    }
-    return ok(Order { id: try parse_int(id_text), item: item })
 }
 
 fn failure(e: string) -> http.Response {
@@ -47,6 +40,12 @@ fn fault(status: int, message: string) -> http.Response {
 
 fn handle(ctx: Ctx, o: Order) -> Result<Order, string> {
     return ok(o)
+}
+
+// A list answer, which is the one shape XML needs a name for that JSON does not: an array has no
+// element of its own, so `xml_list_encoder` wraps each item's own root in one the caller names.
+fn handle_list(ctx: Ctx) -> Result<[Order], string> {
+    return ok([Order { id: 1, item: "desk" }, Order { id: 2, item: "lamp" }])
 }
 
 fn posted(content_type: string, body: string) -> http.Request {
@@ -62,25 +61,48 @@ fn posted(content_type: string, body: string) -> http.Request {
     }
 }
 
+fn getted(target: string) -> http.Request {
+    return http.Request {
+        method: http.method_parse("GET"),
+        target: target,
+        path: target,
+        query: "",
+        version: "HTTP/1.1",
+        headers: [],
+        body: to_bytes(""),
+        peer: None
+    }
+}
+
 fn main() {
-    val dec = codec.text_decoder<Order>(mime.application_xml(), order_from_xml)
-    val enc = codec.text_encoder<Order>(mime.application_xml(), fn(o: Order) -> string {
-        return prelude.format("<order><id>{}</id><item>{}</item></order>", str(o.id), o.item)
-    })
+    val api = server.Api<string> { failure: failure, fault: fault }
     val table = server.routes<Ctx>([
         server.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
             pattern: "/orders",
             handler: server.public_body_handler(
-                decoders: [dec],
-                encoders: [enc],
+                decoders: [codec.xml_decoder<Order>(order_from_xml)],
+                encoders: [codec.xml_encoder<Order>(order_to_xml)],
                 run: handle,
-                api: server.Api<string> { failure: failure, fault: fault }
+                api: api
+            )
+        },
+        server.Endpoint<Ctx> {
+            method: http.HttpMethod.Get,
+            pattern: "/orders",
+            handler: server.public_handler(
+                encoders: [codec.xml_list_encoder<Order>("orderList", order_to_xml)],
+                run: handle_list,
+                api: api
             )
         }
     ])
     val ctx = Ctx { name: "x" }
-    for sent in [["application/xml", "<order><id>7</id><item>desk</item></order>"],
+    // Three bodies: one the derived reader takes, one that is XML but not this model -- a 400
+    // naming the attribute that is missing, which is what `#[derive(Xml)]`'s messages are for --
+    // and one in a format this endpoint does not take at all, which never reaches the reader.
+    for sent in [["application/xml", "<order id=\"7\"><item>desk</item></order>"],
+        ["application/xml", "<order><item>desk</item></order>"],
         ["application/json", "{\"id\":7}"]] {
         val answer = server.dispatch<Ctx>(table, ctx, posted(sent[0], sent[1]), fault)
         val text = switch bytes_to_string(answer.body) {
@@ -89,6 +111,11 @@ fn main() {
         }
         print(prelude.format("{}  ->  {} {}", sent[0], str(answer.status), text))
     }
+    val listed = server.dispatch<Ctx>(table, ctx, getted("/orders"), fault)
+    print(switch bytes_to_string(listed.body) {
+        Ok(t) { t }
+        Err(_) { "<not text>" }
+    })
     // XML is not a tree format, and saying so is the point.
     switch codec.tree_format_for(mime.application_xml()) {
         Some(_) { print("xml is a TreeFormat -- it should not be") }

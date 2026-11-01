@@ -237,7 +237,7 @@ pub fn xml_encoder<O>(to_xml: fn(O) -> xml.Document) -> Encoder<O>
 
 pub fn xml_decoder<I>(from_xml: fn(xml.Document) -> Result<I, string>) -> Decoder<I>
 
-pub fn xml_list_encoder<O>(root: string, each: string, to_element: fn(O, string) -> xml.Element) -> Encoder<[O]>
+pub fn xml_list_encoder<O>(root: string, to_xml: fn(O) -> xml.Document) -> Encoder<[O]>
 
 pub fn json_value_encoder() -> Encoder<Json>
 

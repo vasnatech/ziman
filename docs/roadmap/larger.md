@@ -67,12 +67,25 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
 
   It already did: `codec.Encoder<T>`/`Decoder<T>` are `T -> [byte]` and `[byte] -> T`, the server
   negotiates on `Content-Type` and `Accept` without caring which format, and
-  `tests/lang/codec_xml_decoder` posts XML to an endpoint and gets 200, with a JSON body to the
-  same endpoint refused 415. What was missing was the reader, which that fixture writes by hand.
+  `tests/lang/codec_xml_decoder` posted XML to an endpoint and got 200, with a JSON body to the
+  same endpoint refused 415. What was missing was the reader, which that fixture wrote by hand.
   Now `#[derive(Xml)]` writes `<snake>_to_xml`/`_from_xml` over `xml.Document`, plus the
   `_to_element`/`_from_element` pair a nested struct composes from, and
-  `codec.xml_encoder`/`xml_decoder`/`xml_list_encoder` complete the interface so an XML body
-  negotiates beside every other format.
+  `codec.xml_encoder`/`xml_decoder`/`xml_list_encoder` complete the interface. That fixture now
+  shows the whole stack rather than the cost of its absence, and **`#[route(consumes: "xml")]` /
+  `produces: "xml"` are no longer refused** -- `derive_routes` emits `xml_encoder(..to_xml)` where
+  a tree format gets `encoder_of(json_format(), ..to_json)`, and a list gets
+  `xml_list_encoder("<item>List", ..to_xml)`.
+
+  Three things `produces: "xml"` settled that the entry had not. **`"all"` does not include XML**:
+  it means every format the type's JSON derive already provides, so the word never demands a
+  second derive of a type that used it. **`"all"` now contributes to the list rather than
+  replacing it** -- it returned on the spot, so `produces: "all, xml"` silently dropped the `xml`
+  and offered four formats where five were asked; nothing wrote that before XML existed, because
+  `"all"` plus a name it already covered said nothing new. And **a list needs the collection
+  named**, because an English plural is not computable ("person"/"people"), so it is the item's
+  element name plus `List` -- Jackson's `XmlMapper` names the container after its class for the
+  same reason, and an endpoint wanting `<orders>` writes its own encoder.
 
   **XML is not a `codec.TreeFormat` and was not made one**, which is what the entry was mostly
   about. `xml.parse` answers a `Document` -- attributes, namespaces, element order -- and no `Json`

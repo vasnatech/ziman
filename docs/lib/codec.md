@@ -308,12 +308,19 @@ which names the element at fault.
 ### `xml_list_encoder`
 
 ```
-pub fn xml_list_encoder<O>(root: string, each: string, to_element: fn(O, string) -> xml.Element) -> Encoder<[O]>
+pub fn xml_list_encoder<O>(root: string, to_xml: fn(O) -> xml.Document) -> Encoder<[O]>
 ```
 
 Every value of a list as one XML document, under a root element the caller names: a list has no
-element name of its own, and `<widgets><widget/>..</widgets>` is the shape a client expects --
-which `list_encoder_of` gets for free from a JSON array and this cannot.
+element name of its own, and `<widgetList><widget/>..</widgetList>` is the shape a client reads
+-- which `list_encoder_of` gets for free from a JSON array and this cannot.
+
+**It takes `<snake>_to_xml`, and each item keeps that document's own root as its element name.**
+Taking `<snake>_to_element` instead would be more direct and does not work: `#[derive(Xml)]`
+overloads that name (one form naming the element, one not), and an overloaded name cannot be
+passed as a value. Nor is anything lost -- the item name this would have taken as a third
+argument was always the type's own element name, which is exactly what its `_to_xml` already
+writes.
 
 ### `json_value_encoder`
 

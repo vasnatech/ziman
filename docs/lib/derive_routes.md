@@ -30,17 +30,22 @@ source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all,
 ```
 * `method:` and `path:`, which are its whole content.
 * `consumes:` and `produces:`, Spring's words, naming `codec`'s formats -- `"json"`, `"yaml"`,
-  `"toml"`, `"ndjson"`, `"csv"`, or `"all"`. Omitted means JSON. Which of them a shape can
-  carry *is* derivable and is checked here, so `produces: "toml"` on a list is refused at the
-  attribute rather than on the request that asks for it.
+  `"toml"`, `"ndjson"`, `"csv"`, `"xml"`, or `"all"`. Omitted means JSON. Which of them a
+  shape can carry *is* derivable and is checked here, so `produces: "toml"` on a list is
+  refused at the attribute rather than on the request that asks for it.
 
-  **`"xml"` is not among them, and is refused with its own message saying why.** XML is not a
+  **`"xml"` is spelled like the others and reached differently**, because XML is not a
   `codec.TreeFormat`: `xml.parse` answers a `Document`, with attributes, namespaces and
-  element order that no `Json` carries. An endpoint can still answer XML -- through a
-  hand-written `codec.text_encoder`, which negotiates like any other -- but not through this
-  attribute, because there is no derived `to_xml` for the generator to name. That is a
-  roadmap item, and it wants the same reader abstraction as decoding straight into the
-  object.
+  element order that no `Json` carries, so there is no `xml_format()` to pass. What makes it
+  nameable here is `#[derive(Xml)]` (2026-10-31), which gives a type a `_to_xml`/`_from_xml`
+  pair the way `#[derive(Json)]` gives it a `_to_json`/`_from_json` one -- so this emits
+  `xml_encoder(model.order_to_xml)` where a tree format gets
+  `encoder_of(json_format(), model.order_to_json)`. A model named with `"xml"` has to derive
+  `Xml` as well as `Json`; if it does not, the generated call does not resolve and says so.
+
+  **`"all"` does not include XML**, deliberately: it means every format the type's JSON
+  derive already provides, so adding `produces: "all"` never demands a second derive. XML is
+  named explicitly.
 * `who:`, because two authorisation functions have the same signature. Defaults to
   `authenticated`.
 * `status:`, because 201-versus-200 on a create is a decision, not a type.

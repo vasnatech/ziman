@@ -1,3 +1,9 @@
-application/xml  ->  200 <order><id>7</id><item>desk</item></order>
+application/xml  ->  200 <?xml version="1.0" encoding="UTF-8"?>
+<order id="7"><item>desk</item></order>
+
+application/xml  ->  400 fault: id: missing attribute
 application/json  ->  415 fault: unsupported media type: send application/xml
+<?xml version="1.0" encoding="UTF-8"?>
+<orderList><order id="1"><item>desk</item></order><order id="2"><item>lamp</item></order></orderList>
+
 xml is not a TreeFormat, as intended

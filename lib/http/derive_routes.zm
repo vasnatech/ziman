@@ -23,17 +23,22 @@
 //
 //   * `method:` and `path:`, which are its whole content.
 //   * `consumes:` and `produces:`, Spring's words, naming `codec`'s formats -- `"json"`, `"yaml"`,
-//     `"toml"`, `"ndjson"`, `"csv"`, or `"all"`. Omitted means JSON. Which of them a shape can
-//     carry *is* derivable and is checked here, so `produces: "toml"` on a list is refused at the
-//     attribute rather than on the request that asks for it.
+//     `"toml"`, `"ndjson"`, `"csv"`, `"xml"`, or `"all"`. Omitted means JSON. Which of them a
+//     shape can carry *is* derivable and is checked here, so `produces: "toml"` on a list is
+//     refused at the attribute rather than on the request that asks for it.
 //
-//     **`"xml"` is not among them, and is refused with its own message saying why.** XML is not a
+//     **`"xml"` is spelled like the others and reached differently**, because XML is not a
 //     `codec.TreeFormat`: `xml.parse` answers a `Document`, with attributes, namespaces and
-//     element order that no `Json` carries. An endpoint can still answer XML -- through a
-//     hand-written `codec.text_encoder`, which negotiates like any other -- but not through this
-//     attribute, because there is no derived `to_xml` for the generator to name. That is a
-//     roadmap item, and it wants the same reader abstraction as decoding straight into the
-//     object.
+//     element order that no `Json` carries, so there is no `xml_format()` to pass. What makes it
+//     nameable here is `#[derive(Xml)]` (2026-10-31), which gives a type a `_to_xml`/`_from_xml`
+//     pair the way `#[derive(Json)]` gives it a `_to_json`/`_from_json` one -- so this emits
+//     `xml_encoder(model.order_to_xml)` where a tree format gets
+//     `encoder_of(json_format(), model.order_to_json)`. A model named with `"xml"` has to derive
+//     `Xml` as well as `Json`; if it does not, the generated call does not resolve and says so.
+//
+//     **`"all"` does not include XML**, deliberately: it means every format the type's JSON
+//     derive already provides, so adding `produces: "all"` never demands a second derive. XML is
+//     named explicitly.
 //   * `who:`, because two authorisation functions have the same signature. Defaults to
 //     `authenticated`.
 //   * `status:`, because 201-versus-200 on a create is a decision, not a type.
@@ -209,8 +214,8 @@ fn row_for(f: meta.Function, module_name: string, comma: string) -> Result<templ
 }
 
 // **`consumes:` and `produces:`, as Spring spells them**, naming `codec`'s formats: `"json"`,
-// `"yaml"`, `"toml"`, `"ndjson"`, `"csv"`, or `"all"` for every one the shape allows. Omitted means
-// JSON, which is what every route wrote before these existed.
+// `"yaml"`, `"toml"`, `"ndjson"`, `"csv"`, `"xml"`, or `"all"` for every one the shape allows.
+// Omitted means JSON, which is what every route wrote before these existed.
 //
 // **Which formats a shape allows is checked here, when the code is generated**, not at run time:
 // a lone object cannot be NDJSON (a sequence of documents) or CSV (a table), and an array cannot
@@ -223,13 +228,24 @@ fn formats_named(spelt: string, allowed: [string], what: string, fn_name: string
         if prelude.len(one) == 0 {
             continue
         }
+        // **`all` is every format the JSON derive already provides**, which is why XML is not in
+        // it: `"all"` on a route whose model derives only `Json` must keep working, and including
+        // XML would make the word demand a second derive of every type that used it.
+        //
+        // **It contributes to the list rather than replacing it**, which it did until 2026-10-31 --
+        // `all` returned on the spot, so `produces: "all, xml"` silently dropped the `xml` and
+        // offered four formats where five were asked for. Nothing wrote it before XML existed,
+        // because `"all"` plus a name it already covered said nothing new.
         if one == "all" {
-            return ok(allowed)
+            for each in from_json_only(allowed) {
+                add_once(wanted, each)
+            }
+            continue
         }
         if !contains(allowed, one) {
             return err(try refusal(one, allowed, what, fn_name))
         }
-        push(wanted, one)
+        add_once(wanted, one)
     }
     if prelude.len(wanted) == 0 {
         return ok(["json"])
@@ -237,24 +253,21 @@ fn formats_named(spelt: string, allowed: [string], what: string, fn_name: string
     return ok(snapshot(wanted))
 }
 
-// **Three reasons a name is refused, and they are three different mistakes.** Saying "not one this
-// answer can carry" to all of them told whoever wrote `produces: "xml"` nothing: XML is not a
-// misspelling and not a shape mismatch, it is a format this mechanism cannot reach, and the useful
-// answer names the reason and the way round it.
+// A format named twice -- `"all, json"`, or plain repetition -- is one encoder, not two. Negotiation
+// takes the first match, so a duplicate was never wrong, only dead weight in generated code that
+// someone has to read.
+fn add_once(wanted: MutableArray<string>, one: string) {
+    if !contains(wanted, one) {
+        push(wanted, one)
+    }
+}
+
+// **Two reasons a name is refused, and they are two different mistakes**: a format that exists but
+// cannot carry this shape, and a word that is not a format at all. There were three until
+// 2026-10-31 -- `"xml"` had its own message, because XML was a format this mechanism could not
+// reach. `#[derive(Xml)]` made it reachable, so the message became an answer instead.
 fn refusal(one: string, allowed: [string], what: string, fn_name: string) -> Result<string, string> {
     val subject = if what == "consumes" { "a request body" } else { "an answer" }
-    if one == "xml" {
-        return ok(prelude.format(
-            "#[route] on '{}' says {}: \"xml\", which this cannot write. XML is not one of " \
-                "`codec`'s tree formats: `xml.parse` answers a `Document` -- attributes, " \
-                "namespaces and element order that no `Json` carries -- so there is no " \
-                "`xml_format()` to name. An endpoint answers XML through a hand-written " \
-                "`codec.text_encoder` or `text_decoder`, which negotiates like any other (see " \
-                "tests/lang/codec_xml_decoder); deriving the reader and writer is a roadmap item",
-            fn_name,
-            what
-        ))
-    }
     if contains(known_formats(), one) {
         return ok(prelude.format(
             "#[route] on '{}' says {}: \"{}\", and {} cannot be written as {} -- it takes {}",
@@ -281,16 +294,29 @@ fn refusal(one: string, allowed: [string], what: string, fn_name: string) -> Res
 // Every format `codec` has, as `consumes:`/`produces:` spell them -- so a name that is one of
 // these but wrong for the shape gets a different sentence from a name that is not one at all.
 fn known_formats() -> [string] {
-    return ["json", "yaml", "toml", "ndjson", "csv"]
+    return ["json", "yaml", "toml", "ndjson", "csv", "xml"]
 }
 
-// The formats a lone tree can be written as, and the ones an array can.
+// The formats a lone tree can be written as, and the ones an array can. **XML is in both**: it is
+// not a tree format, but a document holds one object or a list of them equally well, and which it
+// is here is decided by the signature rather than by the format.
 fn tree_names() -> [string] {
-    return ["json", "yaml", "toml"]
+    return ["json", "yaml", "toml", "xml"]
 }
 
 fn sequence_names() -> [string] {
-    return ["json", "yaml", "ndjson", "csv"]
+    return ["json", "yaml", "ndjson", "csv", "xml"]
+}
+
+// What `"all"` expands to: the named formats minus the ones needing a derive of their own.
+fn from_json_only(allowed: [string]) -> [string] {
+    val out = mutable_array_new<string>()
+    for one in allowed {
+        if one != "xml" {
+            push(out, one)
+        }
+    }
+    return snapshot(out)
 }
 
 // The list literal the template drops in. One entry stays on its line; several wrap, because a
@@ -359,13 +385,48 @@ fn decoders_for(f: meta.Function, body: string) -> Result<string, string> {
     return ok(as_list(built(names, "decoder_of", body, "_from_json")))
 }
 
-// `decoder_of(json_format(), model.order_request_from_json)`, one per format named.
+// `decoder_of(json_format(), model.order_request_from_json)`, one per format named -- except XML,
+// which is reached by its own builder.
 fn built(names: [string], builder: string, type_name: string, suffix: string) -> [string] {
     val out = mutable_array_new<string>()
     for n in names {
-        push(out, concat(builder, "(", n, "_format(), ", json_stem(type_name), suffix, ")"))
+        if n == "xml" {
+            push(out, xml_built(builder, type_name))
+        } else {
+            push(out, concat(builder, "(", n, "_format(), ", json_stem(type_name), suffix, ")"))
+        }
     }
     return snapshot(out)
+}
+
+// **XML passes no format, because there is no `xml_format()` to pass** -- it is not a
+// `codec.TreeFormat` and deliberately never became one. So `codec` gives it three builders of its
+// own that take the derived function directly, and this writes those.
+//
+// **The list case has to name the collection**, where a JSON array needs no name at all: a list
+// has no element of its own, and `<orderResponseList><orderResponse/>..</orderResponseList>` is
+// the shape a client reads. Each item keeps the element name its own `_to_xml` writes; the
+// collection is that plus `List`, because **an English plural is not computable** --
+// "person"/"people", "analysis"/"analyses" -- and a generator that guessed one would be wrong
+// often and silently. Jackson's `XmlMapper` names the container after its class for the same
+// reason. An endpoint that wants `<orders>` writes its own `codec.xml_list_encoder` and leaves
+// `produces:` alone, which is what this attribute is a shortcut for rather than a replacement of.
+fn xml_built(builder: string, type_name: string) -> string {
+    val stem = json_stem(type_name)
+    if builder == "decoder_of" {
+        return concat("xml_decoder(", stem, "_from_xml)")
+    }
+    if builder == "list_encoder_of" {
+        return concat("xml_list_encoder(\"", element_name(type_name), "List\", ", stem, "_to_xml)")
+    }
+    return concat("xml_encoder(", stem, "_to_xml)")
+}
+
+// The element `#[derive(Xml)]` names a value of this type after: `model.OrderResponse` ->
+// `orderResponse`, the module qualifier dropped because an element name is not a Ziman name.
+fn element_name(qualified: string) -> string {
+    val parts = split(qualified, ".")
+    return camel_case(snake_case(parts[prelude.len(parts) - 1]))
 }
 
 // The type as the source wrote it, which is what generated text repeats: `model.OrderResponse`
