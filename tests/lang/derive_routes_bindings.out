@@ -1,0 +1,302 @@
+// derive(Json) for 'OrderRequest'
+pub fn order_request_to_json(v: OrderRequest) -> Json {
+    val field_item_json = Json.JString(v.item)
+    return Json.JObject(Map<string, Json> {
+        "item": field_item_json
+    })
+}
+
+pub fn order_request_from_json(j: Json) -> Result<OrderRequest, string> {
+    if !Json.is_JObject(j) { return err("expected a JSON object for OrderRequest") }
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("item: expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return OrderRequest {
+        item: field_item
+    }
+}
+
+pub fn order_request_from_json_all(j: Json) -> Result<OrderRequest, [string]> {
+    if !Json.is_JObject(j) { return err(["expected a JSON object for OrderRequest"]) }
+    val problems = mutable_array_new<string>()
+    val get_item = fn() -> Result<string, string> {
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return ok(field_item)
+    }
+    val got_item = get_item()
+    if Err(problem_item) = got_item { push(problems, concat("item: ", problem_item)) }
+    if len(problems) > 0 { return err(snapshot(problems)) }
+    return ok(OrderRequest {
+        item: unwrap(got_item)
+    })
+}
+
+// derive(Xml) for 'OrderRequest'
+pub fn order_request_to_element(v: OrderRequest, local: string) -> xml.Element {
+    val attrs = mutable_array_new<xml.Attribute>()
+    val kids = mutable_array_new<xml.Node>()
+    push(kids, xml.Node.Element(xml.text_element("item", v.item)))
+    return xml.Element {
+        name: xml.name(local),
+        attributes: snapshot(attrs),
+        children: snapshot(kids)
+    }
+}
+
+pub fn order_request_to_element(v: OrderRequest) -> xml.Element {
+    return order_request_to_element(v, "orderRequest")
+}
+
+pub fn order_request_to_xml(v: OrderRequest) -> xml.Document {
+    return xml.document(order_request_to_element(v))
+}
+
+
+pub fn order_request_from_element(e: xml.Element) -> Result<OrderRequest, string> {
+    val node_item = switch xml.child(e, "item") {
+        Some(found) { found }
+        None { return err("item: missing element") }
+    }
+    val field_item = xml.text_of(node_item)
+    return ok(OrderRequest {
+        item: field_item
+    })
+}
+
+pub fn order_request_from_xml(doc: xml.Document) -> Result<OrderRequest, string> {
+    return order_request_from_element(doc.root)
+}
+
+// derive(Validate) for 'OrderRequest'
+pub fn order_request_violations(v: OrderRequest) -> [validate.Violation] {
+    val found = mutable_array_new<validate.Violation>()
+    if Some(message) = validate.not_blank(v.item) {
+        push(found, validate.violation("item", message))
+    }
+    return snapshot(found)
+}
+
+// derive(Json) for 'OrderResponse'
+pub fn order_response_to_json(v: OrderResponse) -> Json {
+    val field_id_json = int_to_json(v.id)
+    val field_item_json = Json.JString(v.item)
+    return Json.JObject(Map<string, Json> {
+        "id": field_id_json,
+        "item": field_item_json
+    })
+}
+
+pub fn order_response_from_json(j: Json) -> Result<OrderResponse, string> {
+    if !Json.is_JObject(j) { return err("expected a JSON object for OrderResponse") }
+    val field_id_raw = try json.require(j, "id")
+    val field_id = switch int_from_json(field_id_raw) {
+        Ok(__derive_ok_0) { __derive_ok_0 }
+        Err(__derive_err_1) { return err(concat("id: ", __derive_err_1)) }
+    }
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("item: expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return OrderResponse {
+        id: field_id,
+        item: field_item
+    }
+}
+
+pub fn order_response_from_json_all(j: Json) -> Result<OrderResponse, [string]> {
+    if !Json.is_JObject(j) { return err(["expected a JSON object for OrderResponse"]) }
+    val problems = mutable_array_new<string>()
+    val get_id = fn() -> Result<int, string> {
+    val field_id_raw = try json.require(j, "id")
+    val field_id = try int_from_json(field_id_raw)
+    return ok(field_id)
+    }
+    val got_id = get_id()
+    if Err(problem_id) = got_id { push(problems, concat("id: ", problem_id)) }
+    val get_item = fn() -> Result<string, string> {
+    val field_item_raw = try json.require(j, "item")
+    if !Json.is_JString(field_item_raw) { return err("expected a string") }
+    val field_item = Json.unwrap_JString(field_item_raw)
+    return ok(field_item)
+    }
+    val got_item = get_item()
+    if Err(problem_item) = got_item { push(problems, concat("item: ", problem_item)) }
+    if len(problems) > 0 { return err(snapshot(problems)) }
+    return ok(OrderResponse {
+        id: unwrap(got_id),
+        item: unwrap(got_item)
+    })
+}
+
+// derive(Xml) for 'OrderResponse'
+pub fn order_response_to_element(v: OrderResponse, local: string) -> xml.Element {
+    val attrs = mutable_array_new<xml.Attribute>()
+    val kids = mutable_array_new<xml.Node>()
+    push(kids, xml.Node.Element(xml.text_element("id", str(v.id))))
+    push(kids, xml.Node.Element(xml.text_element("item", v.item)))
+    return xml.Element {
+        name: xml.name(local),
+        attributes: snapshot(attrs),
+        children: snapshot(kids)
+    }
+}
+
+pub fn order_response_to_element(v: OrderResponse) -> xml.Element {
+    return order_response_to_element(v, "orderResponse")
+}
+
+pub fn order_response_to_xml(v: OrderResponse) -> xml.Document {
+    return xml.document(order_response_to_element(v))
+}
+
+
+pub fn order_response_from_element(e: xml.Element) -> Result<OrderResponse, string> {
+    val node_id = switch xml.child(e, "id") {
+        Some(found) { found }
+        None { return err("id: missing element") }
+    }
+    val field_id = switch parse_int(xml.text_of(node_id)) {
+        Ok(good) { good }
+        Err(why) { return err(concat("id: ", why)) }
+    }
+    val node_item = switch xml.child(e, "item") {
+        Some(found) { found }
+        None { return err("item: missing element") }
+    }
+    val field_item = xml.text_of(node_item)
+    return ok(OrderResponse {
+        id: field_id,
+        item: field_item
+    })
+}
+
+pub fn order_response_from_xml(doc: xml.Document) -> Result<OrderResponse, string> {
+    return order_response_from_element(doc.root)
+}
+
+// derive(Routes) for this module
+struct HandleUpdateLinePath {
+    order_id: Uuid
+    line_id: Uuid
+}
+
+fn handle_update_line_path_of(params: server.Params) -> Result<HandleUpdateLinePath, string> {
+    return ok(HandleUpdateLinePath {
+        order_id: try server.as_uuid(server.param(params, "orderId"), "order"),
+        line_id: try server.as_uuid(server.param(params, "lineId"), "line")
+    })
+}
+
+fn handle_update_line_route(ctx: Ctx, who: Principal, bound_path: HandleUpdateLinePath, data: model.OrderRequest) -> Result<model.OrderResponse, string> {
+    return handle_update_line(ctx, who, bound_path.order_id, bound_path.line_id, data)
+}
+
+fn handle_search_query_of(req: http.Request) -> Result<string, string> {
+    val term = try server.required(server.query_param(req, "term"), "term")
+    return ok(term)
+}
+
+struct HandleListQuery {
+    status: string
+    term: Option<string>
+    days: int
+    exact: Option<bool>
+    accept_language: Option<string>
+}
+
+fn handle_list_query_of(req: http.Request) -> Result<HandleListQuery, string> {
+    val status = try server.required(server.query_param(req, "status"), "status")
+    var term = Option<string>.None
+    if Some(raw) = server.query_param(req, "q") {
+        term = Option<string>.Some(raw)
+    }
+    val days = try server.as_int(server.given_or(server.query_param(req, "days"), "30"), "days")
+    var exact = Option<bool>.None
+    if Some(raw) = server.query_param(req, "exact") {
+        exact = Option<bool>.Some(try server.as_bool(raw, "exact"))
+    }
+    var accept_language = Option<string>.None
+    if Some(raw) = http.header(req, "Accept-Language") {
+        accept_language = Option<string>.Some(raw)
+    }
+    return ok(HandleListQuery {
+        status: status,
+        term: term,
+        days: days,
+        exact: exact,
+        accept_language: accept_language
+    })
+}
+
+fn handle_list_route(ctx: Ctx, who: Principal, bound_query: HandleListQuery) -> Result<[model.OrderResponse], string> {
+    return handle_list(ctx, who, bound_query.status, bound_query.term, bound_query.days, bound_query.exact, bound_query.accept_language)
+}
+
+fn handle_create_route(ctx: Ctx, who: Principal, data: model.OrderRequest) -> Result<model.OrderResponse, string> {
+    if Some(problem) = invalid(model.order_request_violations(data)) {
+        return err(problem)
+    }
+    return handle_create(ctx, who, data)
+}
+
+pub val main_routes: [server.Endpoint<Ctx>] = [
+    server.Endpoint<Ctx> {
+        method: http.HttpMethod.Get,
+        pattern: "/api/orders/{id}",
+        handler: server.secure_path_handler(
+            who: authenticated,
+            path: uuid_param("order"),
+            encoders: [encoder_of(json_format(), model.order_response_to_json)],
+            run: handle_get,
+            api: api
+        )
+    },
+    server.Endpoint<Ctx> {
+        method: http.HttpMethod.Put,
+        pattern: "/api/orders/{orderId}/lines/{lineId}",
+        handler: server.secure_path_body_handler(
+            who: authenticated,
+            path: handle_update_line_path_of,
+            decoders: [decoder_of(json_format(), model.order_request_from_json)],
+            encoders: [encoder_of(json_format(), model.order_response_to_json)],
+            run: handle_update_line_route,
+            api: api
+        )
+    },
+    server.Endpoint<Ctx> {
+        method: http.HttpMethod.Get,
+        pattern: "/api/orders/search",
+        handler: server.secure_query_handler(
+            who: authenticated,
+            query: handle_search_query_of,
+            encoders: [list_encoder_of(json_format(), model.order_response_to_json)],
+            run: handle_search,
+            api: api
+        )
+    },
+    server.Endpoint<Ctx> {
+        method: http.HttpMethod.Get,
+        pattern: "/api/orders",
+        handler: server.secure_query_handler(
+            who: authenticated,
+            query: handle_list_query_of,
+            encoders: [list_encoder_of(json_format(), model.order_response_to_json)],
+            run: handle_list_route,
+            api: api
+        )
+    },
+    server.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/api/orders",
+        handler: server.secure_body_handler(
+            who: authenticated,
+            decoders: [decoder_of(json_format(), model.order_request_from_json)],
+            encoders: [encoder_of(json_format(), model.order_response_to_json)],
+            status: 201,
+            run: handle_create_route,
+            api: api
+        )
+    }
+]
+

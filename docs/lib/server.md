@@ -434,6 +434,59 @@ pub fn query_param(req: Request, name: string) -> Option<string>
 A query-string value by name, percent-decoded ("+" is a space); the
 first one if it is repeated. `None` if absent.
 
+### `required`
+
+```
+pub fn required(given: Option<string>, name: string) -> Result<string, string>
+```
+
+The value, or `"<name> is required"` -- the message `read_query`'s hand-written version answered,
+which `src/test/other` holds the API to.
+
+### `given_or`
+
+```
+pub fn given_or(given: Option<string>, fallback: string) -> string
+```
+
+The value or a default, for `@RequestParam(defaultValue = "30")`'s equivalent. No `Result`: a
+default means absence is not a failure.
+
+### `as_int`
+
+```
+pub fn as_int(text: string, name: string) -> Result<int, string>
+```
+
+`text` as an int, or `"<name> must be a whole number: <text>"`.
+
+### `as_uuid`
+
+```
+pub fn as_uuid(text: string, what: string) -> Result<Uuid, string>
+```
+
+`text` as a `Uuid`. **The message is `uuid_param`'s** -- "invalid <what> id: <text>" -- because a
+client that matches on it should not be able to tell a generated binding from the hand-written
+reader it replaced.
+
+### `as_bool`
+
+```
+pub fn as_bool(text: string, name: string) -> Result<bool, string>
+```
+
+`text` as a bool. The four forms `xml.parse_bool` takes, for the same reason: a client spelling
+it `1` means true, and reading only "true" would silently answer false.
+
+### `as_float`
+
+```
+pub fn as_float(text: string, name: string) -> Result<float, string>
+```
+
+`text` as a float, for a measurement or a threshold a client sends as a query parameter.
+
 ### `uuid_param`
 
 ```

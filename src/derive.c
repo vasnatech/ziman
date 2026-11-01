@@ -332,6 +332,24 @@ static void parse_and_splice_into(Module *module, char *source, int line, int co
         }
         module->vals = combined;
     }
+    /* **And structs and enums** (2026-11-01), which were the third thing a generator could emit
+     * and the second to vanish. A generated declaration parsed cleanly and was dropped here, so
+     * the first generated function naming it failed with "unknown struct or enum type" pointing at
+     * the module attribute rather than at anything a reader wrote -- exactly the failure the `val`
+     * comment above describes.
+     *
+     * What needed them: `#[route]`'s parameter bindings. `server`'s constructors take one path
+     * value and one query value, so an endpoint binding two path segments needs a struct to hold
+     * them, and the generator writes it rather than asking for it.
+     *
+     * **Appended, not prepended.** The ordering care the vals need is about initialisation order;
+     * a type is not initialised, so a struct is visible to the whole module wherever it sits. */
+    for (int i = 0; i < snippet->structs.count; i++) {
+        struct_list_push(&module->structs, snippet->structs.items[i]);
+    }
+    for (int i = 0; i < snippet->enums.count; i++) {
+        enum_list_push(&module->enums, snippet->enums.items[i]);
+    }
     /* `tokens`/`snippet`/`source` are deliberately never freed -- AST
      * nodes in this codebase are never freed at all (see ast.h), and a
      * spliced-in FunctionDecl's own Tokens were already fully copied out

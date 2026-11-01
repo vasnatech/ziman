@@ -142,6 +142,79 @@ pub fn query_param(req: Request, name: string) -> Option<string> {
     return Option<string>.None
 }
 
+// ---- binding one request value at a time ----
+//
+// **These are what `#[path]`, `#[query]` and `#[header]` generate calls to**, and they are
+// deliberately small and composable rather than one function per source times type times
+// required-ness, which would have been thirty-six. A generated reader reads like the hand-written
+// one it replaces:
+//
+//     entity_type: try server.required(server.query_param(req, "entityType"), "entityType"),
+//     entity_id: try server.as_uuid(try server.required(server.query_param(req, "entityId"), "entityId"), "entityId")
+//
+// A **path** parameter never needs `required`: the router only matches a pattern when every
+// segment is there, so a captured name always has a value. A **query** or **header** one may be
+// absent, which is what `required` and `given_or` are for.
+
+// The value, or `"<name> is required"` -- the message `read_query`'s hand-written version answered,
+// which `src/test/other` holds the API to.
+pub fn required(given: Option<string>, name: string) -> Result<string, string> {
+    switch given {
+        // `ok(..)` spelled out: `Result<string, string>` has the same success and error type, so a
+        // bare string here is ambiguous and the compiler says so.
+        Some(value) { return ok(value) }
+        None { return err(format("{} is required", name)) }
+    }
+}
+
+// The value or a default, for `@RequestParam(defaultValue = "30")`'s equivalent. No `Result`: a
+// default means absence is not a failure.
+pub fn given_or(given: Option<string>, fallback: string) -> string {
+    switch given {
+        Some(value) { return value }
+        None { return fallback }
+    }
+}
+
+// `text` as an int, or `"<name> must be a whole number: <text>"`.
+pub fn as_int(text: string, name: string) -> Result<int, string> {
+    return switch parse_int(text) {
+        Ok(n) { n }
+        Err(_) { format("{} must be a whole number: {}", name, text) }
+    }
+}
+
+// `text` as a `Uuid`. **The message is `uuid_param`'s** -- "invalid <what> id: <text>" -- because a
+// client that matches on it should not be able to tell a generated binding from the hand-written
+// reader it replaced.
+pub fn as_uuid(text: string, what: string) -> Result<Uuid, string> {
+    return switch uuid.parse(text) {
+        Ok(id) { id }
+        Err(_) { format("invalid {} id: {}", what, text) }
+    }
+}
+
+// `text` as a bool. The four forms `xml.parse_bool` takes, for the same reason: a client spelling
+// it `1` means true, and reading only "true" would silently answer false.
+pub fn as_bool(text: string, name: string) -> Result<bool, string> {
+    val t = trim(text)
+    if t == "true" || t == "1" {
+        return ok(true)
+    }
+    if t == "false" || t == "0" {
+        return ok(false)
+    }
+    return err(format("{} must be true or false: {}", name, text))
+}
+
+// `text` as a float, for a measurement or a threshold a client sends as a query parameter.
+pub fn as_float(text: string, name: string) -> Result<float, string> {
+    return switch parse_float(text) {
+        Ok(n) { n }
+        Err(_) { format("{} must be a number: {}", name, text) }
+    }
+}
+
 // ---- path parameters as values ----
 //
 // A captured segment is a string; these turn one into a `Uuid` and answer a message a 400 can

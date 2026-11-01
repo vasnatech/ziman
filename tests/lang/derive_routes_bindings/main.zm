@@ -1,0 +1,84 @@
+// **One request value per parameter**, which is Spring's `@PathVariable` / `@RequestParam` /
+// `@RequestHeader` / `@RequestBody` / `@Valid` and what this generator could not express before
+// 2026-11-01. Each of these five would otherwise have needed a struct and a
+// `fn(Request) -> Result<That, string>` written out by hand in whatever module assembled the table.
+#![derive(Routes)]
+
+use codec.decoder_of
+use codec.encoder_of
+use codec.json_format
+use codec.json_value_encoder
+use codec.list_encoder_of
+use derive_routes
+use http
+use json.Json
+use model
+use server
+use server.named_uuid_param
+use server.uuid_param
+use uuid.Uuid
+use wiring.Ctx
+use wiring.Principal
+use wiring.api
+use wiring.authenticated
+use wiring.invalid
+
+// One `{id}`, bound by name. **Generates exactly what the old inference did** -- `uuid_param` with
+// the route's label -- so an annotated route and an inferred one are the same text.
+#[route(method: GET, path: "/api/orders/{id}", label: "order")]
+pub fn handle_get(ctx: Ctx, #[principal] who: Principal, #[path] id: Uuid) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+// Two path segments. A struct and a reader are generated, and an adapter destructures them back
+// into the handler's own parameters -- the hand-written `dose_log_path` pattern, derived.
+#[route(method: PUT, path: "/api/orders/{orderId}/lines/{lineId}")]
+pub fn handle_update_line(
+    ctx: Ctx,
+    #[principal] who: Principal,
+    #[path] order_id: Uuid,
+    #[path] line_id: Uuid,
+    #[body] data: model.OrderRequest
+) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+// One query parameter: no struct at all, because `Q` can be the scalar itself.
+#[route(method: GET, path: "/api/orders/search")]
+pub fn handle_search(
+    ctx: Ctx,
+    #[principal] who: Principal,
+    #[query] term: string
+) -> Result<[model.OrderResponse], string> {
+    return err("x")
+}
+
+// Every query shape at once: required, renamed, defaulted, optional, and a header. An `Option<T>`
+// is the optional one -- the rule `#[derive(Xml)]` and `#[derive(Properties)]` already use.
+#[route(method: GET, path: "/api/orders")]
+pub fn handle_list(
+    ctx: Ctx,
+    #[principal] who: Principal,
+    #[query] status: string,
+    #[query(name: "q")] term: Option<string>,
+    #[query(default: "30")] days: int,
+    #[query] exact: Option<bool>,
+    #[header] accept_language: Option<string>
+) -> Result<[model.OrderResponse], string> {
+    return err("x")
+}
+
+// `#[valid]`, which is `@Valid`: the violations come from `#[derive(Validate)]`'s
+// `<snake>_violations` and the application's `invalid` turns them into its own error type.
+#[route(method: POST, path: "/api/orders", status: 201)]
+pub fn handle_create(
+    ctx: Ctx,
+    #[principal] who: Principal,
+    #[valid]#[body] data: model.OrderRequest
+) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}

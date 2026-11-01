@@ -122,6 +122,44 @@ use template
 // `encoder_of(json_format(), ..)`, and a list gets `xml_list_encoder("orderResponseList", ..)`
 // because an array has no element name of its own.
 val sheet = template.must_parse("""
+@template bound_struct
+struct @{name} {
+@for f in fields
+    @{f.name}: @{f.type}
+@end
+}
+
+@end
+
+@template path_reader_fn
+fn @{name}(params: server.Params) -> Result<@{holds}, string> {
+    return ok(@{build})
+}
+
+@end
+
+@template query_reader_fn
+fn @{name}(req: http.Request) -> Result<@{holds}, string> {
+@for f in reads
+@yield f.read
+@end
+    return ok(@{build})
+}
+
+@end
+
+@template adapter
+fn @{name}(@{params}) -> @{returns} {
+@if validated
+    if Some(problem) = invalid(@{violations}(@{body_param})) {
+        return err(problem)
+    }
+@end
+    return @{call}
+}
+
+@end
+
 @template table
 pub val @{module}_routes: [server.Endpoint<Ctx>] = [
 @for e in endpoints
@@ -134,6 +172,9 @@ pub val @{module}_routes: [server.Endpoint<Ctx>] = [
 @end
 @if e.has_path
             path: @{e.path_reader},
+@end
+@if e.has_query
+            query: @{e.query_reader},
 @end
 @if e.has_body
             decoders: @{e.decoders},
@@ -159,7 +200,28 @@ pub fn attributes() -> [meta.AttrSpec] {
             "method:name,path:string,who:name?,status:int?,label:string?," \
                 "consumes:string?,produces:string?",
             "function"
-        )
+        ),
+        // **The parameter attributes** (2026-11-01), which are Spring's `@PathVariable`,
+        // `@RequestParam`, `@RequestHeader`, `@RequestBody` and `@Valid` -- 96, 61, 4, 69 and 54
+        // uses in the backend this answers to. Before them a route that read anything but one
+        // `{id}` needed a struct and a reader function per endpoint; these bind one request value
+        // per parameter and the generator writes the struct and the reader.
+        //
+        // `#[body]` and `#[principal]` are the two that were already derived -- a struct parameter
+        // was the body, a `Principal` at position 1 meant secured. They are declarable now so a
+        // signature can say what it is rather than leaving a reader to count positions; both stay
+        // optional and the inference is unchanged when they are absent.
+        meta.attr_spec("path", "name:string?,label:string?", "parameter"),
+        meta.attr_spec("query", "name:string?,default:string?", "parameter"),
+        meta.attr_spec("header", "name:string?,default:string?", "parameter"),
+        meta.attr_spec("body", "", "parameter"),
+        meta.attr_spec("principal", "", "parameter"),
+        // `@Valid`'s equivalent, on the body. The violations come from `#[derive(Validate)]`'s
+        // `<snake>_violations`, which 24 of this application's request structs already have, and
+        // turning them into the error type is the application's `invalid` -- emitted bare, as
+        // `api` and the `who` functions are, because only the application knows how its own error
+        // carries per-field messages.
+        meta.attr_spec("valid", "", "parameter")
     ]
 }
 
@@ -171,57 +233,599 @@ pub fn generate_module(m: meta.ModuleTarget) -> Result<string, string> {
         return ok("")
     }
     val rows = mutable_array_new<template.Row>()
+    val decls = mutable_string_new()
     for i, f in routed {
         val last = i == prelude.len(routed) - 1
-        push(rows, try row_for(f, m.name, if last { "" } else { "," }))
+        val w = try wiring_for(f, m.name)
+        append(decls, w.decls)
+        push(rows, try row_for(f, m.name, w, if last { "" } else { "," }))
     }
-    return template.render(sheet, "table", [
+    // **The bindings' structs, readers and adapters come first**, because the table's `run:`,
+    // `path:` and `query:` name them. A generated val is spliced before the module's own vals and
+    // a generated function before its own functions, so this order is the one that holds.
+    val table = try template.render(sheet, "table", [
         template.text("module", m.name),
         template.rows("endpoints", snapshot(rows))
     ])
+    return ok(concat(snapshot(decls), table))
 }
 
-fn row_for(f: meta.Function, module_name: string, comma: string) -> Result<template.Row, string> {
-    // Position 0 is the context. Position 1 is a `Principal` on a secured endpoint, and whatever
-    // follows is the input: a `Uuid` is the path, a struct is the body.
-    val secured = prelude.len(f.params) > 1 && is_principal(f.params[1].type)
-    val first_input = if secured { 2 } else { 1 }
-    var has_path = false
-    var body = Option<string>.None
-    for i in first_input..prelude.len(f.params) {
-        val t = f.params[i].type
-        if is_uuid(t) {
-            has_path = true
-        } else if Some(name) = named_of(t) {
-            body = Option<string>.Some(name)
+// ---- binding one request value per parameter --------------------------------------------------
+//
+// **What a parameter attribute buys over a struct and a reader function.** `server`'s handler
+// constructors take one path value and one query value, so an endpoint reading two path segments
+// needed a struct to hold them and a `fn(Params) -> Result<That, string>` to fill it -- written by
+// hand, per endpoint, in the module that assembled the table. The parameters say it instead, and
+// this writes the struct and the reader.
+//
+// Three shapes come out, and only the last one is new work:
+//
+//   * **one `#[path] id: Uuid`** -- unchanged. `path: uuid_param("label")`, exactly what the
+//     `{id}` inference already produced, so the attribute is documentation in the common case.
+//   * **one `#[query] q: T`** -- no struct either: `Q` is the scalar, and the reader is a
+//     generated function of one line.
+//   * **two or more of either** -- a generated struct, a generated reader, and a generated adapter
+//     that destructures it back into the handler's own parameters.
+
+struct Binding {
+    // "path", "query", "header", "body", "principal" or "" for an unannotated parameter.
+    role: string
+    // The parameter's own name, which the adapter passes through.
+    param: string
+    // The name on the wire: `camel_case` of the parameter for a path or query, `Title-Kebab` for a
+    // header, or whatever `name:` said.
+    wire: string
+    type: meta.Type
+    // The type inside an `Option<..>`, or the type itself.
+    inner: meta.Type
+    optional: bool
+    default_text: Option<string>
+    // `#[path(label: "dose log")]`, the noun for this one segment's message.
+    label: Option<string>
+    validated: bool
+}
+
+val binding_roles = ["path", "query", "header", "body", "principal"]
+
+fn bindings_of(f: meta.Function) -> Result<[Binding], string> {
+    val out = mutable_array_new<Binding>()
+    for p in f.params {
+        val role = get_or(meta.param_role(p, binding_roles), "")
+        var inner = p.type
+        var optional = false
+        if Optional(elem) = p.type {
+            inner = elem
+            optional = true
+        }
+        val given = if role == "header" { header_name(p.name) } else { camel_case(p.name) }
+        push(out, Binding {
+            role: role,
+            param: p.name,
+            wire: get_or(meta.param_attr_value(p, role, "name"), given),
+            type: p.type,
+            inner: inner,
+            optional: optional,
+            default_text: meta.param_attr_value(p, role, "default"),
+            label: meta.param_attr_value(p, "path", "label"),
+            validated: meta.param_has_attr(p, "valid")
+        })
+    }
+    return check_bindings(f, snapshot(out))
+}
+
+// `accept_language` -> `Accept-Language`. A header name is neither snake nor camel, and all three
+// this backend reads (`Accept-Language`, `X-Share-Password`, `X-Timezone`) come out right.
+fn header_name(param: string) -> string {
+    val parts = split(param, "_")
+    val out = mutable_array_new<string>()
+    for one in parts {
+        push(out, capitalise(one))
+    }
+    return join(separator: "-", pieces: snapshot(out))
+}
+
+// **The check that is the reason to do this in a compiler.** A `{doseLogId}` the signature does not
+// bind, or a `#[path]` naming no placeholder, is a mistake Spring discovers on the request.
+fn check_bindings(f: meta.Function, bs: [Binding]) -> Result<[Binding], string> {
+    val declared = mutable_array_new<string>()
+    for b in bs {
+        if b.role == "path" {
+            if b.optional {
+                return err(prelude.format(
+                    "#[route] on '{}': '{}' is a path segment and an Option -- a pattern only " \
+                        "matches when every segment is there, so a path binding is never absent",
+                    f.name,
+                    b.param
+                ))
+            }
+            push(declared, b.wire)
+        }
+        if b.role != "" && b.role != "body" && b.role != "principal" {
+            try check_bindable(f, b)
+        }
+        if b.validated && b.role != "body" && b.role != "" {
+            return err(prelude.format(
+                "#[route] on '{}': '{}' carries #[valid] and is the {} -- validation is for the " \
+                    "request body, whose rules #[derive(Validate)] writes",
+                f.name,
+                b.param,
+                b.role
+            ))
         }
     }
-    val encoders = try encoders_for(f)
-    var body_name = ""
+    val holes = placeholders(arg_or(f, "path", "/"))
+    val bound = snapshot(declared)
+    // Only checked when the signature binds any path parameter at all: a route written the old way
+    // (one `{id}`, no attribute) still infers, and must keep working.
+    if prelude.len(bound) > 0 {
+        for h in holes {
+            if !contains(bound, h) {
+                return err(prelude.format(
+                    "#[route] on '{}': the path captures '{{{}}}' and no parameter binds it -- add " \
+                        "#[path] to the parameter, or #[path(name: \"{}\")] when its own name " \
+                        "differs",
+                    f.name,
+                    h,
+                    h
+                ))
+            }
+        }
+        for b in bound {
+            if !contains(holes, b) {
+                return err(prelude.format(
+                    "#[route] on '{}': a parameter binds the path segment '{}' and the pattern " \
+                        "'{}' has no such capture",
+                    f.name,
+                    b,
+                    arg_or(f, "path", "/")
+                ))
+            }
+        }
+    }
+    return ok(bs)
+}
+
+// What a request value can be bound as: whatever `server`'s `as_*` helpers read, plus a string,
+// which needs no conversion. Everything else is refused by name rather than bound as its text.
+fn check_bindable(f: meta.Function, b: Binding) -> Result<unit, string> {
+    if Some(_) = reader_of(b.inner, "x", "y") {
+        return unit
+    }
+    return err(prelude.format(
+        "#[route] on '{}': '{}' is a {} of type '{}', which cannot be read from a request -- a " \
+            "binding takes a string, an int, a float, a bool or a Uuid (or an Option of one for a " \
+            "query or a header)",
+        f.name,
+        b.param,
+        b.role,
+        meta.type_text(b.inner)
+    ))
+}
+
+// The call that turns one piece of request text into the bound type. `None` for a type no helper
+// reads, which is what `check_bindable` asks.
+fn reader_of(t: meta.Type, text: string, name: string) -> Option<string> {
+    if String = t {
+        return Option<string>.Some(text)
+    }
+    if Int = t {
+        return Option<string>.Some(concat("try server.as_int(", text, ", \"", name, "\")"))
+    }
+    if Float = t {
+        return Option<string>.Some(concat("try server.as_float(", text, ", \"", name, "\")"))
+    }
+    if Bool = t {
+        return Option<string>.Some(concat("try server.as_bool(", text, ", \"", name, "\")"))
+    }
+    if Some(named) = named_of(t) {
+        if meta.bare_name(named) == "Uuid" {
+            return Option<string>.Some(concat("try server.as_uuid(", text, ", \"", name, "\")"))
+        }
+    }
+    return Option<string>.None
+}
+
+fn of_role(bs: [Binding], role: string) -> [Binding] {
+    val out = mutable_array_new<Binding>()
+    for b in bs {
+        if b.role == role {
+            push(out, b)
+        }
+    }
+    return snapshot(out)
+}
+
+// Everything one routed function needs, which is a record rather than eight return values.
+struct Wiring {
+    // The structs, readers and adapter this endpoint needs, spliced ahead of the table.
+    decls: string
+    has_path: bool
+    path_reader: string
+    has_query: bool
+    query_reader: string
+    has_body: bool
+    body_type: string
+    // The name the table's `run:` points at: the handler itself, or a generated adapter.
+    run: string
+}
+
+// **One code path, and the old inference feeds it.** A signature with no parameter attribute has
+// its roles filled in by the rules that were there before them -- position 1 a `Principal` is the
+// caller, a `Uuid` is the path, another struct is the body -- so a route written either way goes
+// through the same generation and cannot drift.
+fn roles_filled(f: meta.Function, bs: [Binding], module_name: string) -> [Binding] {
+    var declared = false
+    for b in bs {
+        if b.role != "" {
+            declared = true
+        }
+    }
+    if declared {
+        return bs
+    }
+    val holes = placeholders(arg_or(f, "path", "/"))
+    val out = mutable_array_new<Binding>()
+    for i in 0..prelude.len(bs) {
+        val b = bs[i]
+        var role = ""
+        var wire = b.wire
+        if i == 1 && is_principal(b.type) {
+            role = "principal"
+        } else if i > 0 && is_uuid(b.type) {
+            role = "path"
+            wire = if prelude.len(holes) == 1 { holes[0] } else { "id" }
+        } else if i > 0 && Some(_) = named_of(b.type) {
+            role = "body"
+        }
+        push(out, with b { role: role, wire: wire })
+    }
+    return snapshot(out)
+}
+
+fn wiring_for(f: meta.Function, module_name: string) -> Result<Wiring, string> {
+    val bs = roles_filled(f, try bindings_of(f), module_name)
+    val paths = of_role(bs, "path")
+    val queries = concat_bindings(of_role(bs, "query"), of_role(bs, "header"))
+    val bodies = of_role(bs, "body")
+    val secured = prelude.len(of_role(bs, "principal")) > 0
+    val label = arg_or(f, "label", replace(module_name, "_", " "))
+
+    if prelude.len(paths) > 0 && prelude.len(queries) > 0 {
+        return err(prelude.format(
+            "#[route] on '{}' binds both a path segment and a query parameter, and `server` has no " \
+                "constructor for the pair -- `endpoint_core` takes both, so the missing piece is a " \
+                "`{}_path_query_handler` beside the other nine",
+            f.name,
+            if secured { "secure" } else { "public" }
+        ))
+    }
+    if prelude.len(queries) > 0 && prelude.len(bodies) > 0 {
+        return err(prelude.format(
+            "#[route] on '{}' binds both a query parameter and a request body, and `server` has no " \
+                "constructor for the pair",
+            f.name
+        ))
+    }
+    if prelude.len(bodies) > 1 {
+        return err(prelude.format("#[route] on '{}' has more than one #[body]", f.name))
+    }
+
+    val decls = mutable_string_new()
+    var path_reader = ""
+    var query_reader = ""
+    var adapter_needed = false
+    var validated = Option<Binding>.None
+    for b in bodies {
+        if b.validated {
+            validated = Option<Binding>.Some(b)
+            adapter_needed = true
+        }
+    }
+
+    // ---- the path
+    if prelude.len(paths) == 1 {
+        val one = paths[0]
+        if is_uuid(one.inner) {
+            // Exactly what the `{id}` inference produced, so an annotated route and an inferred
+            // one generate the same text.
+            val noun = get_or(segment_label(one, true), label)
+            path_reader = if one.wire == "id" {
+                concat("uuid_param(\"", noun, "\")")
+            } else {
+                concat("named_uuid_param(\"", one.wire, "\", \"", noun, "\")")
+            }
+        } else {
+            path_reader = concat(f.name, "_path_of")
+            append(decls, try template.render(sheet, "path_reader_fn", [
+                template.text("name", path_reader),
+                template.text("holds", meta.type_text(one.inner)),
+                template.text("build", try read_path(one, get_or(segment_label(one, true), label)))
+            ]))
+        }
+    } else if prelude.len(paths) > 1 {
+        adapter_needed = true
+        val holder = holder_name(f.name, "path")
+        path_reader = concat(f.name, "_path_of")
+        append(decls, try bound_struct(holder, paths))
+        val fields = mutable_array_new<string>()
+        for b in paths {
+            push(fields, concat(b.param, ": ", try read_path(b, get_or(segment_label(b, false), label))))
+        }
+        append(decls, try template.render(sheet, "path_reader_fn", [
+            template.text("name", path_reader),
+            template.text("holds", holder),
+            template.text("build", concat(
+                holder,
+                " {\n        ",
+                join(separator: ",\n        ", pieces: snapshot(fields)),
+                "\n    }"
+            ))
+        ]))
+    }
+
+    // ---- the query (and headers, which read the same way from a different place)
+    if prelude.len(queries) == 1 {
+        query_reader = concat(f.name, "_query_of")
+        append(decls, try query_reader_fn(query_reader, meta.type_text(queries[0].type), queries, true))
+    } else if prelude.len(queries) > 1 {
+        adapter_needed = true
+        val holder = holder_name(f.name, "query")
+        query_reader = concat(f.name, "_query_of")
+        append(decls, try bound_struct(holder, queries))
+        append(decls, try query_reader_fn(query_reader, holder, queries, false))
+    }
+
+    // ---- the adapter, when the handler's parameters are not what the constructor passes
+    var run = f.name
+    if adapter_needed {
+        run = concat(f.name, "_route")
+        append(decls, try adapter(f, run, bs, paths, queries, bodies, validated))
+    }
+    return ok(Wiring {
+        decls: snapshot(decls),
+        has_path: prelude.len(paths) > 0,
+        path_reader: path_reader,
+        has_query: prelude.len(queries) > 0,
+        query_reader: query_reader,
+        has_body: prelude.len(bodies) > 0,
+        body_type: if prelude.len(bodies) > 0 { get_or(named_of(bodies[0].type), "") } else { "" },
+        run: run
+    })
+}
+
+// The noun in **this segment's** message ("invalid order id"), where the route's `label:` names the
+// endpoint's resource. A pattern with two captures needs two nouns, and the parameter already
+// carries one: `order_id` is "order", `dose_log_id` is "dose log" -- which is what the hand-written
+// `named_uuid_param("medicationId", "medication")` calls said. `#[path(label: "..")]` overrides it.
+//
+// **`None` only when there is one segment**, where the route's own `label:` is the better answer
+// and is what the `{id}` inference already used.
+fn segment_label(b: Binding, only: bool) -> Option<string> {
+    if Some(given) = b.label {
+        return Option<string>.Some(given)
+    }
+    if only {
+        return Option<string>.None
+    }
+    var name = b.param
+    if ends_with(name, "_id") {
+        name = substring(name, 0, prelude.len(name) - 3)
+    }
+    return Option<string>.Some(replace(name, "_", " "))
+}
+
+// The struct a multi-segment path or a multi-parameter query is held in. **Two names are reserved
+// per routed function** -- `HandleGetPath` and `HandleGetQuery` for `handle_get` -- and a module
+// that already defines one is told so rather than finding out from a redefinition error in
+// generated code it did not write.
+fn holder_name(fn_name: string, kind: string) -> string {
+    // Not `capitalise(camel_case(..))`: `capitalise` lowercases the tail, because the thing it was
+    // written for is `GET` -> `Get`. Each underscore-separated part is capitalised instead.
+    val out = mutable_array_new<string>()
+    for part in split(concat(fn_name, "_", kind), "_") {
+        push(out, capitalise(part))
+    }
+    return join(separator: "", pieces: snapshot(out))
+}
+
+fn concat_bindings(a: [Binding], b: [Binding]) -> [Binding] {
+    val out = mutable_array_new<Binding>()
+    for one in a {
+        push(out, one)
+    }
+    for one in b {
+        push(out, one)
+    }
+    return snapshot(out)
+}
+
+fn bound_struct(name: string, bs: [Binding]) -> Result<string, string> {
+    val fields = mutable_array_new<template.Row>()
+    for b in bs {
+        push(fields, template.row([
+            template.text("name", b.param),
+            template.text("type", meta.type_text(b.type))
+        ]))
+    }
+    return template.render(sheet, "bound_struct", [
+        template.text("name", name),
+        template.rows("fields", snapshot(fields))
+    ])
+}
+
+// A path segment is always there -- the router only matches when every segment is -- so no
+// `required`, just the conversion.
+fn read_path(b: Binding, label: string) -> Result<string, string> {
+    val text = concat("server.param(params, \"", b.wire, "\")")
+    switch reader_of(b.inner, text, if is_uuid(b.inner) { label } else { b.wire }) {
+        Some(call) { return ok(call) }
+        None { return err(concat("derive(Routes) cannot read a path segment as '", meta.type_text(b.inner), "'")) }
+    }
+}
+
+// A query or header value may be absent, so each one is a statement before the struct is built:
+// required, defaulted, or an `Option` left as `None`.
+fn query_reader_fn(name: string, holds: string, bs: [Binding], scalar: bool) -> Result<string, string> {
+    val reads = mutable_array_new<template.Row>()
+    val fields = mutable_array_new<string>()
+    for b in bs {
+        push(reads, template.row([template.text("read", trim_end(try read_query(b)))]))
+        push(fields, concat(b.param, ": ", b.param))
+    }
+    val build = if scalar {
+        bs[0].param
+    } else {
+        concat(holds, " {\n        ", join(separator: ",\n        ", pieces: snapshot(fields)), "\n    }")
+    }
+    return template.render(sheet, "query_reader_fn", [
+        template.text("name", name),
+        template.text("holds", holds),
+        template.rows("reads", snapshot(reads)),
+        template.text("build", build)
+    ])
+}
+
+// A yielded block ends with its own newline and `@yield` supplies one, so the trailing one goes.
+fn trim_end(text: string) -> string {
+    return substring(text, 0, prelude.len(text) - 1)
+}
+
+fn read_query(b: Binding) -> Result<string, string> {
+    val source = if b.role == "header" {
+        concat("http.header(req, \"", b.wire, "\")")
+    } else {
+        concat("server.query_param(req, \"", b.wire, "\")")
+    }
+    if b.optional {
+        // An absent one is the `Option`'s `None`, and a present one still has to convert.
+        val inner = meta.type_text(b.inner)
+        switch reader_of(b.inner, "raw", b.wire) {
+            Some(call) {
+                return ok(concat(
+                    "    var ",
+                    b.param,
+                    " = Option<",
+                    inner,
+                    ">.None\n",
+                    "    if Some(raw) = ",
+                    source,
+                    " {\n",
+                    "        ",
+                    b.param,
+                    " = Option<",
+                    inner,
+                    ">.Some(",
+                    call,
+                    ")\n",
+                    "    }\n"
+                ))
+            }
+            None { return err(concat("derive(Routes) cannot read '", inner, "' from a request")) }
+        }
+    }
+    val text = switch b.default_text {
+        Some(given) { concat("server.given_or(", source, ", \"", given, "\")") }
+        None { concat("try server.required(", source, ", \"", b.wire, "\")") }
+    }
+    switch reader_of(b.inner, text, b.wire) {
+        Some(call) { return ok(concat("    val ", b.param, " = ", call, "\n")) }
+        None { return err(concat("derive(Routes) cannot read '", meta.type_text(b.inner), "' from a request")) }
+    }
+}
+
+// The adapter: the constructor hands one path value, one query value and one body, and the handler
+// wants its own parameters back. This is the function that destructures.
+fn adapter(
+    f: meta.Function,
+    name: string,
+    bs: [Binding],
+    paths: [Binding],
+    queries: [Binding],
+    bodies: [Binding],
+    validated: Option<Binding>
+) -> Result<string, string> {
+    val params = mutable_array_new<string>()
+    val args = mutable_array_new<string>()
+    var i = 0
+    for b in bs {
+        if i == 0 {
+            push(params, concat(b.param, ": ", meta.type_text(b.type)))
+            push(args, b.param)
+        } else if b.role == "principal" {
+            push(params, concat(b.param, ": ", meta.type_text(b.type)))
+            push(args, b.param)
+        }
+        i = i + 1
+    }
+    if prelude.len(paths) > 1 {
+        push(params, concat("bound_path: ", holder_name(f.name, "path")))
+    }
+    if prelude.len(queries) > 1 {
+        push(params, concat("bound_query: ", holder_name(f.name, "query")))
+    }
+    for b in bodies {
+        push(params, concat(b.param, ": ", meta.type_text(b.type)))
+    }
+    // The handler's own argument order is the order of its parameters.
+    val call_args = mutable_array_new<string>()
+    var n = 0
+    for b in bs {
+        if n == 0 || b.role == "principal" {
+            push(call_args, b.param)
+        } else if b.role == "path" {
+            push(call_args, if prelude.len(paths) > 1 { concat("bound_path.", b.param) } else { b.param })
+        } else if b.role == "query" || b.role == "header" {
+            push(call_args, if prelude.len(queries) > 1 { concat("bound_query.", b.param) } else { b.param })
+        } else {
+            push(call_args, b.param)
+        }
+        n = n + 1
+    }
+    var violations = ""
+    var body_param = ""
+    if Some(b) = validated {
+        body_param = b.param
+        violations = concat(json_stem(get_or(named_of(b.type), "")), "_violations")
+    }
+    return template.render(sheet, "adapter", [
+        template.text("name", name),
+        template.text("params", join(separator: ", ", pieces: snapshot(params))),
+        template.text("returns", meta.type_text(f.returns)),
+        template.flag("validated", Option.is_Some(validated)),
+        template.text("violations", violations),
+        template.text("body_param", body_param),
+        template.text("call", concat(f.name, "(", join(separator: ", ", pieces: snapshot(call_args)), ")"))
+    ])
+}
+
+fn row_for(
+    f: meta.Function,
+    module_name: string,
+    w: Wiring,
+    comma: string
+) -> Result<template.Row, string> {
+    val secured = prelude.len(of_role(roles_filled(f, try bindings_of(f), module_name), "principal")) > 0
     var decoders = "[]"
-    if Some(name) = body {
-        body_name = name
-        decoders = try decoders_for(f, name)
+    if w.has_body {
+        decoders = try decoders_for(f, w.body_type)
     }
     return ok(template.row([
         template.text("method", capitalise(arg_or(f, "method", "GET"))),
         template.text("path", arg_or(f, "path", "/")),
-        template.text("flavour", flavour(secured, has_path, Option.is_Some(body))),
+        template.text("flavour", flavour(secured, w.has_path, w.has_query, w.has_body)),
         template.flag("secured", secured),
         template.text("who", arg_or(f, "who", "authenticated")),
-        template.flag("has_path", has_path),
-        template.text("label", arg_or(f, "label", replace(module_name, "_", " "))),
-        template.text("path_reader", path_reader(
-            arg_or(f, "path", "/"),
-            arg_or(f, "label", replace(module_name, "_", " "))
-        )),
-        template.flag("has_body", Option.is_Some(body)),
-        template.text("body", body_name),
+        template.flag("has_path", w.has_path),
+        template.text("path_reader", w.path_reader),
+        template.flag("has_query", w.has_query),
+        template.text("query_reader", w.query_reader),
+        template.flag("has_body", w.has_body),
+        template.text("body", w.body_type),
         template.text("decoders", decoders),
-        template.text("encoders", encoders),
+        template.text("encoders", try encoders_for(f)),
         template.flag("has_status", Option.is_Some(meta.fn_attr_arg(f, "route", "status"))),
         template.text("status", arg_or(f, "status", "")),
-        template.text("run", f.name),
+        template.text("run", w.run),
         template.text("comma", comma)
     ]))
 }
@@ -581,11 +1185,16 @@ fn placeholders(pattern: string) -> [string] {
 }
 
 // `secure_path_body_handler` and its seven siblings, named from the three facts that pick one.
-fn flavour(secured: bool, has_path: bool, has_body: bool) -> string {
+fn flavour(secured: bool, has_path: bool, has_query: bool, has_body: bool) -> string {
     val parts = mutable_array_new<string>()
     push(parts, if secured { "secure" } else { "public" })
     if has_path {
         push(parts, "path")
+    }
+    // A query never appears beside a path or a body -- `wiring_for` refuses both pairs, because
+    // `server` has no constructor for either.
+    if has_query {
+        push(parts, "query")
     }
     if has_body {
         push(parts, "body")
