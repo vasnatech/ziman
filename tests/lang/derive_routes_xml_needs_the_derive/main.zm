@@ -1,27 +1,27 @@
-// `produces: "xml"`, which is refused -- and the refusal is the fixture's subject, because XML is
-// neither a misspelling nor a shape mismatch and the message for those two said nothing useful
-// about it.
+// `produces: "xml"` on a model that does **not** derive `Xml`.
 //
-// XML is not one of `codec`'s tree formats: `xml.parse` answers a `Document`, with attributes,
-// namespaces and element order that no `Json` carries, so there is no `xml_format()` for
-// `produces:` to name. What an endpoint *can* do is answer XML through a hand-written
-// `codec.text_encoder`, which negotiates exactly like any other -- `tests/lang/codec_xml_decoder`
-// is one, 200 on `Content-Type: application/xml` and 415 on JSON. Deriving the reader and writer,
-// so that `produces: "xml"` could work, is a roadmap item and wants the same reader abstraction as
-// decoding straight into the object.
+// This fixture used to be about the refusal: XML was a format `produces:` could not reach at all,
+// and it had a message of its own saying why. `#[derive(Xml)]` (2026-10-31) made it reachable, and
+// what is left is the one thing `derive_routes` cannot check for itself -- whether the type named
+// has the pair. An attribute carries values, not evidence about another module's declarations, so
+// the generator emits `xml_encoder(model.order_response_to_xml)` and the *compiler* reports that
+// the name does not resolve, at the module attribute that generated it.
 //
-// The three routes are the three shapes that matter: a list, a create with a body and a 201, and a
-// delete with a path id and a 204. Nothing below says which handler constructor to use, which
-// decoder, which encoder, or what the JSON functions are called.
+// **That is the honest division and the same one `Json` has always had**: `produces: "json"` on a
+// type that derives nothing fails exactly this way too. The message names the function, which is
+// the thing to go and add the derive for.
+//
+// `tests/lang/derive_routes` is the passing twin, where both models derive both.
 #![derive(Routes)]
 
+use codec.csv_format
 use codec.decoder_of
 use codec.encoder_of
 use codec.json_format
 use codec.list_encoder_of
 use codec.ndjson_format
+use codec.xml_encoder
 use codec.yaml_format
-use codec.csv_format
 use derive_routes
 use http
 use model
@@ -40,7 +40,7 @@ pub fn handle_list(ctx: Ctx, who: Principal) -> Result<[model.OrderResponse], st
     return err("x")
 }
 
-// A body may arrive as any tree format, and the answer comes back as whichever is asked for.
+// `xml` is named, and `model.OrderResponse` has no `_to_xml` to name -- so this is where it fails.
 #[route(method: POST, path: "/api/orders", status: 201, produces: "json, xml")]
 pub fn handle_create(ctx: Ctx, who: Principal, data: model.OrderRequest) -> Result<model.OrderResponse, string> {
     return err("x")

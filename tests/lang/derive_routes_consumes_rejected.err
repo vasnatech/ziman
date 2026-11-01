@@ -1,1 +1,1 @@
-#[route] on 'handle_create' says consumes: "csv", and a request body cannot be written as csv -- it takes json, yaml, toml
+#[route] on 'handle_create' says consumes: "csv", and a request body cannot be written as csv -- it takes json, yaml, toml, xml

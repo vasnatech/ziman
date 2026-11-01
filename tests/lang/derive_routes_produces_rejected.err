@@ -1,1 +1,1 @@
-#[route] on 'handle_list' says produces: "toml", and an answer cannot be written as toml -- it takes json, yaml, ndjson, csv
+#[route] on 'handle_list' says produces: "toml", and an answer cannot be written as toml -- it takes json, yaml, ndjson, csv, xml

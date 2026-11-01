@@ -6,16 +6,16 @@
 // decoder, which encoder, or what the JSON functions are called.
 #![derive(Routes)]
 
+use codec.csv_format
 use codec.decoder_of
 use codec.encoder_of
 use codec.json_format
 use codec.list_encoder_of
 use codec.ndjson_format
-use codec.yaml_format
-use codec.csv_format
 use codec.xml_decoder
 use codec.xml_encoder
 use codec.xml_list_encoder
+use codec.yaml_format
 use derive_routes
 use http
 use model

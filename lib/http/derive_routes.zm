@@ -57,8 +57,8 @@ use meta
 use template
 
 // What it writes for a module with three routes -- a list, a create with a body and a 201, and a
-// delete with a path id and a 204. The module is `tests/lang/derive_routes/main.zm`, which pins
-// this text:
+// delete with a path id and a 204, each offering XML beside the tree formats. The module is
+// `tests/lang/derive_routes/main.zm`, which pins this text:
 //
 //     pub val main_routes: [server.Endpoint<Ctx>] = [
 //         server.Endpoint<Ctx> {
@@ -70,7 +70,8 @@ use template
 //                     list_encoder_of(json_format(), model.order_response_to_json),
 //                     list_encoder_of(yaml_format(), model.order_response_to_json),
 //                     list_encoder_of(ndjson_format(), model.order_response_to_json),
-//                     list_encoder_of(csv_format(), model.order_response_to_json)
+//                     list_encoder_of(csv_format(), model.order_response_to_json),
+//                     xml_list_encoder("orderResponseList", model.order_response_to_xml)
 //                 ],
 //                 run: handle_list,
 //                 api: api
@@ -83,11 +84,13 @@ use template
 //                 who: authenticated,
 //                 decoders: [
 //                     decoder_of(json_format(), model.order_request_from_json),
-//                     decoder_of(yaml_format(), model.order_request_from_json)
+//                     decoder_of(yaml_format(), model.order_request_from_json),
+//                     xml_decoder(model.order_request_from_xml)
 //                 ],
 //                 encoders: [
 //                     encoder_of(json_format(), model.order_response_to_json),
-//                     encoder_of(yaml_format(), model.order_response_to_json)
+//                     encoder_of(yaml_format(), model.order_response_to_json),
+//                     xml_encoder(model.order_response_to_xml)
 //                 ],
 //                 status: 201,
 //                 run: handle_create,
@@ -112,6 +115,11 @@ use template
 // encoder needs, and `order_request_from_json`/`order_response_to_json` are all read off the
 // handlers' signatures. What was written is the method, the path, the two statuses, the `"order"`
 // label, and the `consumes:`/`produces:` that say which media types each endpoint speaks.
+//
+// **XML is the one format whose builder takes no format**, because it is not a `codec.TreeFormat`:
+// `xml_encoder(model.order_response_to_xml)` stands where a tree format gets
+// `encoder_of(json_format(), ..)`, and a list gets `xml_list_encoder("orderResponseList", ..)`
+// because an array has no element name of its own.
 val sheet = template.must_parse("""
 @template table
 pub val @{module}_routes: [server.Endpoint<Ctx>] = [
