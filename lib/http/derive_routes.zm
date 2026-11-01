@@ -454,19 +454,18 @@ struct Wiring {
 // caller, a `Uuid` is the path, another struct is the body -- so a route written either way goes
 // through the same generation and cannot drift.
 fn roles_filled(f: meta.Function, bs: [Binding], module_name: string) -> [Binding] {
-    var declared = false
-    for b in bs {
-        if b.role != "" {
-            declared = true
-        }
-    }
-    if declared {
-        return bs
-    }
     val holes = placeholders(arg_or(f, "path", "/"))
     val out = mutable_array_new<Binding>()
     for i in 0..prelude.len(bs) {
         val b = bs[i]
+        // **Per parameter, not per signature.** A route that annotates its query parameters and
+        // leaves `principal: Principal` bare is the natural way to write one, and filling roles
+        // only when *nothing* was declared made that endpoint public -- it asked `server` for a
+        // `public_query_handler` and said so, which is how this was found rather than shipped.
+        if b.role != "" {
+            push(out, b)
+            continue
+        }
         var role = ""
         var wire = b.wire
         if i == 1 && is_principal(b.type) {
@@ -956,6 +955,32 @@ fn as_list(items: [string]) -> string {
 fn encoders_for(f: meta.Function) -> Result<string, string> {
     if ResultOf(r) = f.returns {
         if Array(inner) = r.ok {
+            // **An array of a scalar**, which `#[derive(Json)]`'s own converters cover: `[string]`
+            // takes `string_to_json`, the same name a derived struct's field of that type is
+            // written with. An admin endpoint answering log lines is `Result<[string], E>`, and
+            // refusing it would have been the generator not looking up a name it already imports.
+            if Some(stem) = scalar_stem(inner) {
+                val names = try formats_named(
+                    arg_or(f, "produces", "json"),
+                    sequence_names(),
+                    "produces",
+                    f.name
+                )
+                if contains(names, "xml") {
+                    return err(prelude.format(
+                        "#[route] on '{}' says produces: \"xml\" and answers an array of '{}' -- " \
+                            "#[derive(Xml)] writes a document for a struct, and a bare scalar has " \
+                            "no element name to give its items",
+                        f.name,
+                        meta.type_text(inner)
+                    ))
+                }
+                val out = mutable_array_new<string>()
+                for n in names {
+                    push(out, concat("list_encoder_of(", n, "_format(), ", stem, "_to_json)"))
+                }
+                return ok(as_list(snapshot(out)))
+            }
             // `[Json]` has no converter to derive either, and a list of trees needs its own
             // builder rather than `list_encoder_of` with an identity function spelled out.
             if Some(name) = named_of(inner) {
@@ -1013,6 +1038,30 @@ fn encoders_for(f: meta.Function) -> Result<string, string> {
             "success is a struct, an array of one, a Json, an int, or unit",
         f.name
     ))
+}
+
+// The `<stem>_to_json` name a scalar's converter has, which `#[derive(Json)]` imports for every
+// field of that type. `None` for anything that is not one.
+fn scalar_stem(t: meta.Type) -> Option<string> {
+    if String = t {
+        return Option<string>.Some("string")
+    }
+    if Int = t {
+        return Option<string>.Some("int")
+    }
+    if Float = t {
+        return Option<string>.Some("float")
+    }
+    if Bool = t {
+        return Option<string>.Some("bool")
+    }
+    if Bigint = t {
+        return Option<string>.Some("bigint")
+    }
+    if Decimal = t {
+        return Option<string>.Some("decimal")
+    }
+    return Option<string>.None
 }
 
 // The answers `codec` encodes without a derived converter, because there is nothing to derive one

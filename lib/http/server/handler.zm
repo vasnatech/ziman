@@ -303,6 +303,28 @@ pub fn secure_query_handler<C, U, Q, O, E>(
     )
 }
 
+// `secure_query_handler` without the caller: an endpoint whose only input is its query string and
+// which anyone may ask. **Its absence was an asymmetry, not a decision** -- `#[route]`'s parameter
+// bindings asked for it by name the first time a query endpoint was written without a
+// `#[principal]`, which is how it was noticed.
+pub fn public_query_handler<C, Q, O, E>(
+    query: fn(Request) -> Result<Q, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, Q) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return secure_query_handler<C, Anonymous, Q, O, E>(
+        who: anyone<C>,
+        query: query,
+        encoders: encoders,
+        status: status,
+        run: fn(ctx: C, caller: Anonymous, filter: Q) -> Result<O, E> { return go(ctx, filter) },
+        api: api
+    )
+}
+
 // A secured endpoint with a request body: it must arrive as one of `decoders`' media types (else 415), the answer is
 // negotiated (else 406), the body is decoded with the decoder for its type (a failure is 400), and
 // `run(ctx, caller, input)` returns the answer or an error.

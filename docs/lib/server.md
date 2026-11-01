@@ -695,6 +695,23 @@ A secured endpoint whose input is in the query string (`GET /things?type=x`): `q
 which `query_param` is the tool, and turns it into a `Q` (an `Err` message is answered 400, so a bad value never reaches `run`);
 `run(ctx, caller, input)` returns the answer or an error.
 
+### `public_query_handler`
+
+```
+pub fn public_query_handler<C, Q, O, E>(
+    query: fn(Request) -> Result<Q, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, Q) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response
+```
+
+`secure_query_handler` without the caller: an endpoint whose only input is its query string and
+which anyone may ask. **Its absence was an asymmetry, not a decision** -- `#[route]`'s parameter
+bindings asked for it by name the first time a query endpoint was written without a
+`#[principal]`, which is how it was noticed.
+
 ### `secure_body_handler`
 
 ```
