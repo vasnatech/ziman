@@ -311,6 +311,15 @@ pub fn json_value_list_encoder() -> Encoder<[Json]> {
     })
 }
 
+// A string as `text/plain`. **Named, because a nameless one cannot be reached from an attribute**:
+// `#[route(encoder: plain_text_encoder)]` names a builder, and the Prometheus endpoint that wanted
+// this wrote `encoder<string>(mime.text_plain(), ..)` inline for want of it. A `string` answer is
+// not *always* text -- JSON-encoding one is legitimate -- so this is never a default, only
+// something a route can ask for by name.
+pub fn plain_text_encoder() -> Encoder<string> {
+    return text_encoder<string>(mime.text_plain(), fn(text: string) -> string { return text })
+}
+
 // ---- XML -------------------------------------------------------------------------------------
 //
 // **The pair `TreeFormat` deliberately cannot give.** XML is not a Json-shaped tree -- a field can

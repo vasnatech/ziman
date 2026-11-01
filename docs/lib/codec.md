@@ -293,6 +293,18 @@ Several `Json` values as one JSON array, for a handler answering a list of trees
 through. The lone-value case above with `list_encoder_of` would need an identity function spelled
 out at every call site, which is what this replaces.
 
+### `plain_text_encoder`
+
+```
+pub fn plain_text_encoder() -> Encoder<string>
+```
+
+A string as `text/plain`. **Named, because a nameless one cannot be reached from an attribute**:
+`#[route(encoder: plain_text_encoder)]` names a builder, and the Prometheus endpoint that wanted
+this wrote `encoder<string>(mime.text_plain(), ..)` inline for want of it. A `string` answer is
+not *always* text -- JSON-encoding one is legitimate -- so this is never a default, only
+something a route can ask for by name.
+
 ## XML
 
 ### `xml_encoder`

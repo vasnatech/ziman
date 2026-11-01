@@ -198,7 +198,7 @@ pub fn attributes() -> [meta.AttrSpec] {
         meta.attr_spec(
             "route",
             "method:name,path:string,who:name?,status:int?,label:string?," \
-                "consumes:string?,produces:string?",
+                "consumes:string?,produces:string?,encoder:name?",
             "function"
         ),
         // **The parameter attributes** (2026-11-01), which are Spring's `@PathVariable`,
@@ -954,6 +954,32 @@ fn as_list(items: [string]) -> string {
 // formats.
 fn encoders_for(f: meta.Function) -> Result<string, string> {
     if ResultOf(r) = f.returns {
+        // **An encoder the application names**, for an answer `codec` has no builder for: its own
+        // paged envelope, its own media type. The generator supplies everything the name cannot --
+        // which type, and the derived converter for it -- and the two shapes are told apart by the
+        // answer itself rather than by a second argument:
+        //
+        //   * `Result<Listing<T>, E>` is a wrapper around a model, so the builder takes the
+        //     model's converter: `listing_encoder<model.X>(model.x_to_json)`.
+        //   * `Result<string, E>` and friends wrap nothing, so the builder takes no arguments:
+        //     `plain_text_encoder()`.
+        //
+        // Emitted bare, like `api` and the `who` functions: the name belongs to the application.
+        if Some(builder) = meta.fn_attr_arg(f, "route", "encoder") {
+            try no_produces(f, builder)
+            if Some(wrapped) = single_type_arg(r.ok) {
+                return ok(concat(
+                    "[",
+                    builder,
+                    "<",
+                    meta.type_text(wrapped),
+                    ">(",
+                    json_stem(get_or(named_of(wrapped), "")),
+                    "_to_json)]"
+                ))
+            }
+            return ok(concat("[", builder, "()]"))
+        }
         if Array(inner) = r.ok {
             // **An array of a scalar**, which `#[derive(Json)]`'s own converters cover: `[string]`
             // takes `string_to_json`, the same name a derived struct's field of that type is
@@ -1040,6 +1066,18 @@ fn encoders_for(f: meta.Function) -> Result<string, string> {
     ))
 }
 
+// `Listing<model.X>` -> `model.X`: the one type argument a wrapper carries, which is what an
+// application's encoder builder takes a converter for. `None` for a type with none, which is the
+// signal that the builder takes no arguments at all.
+fn single_type_arg(t: meta.Type) -> Option<meta.Type> {
+    if Named(n) = t {
+        if prelude.len(n.args) == 1 {
+            return Option<meta.Type>.Some(n.args[0])
+        }
+    }
+    return Option<meta.Type>.None
+}
+
 // The `<stem>_to_json` name a scalar's converter has, which `#[derive(Json)]` imports for every
 // field of that type. `None` for anything that is not one.
 fn scalar_stem(t: meta.Type) -> Option<string> {
@@ -1080,6 +1118,23 @@ fn fixed_encoder(ok_type: meta.Type) -> Option<string> {
 
 // Neither builder has a format to choose, so `produces:` on one is asking for something it cannot
 // give. Refused rather than ignored, which is the rule `unit` already follows.
+// A named builder decides its own media type -- `listing_encoder` writes JSON, `plain_text_encoder`
+// writes `text/plain` -- so `produces:` beside it is asking the route to choose something the
+// builder has already chosen. Refused rather than ignored, the rule `unit` and the fixed builders
+// already follow.
+fn no_produces(f: meta.Function, builder: string) -> Result<unit, string> {
+    if Some(spelt) = meta.fn_attr_arg(f, "route", "produces") {
+        return err(prelude.format(
+            "#[route] on '{}' says both encoder: {} and produces: \"{}\" -- a named encoder decides " \
+                "its own media type, so there is nothing for produces: to pick between",
+            f.name,
+            builder,
+            spelt
+        ))
+    }
+    return unit
+}
+
 fn only_json(f: meta.Function, builder: string) -> Result<unit, string> {
     if Some(spelt) = meta.fn_attr_arg(f, "route", "produces") {
         if trim(spelt) != "json" {
@@ -1089,7 +1144,7 @@ fn only_json(f: meta.Function, builder: string) -> Result<unit, string> {
                     "format with",
                 f.name,
                 spelt,
-                if builder == "count_encoder()" { "an int" } else { "a Json" },
+                if builder == "count_encoder()" { "an int" } else if builder == "json_value_list_encoder()" { "an array of Json" } else { "a Json" },
                 builder
             ))
         }

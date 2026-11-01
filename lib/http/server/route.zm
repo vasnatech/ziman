@@ -194,14 +194,20 @@ pub fn as_uuid(text: string, what: string) -> Result<Uuid, string> {
     }
 }
 
-// `text` as a bool. The four forms `xml.parse_bool` takes, for the same reason: a client spelling
-// it `1` means true, and reading only "true" would silently answer false.
+// `text` as a bool, in any of the spellings the web actually sends. **Wider than
+// `xml.parse_bool`'s four on purpose**: that one implements `xs:boolean`, where the lexical space
+// is defined and `on` is not in it. A query parameter has no such definition, an HTML checkbox
+// sends `on`, and a hand-written reader in the North Star already took `on`/`off`/`yes`/`no` --
+// so binding to this must not be the thing that silently narrows what a client may say.
+//
+// Case-insensitive for the same reason. Anything else is an `Err`, which a 400 carries:
+// `?includeDismissed=maybe` is a request to fix, not a false.
 pub fn as_bool(text: string, name: string) -> Result<bool, string> {
-    val t = trim(text)
-    if t == "true" || t == "1" {
+    val t = to_lower(trim(text))
+    if t == "true" || t == "1" || t == "on" || t == "yes" {
         return ok(true)
     }
-    if t == "false" || t == "0" {
+    if t == "false" || t == "0" || t == "off" || t == "no" {
         return ok(false)
     }
     return err(format("{} must be true or false: {}", name, text))
