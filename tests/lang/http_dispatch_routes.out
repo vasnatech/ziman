@@ -2,7 +2,7 @@ GET / -> 200 root
 GET /health -> 200 health
 GET /health/ -> 200 health
 GET /items/7/ -> 200 id=7
-GET /items/new -> 200 id=new
+GET /items/new -> 200 literal new
 GET /items/a%20b -> 200 id=a b
 GET /pairs/x%2Fy/z -> 200 x/y/z
 GET /items// -> 404 not found

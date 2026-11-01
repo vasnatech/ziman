@@ -1,0 +1,8 @@
+/orders/7  ->  by id
+/orders/pending  ->  literal one segment deep
+/orders/7/lines  ->  lines by id
+/orders/archive/lines  ->  literal two segments deep
+/stock/a/b  ->  area and bin
+/stock/a/all  ->  literal at the last segment
+POST /orders/7  ->  post by id
+POST /orders/bulk  ->  literal post

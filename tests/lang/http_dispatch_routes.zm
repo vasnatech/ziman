@@ -2,10 +2,20 @@ use http
 use http.HttpMethod
 use server
 
-// What `server.routes` + `server.dispatch` promise: the first endpoint in the table whose method and pattern
-// match wins (so order decides between a `{param}` and a literal), a trailing slash is ignored, captures are
-// percent-decoded, an empty segment never fills a `{param}`, and a path that exists under other methods is a 405
-// naming them, in table order, while an unknown path is a 404.
+// What `server.routes` + `server.dispatch` promise: the most specific matching endpoint wins -- a literal
+// segment beats a `{param}` wherever either is declared, and registration order is only the tiebreak -- a
+// trailing slash is ignored, captures are percent-decoded, an empty segment never fills a `{param}`, and a path
+// that exists under other methods is a 405 naming them, while an unknown path is a 404.
+//
+// **This fixture asserted the opposite until 2026-11-01**, and said so: "Table order decides: `/items/{id}`
+// comes before `/items/new`, so `new` is an id." That was the rule the index was built to preserve
+// (docs/design/journal/part-02.md weighed a literal-preferring trie and rejected it for "silently changing
+// that rule"), and it held for as long as an application kept every endpoint in one table where the order was
+// visible and commented. `#![derive(Routes)]` ended that: the table is now assembled from a controller per
+// resource, so "ahead of `/{id}`" means the order of two functions in one of twenty-three files. The North
+// Star's `/api/me/medications/interaction-check` was swallowed by `/{id}` the moment its controller was
+// converted -- answered 400 "invalid medication id: interaction-check" instead of its own 501 -- and only its
+// behavioural suite caught it. Specificity cannot be got wrong by moving a function.
 //
 // HEAD is the exception to the method match, and this fixture used to assert the opposite: `HEAD /` expected a
 // 405. RFC 9110 makes HEAD a GET without a body, so a path that serves GET has to serve HEAD, and a 405 there
@@ -81,7 +91,7 @@ fn main() {
     show(table, HttpMethod.Get, "/health/")
     show(table, HttpMethod.Get, "/items/7/")
 
-    // Table order decides: `/items/{id}` comes before `/items/new`, so `new` is an id.
+    // Specificity decides, not order: `/items/{id}` is registered first and `/items/new` still answers.
     show(table, HttpMethod.Get, "/items/new")
 
     // Captures are percent-decoded; an empty segment fills no `{param}`; bad encoding is no match.

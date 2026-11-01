@@ -953,8 +953,18 @@ declines to say the answer may be read.
 pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
 ```
 
-Calls the handler of the first endpoint whose method and pattern match `req`. When none does, the answer is
+Calls the handler of the **most specific** endpoint whose method and pattern match `req` -- a literal segment
+beats a `{param}` wherever either is declared, and the order they were registered in is only the tiebreak
+(`routes` orders the index; `compare_specificity` is the rule). When none matches, the answer is
 `fault(404, ...)`, or `fault(405, ...)` with an `Allow` header when the path exists under another method.
+
+**It was the first in registration order until 2026-11-01**, which an application with one endpoint table
+could keep right by writing `/orders/pending` above `/orders/{id}` and saying so in a comment. That stopped
+working when `#![derive(Routes)]` began assembling the table from a controller per resource: "above" then
+means the order of two functions in one of twenty-odd files, and the North Star lost an endpoint to it
+(`/api/me/medications/interaction-check`, answered 400 "invalid medication id" instead of its own 501) the
+moment that controller was converted. `tests/lang/server_route_specificity` registers every shadowing
+pattern first on purpose.
 
 A `HEAD` that matches nothing is tried again as `GET`, since RFC 9110 makes HEAD a GET without a body and a
 path serving GET has to serve HEAD; the GET handler's body comes back as usual and `write_response` withholds

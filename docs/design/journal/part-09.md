@@ -1214,3 +1214,37 @@ workaround fail and the real fix obvious.
 
 **`memdb.zm` is 4,402 lines and is now the largest single file in `lib/`.** The mechanism is there
 when it is wanted.
+
+## 2026-11-01 — the route table stopped being one table, so order stopped deciding
+
+`#![derive(Routes)]` was built to replace `routes.zm`'s hand-written endpoint structs, and
+converting the North Star's controllers to it found the thing the mechanism quietly depended on.
+
+`server.dispatch` took **the first endpoint in registration order** whose method and pattern
+matched. part-02 chose that deliberately: it weighed a trie that preferred literal segments, noted
+it would have been faster, and rejected it because it "silently changes that rule" — that
+`/items/{id}` listed before `/items/new` answers for `new`. `tests/lang/http_dispatch_routes`
+pinned it in those words.
+
+The rule was keepable for as long as one `val hand_written` held every endpoint in a visible order.
+`controller/medication.zm` has a comment that reads *"The route exists, ahead of `/{id}`, so that
+it is answered as what it is — 501 — and not as a malformed medication id (400)"*, and that comment
+was the whole guarantee. Converting the controller moved the function and the guarantee evaporated:
+`GET /api/me/medications/interaction-check` came back `400 invalid medication id:
+interaction-check`. Nothing in 1,375 fixtures caught it. The application's own behavioural suite
+did, on its 548th check.
+
+So `routes` now orders its index most-specific-first — at the first segment where two patterns
+disagree, a literal beats a `{param}` — and registration order is only the stable tiebreak, which
+keeps two *identical* patterns resolving to the first registered (what an application overriding a
+library's route relies on) and leaves every `Allow` list unchanged. One line of
+`http_dispatch_routes.out` moved, and that line was the old rule.
+
+**What makes this a different decision from part-02's, rather than a reversal of it**: the cost
+part-02 was unwilling to pay was a silent change to a rule an author could see and rely on. The
+author can no longer see it. An ordering that depends on which of twenty-three files a function
+sits in, and where in that file, is not a rule anyone can rely on — so preserving it bought
+nothing and cost an endpoint. Specificity cannot be got wrong by moving a function.
+
+The guard was tested by putting the function back in the order that broke it and watching the suite
+stay green, which is the only way to know a guard guards.

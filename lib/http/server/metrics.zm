@@ -119,13 +119,54 @@ fn routes_with<C>(endpoints: [Endpoint<C>], meter: bool) -> Routes<C> {
         )
         i = i + 1
     }
+    // **The index lists are ordered most specific first, not in registration order** (2026-11-01).
+    // `dispatch` takes the first endpoint whose pattern matches, so `/api/me/medications/{id}`
+    // registered before `/api/me/medications/interaction-check` swallowed it -- the literal path
+    // answered 400 "invalid medication id: interaction-check" instead of its own 501. That was
+    // survivable while one table held every endpoint in a deliberate order: the file said
+    // "the route exists, ahead of `/{id}`" and a reader could see it. It stopped being survivable
+    // when `#![derive(Routes)]` spread the table across 23 controllers, where "ahead of" means
+    // the order of two functions in a file nobody reads together with the other twenty-two.
+    //
+    // So specificity decides instead, and registration order is only the tiebreak. The rule is
+    // the one every router uses and the one an author writing those two patterns already meant:
+    // at the first segment where they differ, a literal beats a `{param}`.
+    val order = fn(a: int, b: int) -> int { return compare_specificity(patterns[a], patterns[b]) }
+    val ordered_methods = mutable_map_new<string, [int]>()
+    for key, idx in methods {
+        set(ordered_methods, key, sort_with(idx, order))
+    }
+    val ordered_lengths = mutable_map_new<int, [int]>()
+    for n, idx in lengths {
+        set(ordered_lengths, n, sort_with(idx, order))
+    }
     return Routes<C> {
         meter: meter,
         endpoints: endpoints,
         patterns: snapshot(patterns),
-        by_method: snapshot(methods),
-        by_length: snapshot(lengths)
+        by_method: snapshot(ordered_methods),
+        by_length: snapshot(ordered_lengths)
     }
+}
+
+// Which of two patterns of the same length is more specific: negative when `a` should be tried
+// first. **Only the first segment they disagree about counts** -- `/a/{x}/c` against `/a/b/{y}`
+// is decided at segment 2, where `b` is literal, and what segment 3 holds is not consulted. A
+// count of literals would call them equal and leave the answer to registration order again.
+//
+// Two patterns that differ in no such segment compare equal, and `sort_with` is a stable sort,
+// so they keep the order they were registered in. Two *identical* patterns likewise -- the first
+// registered still wins, which is what an application overriding a library's route relies on.
+fn compare_specificity(a: Pattern, b: Pattern) -> int {
+    for i in 0..len(a.parts) {
+        if i >= len(b.parts) {
+            return 0
+        }
+        if a.is_param[i] != b.is_param[i] {
+            return if a.is_param[i] { 1 } else { -1 }
+        }
+    }
+    return 0
 }
 
 pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {

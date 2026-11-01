@@ -1,0 +1,84 @@
+// **A literal segment beats a `{param}` wherever either is declared.** `dispatch` takes the first
+// endpoint whose pattern matches, so `/orders/{id}` registered first used to swallow
+// `/orders/pending` -- the literal route answered with the `{id}` handler's "invalid id" instead of
+// its own body.
+//
+// That was survivable while an application held every endpoint in one table in a deliberate order,
+// with a comment saying which route had to come first. It stopped being survivable when
+// `#![derive(Routes)]` spread the table across a controller per resource, where "ahead of" means
+// the order of two functions in a file nobody reads together with the others. So `server.routes`
+// orders its index most-specific-first and registration order is only the tiebreak.
+//
+// Registered **worst case first** on purpose: every `{id}` route before the literal it would
+// shadow. If specificity stopped deciding, every "literal" line below would print "by id".
+use http
+use server
+
+struct Ctx {
+    name: string
+}
+
+fn answer(text: string) -> http.Response {
+    return server.text_response(200, text)
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, message)
+}
+
+fn endpoint(method: string, pattern: string, text: string) -> server.Endpoint<Ctx> {
+    val body = text
+    return server.Endpoint<Ctx> {
+        method: http.method_parse(method),
+        pattern: pattern,
+        handler: fn(ctx: Ctx, req: http.Request, params: server.Params) -> http.Response {
+            return answer(body)
+        }
+    }
+}
+
+fn getted(path: string) -> http.Request {
+    return http.Request {
+        method: http.method_parse("GET"),
+        target: path,
+        path: path,
+        query: "",
+        version: "HTTP/1.1",
+        headers: [],
+        body: to_bytes(""),
+        peer: None
+    }
+}
+
+fn main() {
+    val table = server.routes<Ctx>([
+        // The shadowing pattern first in every pair.
+        endpoint("GET", "/orders/{id}", "by id"),
+        endpoint("GET", "/orders/pending", "literal one segment deep"),
+        endpoint("GET", "/orders/{id}/lines", "lines by id"),
+        endpoint("GET", "/orders/archive/lines", "literal two segments deep"),
+        // Deeper disagreement: both are literal at segment 1, so segment 2 decides.
+        endpoint("GET", "/stock/{area}/{bin}", "area and bin"),
+        endpoint("GET", "/stock/{area}/all", "literal at the last segment"),
+        // A different method, which shares no index entry with the GETs above.
+        endpoint("POST", "/orders/{id}", "post by id"),
+        endpoint("POST", "/orders/bulk", "literal post")
+    ])
+    val ctx = Ctx { name: "x" }
+    for path in ["/orders/7", "/orders/pending", "/orders/7/lines", "/orders/archive/lines",
+        "/stock/a/b", "/stock/a/all"] {
+        val answered = server.dispatch<Ctx>(table, ctx, getted(path), fault)
+        print(concat(path, "  ->  ", switch bytes_to_string(answered.body) {
+            Ok(t) { t }
+            Err(_) { "<not text>" }
+        }))
+    }
+    for path in ["/orders/7", "/orders/bulk"] {
+        val req = with getted(path) { method: http.method_parse("POST") }
+        val answered = server.dispatch<Ctx>(table, ctx, req, fault)
+        print(concat("POST ", path, "  ->  ", switch bytes_to_string(answered.body) {
+            Ok(t) { t }
+            Err(_) { "<not text>" }
+        }))
+    }
+}
