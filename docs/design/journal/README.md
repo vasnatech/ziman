@@ -285,5 +285,6 @@ them against the code.
 - [A string literal written over several lines (2026-10-29)](part-09.md#a-string-literal-written-over-several-lines-2026-10-29)
 - [Four documents become four folders (2026-10-30)](part-09.md#four-documents-become-four-folders-2026-10-30)
 - [A bundled module may be several files (2026-10-31)](part-09.md#a-bundled-module-may-be-several-files-2026-10-31)
+- [2026-11-01 — the route table stopped being one table, so order stopped deciding](part-09.md#2026-11-01-the-route-table-stopped-being-one-table-so-order-stopped-deciding)
 
 <!-- end index -->
