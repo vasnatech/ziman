@@ -193,7 +193,7 @@ Two usage modes (`use net` then `net.connect(...)`, or a per-name import binding
 name), each with a rule the bundled modules follow and new ones should too:
 
 1. **Called qualified: a short verb, no module prefix** (`net.connect`, `fs.read_text`,
-   `server.route`, `client.get`) — the qualifier already says where it's from. Don't import
+   `rest.route`, `client.get`) — the qualifier already says where it's from. Don't import
    such a name bare (`use server.response` collides with an application name).
 2. **Imported bare, or found by naming convention: carry the noun** — self-describing and
    unique across modules (`byte_from_hex`, `net_error_message`, and everything `#[derive]`

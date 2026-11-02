@@ -135,20 +135,20 @@ below (`open_session`, `read_request`, `write_response`) when `serve` doesn't fi
 - **Methods:** `Request.method` is an `http.HttpMethod` -- `Get`/`Head`/`Post`/`Put`/`Patch`/
   `Delete`/`Options`, or `Other(name)` for anything else (case-sensitive: `get` is
   `Other("get")`). `http.method_parse`/`method_name` convert. `client` takes the same type.
-- **Routing.** `server.route(req, method, pattern)` is `Some(params)` on a match, else `None`;
+- **Routing.** `rest.route(req, method, pattern)` is `Some(params)` on a match, else `None`;
   `{name}` captures one non-empty, percent-decoded segment, a trailing slash is ignored, and
-  `server.param(params, "name")` reads it (a name the pattern doesn't have is a fatal error --
+  `rest.param(params, "name")` reads it (a name the pattern doesn't have is a fatal error --
   a bug in the route function, not a value to check). `not_found_or_method_not_allowed` is 405
-  with `Allow` if the path matches a different method, else 404. `server.query_param(req, "q")`
+  with `Allow` if the path matches a different method, else 404. `rest.query_param(req, "q")`
   reads the query string (percent-decoded, `+` is a space). A `{id}` capture is always a
   *string*; converting it and answering 400 on a bad one stays in the application.
-- **Typed endpoints.** `server.Endpoint<C> { method, pattern, handler }`, built by one of nine
+- **Typed endpoints.** `rest.Endpoint<C> { method, pattern, handler }`, built by one of nine
   builders, chosen by where the input comes from -- `handler` (none), `path_handler` (`path:`
   turns captured `Params` into a `P`, an `Err` is 400), `body_handler` (`decoders:`),
   `path_body_handler` (both, for `PUT /things/{id}`), `*query_handler` (the query string,
   `query_param` the tool) -- crossed with who may call, `public_` or `secure_`. Every builder
   takes `encoders:`, `run:`, `api:`, and optional `status:` (default 200). `api:` is one
-  `server.Api<E> { failure, fault }` per application: `failure(e)` renders an `Err` of the
+  `rest.Api<E> { failure, fault }` per application: `failure(e)` renders an `Err` of the
   endpoint's own error type `E`, `fault(status, message)` renders what the library itself
   rejects. A `secure_` builder also takes `who: fn(C, Request) -> Result<U, Denied>`
   identifying the caller, passed to `run` as its second argument (`public_`'s `run` has no
@@ -163,12 +163,12 @@ below (`open_session`, `read_request`, `write_response`) when `serve` doesn't fi
   `#[derive(Json)]` pair. The pair lives in `codec` rather than here because a media type and a
   function over a value is serialization; what is HTTP is choosing between several by `Accept`. An endpoint answers 415 with no decoder
   matching `Content-Type`, 406 with no encoder matching `Accept`. `Request`/`Response.body` is
-  `[byte]` (`request_text`/`response_text` give text, or an `Err` on a NUL). `server.routes<C>`
+  `[byte]` (`request_text`/`response_text` give text, or an `Err` on a NUL). `rest.routes<C>`
   compiles a table once (a module-level `val`, not per request), splitting each pattern into
   segments and grouping by method/segment-count so a request only meets endpoints that could
-  match; `server.dispatch<C>(table, ctx, req, fault)` calls the first match, 404, or 405 with
+  match; `rest.dispatch<C>(table, ctx, req, fault)` calls the first match, 404, or 405 with
   `Allow`. Table order still decides `{param}` vs. a literal (`/items/{id}` before
-  `/items/new`); `server.route`/`path_params` remain for a hand-written router.
+  `/items/new`); `rest.route`/`path_params` remain for a hand-written router.
 - **Not yet:** HTTP/2, multipart, compression, trailers.
 
 ## Transactions (`datasource.with_transaction`)
