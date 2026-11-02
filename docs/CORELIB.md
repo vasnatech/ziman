@@ -260,6 +260,8 @@ pub fn inflate(data: [byte], max_size: int) -> Result<[byte], string>
 
 pub fn decompress(data: [byte], max_size: int) -> Result<[byte], string>
 
+pub fn deflate_raw(data: [byte]) -> [byte]
+
 pub fn inflate_raw(data: [byte], max_size: int) -> Result<[byte], string>
 
 ```

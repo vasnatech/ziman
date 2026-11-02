@@ -2,8 +2,8 @@
 //
 // Three container formats share the same deflate algorithm: gzip (RFC 1952, what `Content-Encoding:
 // gzip` and `.gz` files use), zlib (RFC 1950, what HTTP calls `Content-Encoding: deflate`), and raw
-// deflate (RFC 1951, no header at all). `gzip` and `deflate` write the first two; the `un` functions
-// read them, and `decompress` recognizes gzip or zlib by itself.
+// deflate (RFC 1951, no header at all). `gzip`, `deflate` and `deflate_raw` write them; the reading
+// functions read them, and `decompress` recognizes gzip or zlib by itself.
 //
 // Decompressing untrusted data needs a size limit -- a few kilobytes can expand to gigabytes -- so every
 // reading function takes `max_size` (the most bytes it will produce; negative for no limit) and returns
@@ -36,6 +36,20 @@ pub fn inflate(data: [byte], max_size: int) -> Result<[byte], string> {
 // The bytes of a gzip or zlib stream, whichever it is. Same errors as `gunzip`.
 pub fn decompress(data: [byte], max_size: int) -> Result<[byte], string> {
     return decompress_raw(data, max_size, 3)
+}
+
+// `data` as a raw deflate stream: the compressed bytes alone, with no header and no checksum
+// (RFC 1951).
+//
+// **Added 2026-11-01 to close an asymmetry**: `inflate_raw` had been here since the module was
+// written and nothing could produce what it read. The native already took the format -- the window
+// size is negated for raw -- so this is the wrapper that was missing rather than new machinery.
+//
+// What wants it is a format that frames the compressed bytes itself and so has no use for zlib's:
+// a SMART Health Card is a JWS whose payload is raw-deflated and base64url'd, where the two bytes
+// of a zlib header would make the card unreadable to every verifier.
+pub fn deflate_raw(data: [byte]) -> [byte] {
+    return compress_raw(data, 2)
 }
 
 // The bytes of a raw deflate stream (no header or checksum). Same errors as `gunzip`.

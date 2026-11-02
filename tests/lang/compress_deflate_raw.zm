@@ -1,0 +1,45 @@
+// `compress.deflate_raw`: the compressed bytes with no zlib header and no checksum.
+//
+// **The asymmetry this closed**: `inflate_raw` was in the module from the start and nothing could
+// produce what it read. A SMART Health Card is the format that wants it -- a JWS whose payload is
+// raw-deflated -- and a zlib header would make the card unreadable to every verifier.
+use compress
+use encoding
+
+fn main() {
+    val text = "A SMART Health Card is a JWS whose payload is raw-deflated and base64url'd, " \
+        "and a raw deflate stream carries no header at all."
+    val data = to_bytes(text)
+    val raw = compress.deflate_raw(data)
+    val zlib = compress.deflate(data)
+
+    // Smaller than the input, and smaller than the zlib stream by exactly the six bytes of
+    // framing zlib adds: a two-byte header and a four-byte Adler-32.
+    print(str(len(raw) < len(data)))
+    print(str(len(zlib) - len(raw)))
+
+    // The first two bytes of a zlib stream are its header; a raw stream starts with the data.
+    print(str(zlib[0]))
+    print(str(zlib[1]))
+    print(str(raw[0] != zlib[0] || raw[1] != zlib[1]))
+
+    // It reads back through the counterpart that had nothing to read.
+    if Ok(back) = compress.inflate_raw(raw, 4096) {
+        if Ok(same) = bytes_to_string(back) {
+            print(str(same == text))
+        }
+    }
+    // And not through the zlib reader, which looks for the header this stream does not have.
+    print(switch compress.inflate(raw, 4096) {
+        Ok(_) { "the zlib reader accepted it" }
+        Err(_) { "true" }
+    })
+
+    // Empty input is a legal stream of its own rather than nothing.
+    val empty: [byte] = []
+    print(str(len(compress.deflate_raw(empty)) > 0))
+    if Ok(nothing) = compress.inflate_raw(compress.deflate_raw(empty), 16) {
+        print(str(len(nothing)))
+    }
+    print(encoding.base64url_encode(compress.deflate_raw(to_bytes("ziman"))))
+}
