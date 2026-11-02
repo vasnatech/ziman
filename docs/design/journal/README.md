@@ -286,5 +286,6 @@ them against the code.
 - [Four documents become four folders (2026-10-30)](part-09.md#four-documents-become-four-folders-2026-10-30)
 - [A bundled module may be several files (2026-10-31)](part-09.md#a-bundled-module-may-be-several-files-2026-10-31)
 - [2026-11-01 — the route table stopped being one table, so order stopped deciding](part-09.md#2026-11-01-the-route-table-stopped-being-one-table-so-order-stopped-deciding)
+- [2026-11-01 — what makes a module a library module is its import list](part-09.md#2026-11-01-what-makes-a-module-a-library-module-is-its-import-list)
 
 <!-- end index -->

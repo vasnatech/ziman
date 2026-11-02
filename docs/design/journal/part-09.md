@@ -1248,3 +1248,49 @@ nothing and cost an endpoint. Specificity cannot be got wrong by moving a functi
 
 The guard was tested by putting the function back in the order that broke it and watching the suite
 stay green, which is the only way to know a guard guards.
+
+## 2026-11-01 — what makes a module a library module is its import list
+
+Two things moved out of the North Star backend and into `lib/`: `model/paging.zm` became
+`lib/core/paging.zm`, and an eleven-line `bearer_token` became `http.bearer_token`. Neither was
+rewritten. What decided both was a question that can be answered by reading the top of a file —
+**what does it import?** `model/paging.zm` imported `json.Json` and `json.int_to_json` and nothing
+else; `bearer_token` took an `http.Request` and answered an `Option<string>`. Neither could name a
+patient, a service or an error type if it wanted to, which is the whole test: a module that cannot
+mention the application is not of the application.
+
+This is the same move as `codec`'s (2026-10-31) and it lands in the same folder for the same
+reason. `Page`/`Listing` look like HTTP because a client meets them through a query string, but
+`page_of` is arithmetic and `listing_to_json` writes a tree; what *is* HTTP — reading `?page=&size=`
+and answering 400 — stayed with whoever serves the request. `page_request_of` takes the two bound
+values rather than a request, because the one rule a per-parameter binding cannot state is a rule
+*between* two parameters ("neither was sent means the whole list"), and that is a fact about paging
+rather than about any transport.
+
+**The one thing that genuinely was the application's is now an argument.** "A page holds at most
+200 items" is policy, and a library that hard-codes one application's policy has moved the decision
+rather than shared the code. So `page_request_within(page, size, default_size, max_size)` holds the
+rule and `page_request_of` passes 20 and 200 — Spring's own split, where
+`spring.data.web.pageable.default-page-size` is a property and the rule is in the framework.
+
+### A generator stops being told what it can read
+
+The move paid for itself immediately in `#![derive(Routes)]`. A paged route used to carry
+`encoder: listing_encoder`, and that argument existed only because `Listing` was a type the library
+could not see: the generator had no way to recognise the answer, so the author named the builder.
+With the type in `lib/`, `Result<Listing<T>, E>` is read off the signature like every other answer
+shape and emits `listing_encoder<T>(t_to_json)` — the four routes that named it say nothing now, and
+`wiring.zm` is down to the one thing no library can supply, which is how this application's own
+error type renders.
+
+That is the general shape worth keeping: **an attribute argument is a hint that a type is in the
+wrong place.** `encoder:` stays, for an application with an envelope of its own, but every use of it
+is worth asking the question about.
+
+### What it cost
+
+Seven backend files failed `--fmt --check` after the import rewrite — `use paging` sorts where
+`use model/paging` did not — which the formatter catches and the type checker does not. Three
+controllers had `val paging = switch paging.page_request_of(..)`, a local shadowing the module it
+was reading; they had been aliased `paging_model` for exactly that reason, and the local is `asked`
+now. Both are the ordinary cost of a rename, and both were found by a gate rather than by reading.
