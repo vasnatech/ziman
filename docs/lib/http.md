@@ -337,6 +337,20 @@ pub fn header(req: Request, name: string) -> Option<string>
 
 The value of the header called `name` in `req` (case-insensitive), or None.
 
+### `bearer_token`
+
+```
+pub fn bearer_token(req: Request) -> Option<string>
+```
+
+The bearer token of `req`: what follows `Bearer ` in its `Authorization` header, trimmed. `None`
+when there is no such header or it carries another scheme.
+
+**The scheme is matched case-insensitively**, as RFC 7235 says it must be (`Bearer`, `bearer`
+and `BEARER` are one scheme), and under the invariant locale like every other fold here.
+Nothing is checked about the token itself -- it is whatever the client sent, and what it means
+is for whoever verifies it.
+
 ## Trace context
 
 ### `TraceParent`

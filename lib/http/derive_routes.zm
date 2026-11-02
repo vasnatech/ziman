@@ -16,7 +16,8 @@
 // `server`'s eight handler constructors. The answer's encoder comes from the return type -- a
 // `[T]` takes `json_list_encoder`, a `unit` takes none at all, a `Json` and an `int` take
 // `codec`'s two builders that hold no converter (`json_value_encoder()` and `count_encoder()`,
-// the second being what a count endpoint answers), anything else takes `json_encoder`. The decoder and encoder *functions* are named from the types as the
+// the second being what a count endpoint answers), a `Listing<T>` takes `paging`'s
+// `listing_encoder`, anything else takes `json_encoder`. The decoder and encoder *functions* are named from the types as the
 // source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all, so
 // `model.order_request_from_json` is `#[derive(Json)]`'s own convention read backwards.
 //
@@ -49,7 +50,8 @@
 // **What the application must have in scope where this is spliced**: `Ctx` (its context type),
 // `api` (its `rest.Api`, which says how its own error type renders), the `who` function each
 // route names, and the four names below from `codec` and `server` -- `json_decoder`,
-// `json_encoder`, `json_list_encoder`, `uuid_param`/`named_uuid_param`. They are emitted bare rather than qualified
+// `json_encoder`, `json_list_encoder`, `uuid_param`/`named_uuid_param` -- plus
+// `paging.listing_encoder` for a route answering a `Listing`. They are emitted bare rather than qualified
 // so that an application is free to bring them in by per-name import, and so that this module
 // invents no vocabulary for an application's error type (user-generators.md §5c).
 #![generator(Routes)]
@@ -954,13 +956,13 @@ fn as_list(items: [string]) -> string {
 // formats.
 fn encoders_for(f: meta.Function) -> Result<string, string> {
     if ResultOf(r) = f.returns {
-        // **An encoder the application names**, for an answer `codec` has no builder for: its own
-        // paged envelope, its own media type. The generator supplies everything the name cannot --
+        // **An encoder the application names**, for an answer no library has a builder for: its
+        // own envelope, its own media type. The generator supplies everything the name cannot --
         // which type, and the derived converter for it -- and the two shapes are told apart by the
         // answer itself rather than by a second argument:
         //
-        //   * `Result<Listing<T>, E>` is a wrapper around a model, so the builder takes the
-        //     model's converter: `listing_encoder<model.X>(model.x_to_json)`.
+        //   * A wrapper around a model takes the model's converter, like `paging`'s own
+        //     `listing_encoder<model.X>(model.x_to_json)` below.
         //   * `Result<string, E>` and friends wrap nothing, so the builder takes no arguments:
         //     `plain_text_encoder()`.
         //
@@ -1048,6 +1050,30 @@ fn encoders_for(f: meta.Function) -> Result<string, string> {
         if Some(builder) = fixed_encoder(r.ok) {
             try only_json(f, builder)
             return ok(concat("[", builder, "]"))
+        }
+        // **A page of a list**, which `paging` encodes: `Result<Listing<T>, E>` answers either the
+        // whole list or one page of it, and the envelope's JSON is written by hand in that module
+        // rather than derived -- so `listing_encoder` takes the item's own converter the way
+        // `encoder_of` takes it for a lone value.
+        //
+        // Emitted by default since 2026-11-01. Before that, every paged route carried
+        // `encoder: listing_encoder` and the builder was the application's own; `Listing` becoming
+        // a library type is what let the generator recognise the answer instead of being told.
+        // Without this, `named_of` below would read `Listing` as a model and emit
+        // `encoder_of(json_format(), listing_to_json)`, which does not resolve.
+        if Some(name) = named_of(r.ok) {
+            if meta.bare_name(name) == "Listing" {
+                if Some(wrapped) = single_type_arg(r.ok) {
+                    try only_json(f, "listing_encoder")
+                    return ok(concat(
+                        "[listing_encoder<",
+                        meta.type_text(wrapped),
+                        ">(",
+                        json_stem(get_or(named_of(wrapped), "")),
+                        "_to_json)]"
+                    ))
+                }
+            }
         }
         if Some(name) = named_of(r.ok) {
             val names = try formats_named(
@@ -1144,7 +1170,15 @@ fn only_json(f: meta.Function, builder: string) -> Result<unit, string> {
                     "format with",
                 f.name,
                 spelt,
-                if builder == "count_encoder()" { "an int" } else if builder == "json_value_list_encoder()" { "an array of Json" } else { "a Json" },
+                if builder == "count_encoder()" {
+                    "an int"
+                } else if builder == "json_value_list_encoder()" {
+                    "an array of Json"
+                } else if builder == "listing_encoder" {
+                    "a Listing"
+                } else {
+                    "a Json"
+                },
                 builder
             ))
         }

@@ -1809,6 +1809,45 @@ pub fn provisioning_uri(issuer: string, account: string, secret: string) -> stri
 
 ```
 
+## `paging`
+
+```
+pub val default_page_size = 20
+
+pub val max_page_size = 200
+
+pub val max_page_number = 1000000000
+
+pub struct PageRequest {
+    page: int
+    size: int
+}
+
+pub struct Page<T> {
+    content: [T]
+    page: int
+    size: int
+    total_elements: int
+    total_pages: int
+}
+
+pub enum Listing<T> {
+    All([T])
+    Paged(Page<T>)
+}
+
+pub fn page_request_within(
+
+pub fn page_request_of(page: Option<int>, size: Option<int>) -> Result<Option<PageRequest>, string>
+
+pub fn page_of<T>(content: [T], request: PageRequest, total: int) -> Page<T>
+
+pub fn listing_to_json<T>(listing: Listing<T>, item: fn(T) -> Json) -> Json
+
+pub fn listing_encoder<O>(to_json: fn(O) -> Json) -> codec.Encoder<Listing<O>>
+
+```
+
 ## `process`
 
 ```
@@ -3301,6 +3340,8 @@ pub fn response_text(r: Response) -> Result<string, string>
 pub fn request_text(req: Request) -> Result<string, string>
 
 pub fn header(req: Request, name: string) -> Option<string>
+
+pub fn bearer_token(req: Request) -> Option<string>
 
 pub struct TraceParent {
     // 32 lowercase hex characters, the same for every hop of one request.

@@ -77,18 +77,19 @@ struct Caller {
 
 // Who is calling, from `Authorization: Bearer <name>`: `ada` is a user, `root` an admin, `boom` makes the lookup itself fail.
 fn any_caller(ctx: Ctx, req: http.Request) -> Result<Caller, rest.Denied> {
-    val header = http.header(req, "Authorization")
+    // `http.bearer_token` reads the scheme, so this only has to know its own tokens.
+    val header = http.bearer_token(req)
     if !is_Some(header) {
         return rest.Denied.Unauthenticated("missing token")
     }
     val token = unwrap_Some(header)
-    if token == "Bearer ada" {
+    if token == "ada" {
         return Caller { name: "ada", admin: false }
     }
-    if token == "Bearer root" {
+    if token == "root" {
         return Caller { name: "root", admin: true }
     }
-    if token == "Bearer boom" {
+    if token == "boom" {
         return rest.Denied.Failed("token store down")
     }
     return rest.Denied.Unauthenticated("bad token")

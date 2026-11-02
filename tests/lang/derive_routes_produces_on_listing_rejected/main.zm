@@ -1,0 +1,27 @@
+// `produces:` beside an answer whose builder has already chosen its media type. `listing_encoder`
+// writes the page envelope as JSON by hand -- there is no derived converter in it to write
+// `content`/`totalElements` as CSV columns or a YAML document with -- so naming a format is asking
+// for something it cannot give, and is refused rather than ignored. The rule `unit` and
+// `count_encoder` already follow.
+#![derive(Routes)]
+
+use derive_routes
+use http
+use model
+use paging.Listing
+use paging.listing_encoder
+use rest
+use server
+use wiring.Ctx
+use wiring.Principal
+use wiring.api
+use wiring.authenticated
+
+#[route(method: GET, path: "/api/orders", produces: "csv")]
+pub fn handle_list(ctx: Ctx, who: Principal) -> Result<Listing<model.OrderResponse>, string> {
+    return err("x")
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}

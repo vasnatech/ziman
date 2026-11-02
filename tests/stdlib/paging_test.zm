@@ -1,0 +1,114 @@
+// Unit tests for `paging` (moved out of the North Star backend on 2026-11-01, where the rules
+// below were covered only by HTTP suites running against a server).
+//
+// The three cases worth naming: neither `page` nor `size` sent means the list is answered whole
+// rather than as page 0, which is what keeps a client written before paging working; `total_pages`
+// rounds up, so 23 items in fives is 5 pages and not 4; and the bounds refuse with the message the
+// caller shows, which is why the text is asserted and not just the `Err`.
+use json
+use json.Json
+use paging
+use paging.Listing
+use paging.default_page_size
+use paging.max_page_size
+use paging.PageRequest
+use test
+
+fn item(x: int) -> Json {
+    return json.int_to_json(x)
+}
+
+fn text_of(j: Json) -> string {
+    return test.assert_ok(bytes_to_string(json.to_bytes(j)))
+}
+
+// ---------------------------------------------------------------- page_request_of
+
+#[test]
+fn neither_page_nor_size_asks_for_no_page_at_all() {
+    test.assert_none(test.assert_ok(paging.page_request_of(Option<int>.None, Option<int>.None)))
+}
+
+#[test]
+fn either_one_fills_the_other_in() {
+    val from_page = test.assert_some(test.assert_ok(paging.page_request_of(Some(3), Option<int>.None)))
+    test.assert_eq(3, from_page.page)
+    test.assert_eq(default_page_size, from_page.size)
+    val from_size = test.assert_some(test.assert_ok(paging.page_request_of(Option<int>.None, Some(5))))
+    test.assert_eq(0, from_size.page)
+    test.assert_eq(5, from_size.size)
+}
+
+#[test]
+fn the_bounds_refuse_with_the_message_a_caller_shows() {
+    test.assert_eq(
+        "page must be a whole number from 0 to 1000000000",
+        test.assert_err(paging.page_request_of(Some(-1), Some(10)))
+    )
+    test.assert_eq(
+        "size must be a whole number from 1 to 200",
+        test.assert_err(paging.page_request_of(Some(0), Some(0)))
+    )
+    test.assert_eq(
+        "size must be a whole number from 1 to 200",
+        test.assert_err(paging.page_request_of(Some(0), Some(max_page_size + 1)))
+    )
+    test.assert_eq(
+        max_page_size,
+        test.assert_some(test.assert_ok(paging.page_request_of(Some(0), Some(max_page_size)))).size
+    )
+}
+
+#[test]
+fn an_api_may_name_its_own_bounds() {
+    test.assert_eq(
+        "size must be a whole number from 1 to 10",
+        test.assert_err(paging.page_request_within(Some(0), Some(11), 5, 10))
+    )
+    val asked = test.assert_some(test.assert_ok(paging.page_request_within(Some(1), Option<int>.None, 5, 10)))
+    test.assert_eq(5, asked.size)
+}
+
+// ---------------------------------------------------------------- page_of
+
+#[test]
+fn total_pages_rounds_up() {
+    test.assert_eq(5, paging.page_of<int>([], PageRequest { page: 0, size: 5 }, 23).total_pages)
+    test.assert_eq(4, paging.page_of<int>([], PageRequest { page: 0, size: 5 }, 20).total_pages)
+    test.assert_eq(0, paging.page_of<int>([], PageRequest { page: 0, size: 5 }, 0).total_pages)
+}
+
+#[test]
+fn a_page_carries_what_was_asked_for_and_what_there_is() {
+    val page = paging.page_of<int>([6, 7, 8], PageRequest { page: 1, size: 3 }, 7)
+    test.assert_eq(3, len(page.content))
+    test.assert_eq(1, page.page)
+    test.assert_eq(3, page.size)
+    test.assert_eq(7, page.total_elements)
+    test.assert_eq(3, page.total_pages)
+}
+
+// ---------------------------------------------------------------- the JSON
+
+#[test]
+fn a_whole_list_is_a_bare_array() {
+    test.assert_eq("[1,2,3]", text_of(paging.listing_to_json<int>(Listing<int>.All([1, 2, 3]), item)))
+}
+
+#[test]
+fn a_page_is_springs_object() {
+    val page = paging.page_of<int>([6, 7, 8, 9, 10], PageRequest { page: 1, size: 5 }, 23)
+    test.assert_eq(
+        "{\"content\":[6,7,8,9,10],\"page\":1,\"size\":5,\"totalElements\":23,\"totalPages\":5}",
+        text_of(paging.listing_to_json<int>(Listing<int>.Paged(page), item))
+    )
+}
+
+#[test]
+fn the_encoder_writes_json_and_says_so() {
+    val encoder = paging.listing_encoder<int>(item)
+    test.assert_eq("application", encoder.media.type)
+    test.assert_eq("json", encoder.media.subtype)
+    val write = encoder.encode
+    test.assert_eq("[3,4]", test.assert_ok(bytes_to_string(write(Listing<int>.All([3, 4])))))
+}

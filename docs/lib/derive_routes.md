@@ -21,7 +21,8 @@ the body is whether it takes a `Uuid` or a struct; and those three facts choose 
 `server`'s eight handler constructors. The answer's encoder comes from the return type -- a
 `[T]` takes `json_list_encoder`, a `unit` takes none at all, a `Json` and an `int` take
 `codec`'s two builders that hold no converter (`json_value_encoder()` and `count_encoder()`,
-the second being what a count endpoint answers), anything else takes `json_encoder`. The decoder and encoder *functions* are named from the types as the
+the second being what a count endpoint answers), a `Listing<T>` takes `paging`'s
+`listing_encoder`, anything else takes `json_encoder`. The decoder and encoder *functions* are named from the types as the
 source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all, so
 `model.order_request_from_json` is `#[derive(Json)]`'s own convention read backwards.
 
@@ -57,7 +58,8 @@ source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all,
 **What the application must have in scope where this is spliced**: `Ctx` (its context type),
 `api` (its `rest.Api`, which says how its own error type renders), the `who` function each
 route names, and the four names below from `codec` and `server` -- `json_decoder`,
-`json_encoder`, `json_list_encoder`, `uuid_param`/`named_uuid_param`. They are emitted bare rather than qualified
+`json_encoder`, `json_list_encoder`, `uuid_param`/`named_uuid_param` -- plus
+`paging.listing_encoder` for a route answering a `Listing`. They are emitted bare rather than qualified
 so that an application is free to bring them in by per-name import, and so that this module
 invents no vocabulary for an application's error type (user-generators.md §5c).
 

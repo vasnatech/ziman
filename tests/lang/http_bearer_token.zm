@@ -1,0 +1,47 @@
+// `http.bearer_token`: what follows `Bearer ` in an `Authorization` header.
+//
+// Moved here from the North Star backend on 2026-11-01, where it was a private function in the
+// module that said who was calling. The cases below are the whole of it: the scheme folds
+// case-insensitively (RFC 7235 says a scheme name is case-insensitive, so `bearer` and `BEARER`
+// are the same one), the token is trimmed, another scheme is not a bearer token, and a header with
+// the scheme and nothing after it answers an empty token rather than `None` -- whoever verifies it
+// refuses it, and it is not this function's business to tell "no token" from "a token I dislike".
+use http
+
+fn shown(req: http.Request) -> string {
+    return switch http.bearer_token(req) {
+        Some(token) { concat(concat("[", token), "]") }
+        None { "none" }
+    }
+}
+
+fn with_authorization(value: string) -> http.Request {
+    return request([http.Header { name: "Authorization", value: value }])
+}
+
+fn request(headers: [http.Header]) -> http.Request {
+    return http.Request {
+        method: http.HttpMethod.Get,
+        target: "/me",
+        path: "/me",
+        query: "",
+        version: "HTTP/1.1",
+        headers: headers,
+        body: [],
+        peer: None
+    }
+}
+
+fn main() {
+    print(shown(with_authorization("Bearer abc.def")))
+    print(shown(with_authorization("bearer abc.def")))
+    print(shown(with_authorization("BEARER abc.def")))
+    print(shown(with_authorization("Bearer    abc.def   ")))
+    print(shown(with_authorization("Bearer ")))
+    print(shown(with_authorization("Bearer")))
+    print(shown(with_authorization("Basic YWxhZGRpbjpvcGVuc2VzYW1l")))
+    print(shown(with_authorization("")))
+    print(shown(request([])))
+    // The header name folds too, which is `http.header`'s doing rather than this function's.
+    print(shown(request([http.Header { name: "authorization", value: "Bearer two" }])))
+}

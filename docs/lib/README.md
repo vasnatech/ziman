@@ -19,6 +19,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 |---|---|
 | [`json`](json.md) | JSON as a `Json` tree: a native parser and serializer, and Ziman helpers for reading and building trees. |
 | [`codec`](codec.md) | A value as bytes, in a named media type, and back. |
+| [`paging`](paging.md) | One page of a long list: the request that asks for a page, the page that comes back, and the either/or a list endpoint answers -- all of it, or the page that was asked for. |
 | [`expr`](expr.md) | An expression language over `Json`, for rules and text that are *data* rather than source. |
 | [`ndjson`](ndjson.md) | Newline-delimited JSON: one JSON value per line, written on top of `json`. |
 | [`csv`](csv.md) | CSV (RFC 4180) as `Json`: a table is a `Json` array of objects, one per data row and keyed by the header row, so any `#[derive(Json)]` type decodes from a row with its own `_from_json` and encodes back. |

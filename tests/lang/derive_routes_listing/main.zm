@@ -1,0 +1,49 @@
+// **A page of a list**, which the generator recognises from the answer: `Result<Listing<T>, E>`
+// gets `paging`'s `listing_encoder` with the item's own derived converter, the way a lone model
+// gets `encoder_of(json_format(), ..)`.
+//
+// Emitted by default since 2026-11-01. Before that, `Listing` was a type each application defined
+// for itself and every paged route carried `encoder: listing_encoder` to name the builder that
+// went with it; moving the type into `lib/core/paging.zm` is what let this be read off the
+// signature instead of declared. Without the rule, `Listing` reads as a model and the generated
+// call is `encoder_of(json_format(), listing_to_json)`, which does not resolve.
+//
+// The two `#[query]` parameters are the shape a paged endpoint has: `page` and `size` are bound
+// one at a time, and "neither was sent means the whole list" is the rule between them that
+// `paging.page_request_of` holds.
+#![derive(Routes)]
+
+use derive_routes
+use http
+use model
+use paging
+use paging.Listing
+use paging.listing_encoder
+use rest
+use server
+use wiring.Ctx
+use wiring.Principal
+use wiring.api
+use wiring.authenticated
+
+#[route(method: GET, path: "/api/orders")]
+pub fn handle_list(
+    ctx: Ctx,
+    who: Principal,
+    #[query] page: Option<int>,
+    #[query] size: Option<int>
+) -> Result<Listing<model.OrderResponse>, string> {
+    val asked = switch paging.page_request_of(page, size) {
+        Ok(got) { got }
+        Err(why) { return err(why) }
+    }
+    val all = [model.OrderResponse { id: 1, item: "tea" }, model.OrderResponse { id: 2, item: "pot" }]
+    return switch asked {
+        Some(request) { Listing<model.OrderResponse>.Paged(paging.page_of<model.OrderResponse>(all, request, 2)) }
+        None { Listing<model.OrderResponse>.All(all) }
+    }
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}

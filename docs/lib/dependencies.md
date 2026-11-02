@@ -37,6 +37,7 @@ flowchart LR
         number["number"]
         os["os"]
         otp["otp"]
+        paging["paging"]
         process["process"]
         properties["properties"]
         random["random"]
@@ -184,6 +185,9 @@ flowchart LR
     otp --> crypto
     otp --> encoding
     otp --> random
+    paging --> codec
+    paging --> json
+    paging --> mime
     paint --> geom
     paint --> locale
     pdf --> font
@@ -301,7 +305,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `template`, `time`, `uuid` |
 | 5 | `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
 | 6 | `codec`, `derive_repository` |
-| 7 | `server` |
+| 7 | `paging`, `server` |
 | 8 | `rest` |
 
 ## Each module
@@ -311,7 +315,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `bits` | - | `image` |
 | `client` | `clock`, `compress`, `encoding`, `http`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
-| `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `rest`, `server` |
+| `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | `codec` |
@@ -335,7 +339,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
 | `http` | `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
-| `json` | `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
+| `json` | `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `paging`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
 | `locale` | - | `client`, `encoding`, `eql`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `time`, `toml`, `url`, `xml`, `yaml` |
@@ -346,13 +350,14 @@ otherwise: everything on a layer depends only on lower layers.
 | `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `metrics` | `os` | `rest`, `server` |
 | `migrate` | `crypto`, `datasource`, `db`, `encoding`, `fs`, `os`, `time` | - |
-| `mime` | `locale` | `client`, `codec`, `http`, `rest`, `server` |
+| `mime` | `locale` | `client`, `codec`, `http`, `paging`, `rest`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | - |
 | `ndjson` | `json` | `codec` |
 | `net` | - | `client`, `db`, `mysql`, `pg`, `server` |
 | `number` | `locale` | `client`, `csv`, `db`, `encoding`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sql`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `encoding`, `random` | - |
+| `paging` | `codec`, `json`, `mime` | - |
 | `paint` | `geom`, `locale` | `image`, `layout`, `pdf`, `raster`, `scene`, `stroker` |
 | `pdf` | `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
 | `pdfobj` | `compress` | `pdf` |

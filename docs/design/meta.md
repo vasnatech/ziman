@@ -158,7 +158,7 @@ would be wrong half the time. Recursion is direct: `Array(Type)` works, as does 
 arguments a *use* supplies**, and the thing to hold on to is that a declaration and a reference
 to one are different values with different fields.
 
-The North Star has both next to each other (`model/paging.zm`):
+`lib/core/paging.zm` has both next to each other:
 
 ```ziman
 pub struct Page<T> {

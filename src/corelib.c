@@ -35,6 +35,7 @@
 #include "schedule_source.h"
 #include "json_source.h"
 #include "codec_source.h"
+#include "paging_source.h"
 #include "number_source.h"
 #include "math_source.h"
 #include "bits_source.h"
@@ -145,6 +146,7 @@ static const CoreModule CORE_MODULES[] = {
     {"schedule", SCHEDULE_SOURCE, SCHEDULE_SOURCE_PATH},
     {"json", JSON_SOURCE, JSON_SOURCE_PATH},
     {"codec", CODEC_SOURCE, CODEC_SOURCE_PATH},
+    {"paging", PAGING_SOURCE, PAGING_SOURCE_PATH},
     {"number", NUMBER_SOURCE, NUMBER_SOURCE_PATH},
     {"math", MATH_SOURCE, MATH_SOURCE_PATH},
     {"bits", BITS_SOURCE, BITS_SOURCE_PATH},

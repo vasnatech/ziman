@@ -150,6 +150,26 @@ pub fn header(req: Request, name: string) -> Option<string> {
     return header_value(req.headers, name)
 }
 
+// The bearer token of `req`: what follows `Bearer ` in its `Authorization` header, trimmed. `None`
+// when there is no such header or it carries another scheme.
+//
+// **The scheme is matched case-insensitively**, as RFC 7235 says it must be (`Bearer`, `bearer`
+// and `BEARER` are one scheme), and under the invariant locale like every other fold here.
+// Nothing is checked about the token itself -- it is whatever the client sent, and what it means
+// is for whoever verifies it.
+pub fn bearer_token(req: Request) -> Option<string> {
+    return switch header(req, "Authorization") {
+        Some(value) {
+            if starts_with(to_lower(value, invariant), "bearer ") {
+                Some(trim(substring(value, 7, byte_len(value))))
+            } else {
+                None
+            }
+        }
+        None { None }
+    }
+}
+
 // ---------------------------------------------------------------- trace context
 //
 // W3C Trace Context's `traceparent`, which is how one request is followed across services: the
