@@ -264,6 +264,19 @@ pub fn deflate_raw(data: [byte]) -> [byte]
 
 pub fn inflate_raw(data: [byte], max_size: int) -> Result<[byte], string>
 
+pub struct ZipEntry {
+    name: string
+    body: [byte]
+}
+
+pub val zip_max_entry_bytes = 64 * 1024 * 1024
+
+pub fn is_zip(data: [byte]) -> bool
+
+pub fn zip_entries(data: [byte]) -> Result<[ZipEntry], string>
+
+pub fn zip_entries_with(data: [byte], max_bytes: int) -> Result<[ZipEntry], string>
+
 ```
 
 ## `crypto`

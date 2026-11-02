@@ -1,0 +1,104 @@
+// `compress.zip_entries`: the files out of a ZIP archive, each entry's bytes inflated.
+//
+// **The container, where the rest of `compress` is the codec.** A ZIP entry's bytes are a raw
+// deflate stream, so `inflate_raw` was always the hard half; the framing around it was the missing
+// one, and an application that needed it wrote 180 lines of header walking -- which the North Star
+// did for a FHIR bulk export until this moved into the library (2026-11-02).
+//
+// **The third archive here is the whole reason the central directory is what gets read.** It was
+// written to a non-seekable stream, so general-purpose flag bit 3 is set and its local headers
+// carry zeroes where the sizes go, the real ones trailing each entry in a data descriptor. A walk
+// over local headers cannot find where such an entry ends -- and an archive written straight to a
+// socket, which is what a bulk export is, is exactly that case. The directory at the end always
+// carries the sizes.
+//
+// The archives are embedded base64 rather than files on disk: a fixture that reads a binary file
+// needs the file to be found, and this one is about the parser rather than about `fs`.
+use compress
+use encoding.base64_decode
+
+val stored_archive = "UEsDBBQAAAAAAO9tYl3LMm+fFgAAABYAAAAJAAAAbm90ZXMudHh0c3RvcmVkLCBub3QgY29tcHJlc3NlZFBLAwQUAAAAAADv" \
+    "bWJdAAAAAAAAAAAAAAAACAAAAHN1Yi9kaXIvUEsDBBQAAAAAAO9tYl2vrBtWBwAAAAcAAAASAAAAc3ViL2Rpci9pbm5lci5q" \
+    "c29ueyJhIjoxfVBLAQIUAxQAAAAAAO9tYl3LMm+fFgAAABYAAAAJAAAAAAAAAAAAAACAAQAAAABub3Rlcy50eHRQSwECFAMU" \
+    "AAAAAADvbWJdAAAAAAAAAAAAAAAACAAAAAAAAAAAABAA/UE9AAAAc3ViL2Rpci9QSwECFAMUAAAAAADvbWJdr6wbVgcAAAAH" \
+    "AAAAEgAAAAAAAAAAAAAAgAFjAAAAc3ViL2Rpci9pbm5lci5qc29uUEsFBgAAAAADAAMArQAAAJoAAAAAAA=="
+
+val deflated_archive = "UEsDBBQAAAAIAO9tYl1BHIwZQgAAAKgWAAAKAAAAYmlnLm5kanNvbu3JoRGAMBAAMM8YPwaWFdgAXtS0XAHB9didKXCJzYie" \
+    "Z7v7lutzZMyxtLqXq7Qa7zSklFJKKaWUUkoppZRSyn/zA1BLAQIUAxQAAAAIAO9tYl1BHIwZQgAAAKgWAAAKAAAAAAAAAAAA" \
+    "AACAAQAAAABiaWcubmRqc29uUEsFBgAAAAABAAEAOAAAAGoAAAAAAA=="
+
+val streamed_archive = "UEsDBBQACAAIAO9tYl0AAAAAAAAAAAAAAAASAAAAMS5Db25kaXRpb24ubmRqc29uKy4pSk3MTU3hAgBQSwcIahS15gsAAAAJ" \
+    "AAAAUEsDBBQACAAIAO9tYl0AAAAAAAAAAAAAAAAUAAAAMi5PYnNlcnZhdGlvbi5uZGpzb24rTk3Oz0vhAgBQSwcIfsAPBgkA" \
+    "AAAHAAAAUEsBAhQDFAAIAAgA721iXWoUteYLAAAACQAAABIAAAAAAAAAAAAAAIABAAAAADEuQ29uZGl0aW9uLm5kanNvblBL" \
+    "AQIUAxQACAAIAO9tYl1+wA8GCQAAAAcAAAAUAAAAAAAAAAAAAACAAUsAAAAyLk9ic2VydmF0aW9uLm5kanNvblBLBQYAAAAA" \
+    "AgACAIIAAACWAAAAAAA="
+
+fn archive(b64: string) -> [byte] {
+    return unwrap(base64_decode(b64))
+}
+
+fn show(label: string, data: [byte]) {
+    print(switch compress.zip_entries(data) {
+        Ok(entries) {
+            val names = mutable_array_new<string>()
+            for e in entries {
+                push(names, format("{} ({} bytes)", e.name, str(len(e.body))))
+            }
+            format("{}: {} entr(ies) -- {}", label, str(prelude.len(entries)), join(separator: ", ", pieces: snapshot(names)))
+        }
+        Err(problem) { format("{}: refused -- {}", label, problem) }
+    })
+}
+
+fn body_of(data: [byte], name: string) -> string {
+    switch compress.zip_entries(data) {
+        Ok(entries) {
+            for e in entries {
+                if e.name == name {
+                    return switch bytes_to_string(e.body) {
+                        Ok(text) { text }
+                        Err(_) { "(not text)" }
+                    }
+                }
+            }
+            return "(no such entry)"
+        }
+        Err(problem) { return concat("refused: ", problem) }
+    }
+}
+
+fn main() {
+    val stored = archive(stored_archive)
+    val deflated = archive(deflated_archive)
+    val streamed = archive(streamed_archive)
+
+    // `is_zip` is the cheap question a caller asks before the expensive one, and it is the bytes
+    // that answer it rather than a filename.
+    print(concat("is_zip, a real archive: ", str(compress.is_zip(stored))))
+    print(concat("is_zip, something else: ", str(compress.is_zip(to_bytes("{\"not\":\"a zip\"}")))))
+
+    // Stored entries, with the directory left out: a caller wants files, and `sub/dir/` is not one.
+    show("stored", stored)
+    print(concat("  notes.txt: ", body_of(stored, "notes.txt")))
+    print(concat("  nested:    ", body_of(stored, "sub/dir/inner.json")))
+
+    // Deflated: 5,800 bytes of NDJSON in a 184-byte archive, which is what `inflate_raw` is for.
+    show("deflated", deflated)
+    print(concat("  first line: ", substring(body_of(deflated, "big.ndjson"), 0, 28)))
+    print(concat("  whole size: ", str(len(archive(deflated_archive)))))
+
+    // The stream-written one.
+    show("streamed", streamed)
+    print(concat("  first entry: ", body_of(streamed, "1.Condition.ndjson")))
+
+    // What a caller can hand this that is not an archive, each named rather than guessed at.
+    show("not a zip at all", to_bytes("PK and then nonsense, long enough to look like a header"))
+    show("too short", to_bytes("PK"))
+    show("empty", [])
+    // An entry past the ceiling: the 5,800-byte one with a 100-byte limit, which is the compression
+    // bomb case -- small on the wire and enormous in memory.
+    print(switch compress.zip_entries_with(deflated, 100) {
+        Ok(_) { "a ceiling of 100 bytes: accepted, which it should not be" }
+        Err(problem) { concat("a ceiling of 100 bytes: refused -- ", problem) }
+    })
+}

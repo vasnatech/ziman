@@ -1,0 +1,15 @@
+is_zip, a real archive: true
+is_zip, something else: false
+stored: 2 entr(ies) -- notes.txt (22 bytes), sub/dir/inner.json (7 bytes)
+  notes.txt: stored, not compressed
+  nested:    {"a":1}
+deflated: 1 entr(ies) -- big.ndjson (5800 bytes)
+  first line: {"resourceType":"Condition"}
+  whole size: 184
+streamed: 2 entr(ies) -- 1.Condition.ndjson (9 bytes), 2.Observation.ndjson (7 bytes)
+  first entry: streamed
+
+not a zip at all: refused -- no zip central directory
+too short: refused -- too short to be a zip
+empty: refused -- too short to be a zip
+a ceiling of 100 bytes: refused -- the zip entry 'big.ndjson' did not decompress: decompressed data is too large

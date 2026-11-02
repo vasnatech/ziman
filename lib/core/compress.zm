@@ -1,4 +1,5 @@
-// compress.zm -- gzip and zlib (deflate) compression, on zlib. Data is `[byte]` in and out.
+// compress.zm -- gzip and zlib (deflate) compression, on zlib, and reading a ZIP archive. Data is
+// `[byte]` in and out.
 //
 // Three container formats share the same deflate algorithm: gzip (RFC 1952, what `Content-Encoding:
 // gzip` and `.gz` files use), zlib (RFC 1950, what HTTP calls `Content-Encoding: deflate`), and raw
@@ -55,4 +56,202 @@ pub fn deflate_raw(data: [byte]) -> [byte] {
 // The bytes of a raw deflate stream (no header or checksum). Same errors as `gunzip`.
 pub fn inflate_raw(data: [byte], max_size: int) -> Result<[byte], string> {
     return decompress_raw(data, max_size, 2)
+}
+
+// ---------------------------------------------------------------- zip archives
+//
+// Reading a ZIP archive: the files out of it, by name, with each entry's bytes inflated. Writing
+// one is not here, and neither is any of ZIP's optional half -- see the list below.
+//
+// **The container, where the rest of this module is the codec.** A ZIP entry's bytes are a raw
+// deflate stream, so `inflate_raw` was always the hard half and the framing around it was the
+// missing one; an application that needed it had to write 180 lines of header walking, which the
+// North Star did for a FHIR bulk export before this moved here.
+//
+// **The central directory is what is read, not the local headers.** Walking local headers is the
+// obvious approach and is wrong for a stream-written archive: when general-purpose flag bit 3 is
+// set the local header's sizes are zeroes and the real ones follow the data in a descriptor, so a
+// walk cannot find where an entry ends. The directory at the end of the file always carries them,
+// and an archive written straight to a socket -- which is what a bulk export is -- is exactly that
+// case.
+//
+// **An entry's name is the archive's own and is never a path.** A crafted archive names its entry
+// `../../etc/passwd`; nothing here opens a file, and a caller writing one out is the one who has
+// to refuse that name.
+//
+// Not handled, each reported rather than guessed at: an encrypted entry, a ZIP64 archive (over
+// 4 GiB or 65,535 entries), and any compression method but stored and deflate.
+
+// The three signatures, little-endian, as the specification writes them -- which needed D24's hex
+// literal, this reader having been what raised it.
+val zip_central_header = 0x02014b50    // "PK\001\002"
+val zip_end_of_directory = 0x06054b50  // "PK\005\006"
+val zip_local_header = 0x04034b50      // "PK\003\004"
+
+// One file out of an archive: its name as the archive spells it, and its bytes.
+pub struct ZipEntry {
+    name: string
+    body: [byte]
+}
+
+// How many bytes an entry may expand to. A compressed bomb is small on the wire and enormous in
+// memory, so every entry is inflated under a ceiling rather than until it stops.
+pub val zip_max_entry_bytes = 64 * 1024 * 1024
+
+// Whether these bytes begin like an archive: `PK`, which is every ZIP's first two bytes.
+pub fn is_zip(data: [byte]) -> bool {
+    // 0x50 and 0x4B are `P` and `K`; a byte is its own type, so the comparison converts first.
+    return len(data) >= 2 && zip_byte_value(data[0]) == 0x50 && zip_byte_value(data[1]) == 0x4B
+}
+
+// Every file in the archive, directories left out, each entry's bytes already inflated. An `Err`
+// says what about the archive could not be read, naming the entry when the trouble is one entry's.
+pub fn zip_entries(data: [byte]) -> Result<[ZipEntry], string> {
+    return zip_entries_with(data, zip_max_entry_bytes)
+}
+
+// `zip_entries` with its own ceiling on how far one entry may expand, for a caller that knows what
+// it is reading -- or that trusts it less than the default does.
+pub fn zip_entries_with(data: [byte], max_bytes: int) -> Result<[ZipEntry], string> {
+    val directory = try zip_end_of_central_directory(data)
+    val out = mutable_array_new<ZipEntry>()
+    var at = directory.offset
+    var read = 0
+    while read < directory.count {
+        if at + 46 > len(data) {
+            return err("the zip's central directory runs past the end of the file")
+        }
+        if zip_u32(data, at) != zip_central_header {
+            return err("the zip's central directory has an entry with no header")
+        }
+        val method = zip_u16(data, at + 10)
+        val compressed = zip_u32(data, at + 20)
+        val name_length = zip_u16(data, at + 28)
+        val extra_length = zip_u16(data, at + 30)
+        val comment_length = zip_u16(data, at + 32)
+        val local = zip_u32(data, at + 42)
+        val name = try zip_text_at(data, at + 46, name_length)
+        // The name is the archive's own, so it is shown and matched and **never used as a path**:
+        // a crafted archive names its entry `../../etc/passwd`, which is why nothing here opens a
+        // file at all.
+        if !ends_with(name, "/") {
+            push(out, ZipEntry {
+                name: name,
+                body: try zip_body_of(data, local, method, compressed, max_bytes, name)
+            })
+        }
+        at = at + 46 + name_length + extra_length + comment_length
+        read = read + 1
+    }
+    return ok(snapshot(out))
+}
+
+// Where the central directory is, and how many entries it has.
+struct ZipDirectory {
+    offset: int
+    count: int
+}
+
+// The End of Central Directory record, found by scanning backwards for its signature -- which is
+// how it has to be found, the record ending in a comment of up to 65,535 bytes whose length is
+// inside the record itself.
+fn zip_end_of_central_directory(data: [byte]) -> Result<ZipDirectory, string> {
+    if len(data) < 22 {
+        return err("too short to be a zip")
+    }
+    // **The scan is bounded, and that is not a nicety.** The record's trailing comment is at most
+    // 65,535 bytes, so it begins no further back than that plus its own 22 -- and without the
+    // bound a 16 MiB body beginning with `PK` and holding no archive is sixteen million four-byte
+    // reads before the refusal, which is the slowest possible way to answer something that was
+    // wrong from its second byte.
+    var earliest = len(data) - 65557
+    if earliest < 0 {
+        earliest = 0
+    }
+    var at = len(data) - 22
+    while at >= earliest {
+        if zip_u32(data, at) == zip_end_of_directory {
+            val count = zip_u16(data, at + 10)
+            val offset = zip_u32(data, at + 16)
+            if offset + 4 > len(data) {
+                return err("the zip's central directory starts past the end of the file")
+            }
+            return ok(ZipDirectory { offset: offset, count: count })
+        }
+        at = at - 1
+    }
+    return err("no zip central directory")
+}
+
+// One entry's bytes, from its local header: the header's own name and extra lengths say where the
+// data starts, and the central directory says how long it is and how it was compressed.
+fn zip_body_of(
+    data: [byte],
+    local: int,
+    method: int,
+    compressed: int,
+    max_bytes: int,
+    name: string
+) -> Result<[byte], string> {
+    if local + 30 > len(data) {
+        return err(concat("the zip entry '", name, "' points past the end of the file"))
+    }
+    if zip_u32(data, local) != zip_local_header {
+        return err(concat("the zip entry '", name, "' has no local header"))
+    }
+    val flags = zip_u16(data, local + 6)
+    if flags % 2 == 1 {
+        return err(concat("the zip entry '", name, "' is encrypted"))
+    }
+    val from = local + 30 + zip_u16(data, local + 26) + zip_u16(data, local + 28)
+    if from + compressed > len(data) {
+        return err(concat("the zip entry '", name, "' runs past the end of the file"))
+    }
+    val raw = slice(data, from, from + compressed)
+    if method == 0 {
+        return ok(raw)
+    }
+    if method == 8 {
+        return switch inflate_raw(raw, max_bytes) {
+            Ok(expanded) { ok(expanded) }
+            Err(problem) { err(concat("the zip entry '", name, "' did not decompress: ", problem)) }
+        }
+    }
+    return err(concat(
+        "the zip entry '",
+        name,
+        "' uses compression method ",
+        str(method),
+        ", and only stored and deflate are read"
+    ))
+}
+
+fn zip_text_at(data: [byte], from: int, length: int) -> Result<string, string> {
+    if from + length > len(data) {
+        return err("a zip entry's name runs past the end of the file")
+    }
+    return switch bytes_to_string(slice(data, from, from + length)) {
+        Ok(name) { ok(name) }
+        Err(_) { err("a zip entry's name is not text") }
+    }
+}
+
+// Little-endian, which is every integer in a ZIP.
+fn zip_u16(data: [byte], at: int) -> int {
+    if at + 2 > len(data) {
+        return 0
+    }
+    return zip_byte_value(data[at]) + zip_byte_value(data[at + 1]) * 256
+}
+
+fn zip_u32(data: [byte], at: int) -> int {
+    if at + 4 > len(data) {
+        return 0
+    }
+    return zip_u16(data, at) + zip_u16(data, at + 2) * 65536
+}
+
+// A byte is its own type, so reaching its numeric value is a conversion rather than a cast.
+fn zip_byte_value(b: byte) -> int {
+    return b as int
 }

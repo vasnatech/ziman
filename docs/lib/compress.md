@@ -1,6 +1,7 @@
 # `compress`
 
-Gzip and zlib (deflate) compression, on zlib. Data is `[byte]` in and out.
+Gzip and zlib (deflate) compression, on zlib, and reading a ZIP archive. Data is
+`[byte]` in and out.
 
 Three container formats share the same deflate algorithm: gzip (RFC 1952, what `Content-Encoding:
 gzip` and `.gz` files use), zlib (RFC 1950, what HTTP calls `Content-Encoding: deflate`), and raw
@@ -114,3 +115,51 @@ pub fn inflate_raw(data: [byte], max_size: int) -> Result<[byte], string>
 ```
 
 The bytes of a raw deflate stream (no header or checksum). Same errors as `gunzip`.
+
+## Zip archives
+
+### `ZipEntry`
+
+```
+pub struct ZipEntry {
+    name: string
+    body: [byte]
+}
+```
+
+One file out of an archive: its name as the archive spells it, and its bytes.
+
+### `zip_max_entry_bytes`
+
+```
+pub val zip_max_entry_bytes = 64 * 1024 * 1024
+```
+
+How many bytes an entry may expand to. A compressed bomb is small on the wire and enormous in
+memory, so every entry is inflated under a ceiling rather than until it stops.
+
+### `is_zip`
+
+```
+pub fn is_zip(data: [byte]) -> bool
+```
+
+Whether these bytes begin like an archive: `PK`, which is every ZIP's first two bytes.
+
+### `zip_entries`
+
+```
+pub fn zip_entries(data: [byte]) -> Result<[ZipEntry], string>
+```
+
+Every file in the archive, directories left out, each entry's bytes already inflated. An `Err`
+says what about the archive could not be read, naming the entry when the trouble is one entry's.
+
+### `zip_entries_with`
+
+```
+pub fn zip_entries_with(data: [byte], max_bytes: int) -> Result<[ZipEntry], string>
+```
+
+`zip_entries` with its own ceiling on how far one entry may expand, for a caller that knows what
+it is reading -- or that trusts it less than the default does.
