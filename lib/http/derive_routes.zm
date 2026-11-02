@@ -488,7 +488,6 @@ fn wiring_for(f: meta.Function, module_name: string) -> Result<Wiring, string> {
     val paths = of_role(bs, "path")
     val queries = concat_bindings(of_role(bs, "query"), of_role(bs, "header"))
     val bodies = of_role(bs, "body")
-    val secured = prelude.len(of_role(bs, "principal")) > 0
     val label = arg_or(f, "label", replace(module_name, "_", " "))
 
     // **A path segment beside a query parameter** was refused here until 2026-11-01, by a message
