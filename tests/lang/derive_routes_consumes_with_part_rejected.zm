@@ -1,0 +1,34 @@
+// `consumes:` beside a `#[part]`. `consumes:` names the formats a request body may be *decoded*
+// from -- json, yaml, toml, xml -- and a part is not decoded at all: it is bytes with a filename
+// that the handler reads itself. Saying both asks the route to answer one question twice.
+#![derive(Routes)]
+
+use derive_routes
+use http
+use server
+use uuid.Uuid
+
+struct Ctx {
+    name: string
+}
+
+struct Principal {
+    id: Uuid
+}
+
+struct Upload {
+    note: string
+}
+
+#[route(method: POST, path: "/api/me/import", consumes: "json")]
+pub fn handle_import(
+    ctx: Ctx,
+    who: Principal,
+    #[part] file: server.Part
+) -> Result<Upload, string> {
+    return err("x")
+}
+
+fn main() {
+    print("unreachable")
+}

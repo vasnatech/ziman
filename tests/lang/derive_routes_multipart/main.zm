@@ -1,0 +1,85 @@
+// **An uploaded file as a route's input**: `#[part]`, which is Spring's `@RequestPart`, and the
+// `rest.*_form_handler` family it picks.
+//
+// A `multipart/form-data` body cannot be a `codec.Decoder` -- a decoder is `[byte] -> T` and the
+// boundary the body is split on is in the `Content-Type` header, which a decoder never sees -- so
+// the input comes from a reader over the request, and the table names `rest.named_part("file")`
+// where a decoded route lists its `decoders:`. The twelve file-based integration endpoints of the
+// North Star (Apple Health, Health Connect, Omron, a glucometer, FHIR bulk) are all this shape:
+// one named part, a principal, no query.
+//
+// **A `server.Part` parameter needs no attribute**, like a `Uuid` needs no `#[path]`: a part is the
+// only thing that type can be bound from, and inferring it is what keeps it out of the struct rule
+// that would otherwise make it the request body.
+#![derive(Routes)]
+
+use codec.encoder_of
+use codec.json_format
+use derive_routes
+use http
+use model
+use rest
+use rest.named_uuid_param
+use rest.uuid_param
+use server
+use uuid.Uuid
+use wiring.Ctx
+use wiring.Principal
+use wiring.api
+use wiring.authenticated
+
+// The attribute says the form field's name, because `report` is not what the parameter is called.
+#[route(method: POST, path: "/api/me/import", status: 202)]
+pub fn handle_import(
+    ctx: Ctx,
+    who: Principal,
+    #[part(name: "report")] file: server.Part
+) -> Result<model.ImportResult, string> {
+    return err("x")
+}
+
+// Inferred: no attribute, and the field name is the parameter's own.
+#[route(method: POST, path: "/api/me/health-connect/import")]
+pub fn handle_health_connect(
+    ctx: Ctx,
+    who: Principal,
+    file: server.Part
+) -> Result<model.ImportResult, string> {
+    return err("x")
+}
+
+// `Option<server.Part>`: a form that need not carry the file, which takes the other reader.
+#[route(method: POST, path: "/api/me/notes")]
+pub fn handle_note(
+    ctx: Ctx,
+    who: Principal,
+    #[part] attachment: Option<server.Part>
+) -> Result<model.ImportResult, string> {
+    return err("x")
+}
+
+// A path segment beside the upload, and nobody to identify: `public_path_form_handler`.
+#[route(method: POST, path: "/api/shared/{token}/files")]
+pub fn handle_shared_upload(
+    ctx: Ctx,
+    #[path] token: Uuid,
+    file: server.Part
+) -> Result<model.ImportResult, string> {
+    return err("x")
+}
+
+// The parameters the other way round, which is what forces an adapter -- the constructor passes the
+// path and then the form, whatever order the handler declares them in.
+#[route(method: POST, path: "/api/me/records/{id}/files")]
+pub fn handle_record_upload(
+    ctx: Ctx,
+    who: Principal,
+    file: server.Part,
+    #[path] id: Uuid
+) -> Result<model.ImportResult, string> {
+    return err("x")
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}

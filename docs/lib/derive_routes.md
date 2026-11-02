@@ -17,8 +17,8 @@ own table. One attribute per handler replaces about ten lines of `rest.Endpoint`
 
 **Almost all of it comes from the signature, not the attribute.** Whether the endpoint is
 secured is whether its second parameter is a `Principal`; whether its input is in the path or
-the body is whether it takes a `Uuid` or a struct; and those three facts choose one of
-`server`'s eight handler constructors. The answer's encoder comes from the return type -- a
+the body is whether it takes a `Uuid`, a struct or a `server.Part`; and those three facts choose
+one of `rest`'s sixteen handler constructors. The answer's encoder comes from the return type -- a
 `[T]` takes `json_list_encoder`, a `unit` takes none at all, a `Json` and an `int` take
 `codec`'s two builders that hold no converter (`json_value_encoder()` and `count_encoder()`,
 the second being what a count endpoint answers), a `Listing<T>` takes `paging`'s
@@ -53,6 +53,24 @@ source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all,
 * `status:`, because 201-versus-200 on a create is a decision, not a type.
 * `label:`, the noun in a bad-id message ("invalid order id"), defaulting to the module's own
   name with underscores as spaces -- which is what an application names them anyway.
+```
+
+**An uploaded file is the one input that is not decoded.** `#[part(name: "file")]` -- Spring's
+`@RequestPart` -- binds one part of a `multipart/form-data` body as a `server.Part`: bytes, a
+filename, and the client's claim about its own media type. It picks `rest`'s `*_form_handler`
+family where a decoded body picks `*_body_handler`, and the table names `rest.named_part("file")`
+where that one lists its `decoders:`.
+
+
+```
+* **A `server.Part` parameter needs no attribute**, as a `Uuid` needs no `#[path]`: a part is
+  the only thing that type is bound from. The attribute is how a form field named something
+  other than the parameter is said.
+* **`Option<server.Part>` is a part the form need not carry**, and takes `optional_part`. A
+  malformed body is still a 400 either way; only the part's absence becomes `None`.
+* **`consumes:` has nothing to say about one** and saying it anyway is refused, which is the
+  same fact as a form not being a `codec.Decoder`: a decoder is `[byte] -> T` and the boundary
+  a multipart body is split on is in the `Content-Type` header, which it never sees.
 ```
 
 **What the application must have in scope where this is spliced**: `Ctx` (its context type),

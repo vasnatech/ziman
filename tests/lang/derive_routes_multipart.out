@@ -1,0 +1,121 @@
+// derive(Json) for 'ImportResult'
+pub fn import_result_to_json(v: ImportResult) -> Json {
+    val field_imported_json = int_to_json(v.imported)
+    val field_skipped_json = int_to_json(v.skipped)
+    return Json.JObject(Map<string, Json> {
+        "imported": field_imported_json,
+        "skipped": field_skipped_json
+    })
+}
+
+pub fn import_result_from_json(j: Json) -> Result<ImportResult, string> {
+    if !Json.is_JObject(j) { return err("expected a JSON object for ImportResult") }
+    val field_imported_raw = try json.require(j, "imported")
+    val field_imported = switch int_from_json(field_imported_raw) {
+        Ok(__derive_ok_0) { __derive_ok_0 }
+        Err(__derive_err_1) { return err(concat("imported: ", __derive_err_1)) }
+    }
+    val field_skipped_raw = try json.require(j, "skipped")
+    val field_skipped = switch int_from_json(field_skipped_raw) {
+        Ok(__derive_ok_2) { __derive_ok_2 }
+        Err(__derive_err_3) { return err(concat("skipped: ", __derive_err_3)) }
+    }
+    return ImportResult {
+        imported: field_imported,
+        skipped: field_skipped
+    }
+}
+
+pub fn import_result_from_json_all(j: Json) -> Result<ImportResult, [string]> {
+    if !Json.is_JObject(j) { return err(["expected a JSON object for ImportResult"]) }
+    val problems = mutable_array_new<string>()
+    val get_imported = fn() -> Result<int, string> {
+    val field_imported_raw = try json.require(j, "imported")
+    val field_imported = try int_from_json(field_imported_raw)
+    return ok(field_imported)
+    }
+    val got_imported = get_imported()
+    if Err(problem_imported) = got_imported { push(problems, concat("imported: ", problem_imported)) }
+    val get_skipped = fn() -> Result<int, string> {
+    val field_skipped_raw = try json.require(j, "skipped")
+    val field_skipped = try int_from_json(field_skipped_raw)
+    return ok(field_skipped)
+    }
+    val got_skipped = get_skipped()
+    if Err(problem_skipped) = got_skipped { push(problems, concat("skipped: ", problem_skipped)) }
+    if len(problems) > 0 { return err(snapshot(problems)) }
+    return ok(ImportResult {
+        imported: unwrap(got_imported),
+        skipped: unwrap(got_skipped)
+    })
+}
+
+// derive(Routes) for this module
+fn handle_shared_upload_route(ctx: Ctx, token: Uuid, file: server.Part) -> Result<model.ImportResult, string> {
+    return handle_shared_upload(ctx, token, file)
+}
+
+fn handle_record_upload_route(ctx: Ctx, who: Principal, id: Uuid, file: server.Part) -> Result<model.ImportResult, string> {
+    return handle_record_upload(ctx, who, file, id)
+}
+
+pub val main_routes: [rest.Endpoint<Ctx>] = [
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/api/me/import",
+        handler: rest.secure_form_handler(
+            who: authenticated,
+            form: rest.named_part("report"),
+            encoders: [encoder_of(json_format(), model.import_result_to_json)],
+            status: 202,
+            run: handle_import,
+            api: api
+        )
+    },
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/api/me/health-connect/import",
+        handler: rest.secure_form_handler(
+            who: authenticated,
+            form: rest.named_part("file"),
+            encoders: [encoder_of(json_format(), model.import_result_to_json)],
+            run: handle_health_connect,
+            api: api
+        )
+    },
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/api/me/notes",
+        handler: rest.secure_form_handler(
+            who: authenticated,
+            form: rest.optional_part("attachment"),
+            encoders: [encoder_of(json_format(), model.import_result_to_json)],
+            run: handle_note,
+            api: api
+        )
+    },
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/api/shared/{token}/files",
+        handler: rest.public_path_form_handler(
+            path: named_uuid_param("token", "main"),
+            form: rest.named_part("file"),
+            encoders: [encoder_of(json_format(), model.import_result_to_json)],
+            run: handle_shared_upload_route,
+            api: api
+        )
+    },
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/api/me/records/{id}/files",
+        handler: rest.secure_path_form_handler(
+            who: authenticated,
+            path: uuid_param("main"),
+            form: rest.named_part("file"),
+            encoders: [encoder_of(json_format(), model.import_result_to_json)],
+            run: handle_record_upload_route,
+            api: api
+        )
+    }
+]
+

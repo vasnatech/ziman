@@ -12,8 +12,8 @@
 //
 // **Almost all of it comes from the signature, not the attribute.** Whether the endpoint is
 // secured is whether its second parameter is a `Principal`; whether its input is in the path or
-// the body is whether it takes a `Uuid` or a struct; and those three facts choose one of
-// `server`'s eight handler constructors. The answer's encoder comes from the return type -- a
+// the body is whether it takes a `Uuid`, a struct or a `server.Part`; and those three facts choose
+// one of `rest`'s sixteen handler constructors. The answer's encoder comes from the return type -- a
 // `[T]` takes `json_list_encoder`, a `unit` takes none at all, a `Json` and an `int` take
 // `codec`'s two builders that hold no converter (`json_value_encoder()` and `count_encoder()`,
 // the second being what a count endpoint answers), a `Listing<T>` takes `paging`'s
@@ -46,6 +46,21 @@
 //   * `status:`, because 201-versus-200 on a create is a decision, not a type.
 //   * `label:`, the noun in a bad-id message ("invalid order id"), defaulting to the module's own
 //     name with underscores as spaces -- which is what an application names them anyway.
+//
+// **An uploaded file is the one input that is not decoded.** `#[part(name: "file")]` -- Spring's
+// `@RequestPart` -- binds one part of a `multipart/form-data` body as a `server.Part`: bytes, a
+// filename, and the client's claim about its own media type. It picks `rest`'s `*_form_handler`
+// family where a decoded body picks `*_body_handler`, and the table names `rest.named_part("file")`
+// where that one lists its `decoders:`.
+//
+//   * **A `server.Part` parameter needs no attribute**, as a `Uuid` needs no `#[path]`: a part is
+//     the only thing that type is bound from. The attribute is how a form field named something
+//     other than the parameter is said.
+//   * **`Option<server.Part>` is a part the form need not carry**, and takes `optional_part`. A
+//     malformed body is still a 400 either way; only the part's absence becomes `None`.
+//   * **`consumes:` has nothing to say about one** and saying it anyway is refused, which is the
+//     same fact as a form not being a `codec.Decoder`: a decoder is `[byte] -> T` and the boundary
+//     a multipart body is split on is in the `Content-Type` header, which it never sees.
 //
 // **What the application must have in scope where this is spliced**: `Ctx` (its context type),
 // `api` (its `rest.Api`, which says how its own error type renders), the `who` function each
@@ -181,6 +196,9 @@ pub val @{module}_routes: [rest.Endpoint<Ctx>] = [
 @if e.has_body
             decoders: @{e.decoders},
 @end
+@if e.has_form
+            form: @{e.form_reader},
+@end
             encoders: @{e.encoders},
 @if e.has_status
             status: @{e.status},
@@ -217,6 +235,13 @@ pub fn attributes() -> [meta.AttrSpec] {
         meta.attr_spec("query", "name:string?,default:string?", "parameter"),
         meta.attr_spec("header", "name:string?,default:string?", "parameter"),
         meta.attr_spec("body", "", "parameter"),
+        // Spring's `@RequestPart("file") MultipartFile`: the one part of a `multipart/form-data`
+        // body this endpoint wants, by the form field's name. `name:` only when the field is
+        // called something other than the parameter -- `camel_case` of the parameter otherwise,
+        // as a query's is. **A `server.Part` parameter needs no attribute at all**, since a part
+        // is the only thing that type can be bound from; the attribute is how a field named
+        // differently is said.
+        meta.attr_spec("part", "name:string?", "parameter"),
         meta.attr_spec("principal", "", "parameter"),
         // `@Valid`'s equivalent, on the body. The violations come from `#[derive(Validate)]`'s
         // `<snake>_violations`, which 24 of this application's request structs already have, and
@@ -270,7 +295,7 @@ pub fn generate_module(m: meta.ModuleTarget) -> Result<string, string> {
 //     that destructures it back into the handler's own parameters.
 
 struct Binding {
-    // "path", "query", "header", "body", "principal" or "" for an unannotated parameter.
+    // "path", "query", "header", "body", "principal", "part" or "" for an unannotated parameter.
     role: string
     // The parameter's own name, which the adapter passes through.
     param: string
@@ -287,7 +312,7 @@ struct Binding {
     validated: bool
 }
 
-val binding_roles = ["path", "query", "header", "body", "principal"]
+val binding_roles = ["path", "query", "header", "body", "principal", "part"]
 
 fn bindings_of(f: meta.Function) -> Result<[Binding], string> {
     val out = mutable_array_new<Binding>()
@@ -342,7 +367,10 @@ fn check_bindings(f: meta.Function, bs: [Binding]) -> Result<[Binding], string> 
             }
             push(declared, b.wire)
         }
-        if b.role != "" && b.role != "body" && b.role != "principal" {
+        if b.role == "part" {
+            try check_part(f, b)
+        }
+        if b.role != "" && b.role != "body" && b.role != "principal" && b.role != "part" {
             try check_bindable(f, b)
         }
         if b.validated && b.role != "body" && b.role != "" {
@@ -404,6 +432,28 @@ fn check_bindable(f: meta.Function, b: Binding) -> Result<unit, string> {
     ))
 }
 
+// What a `#[part]` parameter may be: a `server.Part`, or an `Option` of one for a part the form
+// need not carry. Nothing else, because a part is bytes with a filename and no conversion is
+// implied -- a handler that wants a model out of an uploaded file parses it itself, which is what
+// the thing being a *file* means.
+//
+// **Matched exactly, where `is_uuid` matches by suffix.** `ends_with(name, "Part")` would accept an
+// application's own `BodyPart` or `CounterPart` -- a plausible type in a health record, which is the
+// application this answers to -- and the generated `rest.named_part` call would then fail to
+// type-check inside code its author never wrote.
+fn check_part(f: meta.Function, b: Binding) -> Result<unit, string> {
+    if is_part(b.inner) {
+        return unit
+    }
+    return err(prelude.format(
+        "#[route] on '{}': '{}' carries #[part] and is of type '{}' -- a part binding takes a " \
+            "server.Part, or an Option of one for a part the form need not carry",
+        f.name,
+        b.param,
+        meta.type_text(b.type)
+    ))
+}
+
 // The call that turns one piece of request text into the bound type. `None` for a type no helper
 // reads, which is what `check_bindable` asks.
 fn reader_of(t: meta.Type, text: string, name: string) -> Option<string> {
@@ -447,6 +497,10 @@ struct Wiring {
     query_reader: string
     has_body: bool
     body_type: string
+    // `rest.named_part("file")` or `rest.optional_part("file")`: the `form:` of a multipart route,
+    // which stands where `decoders:` does for a decoded one.
+    has_form: bool
+    form_reader: string
     // The name the table's `run:` points at: the handler itself, or a generated adapter.
     run: string
 }
@@ -472,6 +526,11 @@ fn roles_filled(f: meta.Function, bs: [Binding], module_name: string) -> [Bindin
         var wire = b.wire
         if i == 1 && is_principal(b.type) {
             role = "principal"
+        } else if i > 0 && is_part(b.inner) {
+            // **Before the struct rule below**, which would otherwise make a `server.Part` the
+            // request body and emit `decoder_of(json_format(), server.part_from_json)` -- a name
+            // that does not exist, reported from generated code rather than from the signature.
+            role = "part"
         } else if i > 0 && is_uuid(b.type) {
             role = "path"
             wire = if prelude.len(holes) == 1 { holes[0] } else { "id" }
@@ -488,6 +547,7 @@ fn wiring_for(f: meta.Function, module_name: string) -> Result<Wiring, string> {
     val paths = of_role(bs, "path")
     val queries = concat_bindings(of_role(bs, "query"), of_role(bs, "header"))
     val bodies = of_role(bs, "body")
+    val parts = of_role(bs, "part")
     val label = arg_or(f, "label", replace(module_name, "_", " "))
 
     // **A path segment beside a query parameter** was refused here until 2026-11-01, by a message
@@ -507,12 +567,55 @@ fn wiring_for(f: meta.Function, module_name: string) -> Result<Wiring, string> {
         return err(prelude.format("#[route] on '{}' has more than one #[body]", f.name))
     }
 
+    // **A request has one body**, and a `multipart/form-data` one is read as its parts instead of
+    // being decoded -- so these three refusals are the same refusal from three directions, and each
+    // names what is in the way rather than failing inside generated code.
+    if prelude.len(parts) > 0 && prelude.len(bodies) > 0 {
+        return err(prelude.format(
+            "#[route] on '{}' binds both a #[part] and a request body -- a request has one body, " \
+                "and a multipart one is read as its parts rather than decoded",
+            f.name
+        ))
+    }
+    if prelude.len(parts) > 1 {
+        return err(prelude.format(
+            "#[route] on '{}' has more than one #[part], and `rest`'s form constructors pass one " \
+                "input value -- a route reading two parts has no constructor, the way a query " \
+                "beside a body has none",
+            f.name
+        ))
+    }
+    if prelude.len(parts) > 0 && prelude.len(queries) > 0 {
+        return err(prelude.format(
+            "#[route] on '{}' binds both a #[part] and a query parameter, and `rest` has no " \
+                "constructor for the pair",
+            f.name
+        ))
+    }
+    // `consumes:` names the formats a body may be *decoded* from, and a part is not decoded at all.
+    // Saying both is asking this to pick between two answers to one question.
+    if prelude.len(parts) > 0 {
+        if Some(spelt) = meta.fn_attr_arg(f, "route", "consumes") {
+            return err(prelude.format(
+                "#[route] on '{}' says consumes: \"{}\" and binds a #[part] -- a part comes from a " \
+                    "multipart/form-data body, which is not one of the formats consumes: names",
+                f.name,
+                spelt
+            ))
+        }
+    }
+
     val decls = mutable_string_new()
     var path_reader = ""
     var query_reader = ""
     // The pair needs one whatever the parameters look like: the constructor passes the path and
     // then the query, and the handler is free to declare them the other way round.
-    var adapter_needed = prelude.len(paths) > 0 && prelude.len(queries) > 0
+    //
+    // **A path beside a form takes one for the same reason**, and unlike a path beside a *body*,
+    // which does not: a `Uuid` and a model are different enough types that the wrong order fails
+    // to type-check, where it would be reported from generated code the author never wrote. One
+    // adapter costs four lines and makes the declaration order mean nothing.
+    var adapter_needed = prelude.len(paths) > 0 && (prelude.len(queries) > 0 || prelude.len(parts) > 0)
     var validated = Option<Binding>.None
     for b in bodies {
         if b.validated {
@@ -574,11 +677,26 @@ fn wiring_for(f: meta.Function, module_name: string) -> Result<Wiring, string> {
         append(decls, try query_reader_fn(query_reader, holder, queries, false))
     }
 
+    // ---- the form: a body read as its parts, so one reader and no struct of its own
+    //
+    // There is no generated function here, unlike a path or a query: the part is reached by name
+    // and `rest` has the two readers that do it, so the table names one the way a `{id}` route
+    // names `uuid_param`. An `Option<server.Part>` takes `optional_part`, which is the whole
+    // difference a form need not carry a file makes.
+    var form_reader = ""
+    if prelude.len(parts) == 1 {
+        form_reader = if parts[0].optional {
+            concat("rest.optional_part(\"", parts[0].wire, "\")")
+        } else {
+            concat("rest.named_part(\"", parts[0].wire, "\")")
+        }
+    }
+
     // ---- the adapter, when the handler's parameters are not what the constructor passes
     var run = f.name
     if adapter_needed {
         run = concat(f.name, "_route")
-        append(decls, try adapter(f, run, bs, paths, queries, bodies, validated))
+        append(decls, try adapter(f, run, bs, paths, queries, concat_bindings(bodies, parts), validated))
     }
     return ok(Wiring {
         decls: snapshot(decls),
@@ -588,6 +706,8 @@ fn wiring_for(f: meta.Function, module_name: string) -> Result<Wiring, string> {
         query_reader: query_reader,
         has_body: prelude.len(bodies) > 0,
         body_type: if prelude.len(bodies) > 0 { get_or(named_of(bodies[0].type), "") } else { "" },
+        has_form: prelude.len(parts) > 0,
+        form_reader: form_reader,
         run: run
     })
 }
@@ -740,7 +860,9 @@ fn adapter(
     bs: [Binding],
     paths: [Binding],
     queries: [Binding],
-    bodies: [Binding],
+    // The body, or the one `#[part]` a multipart route reads: the input value, whichever it comes
+    // from, and the constructor passes it last either way.
+    inputs: [Binding],
     validated: Option<Binding>
 ) -> Result<string, string> {
     val params = mutable_array_new<string>()
@@ -773,7 +895,7 @@ fn adapter(
     } else if prelude.len(queries) > 1 {
         push(params, concat("bound_query: ", holder_name(f.name, "query")))
     }
-    for b in bodies {
+    for b in inputs {
         push(params, concat(b.param, ": ", meta.type_text(b.type)))
     }
     // The handler's own argument order is the order of its parameters.
@@ -822,7 +944,7 @@ fn row_for(
     return ok(template.row([
         template.text("method", capitalise(arg_or(f, "method", "GET"))),
         template.text("path", arg_or(f, "path", "/")),
-        template.text("flavour", flavour(secured, w.has_path, w.has_query, w.has_body)),
+        template.text("flavour", flavour(secured, w.has_path, w.has_query, w.has_body, w.has_form)),
         template.flag("secured", secured),
         template.text("who", arg_or(f, "who", "authenticated")),
         template.flag("has_path", w.has_path),
@@ -832,6 +954,8 @@ fn row_for(
         template.flag("has_body", w.has_body),
         template.text("body", w.body_type),
         template.text("decoders", decoders),
+        template.flag("has_form", w.has_form),
+        template.text("form_reader", w.form_reader),
         template.text("encoders", try encoders_for(f)),
         template.flag("has_status", Option.is_Some(meta.fn_attr_arg(f, "route", "status"))),
         template.text("status", arg_or(f, "status", "")),
@@ -1279,6 +1403,15 @@ fn is_principal(t: meta.Type) -> bool {
     return false
 }
 
+// `server.Part`, the one type a multipart body's part is bound as. See `check_part` for why this
+// is an equality and `is_uuid` below is a suffix.
+fn is_part(t: meta.Type) -> bool {
+    if Some(name) = named_of(t) {
+        return name == "Part" || ends_with(name, ".Part")
+    }
+    return false
+}
+
 fn is_uuid(t: meta.Type) -> bool {
     if Some(name) = named_of(t) {
         return ends_with(name, "Uuid")
@@ -1331,8 +1464,8 @@ fn placeholders(pattern: string) -> [string] {
     return snapshot(out)
 }
 
-// `secure_path_body_handler` and its nine siblings, named from the three facts that pick one.
-fn flavour(secured: bool, has_path: bool, has_query: bool, has_body: bool) -> string {
+// `secure_path_body_handler` and its fifteen siblings, named from the facts that pick one.
+fn flavour(secured: bool, has_path: bool, has_query: bool, has_body: bool, has_form: bool) -> string {
     val parts = mutable_array_new<string>()
     push(parts, if secured { "secure" } else { "public" })
     if has_path {
@@ -1345,6 +1478,12 @@ fn flavour(secured: bool, has_path: bool, has_query: bool, has_body: bool) -> st
     }
     if has_body {
         push(parts, "body")
+    }
+    // A form is the body read as its parts, so it stands exactly where `body` does:
+    // `secure_form_handler`, `secure_path_form_handler`. The two never both appear -- a request has
+    // one body, and `wiring_for` refuses the pair.
+    if has_form {
+        push(parts, "form")
     }
     push(parts, "handler")
     return join(separator: "_", pieces: snapshot(parts))

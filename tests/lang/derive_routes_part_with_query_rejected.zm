@@ -1,0 +1,35 @@
+// A `#[part]` beside a query parameter: the same missing constructor a body beside a query is, and
+// refused with the same sentence. `endpoint_core` reads a path, a query and an input in one order,
+// so the mechanism is there; what is missing is a name for this combination of them.
+#![derive(Routes)]
+
+use derive_routes
+use http
+use server
+use uuid.Uuid
+
+struct Ctx {
+    name: string
+}
+
+struct Principal {
+    id: Uuid
+}
+
+struct Upload {
+    note: string
+}
+
+#[route(method: POST, path: "/api/me/import")]
+pub fn handle_import(
+    ctx: Ctx,
+    who: Principal,
+    #[part] file: server.Part,
+    #[query] dry_run: Option<bool>
+) -> Result<Upload, string> {
+    return err("x")
+}
+
+fn main() {
+    print("unreachable")
+}

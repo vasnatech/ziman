@@ -143,6 +143,30 @@ pub struct Api<E> {
     fault: fn(int, string) -> Response
 }
 
+// Where an endpoint's input value comes from, which is one thing rather than a combination of
+// optional ones: nowhere at all, a request body decoded by its media type, or a
+// `multipart/form-data` body read as its parts.
+//
+// **This was two parameters until a form needed a third.** `endpoint_core` took
+// `decoders: Option<[codec.Decoder<I>]>` beside `blank: Option<I>` -- the value handed to `run` by
+// an endpoint with no input at all -- and "exactly one of these is set" was a convention its
+// callers kept rather than something the types said. A form cannot be a `codec.Decoder`: a decoder
+// is `[byte] -> T` and the boundary a multipart body is split on is in the `Content-Type` header,
+// which a decoder never sees. Three states is where the enum is cheaper than the convention.
+enum Input<I> {
+    // No input: `I` is `unit`, and this carries the `unit` that `run` is still passed.
+    Blank(I)
+    // A request body, decoded by whichever of these the request's `Content-Type` is -- a 415 when
+    // it is none of them, a 400 when the decoding fails.
+    Decoded([codec.Decoder<I>])
+    // A `multipart/form-data` body, read by a function over the whole request; `named_part` is the
+    // reader worth knowing. **A request that is not multipart at all is a 415 and everything the
+    // reader rejects is a 400**, which is the split `multipart_boundary` exists for -- so the
+    // media check stays in `endpoint_core` beside the other one and the reader only ever reports
+    // what is wrong with the body.
+    Form(fn(Request) -> Result<I, string>)
+}
+
 // ---- the input kinds, each in a `secure_` form (the caller is identified first) and a `public_` one.
 //
 // `who(ctx, req)` identifies the caller from the request (its headers, usually) and returns a `U`, or a `Denied` that is
@@ -151,11 +175,16 @@ pub struct Api<E> {
 // `public_*` builder is the explicit way to say nobody needs to be identified. `status` is the status of a successful
 // answer and may be left out of a named call: it is then 200.
 //
-// The nine builders are the combinations of three independent choices -- a caller, an input from the path or the query,
-// an input from the body -- and each is a few lines over one private `endpoint_core`, which does the steps in one order:
-// identify the caller, check the body's media type (415), negotiate the answer (406), read the path or query input (400),
-// decode the body (400), run. A builder cannot be one function with optional parts, because `run`'s own parameter list
-// (and the type parameters behind it) differs with which parts there are.
+// The builders are the combinations of three independent choices -- a caller, an input from the path or the query, and
+// an input from the body, which is either decoded by its media type or read as a `multipart/form-data` form -- and each
+// is a few lines over one private `endpoint_core`, which does the steps in one order: identify the caller, check the
+// body's media type (415), negotiate the answer (406), read the path or query input (400), read the body (400), run. A
+// builder cannot be one function with optional parts, because `run`'s own parameter list (and the type parameters behind
+// it) differs with which parts there are.
+//
+// **Sixteen combinations have a name here and the rest do not**, because nothing has wanted them: a query beside a body,
+// or beside a form, is the pair `#![derive(Routes)]` refuses by naming the constructor that would be here -- which is
+// how `secure_path_query_handler` came to exist rather than being guessed at.
 
 fn no_path(params: Params) -> Result<unit, string> {
     return ok(unit)
@@ -166,14 +195,13 @@ fn no_query(req: Request) -> Result<unit, string> {
 }
 
 // Every builder's one implementation. The parts an endpoint does not have are `unit`: `no_path`/`no_query` read `unit`
-// from nothing, `decoders: None` means no body is read and `blank` (`Some(unit)`) is what `run` gets in its place, and
-// `run` is the builder's own `run` wrapped to ignore the `unit`s. With a body, `decoders` is `Some` and `blank` `None`.
+// from nothing, `input` says where the one input value comes from -- `Blank(unit)` for an endpoint that has none, and
+// that `unit` is what `run` is handed in its place -- and `run` is the builder's own `run` wrapped to ignore the `unit`s.
 fn endpoint_core<C, U, P, Q, I, O, E>(
     who: fn(C, Request) -> Result<U, Denied>,
     path: fn(Params) -> Result<P, string>,
     query: fn(Request) -> Result<Q, string>,
-    decoders: Option<[codec.Decoder<I>]>,
-    blank: Option<I>,
+    input: Input<I>,
     encoders: [codec.Encoder<O>],
     status: int,
     run: fn(C, U, P, Q, I) -> Result<O, E>,
@@ -187,12 +215,24 @@ fn endpoint_core<C, U, P, Q, I, O, E>(
             return denied_response(refusal, fault)
         }
         var decoder = Option<codec.Decoder<I>>.None
-        if Some(all) = decoders {
+        if Decoded(all) = input {
             decoder = select_decoder<I>(all, req)
             if !is_Some(decoder) {
                 return fault(
                     status_unsupported_media_type,
                     format("unsupported media type: send {}", consumed_types<I>(all))
+                )
+            }
+        }
+        // A form's media type is checked here, beside the decoded body's, so that the two rejections
+        // a client can cause keep the statuses they should have: a body that is not multipart at all
+        // is a 415 like a body of the wrong format, and everything about the body itself is the
+        // reader's own 400.
+        if Form(_) = input {
+            if !is_Some(server.multipart_boundary(req)) {
+                return fault(
+                    status_unsupported_media_type,
+                    "unsupported media type: send multipart/form-data"
                 )
             }
         }
@@ -213,17 +253,27 @@ fn endpoint_core<C, U, P, Q, I, O, E>(
         if Err(message) = queried {
             return fault(status_bad_request, message)
         }
-        var input = blank
+        var held = Option<I>.None
+        if Blank(nothing) = input {
+            held = Option<I>.Some(nothing)
+        }
         if Some(chosen) = decoder {
             val decode = chosen.decode
             val decoded = decode(req.body)
             if Err(message) = decoded {
                 return fault(status_bad_request, message)
             }
-            input = Option<I>.Some(unwrap(decoded))
+            held = Option<I>.Some(unwrap(decoded))
+        }
+        if Form(read) = input {
+            val got = read(req)
+            if Err(message) = got {
+                return fault(status_bad_request, message)
+            }
+            held = Option<I>.Some(unwrap(got))
         }
         return answer<O, E>(
-            run(ctx, unwrap(caller), unwrap(located), unwrap(queried), unwrap_Some(input)),
+            run(ctx, unwrap(caller), unwrap(located), unwrap(queried), unwrap_Some(held)),
             encoder,
             status,
             api.failure
@@ -245,8 +295,7 @@ pub fn secure_handler<C, U, O, E>(
         who: who,
         path: no_path,
         query: no_query,
-        decoders: Option<[codec.Decoder<unit>]>.None,
-        blank: Option<unit>.Some(unit),
+        input: Input<unit>.Blank(unit),
         encoders: encoders,
         status: get_or(status, 200),
         run: fn(ctx: C, caller: U, id: unit, filter: unit, input: unit) -> Result<O, E> { return go(ctx, caller) },
@@ -269,8 +318,7 @@ pub fn secure_path_handler<C, U, P, O, E>(
         who: who,
         path: path,
         query: no_query,
-        decoders: Option<[codec.Decoder<unit>]>.None,
-        blank: Option<unit>.Some(unit),
+        input: Input<unit>.Blank(unit),
         encoders: encoders,
         status: get_or(status, 200),
         run: fn(ctx: C, caller: U, id: P, filter: unit, input: unit) -> Result<O, E> { return go(ctx, caller, id) },
@@ -300,8 +348,7 @@ pub fn secure_path_query_handler<C, U, P, Q, O, E>(
         who: who,
         path: path,
         query: query,
-        decoders: Option<[codec.Decoder<unit>]>.None,
-        blank: Option<unit>.Some(unit),
+        input: Input<unit>.Blank(unit),
         encoders: encoders,
         status: get_or(status, 200),
         run: fn(ctx: C, caller: U, id: P, filter: Q, input: unit) -> Result<O, E> {
@@ -327,8 +374,7 @@ pub fn secure_query_handler<C, U, Q, O, E>(
         who: who,
         path: no_path,
         query: query,
-        decoders: Option<[codec.Decoder<unit>]>.None,
-        blank: Option<unit>.Some(unit),
+        input: Input<unit>.Blank(unit),
         encoders: encoders,
         status: get_or(status, 200),
         run: fn(ctx: C, caller: U, id: unit, filter: Q, input: unit) -> Result<O, E> { return go(ctx, caller, filter) },
@@ -374,8 +420,7 @@ pub fn secure_body_handler<C, U, I, O, E>(
         who: who,
         path: no_path,
         query: no_query,
-        decoders: Option<[codec.Decoder<I>]>.Some(decoders),
-        blank: Option<I>.None,
+        input: Input<I>.Decoded(decoders),
         encoders: encoders,
         status: get_or(status, 200),
         run: fn(ctx: C, caller: U, id: unit, filter: unit, input: I) -> Result<O, E> { return go(ctx, caller, input) },
@@ -400,11 +445,68 @@ pub fn secure_path_body_handler<C, U, P, I, O, E>(
         who: who,
         path: path,
         query: no_query,
-        decoders: Option<[codec.Decoder<I>]>.Some(decoders),
-        blank: Option<I>.None,
+        input: Input<I>.Decoded(decoders),
         encoders: encoders,
         status: get_or(status, 200),
         run: fn(ctx: C, caller: U, id: P, filter: unit, input: I) -> Result<O, E> { return go(ctx, caller, id, input) },
+        api: api
+    )
+}
+
+// A secured endpoint whose input is an uploaded file: the body has to arrive as `multipart/form-data`
+// (else 415), `form` reads what the endpoint wants out of it (an `Err` is a 400, so a body that is not
+// what this route needs never reaches `run`), and `run(ctx, caller, input)` returns the answer or an
+// error. `named_part("file")` is the reader for the one-file form, and `optional_part` for a file a
+// form need not carry.
+//
+// **This is Spring's `@RequestPart MultipartFile`, and it is a reader rather than one more decoder**
+// because a `codec.Decoder` is `[byte] -> T`: the boundary a multipart body is split on is written in
+// the `Content-Type` header, which a decoder is never shown. Everything else an endpoint does -- who
+// the caller is, negotiating the answer, the status, the application's own error shape -- is unchanged,
+// which is the point of putting the form behind `Input` instead of beside the table.
+pub fn secure_form_handler<C, U, I, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    form: fn(Request) -> Result<I, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, U, I) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return endpoint_core<C, U, unit, unit, I, O, E>(
+        who: who,
+        path: no_path,
+        query: no_query,
+        input: Input<I>.Form(form),
+        encoders: encoders,
+        status: get_or(status, 200),
+        run: fn(ctx: C, caller: U, id: unit, filter: unit, sent: I) -> Result<O, E> { return go(ctx, caller, sent) },
+        api: api
+    )
+}
+
+// A secured endpoint with both an id in the path and an uploaded file (`POST /records/{id}/attachments`):
+// `run(ctx, caller, path_input, form_input)`.
+pub fn secure_path_form_handler<C, U, P, I, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    path: fn(Params) -> Result<P, string>,
+    form: fn(Request) -> Result<I, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, U, P, I) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return endpoint_core<C, U, P, unit, I, O, E>(
+        who: who,
+        path: path,
+        query: no_query,
+        input: Input<I>.Form(form),
+        encoders: encoders,
+        status: get_or(status, 200),
+        run: fn(ctx: C, caller: U, id: P, filter: unit, sent: I) -> Result<O, E> {
+            return go(ctx, caller, id, sent)
+        },
         api: api
     )
 }
@@ -505,6 +607,47 @@ pub fn public_path_body_handler<C, P, I, O, E>(
         encoders: encoders,
         status: status,
         run: fn(ctx: C, nobody: Anonymous, id: P, input: I) -> Result<O, E> { return go(ctx, id, input) },
+        api: api
+    )
+}
+
+// A public endpoint whose input is an uploaded file: `run(ctx, input)`. An upload nobody has to be
+// identified for -- a report sent in against a share token, say, where the token is the path.
+pub fn public_form_handler<C, I, O, E>(
+    form: fn(Request) -> Result<I, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, I) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return secure_form_handler<C, Anonymous, I, O, E>(
+        who: anyone<C>,
+        form: form,
+        encoders: encoders,
+        status: status,
+        run: fn(ctx: C, nobody: Anonymous, sent: I) -> Result<O, E> { return go(ctx, sent) },
+        api: api
+    )
+}
+
+// A public endpoint with both an id in the path and an uploaded file: `run(ctx, path_input, form_input)`.
+pub fn public_path_form_handler<C, P, I, O, E>(
+    path: fn(Params) -> Result<P, string>,
+    form: fn(Request) -> Result<I, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, P, I) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return secure_path_form_handler<C, Anonymous, P, I, O, E>(
+        who: anyone<C>,
+        path: path,
+        form: form,
+        encoders: encoders,
+        status: status,
+        run: fn(ctx: C, nobody: Anonymous, id: P, sent: I) -> Result<O, E> { return go(ctx, id, sent) },
         api: api
     )
 }

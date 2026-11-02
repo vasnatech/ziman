@@ -250,3 +250,49 @@ pub fn named_uuid_param(name: string, kind: string) -> fn(Params) -> Result<Uuid
         }
     }
 }
+
+// ---- a multipart body's parts as a value ----
+//
+// What a `form:` endpoint is built with, the way `uuid_param` is what a `path:` one is built with:
+// a function over the request, because the boundary a `multipart/form-data` body is split on is in
+// the `Content-Type` header and a `codec.Decoder` only ever sees `[byte]`.
+
+// The part named `name` out of the request's `multipart/form-data` body. Every `Err` is answered
+// 400: the body carried no boundary, ended without its closing one, held a part with no name of
+// its own or more parts than the cap -- or has no part by this name, which is the one this adds to
+// what `multipart` already reports.
+//
+// **A request that is not multipart at all never reaches this**, because `endpoint_core` answers
+// that 415 before the body is read. The two rejections a client can cause therefore keep the two
+// statuses they should have, which is what `multipart_boundary` is a separate function for.
+pub fn named_part(name: string) -> fn(Request) -> Result<server.Part, string> {
+    val wanted = name
+    return fn(req: Request) -> Result<server.Part, string> {
+        val parts = try parts_of(req)
+        if Some(found) = server.part(parts, wanted) {
+            return ok(found)
+        }
+        return err(format("the multipart body has no part named '{}'", wanted))
+    }
+}
+
+// `named_part` for a part a form need not carry -- an attachment beside the fields that matter.
+// **The body is still read**, so a malformed one is a 400 whether this part is in it or not; only
+// the part being absent is `None` rather than a refusal.
+pub fn optional_part(name: string) -> fn(Request) -> Result<Option<server.Part>, string> {
+    val wanted = name
+    return fn(req: Request) -> Result<Option<server.Part>, string> {
+        val parts = try parts_of(req)
+        return ok(server.part(parts, wanted))
+    }
+}
+
+// The parts, with the server's own sentence for a body it could not read. `multipart` answers an
+// `HttpError` because it is the server's own parser; a reader's error channel here is the message a
+// 400 carries, and `error_text` is where that translation already lives.
+fn parts_of(req: Request) -> Result<[server.Part], string> {
+    return switch server.multipart(req) {
+        Ok(parts) { ok(parts) }
+        Err(e) { err(server.error_text(e)) }
+    }
+}

@@ -208,6 +208,48 @@ A secured endpoint with both an id in the path and a request body (a `PUT /thing
 into a `P` and the body is decoded with the decoder for its media type; `run(ctx, caller, path_input, body_input)`
 returns the answer or an error. Either input failing to decode is a 400.
 
+### `secure_form_handler`
+
+```
+pub fn secure_form_handler<C, U, I, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    form: fn(Request) -> Result<I, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, U, I) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response
+```
+
+A secured endpoint whose input is an uploaded file: the body has to arrive as `multipart/form-data`
+(else 415), `form` reads what the endpoint wants out of it (an `Err` is a 400, so a body that is not
+what this route needs never reaches `run`), and `run(ctx, caller, input)` returns the answer or an
+error. `named_part("file")` is the reader for the one-file form, and `optional_part` for a file a
+form need not carry.
+
+**This is Spring's `@RequestPart MultipartFile`, and it is a reader rather than one more decoder**
+because a `codec.Decoder` is `[byte] -> T`: the boundary a multipart body is split on is written in
+the `Content-Type` header, which a decoder is never shown. Everything else an endpoint does -- who
+the caller is, negotiating the answer, the status, the application's own error shape -- is unchanged,
+which is the point of putting the form behind `Input` instead of beside the table.
+
+### `secure_path_form_handler`
+
+```
+pub fn secure_path_form_handler<C, U, P, I, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    path: fn(Params) -> Result<P, string>,
+    form: fn(Request) -> Result<I, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, U, P, I) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response
+```
+
+A secured endpoint with both an id in the path and an uploaded file (`POST /records/{id}/attachments`):
+`run(ctx, caller, path_input, form_input)`.
+
 ### `public_handler`
 
 ```
@@ -279,6 +321,36 @@ pub fn public_path_body_handler<C, P, I, O, E>(
 ```
 
 A public endpoint with both an id in the path and a request body: `run(ctx, path_input, body_input)`.
+
+### `public_form_handler`
+
+```
+pub fn public_form_handler<C, I, O, E>(
+    form: fn(Request) -> Result<I, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, I) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response
+```
+
+A public endpoint whose input is an uploaded file: `run(ctx, input)`. An upload nobody has to be
+identified for -- a report sent in against a share token, say, where the token is the path.
+
+### `public_path_form_handler`
+
+```
+pub fn public_path_form_handler<C, P, I, O, E>(
+    path: fn(Params) -> Result<P, string>,
+    form: fn(Request) -> Result<I, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, P, I) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response
+```
+
+A public endpoint with both an id in the path and an uploaded file: `run(ctx, path_input, form_input)`.
 
 ### `Routes`
 
@@ -426,6 +498,31 @@ pub fn named_uuid_param(name: string, kind: string) -> fn(Params) -> Result<Uuid
 
 The same as `uuid_param`, but for a captured segment named something other than `{id}`: a pattern with
 two captures (`{orderId}/items/{itemId}`) needs to say which it means.
+
+### `named_part`
+
+```
+pub fn named_part(name: string) -> fn(Request) -> Result<server.Part, string>
+```
+
+The part named `name` out of the request's `multipart/form-data` body. Every `Err` is answered
+400: the body carried no boundary, ended without its closing one, held a part with no name of
+its own or more parts than the cap -- or has no part by this name, which is the one this adds to
+what `multipart` already reports.
+
+**A request that is not multipart at all never reaches this**, because `endpoint_core` answers
+that 415 before the body is read. The two rejections a client can cause therefore keep the two
+statuses they should have, which is what `multipart_boundary` is a separate function for.
+
+### `optional_part`
+
+```
+pub fn optional_part(name: string) -> fn(Request) -> Result<Option<server.Part>, string>
+```
+
+`named_part` for a part a form need not carry -- an attachment beside the fields that matter.
+**The body is still read**, so a malformed one is a 400 whether this part is in it or not; only
+the part being absent is `None` rather than a refusal.
 
 ## `table.zm`
 

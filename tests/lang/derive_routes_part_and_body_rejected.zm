@@ -1,0 +1,36 @@
+// A `#[part]` beside a request body. A request has one body, and a `multipart/form-data` one is read
+// as its parts rather than decoded -- so this is not two inputs the generator could wire, and the
+// refusal says which two things are in the way rather than leaving a constructor name unresolved in
+// generated code.
+#![derive(Routes)]
+
+use derive_routes
+use http
+use server
+use uuid.Uuid
+
+struct Ctx {
+    name: string
+}
+
+struct Principal {
+    id: Uuid
+}
+
+struct Upload {
+    note: string
+}
+
+#[route(method: POST, path: "/api/me/import")]
+pub fn handle_import(
+    ctx: Ctx,
+    who: Principal,
+    #[part] file: server.Part,
+    #[body] data: Upload
+) -> Result<Upload, string> {
+    return err("x")
+}
+
+fn main() {
+    print("unreachable")
+}

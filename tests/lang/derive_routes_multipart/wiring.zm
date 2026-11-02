@@ -1,0 +1,44 @@
+// Everything a generated endpoint names that the library cannot: the context type, the `Api` that
+// says how this program's errors render, and the authorisation function a route names by `who:`.
+//
+// **In a module of its own, and imported**, which is the shape `#![derive(Routes)]` needs: a
+// generated val is spliced *before* the routed module's own vals (src/derive.c), so a hand-written
+// `val api` beside the handlers would not be in scope for the table. An import is in scope
+// wherever it is written, which is also how an application with thirty controllers shares one.
+use http
+use rest
+use server
+use uuid.Uuid
+use validate
+
+pub struct Ctx {
+    name: string
+}
+
+pub struct Principal {
+    id: Uuid
+}
+
+fn failure(e: string) -> http.Response {
+    return server.text_response(500, e)
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, message)
+}
+
+pub val api: rest.Api<string> = rest.Api<string> { failure: failure, fault: fault }
+
+pub fn authenticated(ctx: Ctx, req: http.Request) -> Result<Principal, rest.Denied> {
+    return rest.Denied.Unauthenticated("no")
+}
+
+// What `#[valid]` calls. **The application supplies it**, emitted bare like `api` and the `who`
+// functions, because only the application knows how its own error type carries per-field messages
+// -- this one's is a plain string, the North Star's is an `ApiError` with a `fields` map.
+pub fn invalid(found: [validate.Violation]) -> Option<string> {
+    if prelude.len(found) == 0 {
+        return Option<string>.None
+    }
+    return Option<string>.Some(concat(found[0].field, ": ", found[0].message))
+}

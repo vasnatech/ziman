@@ -1,0 +1,192 @@
+// A `multipart/form-data` endpoint through `rest`: `secure_form_handler` and its three siblings,
+// built with `named_part`/`optional_part` the way a `path:` endpoint is built with `uuid_param`.
+//
+// **An uploaded file cannot be a `codec.Decoder`**, which is `[byte] -> T` and never sees the
+// `Content-Type` the boundary is written in -- so a form is a reader over the whole request, and
+// `Input.Form` is the third thing an endpoint's input value can come from beside a decoded body and
+// nothing at all.
+//
+// What this pins is the statuses, because they are the whole reason the reader does not check the
+// media type itself: a body that is **not multipart at all is a 415**, every way the body itself can
+// be wrong is the reader's **400**, and a part this endpoint needs and did not get is the same 400 --
+// so a client is told which of the two it did wrong.
+use codec
+use http
+use rest
+use server
+use uuid
+use uuid.Uuid
+
+struct Ctx {
+    tag: string
+}
+
+struct Principal {
+    name: string
+}
+
+fn failure(e: string) -> http.Response {
+    return server.text_response(500, e)
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, message)
+}
+
+val api: rest.Api<string> = rest.Api<string> { failure: failure, fault: fault }
+
+fn authenticated(ctx: Ctx, req: http.Request) -> Result<Principal, rest.Denied> {
+    if Some(_) = http.header_value(req.headers, "Authorization") {
+        return ok(Principal { name: "mfg" })
+    }
+    return err(rest.Denied.Unauthenticated("no credentials"))
+}
+
+// The handler takes a `server.Part`, not a request: the filename and the bytes are what an import
+// endpoint dispatches on (the North Star's Health Connect import reads `.db` against `.json`), and
+// a filename is the client's claim about its own data, so this prints it rather than opening it.
+fn receive(ctx: Ctx, who: Principal, file: server.Part) -> Result<string, string> {
+    return ok(format(
+        "{} sent {} as {}, {} bytes",
+        who.name,
+        file.name,
+        get_or(file.filename, "-"),
+        str(len(file.body))
+    ))
+}
+
+// `optional_part`: a form that need not carry the file at all.
+fn receive_optional(ctx: Ctx, file: Option<server.Part>) -> Result<string, string> {
+    return switch file {
+        Some(p) { ok(concat("got ", get_or(p.filename, "-"))) }
+        None { ok("nothing attached") }
+    }
+}
+
+// A path segment beside the upload, which is `secure_path_form_handler`.
+fn receive_for(ctx: Ctx, who: Principal, id: Uuid, file: server.Part) -> Result<string, string> {
+    return ok(format("{} bytes for {}", str(len(file.body)), uuid.format(id)))
+}
+
+val table = rest.routes<Ctx>([
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/upload",
+        handler: rest.secure_form_handler<Ctx, Principal, server.Part, string, string>(
+            who: authenticated,
+            form: rest.named_part("file"),
+            encoders: [codec.plain_text_encoder()],
+            status: Option<int>.None,
+            run: receive,
+            api: api
+        )
+    },
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/notes",
+        handler: rest.public_form_handler<Ctx, Option<server.Part>, string, string>(
+            form: rest.optional_part("attachment"),
+            encoders: [codec.plain_text_encoder()],
+            status: Option<int>.None,
+            run: receive_optional,
+            api: api
+        )
+    },
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/records/{id}/files",
+        handler: rest.secure_path_form_handler<Ctx, Principal, Uuid, server.Part, string, string>(
+            who: authenticated,
+            path: rest.uuid_param("record"),
+            form: rest.named_part("file"),
+            encoders: [codec.plain_text_encoder()],
+            status: Option<int>.Some(201),
+            run: receive_for,
+            api: api
+        )
+    }
+])
+
+val boundary = "zimanUpload8"
+
+// A body written the way a client sends it: the boundary line, the part's headers, a blank line, bytes.
+fn form_body(parts: [string]) -> [byte] {
+    val out = mutable_string_new()
+    for p in parts {
+        append(out, concat("--", boundary, "\r\n", p, "\r\n"))
+    }
+    append(out, concat("--", boundary, "--\r\n"))
+    return to_bytes(snapshot(out))
+}
+
+fn file_part(field: string, filename: string, body: string) -> string {
+    return concat(
+        "Content-Disposition: form-data; name=\"", field, "\"; filename=\"", filename, "\"\r\n",
+        "Content-Type: application/octet-stream\r\n\r\n",
+        body
+    )
+}
+
+fn request(path: string, media: string, body: [byte], authorised: bool) -> http.Request {
+    val headers = mutable_array_new<http.Header>()
+    push(headers, http.Header { name: "Content-Type", value: media })
+    if authorised {
+        push(headers, http.Header { name: "Authorization", value: "Bearer t" })
+    }
+    return http.Request {
+        method: http.HttpMethod.Post,
+        target: path,
+        path: path,
+        query: "",
+        version: "HTTP/1.1",
+        headers: snapshot(headers),
+        body: body,
+        peer: None
+    }
+}
+
+fn multipart_request(path: string, parts: [string], authorised: bool) -> http.Request {
+    return request(path, concat("multipart/form-data; boundary=", boundary), form_body(parts), authorised)
+}
+
+fn show(label: string, req: http.Request) {
+    val res = rest.dispatch<Ctx>(table, Ctx { tag: "t" }, req, fault)
+    print(format("{}: {} {}", label, str(res.status), unwrap(bytes_to_string(res.body))))
+}
+
+fn main() {
+    show("a file", multipart_request("/upload", [file_part("file", "export.db", "SQLite xx")], true))
+
+    // Not multipart at all: the 415, and the only answer the reader never sees.
+    show("a JSON body", request("/upload", "application/json", to_bytes("{}"), true))
+
+    // Multipart, and wrong about the body: both are 400s, and the second is the one `named_part`
+    // adds to what the parser itself reports.
+    show("no closing boundary", request(
+        "/upload",
+        concat("multipart/form-data; boundary=", boundary),
+        to_bytes(concat("--", boundary, "\r\n", file_part("file", "a.txt", "x"))),
+        true
+    ))
+    show("the wrong field", multipart_request("/upload", [file_part("report", "a.txt", "x")], true))
+
+    // The caller is identified before the body is read, so an unauthorised upload is a 401 whatever
+    // it carries -- including a body this endpoint would have refused.
+    show("no credentials", multipart_request("/upload", [file_part("report", "a.txt", "x")], false))
+
+    // `optional_part`, both ways, on a route nobody has to be identified for.
+    show("an attachment", multipart_request("/notes", [file_part("attachment", "scan.png", "PNG")], false))
+    show("no attachment", multipart_request("/notes", [file_part("note", "-", "hello")], false))
+
+    // A path segment beside the upload, and the endpoint's own 201.
+    show("a file for a record", multipart_request(
+        "/records/0b7f4e2c-1d3a-4c5b-8e9f-2a1b3c4d5e6f/files",
+        [file_part("file", "scan.pdf", "%PDF-1.7")],
+        true
+    ))
+    show("a file for a bad id", multipart_request(
+        "/records/not-a-uuid/files",
+        [file_part("file", "scan.pdf", "%PDF-1.7")],
+        true
+    ))
+}

@@ -1,0 +1,36 @@
+// Two `#[part]`s. `rest`'s form constructors pass one input value, the way the body ones do, so a
+// route that needs two files has no constructor -- the same shape of gap as a query beside a body,
+// and named the same way, because that is how the path-and-query pair came to be built rather than
+// guessed at.
+#![derive(Routes)]
+
+use derive_routes
+use http
+use server
+use uuid.Uuid
+
+struct Ctx {
+    name: string
+}
+
+struct Principal {
+    id: Uuid
+}
+
+struct Upload {
+    note: string
+}
+
+#[route(method: POST, path: "/api/me/import")]
+pub fn handle_import(
+    ctx: Ctx,
+    who: Principal,
+    #[part] first: server.Part,
+    #[part] second: server.Part
+) -> Result<Upload, string> {
+    return err("x")
+}
+
+fn main() {
+    print("unreachable")
+}

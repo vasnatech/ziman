@@ -1,0 +1,8 @@
+// What an import endpoint answers: how much of the uploaded file it took. The *request* has no
+// model at all, which is the point -- an uploaded file is bytes with a filename, and the handler
+// parses it rather than a decoder doing it from the body's media type.
+#[derive(Json)]
+pub struct ImportResult {
+    imported: int
+    skipped: int
+}
