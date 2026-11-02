@@ -1,0 +1,6 @@
+// A digit separator that is not between digits. Java's rule, the strictest available: a leading,
+// trailing or doubled `_` is refused rather than quietly ignored, so `1_000_` and `1__000` are
+// both errors and a reader can trust that every `_` separates two digits.
+fn main() {
+    print(str(1_000_))
+}

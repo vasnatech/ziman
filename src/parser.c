@@ -594,28 +594,63 @@ static int continues_expression(const Token *after) {
            after->type == TOK_QUESTION;
 }
 
+/* A numeric literal's digits, NUL-terminated, with `_` separators
+ * removed and `suffix_len` trailing characters (an `n`/`d`/`b`) dropped.
+ *
+ * Every numeric literal goes through this now, and two things make it
+ * necessary. A token points into the raw source rather than a private
+ * buffer, so it is not NUL-terminated at the token's own end -- which
+ * `strtoll` got away with while a literal was a bare run of digits and
+ * does not once a `_` can appear, since `strtoll` stops at the first one
+ * and would read `1_000` as 1. */
+static char *literal_digits(const Token *t, int suffix_len) {
+    char *out = ziman_xmalloc((size_t)t->length + 1);
+    int n = 0;
+    for (int i = 0; i < t->length - suffix_len; i++) {
+        if (t->start[i] != '_') out[n++] = t->start[i];
+    }
+    out[n] = '\0';
+    return out;
+}
+
 static Expr *parse_primary(Parser *p) {
     Token *t = cur(p);
 
     if (match(p, TOK_INT_LIT)) {
         Expr *e = expr_new(EXPR_INT, t->line, t->col);
+        char *digits = literal_digits(t, 0);
+        /* Base 16 only for an explicit `0x`, never `strtoll`'s own base 0:
+         * that reads a leading zero as octal and would silently change the
+         * value of `017`, which parses today and means seventeen. */
+        int hex = digits[0] == '0' && (digits[1] == 'x' || digits[1] == 'X');
+        const char *body = hex ? digits + 2 : digits;
+        int base = hex ? 16 : 10;
         errno = 0;
-        e->as.int_val = strtoll(t->start, NULL, 10);
+        e->as.int_val = strtoll(body, NULL, base);
         if (errno == ERANGE) {
-            if (strtoull(t->start, NULL, 10) == 9223372036854775808ULL) {
+            /* The one literal above INT64_MAX that is legal: the operand of
+             * a unary minus writing INT64_MIN. */
+            if (strtoull(body, NULL, base) == 9223372036854775808ULL) {
                 e->as.int_val = INT64_MIN;
                 e->int_min_literal = 1;
+            } else if (hex) {
+                ziman_error("syntax", t->line, t->col,
+                            "hex literal %.*s is out of range for int (the largest is 0x7FFFFFFFFFFFFFFF, and a hex literal takes no bigint suffix)",
+                            t->length, t->start);
             } else {
                 ziman_error("syntax", t->line, t->col,
                             "integer literal %.*s is out of range for int (the largest is 9223372036854775807; write %.*sn for a bigint)",
                             t->length, t->start, t->length, t->start);
             }
         }
+        free(digits);
         return e;
     }
     if (match(p, TOK_FLOAT_LIT)) {
         Expr *e = expr_new(EXPR_FLOAT, t->line, t->col);
-        e->as.float_val = strtod(t->start, NULL);
+        char *digits = literal_digits(t, 0);
+        e->as.float_val = strtod(digits, NULL);
+        free(digits);
         return e;
     }
     if (match(p, TOK_BIGINT_LIT)) {
@@ -625,10 +660,7 @@ static Expr *parse_primary(Parser *p) {
          * way a string literal's does) -- strip it before handing the
          * digits to bignum_from_string, which needs a clean, NUL-
          * terminated digit string. */
-        int digit_len = t->length - 1;
-        char *digits = ziman_xmalloc((size_t)digit_len + 1);
-        memcpy(digits, t->start, (size_t)digit_len);
-        digits[digit_len] = '\0';
+        char *digits = literal_digits(t, 1);
         int ok;
         e->as.bigint_val = bignum_from_string(digits, &ok);
         free(digits);
@@ -641,10 +673,7 @@ static Expr *parse_primary(Parser *p) {
         Expr *e = expr_new(EXPR_DECIMAL, t->line, t->col);
         /* Same reasoning as TOK_BIGINT_LIT above -- strip the trailing
          * 'd' suffix before handing the digits to decimal_from_string. */
-        int digit_len = t->length - 1;
-        char *digits = ziman_xmalloc((size_t)digit_len + 1);
-        memcpy(digits, t->start, (size_t)digit_len);
-        digits[digit_len] = '\0';
+        char *digits = literal_digits(t, 1);
         int ok;
         e->as.decimal_val = decimal_from_string(digits, &ok);
         free(digits);
@@ -659,10 +688,7 @@ static Expr *parse_primary(Parser *p) {
          * TOK_DECIMAL_LIT above, but byte is fixed-width -- a plain
          * strtol plus an explicit 0-255 range check, no bignum/decimal
          * parsing needed. */
-        int digit_len = t->length - 1;
-        char *digits = ziman_xmalloc((size_t)digit_len + 1);
-        memcpy(digits, t->start, (size_t)digit_len);
-        digits[digit_len] = '\0';
+        char *digits = literal_digits(t, 1);
         long v = strtol(digits, NULL, 10);
         if (v < 0 || v > 255) {
             ziman_error("syntax", t->line, t->col, "byte literal %sb is out of range (must be 0-255)", digits);

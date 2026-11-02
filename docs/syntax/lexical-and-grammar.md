@@ -9,7 +9,20 @@ Part of the [v0 syntax reference](README.md).
   `val`/`var`/parameter/function name must not start uppercase, and a `struct`/`enum`/
   enum-variant name must -- this is what makes struct-literal and enum-access parsing
   unambiguous everywhere a primary expression can appear, including an `if`/`while` condition.
-- Integer literals: `[0-9]+` (decimal only in v0).
+- Integer literals: `[0-9]+` or `0[xX][0-9a-fA-F]+` — decimal or hexadecimal, and a `_` may
+  separate digits in either (`1_000_000`, `0xFFFF_FFFF`). A separator has to sit **between** two
+  digits, so `1_000_`, `1__000` and `_1` are refused rather than quietly ignored, and `0x` with no
+  digit after it is refused too.
+  - **A hex literal takes no suffix**, and that is forced rather than chosen: `b` and `d` *are*
+    hex digits, so `0xFFb` is the number 0xFFB and `0x19d` is 0x19D. Only `n` would be
+    unambiguous, and a hex bigint while the other two mean something else would be the surprising
+    half of a rule — so it is refused by name.
+  - **No octal and no binary.** `0b` is already the byte literal zero (`number.byte_min` is
+    written `0b`), so a `0b1010` notation would make `0b` mean two things one character apart; a
+    leading-zero octal would change the value of `017`, which parses today and means seventeen.
+  - The spelling survives `ziman --fmt`, which re-prints a literal's own source text: a hex
+    constant is not rewritten as decimal, which would destroy the one notation its specification
+    is written in.
 - Float literals: `[0-9]+\.[0-9]+` (a digit is required on both sides of
   the dot — `.5` and `5.` are not valid literals), optionally with an exponent:
   `[0-9]+(\.[0-9]+)?[eE][+-]?[0-9]+` (`1e3`, `2.5E-2`, `1.5e-10`). An exponent

@@ -1,0 +1,1 @@
+hex literal 0xFFFFFFFFFFFFFFFF is out of range for int (the largest is 0x7FFFFFFFFFFFFFFF, and a hex literal takes no bigint suffix)

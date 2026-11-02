@@ -74,7 +74,7 @@ Part of the [task list](README.md) -- see its preamble for the reviews these com
   `tests/lang/time_pattern_offset` pins all of it, including the fifteen lines it deletes from the
   North Star's `service/apple_health.zm`. 1,394 fixtures, 457 library tests.
 
-- [ ] **D24** **There is no hexadecimal integer literal.** (raised 2026-11-02 while writing a zip
+- [x] **D24** **There is no hexadecimal integer literal.** (raised 2026-11-02 while writing a zip
   reader for the FHIR bulk import; S) `0x02014b50` is a syntax error -- `0` followed by an
   identifier -- so a binary format's constants have to be written in decimal with the hex in a
   comment, which is what `common/zip.zm` in the North Star does for its three signatures
@@ -83,3 +83,37 @@ Part of the [task list](README.md) -- see its preamble for the reviews these com
   decimal transcription is a mistake nobody can see. `bits` exists and `[byte]` is a first-class
   type, so the language already expects this kind of code to be written in it. A binary literal
   (`0b`) and `_` digit separators are the same decision; an octal one is not worth having.
+
+  **Done 2026-11-02: hex and `_`, and binary is declined with evidence.** `0x02014b50` and
+  `0XFFFF_FFFF` are `int` literals, and a `_` may separate digits of any numeric literal in any
+  base (`1_000_000`, `1_000.000_5`, `12_345n`). A separator must sit **between** two digits --
+  Java's rule, the strictest available -- so `1_000_`, `1__000` and a bare `0x` are refused by
+  name rather than quietly ignored.
+
+  * **`0b` cannot be a binary literal here, and that is not a taste judgement**: `0b` is already
+    the byte literal zero. `lib/core/number.zm`'s `byte_min` *is* `0b` and `lib/db/pg.zm` sends
+    `[0b]`, so the notation would make `0b` mean two things one character apart and break the
+    library the day it landed. Grepped before deciding. Octal is worse than unnecessary: a
+    leading-zero form changes the value of `017`, which parses today and means seventeen.
+  * **A hex literal takes no suffix, and this is forced rather than chosen.** `b` and `d` *are*
+    hex digits, so `0xFFb` is the number 0xFFB and `0x19d` is 0x19D -- there is no reading of
+    those as a byte and a decimal. Only `n` would be unambiguous, and a hex bigint while its two
+    siblings silently meant something else is the surprising half of a rule, so `0xFFn` is
+    refused with that sentence. The out-of-range message differs for the same reason: a decimal
+    literal is told to write `n`, a hex one is told the hex maximum.
+  * **The formatter had to learn the notation or it would have destroyed it.** `ziman --fmt`
+    re-prints each item's own source text, so spelling survives -- but its scanner stopped at the
+    `x`, which would have put a space inside `0x FF`. A formatter that rewrote `0x02014b50` as
+    33639248 would delete the only notation the specification is written in, which is the point
+    of the whole task.
+  * **One `literal_digits` helper in the parser serves all five literal kinds.** `strtoll` got
+    away with reading straight from the source pointer while a literal was a bare run of digits;
+    it stops at the first `_` and would read `1_000` as 1. The three suffixed kinds already
+    copied their digits, so this replaced that idiom three times over.
+  * The sharpest version of the gap, worth recording: `lib/core/toml.zm` parses TOML's `0x`, `0o`,
+    `0b` and `_` for everybody else, and was written in a language that accepted none of them.
+
+  Five fixtures (`int_literal_hex_and_separators` plus one per refusal), the lexical reference,
+  `int`'s own entry in types-and-numbers.md, and the VS Code grammar with three new scope cases in
+  `check_grammar.py` -- the hex rule has to precede the integer rule there or `0xFF` colours as `0`
+  and a name. The North Star's `common/zip.zm` reads `0x02014b50` now. 1,399 fixtures, 0 failed.

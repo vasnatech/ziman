@@ -1,0 +1,51 @@
+// D24: hexadecimal literals and `_` digit separators.
+//
+// **Every specification for a binary format is written in hex**, and until 2026-11-02 this language
+// could not be: `0x02014b50` was `0` followed by an identifier, so a zip signature or a bit mask
+// had to be transcribed to decimal with the hex in a comment -- a mistake nobody can see by
+// reading. `lib/core/toml.zm` had the sharpest version of it, parsing TOML's `0x`, `0o`, `0b` and
+// `_` for everyone else while the language it is written in accepted none of them.
+//
+// **Octal and binary are deliberately absent.** `0b` is already the byte literal zero -- the
+// prelude's `number.byte_min` *is* `0b`, and `db/pg.zm` sends `[0b]` -- so a `0b1010` notation
+// would make `0b` mean two things one character apart. A leading-zero octal is worse: it changes
+// the value of something that already parses.
+use bits
+use number.byte_max
+
+fn main() {
+    // The literal that raised the task: a zip central-directory signature, now readable against
+    // the specification it comes from.
+    print(str(0x02014b50))
+    print(str(0x06054b50))
+    print(str(0x04034b50))
+
+    // Case is kept on both sides of the `x` and neither matters to the value.
+    print(str(0xff == 0XFF))
+    print(str(0xDEADBEEF))
+
+    // The separator is for reading long constants, in any base and in any of the numeric types.
+    print(str(0xFFFF_FFFF))
+    print(str(1_000_000))
+    print(str(1_000.000_5))
+    print(str(1_0e1_0))
+    print(str(12_345_678_901_234_567_890n))
+    print(str(19_99.99d))
+    print(str(25_5b))
+    print(str(0xFF == 255 && 1_000 == 1000))
+
+    // The edges of `int`, which a hex literal reaches the same way a decimal one does -- including
+    // the one literal above the maximum that is legal, as the operand of a unary minus.
+    print(str(0x7FFFFFFFFFFFFFFF))
+    print(str(-0x8000000000000000))
+
+    // **`b` and `d` are hex digits**, so there is no hex byte and no hex decimal: `0xFFb` is the
+    // number 0xFFB and `0x19d` is 0x19D. A byte from a hex literal is a conversion, not a suffix.
+    print(str(0xFFb))
+    print(str(0x19d))
+    print(str(byte_max))
+
+    // `bits` is what this notation exists beside: a mask is written as the specification writes it.
+    print(str(bits.and(0xFF00, 0x0FF0)))
+    print(str(bits.shift_left(0x1, 8) == 0x100))
+}

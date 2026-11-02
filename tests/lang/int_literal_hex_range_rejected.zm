@@ -1,0 +1,6 @@
+// A hex literal past the largest `int`. The message says the hex maximum rather than the decimal
+// one, and says that the `n` suffix is not the way out of it here -- which it is for a decimal
+// literal and is not for this one.
+fn main() {
+    print(str(0xFFFFFFFFFFFFFFFF))
+}

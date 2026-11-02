@@ -4,11 +4,15 @@ Part of the [v0 syntax reference](README.md).
 
 ## Types
 
-- `int` — 64-bit signed integer. **Never wraps**: `+ - * /` (`MIN / -1`), unary `-`, `math.abs(MIN)`
-  overflow are a runtime error, consistent with `bigint as int`/`int as byte` clamping instead
-  of wrapping. A literal must fit `[-9223372036854775808, 9223372036854775807]` (overflow is a
-  compile error naming the `n` bigint suffix, not silent saturation). `float as int` truncates
-  toward zero and saturates to `INT64_MAX`/`INT64_MIN` (NaN is 0).
+- `int` — 64-bit signed integer, written in decimal or in hex (`0x02014b50`, `0XFFFF_FFFF`), with
+  `_` free to separate digits in either. **Never wraps**: `+ - * /` (`MIN / -1`), unary `-`,
+  `math.abs(MIN)` overflow are a runtime error, consistent with `bigint as int`/`int as byte`
+  clamping instead of wrapping. A literal must fit `[-9223372036854775808, 9223372036854775807]`
+  (overflow is a compile error naming the `n` bigint suffix, not silent saturation — a hex
+  literal's message names `0x7FFFFFFFFFFFFFFF` instead, since it takes no suffix). `float as int`
+  truncates toward zero and saturates to `INT64_MAX`/`INT64_MIN` (NaN is 0). See
+  [lexical rules](lexical-and-grammar.md) for why there is no octal or binary form, and why a hex
+  literal cannot carry a `b`/`d`/`n` suffix.
 - `float` — double-precision IEEE 754. `bool` — `true`/`false`. `string` — immutable text.
 - `bigint`/`decimal`/`byte` — see "Numbers" below for the full rules; in brief, arbitrary-
   precision integer (`n` suffix), arbitrary-precision exact decimal (`d` suffix), and an

@@ -55,17 +55,22 @@
     "numbers": {
       "patterns": [
         {
-          "comment": "bigint (123n), decimal (19.99d) and byte (200b) literals",
+          "comment": "hex first: 0xFF would otherwise match the integer rule as 0 and leave xFF a name",
+          "name": "constant.numeric.hex.ziman",
+          "match": "\\b0[xX][0-9a-fA-F][0-9a-fA-F_]*\\b"
+        },
+        {
+          "comment": "bigint (123n), decimal (19.99d) and byte (200b) literals, with _ separators",
           "name": "constant.numeric.suffixed.ziman",
-          "match": "\\b[0-9]+(\\.[0-9]+)?[nd]\\b|\\b[0-9]+b\\b"
+          "match": "\\b[0-9][0-9_]*(\\.[0-9][0-9_]*)?[nd]\\b|\\b[0-9][0-9_]*b\\b"
         },
         {
           "name": "constant.numeric.float.ziman",
-          "match": "\\b[0-9]+\\.[0-9]+\\b"
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*\\b"
         },
         {
           "name": "constant.numeric.integer.ziman",
-          "match": "\\b[0-9]+\\b"
+          "match": "\\b[0-9][0-9_]*\\b"
         }
       ]
     },

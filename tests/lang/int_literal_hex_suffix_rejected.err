@@ -1,0 +1,1 @@
+a hex literal takes no 'n' suffix: 'b' and 'd' are hex digits, so a hex byte or decimal cannot be told from one, and a hex bigint alone would be the odd one out

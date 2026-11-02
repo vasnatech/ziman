@@ -82,20 +82,34 @@ static int scan(const char *src, size_t len, Items *out, char *err, size_t err_s
             i = j;
         } else if (isdigit((unsigned char)c)) {
             size_t j = i;
-            while (j < len && isdigit((unsigned char)src[j])) j++;
-            if (j + 1 < len && src[j] == '.' && isdigit((unsigned char)src[j + 1])) {
-                j++;
-                while (j < len && isdigit((unsigned char)src[j])) j++;
-            }
-            if (j < len && (src[j] == 'e' || src[j] == 'E')) {
-                size_t k = j + 1;
-                if (k < len && (src[k] == '+' || src[k] == '-')) k++;
-                if (k < len && isdigit((unsigned char)src[k])) {
-                    while (k < len && isdigit((unsigned char)src[k])) k++;
-                    j = k;
+            /* `0x1F`, `0XFFFF_FFFF`: a hex literal has to scan as one item, or
+             * the scan would end at the `x` and the printer would put a space
+             * in the middle of a number. The formatter re-prints each item's
+             * own source text, so a literal's spelling survives -- and has
+             * to: rewriting `0x02014b50` as 33639248 would destroy the one
+             * notation its specification is written in. A `_` separator is
+             * part of the number for the same reason. */
+            if (src[j] == '0' && j + 2 < len && (src[j + 1] == 'x' || src[j + 1] == 'X') &&
+                isxdigit((unsigned char)src[j + 2])) {
+                j += 2;
+                while (j < len && (isxdigit((unsigned char)src[j]) || src[j] == '_')) j++;
+            } else {
+                while (j < len && (isdigit((unsigned char)src[j]) || src[j] == '_')) j++;
+                if (j + 1 < len && src[j] == '.' && isdigit((unsigned char)src[j + 1])) {
+                    j++;
+                    while (j < len && (isdigit((unsigned char)src[j]) || src[j] == '_')) j++;
                 }
+                if (j < len && (src[j] == 'e' || src[j] == 'E')) {
+                    size_t k = j + 1;
+                    if (k < len && (src[k] == '+' || src[k] == '-')) k++;
+                    if (k < len && isdigit((unsigned char)src[k])) {
+                        while (k < len && (isdigit((unsigned char)src[k]) || src[k] == '_')) k++;
+                        j = k;
+                    }
+                }
+                if (j < len && (src[j] == 'n' || src[j] == 'd' || src[j] == 'b') &&
+                    !(j + 1 < len && (isalnum((unsigned char)src[j + 1]) || src[j + 1] == '_'))) j++;
             }
-            if (j < len && (src[j] == 'n' || src[j] == 'd' || src[j] == 'b') && !(j + 1 < len && (isalnum((unsigned char)src[j + 1]) || src[j + 1] == '_'))) j++;
             it.kind = K_NUMBER;
             it.len = (int)(j - i);
             i = j;

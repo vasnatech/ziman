@@ -1,0 +1,6 @@
+// `0x` with no digit after it. Today this would otherwise lex as `0` and an identifier `x`, which
+// parses in some contexts and means something else entirely -- so it is named rather than left to
+// surprise whoever wrote it.
+fn main() {
+    print(str(0x))
+}

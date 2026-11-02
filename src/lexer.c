@@ -374,16 +374,83 @@ static void lex_string(Lexer *lx) {
     lx->prev_can_end_stmt = 1;
 }
 
+/* A `_` between digits, which is how a long constant is made readable
+ * (`1_000_000`, `0xFFFF_FFFF`). Java's rule, the strictest of the
+ * available ones: a separator has to sit *between* two digits, so a
+ * leading, trailing or doubled one is a lexical error rather than
+ * something to be quietly ignored. `is_digit` is the predicate for the
+ * base being scanned, so the same helper serves hex.
+ *
+ * Returns 1 when a separator was consumed, and errors out when one is
+ * there but not between digits -- nothing legal in this language puts a
+ * `_` immediately after digits, so there is no case to fall through to. */
+static int consume_digit_separator(Lexer *lx, int line, int col, int (*is_digit)(int)) {
+    if (peek(lx) != '_') return 0;
+    if (!is_digit((unsigned char)peek_next(lx)))
+        ziman_error("lexical", line, col,
+                    "a digit separator must be between digits (write 1_000_000, not 1_000_ or 1__000)");
+    advance(lx); /* '_' */
+    return 1;
+}
+
+static int is_decimal_digit(int c) { return isdigit(c); }
+static int is_hex_digit(int c) { return isxdigit(c); }
+
 static void lex_number(Lexer *lx) {
     int line = lx->line, col = lx->col;
     const char *start = lx->src + lx->pos;
-    while (isdigit((unsigned char)peek(lx))) advance(lx);
+
+    /* `0x1F`, `0XFFFF_FFFF`: a hexadecimal `int`. Every specification for
+     * a binary format is written in hex, and before this a zip signature
+     * or a bit mask had to be transcribed to decimal with the hex in a
+     * comment -- a mistake nobody can see by reading (docs/reviews/tasks/ D24).
+     *
+     * **A hex literal takes no suffix**, and that is not a restriction
+     * chosen for simplicity: `b` and `d` *are* hex digits, so `0xFFb`
+     * cannot be a byte literal -- it is the number 0xFFB -- and `0x19d`
+     * is not a decimal but 0x19D. Only `n` is unambiguous, and allowing
+     * a bigint but not the other two would be the surprising half of a
+     * rule. It is refused by name below.
+     *
+     * **Octal and binary are deliberately absent.** `0b` is already the
+     * byte literal zero -- `lib/core/number.zm`'s `byte_min` is written
+     * `0b`, and `lib/db/pg.zm` sends `[0b]` -- so a `0b1010` notation
+     * would make `0b` mean two things one character apart. A leading-zero
+     * octal (`017`) is worse: it changes the value of something that
+     * already parses. */
+    if (peek(lx) == '0' && (peek_next(lx) == 'x' || peek_next(lx) == 'X')) {
+        if (!isxdigit((unsigned char)lx->src[lx->pos + 2]))
+            ziman_error("lexical", line, col, "a hex literal needs at least one digit after '0x'");
+        advance(lx); /* '0' */
+        advance(lx); /* 'x' */
+        for (;;) {
+            if (isxdigit((unsigned char)peek(lx))) {
+                advance(lx);
+                continue;
+            }
+            if (consume_digit_separator(lx, line, col, is_hex_digit)) continue;
+            break;
+        }
+        if (peek(lx) == 'n' && !(isalnum((unsigned char)peek_next(lx)) || peek_next(lx) == '_'))
+            ziman_error("lexical", line, col,
+                        "a hex literal takes no 'n' suffix: 'b' and 'd' are hex digits, so a hex "
+                        "byte or decimal cannot be told from one, and a hex bigint alone would be "
+                        "the odd one out");
+        emit(lx, TOK_INT_LIT, start, (int)((lx->src + lx->pos) - start), line, col);
+        return;
+    }
+
+    while (isdigit((unsigned char)peek(lx)) || consume_digit_separator(lx, line, col, is_decimal_digit)) {
+        if (isdigit((unsigned char)peek(lx))) advance(lx);
+    }
 
     int is_float = 0;
     if (peek(lx) == '.' && isdigit((unsigned char)peek_next(lx))) {
         is_float = 1;
         advance(lx); /* '.' */
-        while (isdigit((unsigned char)peek(lx))) advance(lx);
+        while (isdigit((unsigned char)peek(lx)) || consume_digit_separator(lx, line, col, is_decimal_digit)) {
+            if (isdigit((unsigned char)peek(lx))) advance(lx);
+        }
     }
 
     /* An exponent (`1e3`, `2.5E-2`, `1e+9`) makes the literal a float, whatever its mantissa. It is only read when digits
@@ -396,7 +463,9 @@ static void lex_number(Lexer *lx) {
             has_exponent = 1;
             is_float = 1;
             while ((int)lx->pos < at) advance(lx);
-            while (isdigit((unsigned char)peek(lx))) advance(lx);
+            while (isdigit((unsigned char)peek(lx)) || consume_digit_separator(lx, line, col, is_decimal_digit)) {
+                if (isdigit((unsigned char)peek(lx))) advance(lx);
+            }
             char after = peek(lx);
             if ((after == 'd' || after == 'n' || after == 'b') && !isalnum((unsigned char)peek_next(lx)) && peek_next(lx) != '_')
                 ziman_error("lexical", line, col,

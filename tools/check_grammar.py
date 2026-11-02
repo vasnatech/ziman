@@ -83,6 +83,12 @@ CASES = [
     ("enum Shape {", "Shape", "entity.name.type"),
     ("    val n = 42", "42", "constant.numeric"),
     ("    val f = 1.5", "1.5", "constant.numeric"),
+    # D24's two spellings. The hex rule has to come first in the repository or `0xFF` matches the
+    # integer rule as `0` and leaves `xFF` to be coloured as a name -- which is the whole reason
+    # these two cases are here rather than being assumed from the pattern.
+    ("    val sig = 0x02014b50", "0x02014b50", "constant.numeric.hex"),
+    ("    val mask = 0xFFFF_FFFF", "0xFFFF_FFFF", "constant.numeric.hex"),
+    ("    val big = 1_000_000", "1_000_000", "constant.numeric.integer"),
     ("    val b = true", "true", "constant.language.boolean"),
     ("    val s: string = \"hi\"", "string", "support.type"),
     ("// a comment", "// a comment", "comment"),

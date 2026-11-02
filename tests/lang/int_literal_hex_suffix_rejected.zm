@@ -1,0 +1,6 @@
+// A suffix on a hex literal. **`b` and `d` are hex digits**, so `0xFFb` and `0x19d` are numbers
+// rather than a byte and a decimal, and only `n` is unambiguous -- allowing a hex bigint while the
+// other two silently mean something else would be the surprising half of a rule.
+fn main() {
+    print(str(0xFFn))
+}
