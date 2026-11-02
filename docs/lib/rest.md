@@ -352,6 +352,51 @@ pub fn public_path_form_handler<C, P, I, O, E>(
 
 A public endpoint with both an id in the path and an uploaded file: `run(ctx, path_input, form_input)`.
 
+### `as_attachment`
+
+```
+pub fn as_attachment<C>(
+    handler: fn(C, Request, Params) -> Response,
+    filename: string
+) -> fn(C, Request, Params) -> Response
+```
+
+The same endpoint, answering `Content-Disposition: attachment; filename="..."` -- which is what
+makes a browser save a file under the name the server chose instead of guessing from the URL. A
+`GET /api/me/export/pdf` is otherwise saved as `pdf`.
+
+**A wrapper rather than an argument of all sixteen builders**, and that is the whole reason it is
+shaped this way: an endpoint's handler is `fn(C, Request, Params) -> Response`, so this composes
+with every builder, with a hand-written handler, and with whatever is built next, while a
+`disposition:` parameter would have had to be threaded through `endpoint_core` and every
+constructor over it. It also cannot be a property of the `codec.Encoder`: an encoder is a media
+type and a function over a value, and what a *file* is called is HTTP's business, not the
+format's.
+
+**Only a successful answer carries it.** A 404 or a 400 from this route answers the
+application's own error body, and labelling that as an attachment named `health-record.pdf`
+would have a browser save the error as the file the caller asked for. Spring sets the header on
+its `ResponseEntity.ok()` path for the same reason.
+
+### `attachment_value`
+
+```
+pub fn attachment_value(filename: string) -> string
+```
+
+`attachment; filename="health-record.pdf"`, as RFC 6266 spells it.
+
+**The name is a value this module did not choose**, so it is escaped rather than trusted: a
+filename holding a CR or LF would end the header and begin another one, which is the response
+half of the request smuggling the server already refuses, and a `"` or a `\` would end the
+quoted string early. Control characters go, and the two delimiters are backslash-escaped.
+
+**A non-ASCII name also gets `filename*=UTF-8''..`**, which is the only form that carries one:
+`filename=` is a quoted *ISO-8859-1* string, so a Turkish or Greek name cannot be spelled in it.
+The quoted form is kept beside it with every non-ASCII byte replaced by `_`, because a client
+that does not understand the extended parameter has to be left with something -- and RFC 6266
+says a client that understands both prefers `filename*`.
+
 ### `Routes`
 
 ```

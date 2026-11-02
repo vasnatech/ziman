@@ -229,6 +229,7 @@ flowchart LR
     rest --> metrics
     rest --> mime
     rest --> server
+    rest --> url
     rest --> uuid
     scene --> geom
     scene --> paint
@@ -367,7 +368,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `process`, `uuid` |
 | `raster` | `font`, `geom`, `image`, `math`, `paint`, `scene`, `shape`, `stroker`, `truetype` | - |
 | `regex` | - | `expr`, `test`, `validate` |
-| `rest` | `clock`, `codec`, `http`, `metrics`, `mime`, `server`, `uuid` | - |
+| `rest` | `clock`, `codec`, `http`, `metrics`, `mime`, `server`, `url`, `uuid` | - |
 | `scene` | `geom`, `paint`, `shape` | `layout`, `pdf`, `raster` |
 | `schedule` | `clock`, `locale`, `time` | - |
 | `server` | `clock`, `codec`, `compress`, `http`, `json`, `locale`, `metrics`, `mime`, `net`, `number`, `os`, `uuid` | `rest` |
@@ -381,7 +382,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `eql`, `migrate`, `schedule`, `toml` |
 | `toml` | `json`, `locale`, `number`, `time` | `codec` |
 | `truetype` | `geom`, `shape` | `font`, `pdf`, `raster` |
-| `url` | `locale`, `number` | `db`, `http` |
+| `url` | `locale`, `number` | `db`, `http`, `rest` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | `eql`, `rest`, `server` |
 | `validate` | `regex` | - |
 | `xml` | `locale` | `codec` |

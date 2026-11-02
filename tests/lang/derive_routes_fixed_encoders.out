@@ -187,6 +187,16 @@ pub val main_routes: [rest.Endpoint<Ctx>] = [
             run: handle_raw,
             api: api
         )
+    },
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Get,
+        pattern: "/api/orders/report",
+        handler: rest.as_attachment(rest.secure_handler(
+            who: authenticated,
+            encoders: [pdf_encoder()],
+            run: handle_report,
+            api: api
+        ), "orders.pdf")
     }
 ]
 

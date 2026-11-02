@@ -55,6 +55,14 @@ source spells them: `meta` carries `Named("model.OrderRequest")`, alias and all,
   name with underscores as spaces -- which is what an application names them anyway.
 ```
 
+**`attachment:` names the file a download is saved as.** `#[route(.., attachment:
+"health-record.pdf")]` wraps the handler in `rest.as_attachment`, which answers
+`Content-Disposition: attachment; filename=".."` on a *successful* answer -- so a browser saves
+the file under the name the server chose instead of the last segment of the URL, and an error
+from the same route is still an error rather than a file. A route whose filename is not a
+constant -- one per format, chosen at run time -- calls `rest.as_attachment` itself, which is
+what the sample backend's export table does.
+
 **An uploaded file is the one input that is not decoded.** `#[part(name: "file")]` -- Spring's
 `@RequestPart` -- binds one part of a `multipart/form-data` body as a `server.Part`: bytes, a
 filename, and the client's claim about its own media type. It picks `rest`'s `*_form_handler`

@@ -1,0 +1,101 @@
+// `rest.as_attachment`: the `Content-Disposition` that makes a browser save a download under the
+// name the server chose rather than guessing from the URL -- `GET /api/me/export/pdf` is otherwise
+// saved as a file called `pdf`.
+//
+// **A wrapper over a handler, not an argument of sixteen builders.** An endpoint's handler is
+// `fn(C, Request, Params) -> Response`, so this composes with every builder, with a hand-written
+// handler, and with whatever is built next; a `disposition:` parameter would have had to be
+// threaded through `endpoint_core` and every constructor over it. It cannot belong to the
+// `codec.Encoder` either: an encoder is a media type and a function over a value, and what a file
+// is *called* is HTTP's business rather than the format's.
+//
+// What this pins, in order: a successful answer carries the header; **an error answer does not**,
+// because labelling the application's own 404 body as an attachment called `health-record.pdf`
+// would have a browser save the error as the file that was asked for; and the name is escaped,
+// since it is a value this module did not choose -- a CR would inject a header and a quote would
+// end the quoted string early.
+use codec
+use http
+use rest
+use server
+
+struct Ctx {
+    tag: string
+}
+
+fn failure(e: string) -> http.Response {
+    return server.text_response(404, e)
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, message)
+}
+
+val api: rest.Api<string> = rest.Api<string> { failure: failure, fault: fault }
+
+fn report(ctx: Ctx) -> Result<string, string> {
+    return ok("the report")
+}
+
+fn missing(ctx: Ctx) -> Result<string, string> {
+    return err("no such record")
+}
+
+fn endpoint(pattern: string, run: fn(Ctx) -> Result<string, string>, filename: string) -> rest.Endpoint<Ctx> {
+    return rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Get,
+        pattern: pattern,
+        handler: rest.as_attachment(
+            rest.public_handler<Ctx, string, string>(
+                encoders: [codec.plain_text_encoder()],
+                status: Option<int>.None,
+                run: run,
+                api: api
+            ),
+            filename
+        )
+    }
+}
+
+val table = rest.routes<Ctx>([
+    endpoint("/export", report, "health-record.pdf"),
+    endpoint("/missing", missing, "health-record.pdf"),
+    // A name this module did not choose: a quote, a backslash, a newline and a tab.
+    endpoint("/awkward", report, "a \"quoted\" name\r\nX-Injected: yes\tand a \\ too.txt"),
+    // A name that cannot be spelled in a quoted string at all, which is what `filename*` is for.
+    endpoint("/turkish", report, "rapor-özet.pdf")
+])
+
+fn request(path: string) -> http.Request {
+    return http.Request {
+        method: http.HttpMethod.Get,
+        target: path,
+        path: path,
+        query: "",
+        version: "HTTP/1.1",
+        headers: [],
+        body: [],
+        peer: None
+    }
+}
+
+fn show(label: string, path: string) {
+    val res = rest.dispatch<Ctx>(table, Ctx { tag: "t" }, request(path), fault)
+    val disposition = switch http.header_value(res.headers, "Content-Disposition") {
+        Some(value) { value }
+        None { "(none)" }
+    }
+    print(format("{}: {} {} | {}", label, str(res.status), unwrap(bytes_to_string(res.body)), disposition))
+}
+
+fn main() {
+    show("a download", "/export")
+    show("an error from the same route", "/missing")
+    show("an awkward name", "/awkward")
+    show("a name needing filename*", "/turkish")
+
+    // The header value on its own, which is the part a caller can get wrong.
+    print(rest.attachment_value("health-record.csv"))
+    print(rest.attachment_value("quarter\"one\".csv"))
+    print(rest.attachment_value("rapor-özet.pdf"))
+}

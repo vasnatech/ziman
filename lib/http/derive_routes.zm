@@ -47,6 +47,14 @@
 //   * `label:`, the noun in a bad-id message ("invalid order id"), defaulting to the module's own
 //     name with underscores as spaces -- which is what an application names them anyway.
 //
+// **`attachment:` names the file a download is saved as.** `#[route(.., attachment:
+// "health-record.pdf")]` wraps the handler in `rest.as_attachment`, which answers
+// `Content-Disposition: attachment; filename=".."` on a *successful* answer -- so a browser saves
+// the file under the name the server chose instead of the last segment of the URL, and an error
+// from the same route is still an error rather than a file. A route whose filename is not a
+// constant -- one per format, chosen at run time -- calls `rest.as_attachment` itself, which is
+// what the sample backend's export table does.
+//
 // **An uploaded file is the one input that is not decoded.** `#[part(name: "file")]` -- Spring's
 // `@RequestPart` -- binds one part of a `multipart/form-data` body as a `server.Part`: bytes, a
 // filename, and the client's claim about its own media type. It picks `rest`'s `*_form_handler`
@@ -201,7 +209,7 @@ pub val @{module}_routes: [rest.Endpoint<Ctx>] = [
     rest.Endpoint<Ctx> {
         method: http.HttpMethod.@{e.method},
         pattern: "@{e.path}",
-        handler: rest.@{e.flavour}(
+        handler: @{e.attachment_open}rest.@{e.flavour}(
 @if e.secured
             who: @{e.who},
 @end
@@ -223,7 +231,7 @@ pub val @{module}_routes: [rest.Endpoint<Ctx>] = [
 @end
             run: @{e.run},
             api: api
-        )
+        )@{e.attachment_close}
     }@{e.comma}
 @end
 ]
@@ -236,7 +244,7 @@ pub fn attributes() -> [meta.AttrSpec] {
         meta.attr_spec(
             "route",
             "method:name,path:string,who:name?,status:int?,label:string?," \
-                "consumes:string?,produces:string?,encoder:name?",
+                "consumes:string?,produces:string?,encoder:name?,attachment:string?",
             "function"
         ),
         // **The parameter attributes** (2026-11-01), which are Spring's `@PathVariable`,
@@ -1073,6 +1081,8 @@ fn row_for(
         template.flag("has_status", Option.is_Some(meta.fn_attr_arg(f, "route", "status"))),
         template.text("status", arg_or(f, "status", "")),
         template.text("run", w.run),
+        template.text("attachment_open", attachment_open(f)),
+        template.text("attachment_close", try attachment_close(f)),
         template.text("comma", comma)
     ]))
 }
@@ -1600,6 +1610,38 @@ fn flavour(secured: bool, has_path: bool, has_query: bool, has_body: bool, has_f
     }
     push(parts, "handler")
     return join(separator: "_", pieces: snapshot(parts))
+}
+
+// **`attachment:` wraps the handler rather than being passed to it.** `rest.as_attachment` takes a
+// handler and answers one, so a route that is a download is the same route with one more function
+// around it -- which is why this is two pieces of text either side of the builder call and nothing
+// inside it. The alternative was a `disposition:` parameter on all sixteen constructors.
+fn attachment_open(f: meta.Function) -> string {
+    if Some(_) = meta.fn_attr_arg(f, "route", "attachment") {
+        return "rest.as_attachment("
+    }
+    return ""
+}
+
+// **Refused on a route that answers `unit`**, which is the same refusal `produces:` gets there and
+// for the same reason: a 204 has no body, so there is no file for a browser to save and naming one
+// is asking for something that cannot happen.
+fn attachment_close(f: meta.Function) -> Result<string, string> {
+    val given = switch meta.fn_attr_arg(f, "route", "attachment") {
+        Some(name) { name }
+        None { return ok("") }
+    }
+    if ResultOf(r) = f.returns {
+        if Unit = r.ok {
+            return err(prelude.format(
+                "#[route] on '{}' says attachment: \"{}\", and it answers unit -- there is no body " \
+                    "to save, so nothing would be downloaded under that name",
+                f.name,
+                given
+            ))
+        }
+    }
+    return ok(concat(", \"", given, "\")"))
 }
 
 // `GET` -> `Get`, which is how `http.HttpMethod`'s variants are spelled.

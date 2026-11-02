@@ -1,0 +1,1 @@
+#[route] on 'handle_delete' says attachment: "orders.pdf", and it answers unit -- there is no body to save, so nothing would be downloaded under that name

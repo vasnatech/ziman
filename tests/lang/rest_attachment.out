@@ -1,0 +1,7 @@
+a download: 200 the report | attachment; filename="health-record.pdf"
+an error from the same route: 404 no such record | (none)
+an awkward name: 200 the report | attachment; filename="a \"quoted\" nameX-Injected: yesand a \\ too.txt"
+a name needing filename*: 200 the report | attachment; filename="rapor-_zet.pdf"; filename*=UTF-8''rapor-%C3%B6zet.pdf
+attachment; filename="health-record.csv"
+attachment; filename="quarter\"one\".csv"
+attachment; filename="rapor-_zet.pdf"; filename*=UTF-8''rapor-%C3%B6zet.pdf

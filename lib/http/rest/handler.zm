@@ -652,6 +652,117 @@ pub fn public_path_form_handler<C, P, I, O, E>(
     )
 }
 
+// ---- what the answer is called when it is a download ------------------------------------------
+
+// The same endpoint, answering `Content-Disposition: attachment; filename="..."` -- which is what
+// makes a browser save a file under the name the server chose instead of guessing from the URL. A
+// `GET /api/me/export/pdf` is otherwise saved as `pdf`.
+//
+// **A wrapper rather than an argument of all sixteen builders**, and that is the whole reason it is
+// shaped this way: an endpoint's handler is `fn(C, Request, Params) -> Response`, so this composes
+// with every builder, with a hand-written handler, and with whatever is built next, while a
+// `disposition:` parameter would have had to be threaded through `endpoint_core` and every
+// constructor over it. It also cannot be a property of the `codec.Encoder`: an encoder is a media
+// type and a function over a value, and what a *file* is called is HTTP's business, not the
+// format's.
+//
+// **Only a successful answer carries it.** A 404 or a 400 from this route answers the
+// application's own error body, and labelling that as an attachment named `health-record.pdf`
+// would have a browser save the error as the file the caller asked for. Spring sets the header on
+// its `ResponseEntity.ok()` path for the same reason.
+pub fn as_attachment<C>(
+    handler: fn(C, Request, Params) -> Response,
+    filename: string
+) -> fn(C, Request, Params) -> Response {
+    val answer_with = handler
+    // Built once, here, rather than per request: the name is fixed for the life of the endpoint.
+    val disposition = attachment_value(filename)
+    return fn(ctx: C, req: Request, params: Params) -> Response {
+        val answer = answer_with(ctx, req, params)
+        // 2xx only, and 300 is written out: `http` has no `status_multiple_choices`, and adding a
+        // constant nothing else wants would be the wrong half of this change.
+        if answer.status >= status_ok && answer.status < 300 {
+            return server.with_header(answer, "Content-Disposition", disposition)
+        }
+        return answer
+    }
+}
+
+// `attachment; filename="health-record.pdf"`, as RFC 6266 spells it.
+//
+// **The name is a value this module did not choose**, so it is escaped rather than trusted: a
+// filename holding a CR or LF would end the header and begin another one, which is the response
+// half of the request smuggling the server already refuses, and a `"` or a `\` would end the
+// quoted string early. Control characters go, and the two delimiters are backslash-escaped.
+//
+// **A non-ASCII name also gets `filename*=UTF-8''..`**, which is the only form that carries one:
+// `filename=` is a quoted *ISO-8859-1* string, so a Turkish or Greek name cannot be spelled in it.
+// The quoted form is kept beside it with every non-ASCII byte replaced by `_`, because a client
+// that does not understand the extended parameter has to be left with something -- and RFC 6266
+// says a client that understands both prefers `filename*`.
+pub fn attachment_value(filename: string) -> string {
+    val cleaned = without_control_characters(filename)
+    val quoted = concat("attachment; filename=\"", escaped(ascii_only(cleaned)), "\"")
+    if byte_len(cleaned) == len(cleaned) {
+        return quoted
+    }
+    return concat(quoted, "; filename*=UTF-8''", url.percent_encode(cleaned, false))
+}
+
+// Every character a header value may not carry: CR and LF, which would inject a header, and the
+// other C0 controls and DEL, which no filesystem has and no client should be asked to parse.
+fn without_control_characters(text: string) -> string {
+    val out = mutable_string_new()
+    for c in chars(text) {
+        if !is_control(c) {
+            append(out, c)
+        }
+    }
+    return snapshot(out)
+}
+
+// **A character is ASCII exactly when it is one byte**, which is what UTF-8 means, and is why none
+// of this needs a codepoint: `byte_len` of one character answers the question.
+fn is_control(c: string) -> bool {
+    if byte_len(c) != 1 {
+        return false
+    }
+    val code = to_bytes(c)[0] as int
+    return code < 32 || code == 127
+}
+
+// The ASCII fallback for the quoted form: one `_` per non-ASCII character, since the quoted string
+// cannot carry one, and dropping it silently would rename `rapor-ozet.pdf` to `rapor-zet.pdf`
+// instead of showing that something was lost.
+fn ascii_only(text: string) -> string {
+    val out = mutable_string_new()
+    for c in chars(text) {
+        if byte_len(c) == 1 {
+            append(out, c)
+        } else {
+            append(out, "_")
+        }
+    }
+    return snapshot(out)
+}
+
+// A backslash and a double quote are the quoted-string's own two delimiters, so each is escaped
+// with a backslash.
+fn escaped(text: string) -> string {
+    val out = mutable_string_new()
+    for c in chars(text) {
+        if is_delimiter(c) {
+            append(out, "\\")
+        }
+        append(out, c)
+    }
+    return snapshot(out)
+}
+
+fn is_delimiter(c: string) -> bool {
+    return c == "\\" || c == "\""
+}
+
 // A table of endpoints compiled for dispatching: each pattern split once, and the endpoints grouped by method
 // and number of path segments (in the order they were given) so a request only meets the ones that could match.
 // Build it once with `routes`.

@@ -10,11 +10,13 @@
 // endpoints before converting them to `#[route]` -- three of them answer one of these two.
 #![derive(Routes)]
 
+use codec
 use codec.count_encoder
 use codec.json_value_encoder
 use derive_routes
 use http
 use json.Json
+use mime
 use model
 use rest
 use server
@@ -31,6 +33,18 @@ pub fn handle_count(ctx: Ctx, who: Principal) -> Result<int, string> {
 #[route(method: GET, path: "/api/orders/raw")]
 pub fn handle_raw(ctx: Ctx, who: Principal) -> Result<Json, string> {
     return err("x")
+}
+
+// **A download**: `attachment:` wraps the builder call in `rest.as_attachment`, so the generated
+// text is the same endpoint with one more function around it -- there is no `disposition:` inside
+// any constructor. The answer here is `[byte]` with a named encoder, which is what an export is.
+#[route(method: GET, path: "/api/orders/report", encoder: pdf_encoder, attachment: "orders.pdf")]
+pub fn handle_report(ctx: Ctx, who: Principal) -> Result<[byte], string> {
+    return err("x")
+}
+
+pub fn pdf_encoder() -> codec.Encoder<[byte]> {
+    return codec.encoder<[byte]>(mime.application_pdf(), fn(bytes: [byte]) -> [byte] { bytes })
 }
 
 fn main() {

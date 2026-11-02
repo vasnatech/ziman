@@ -1,0 +1,25 @@
+// `attachment:` on a route that answers `unit`. A 204 has no body, so there is no file for a
+// browser to save and naming one asks for something that cannot happen -- the same refusal
+// `produces:` gets on the same shape, for the same reason.
+#![derive(Routes)]
+
+use derive_routes
+use http
+use uuid.Uuid
+
+struct Ctx {
+    name: string
+}
+
+struct Principal {
+    id: Uuid
+}
+
+#[route(method: DELETE, path: "/api/orders/{id}", status: 204, attachment: "orders.pdf")]
+pub fn handle_delete(ctx: Ctx, who: Principal, id: Uuid) -> Result<unit, string> {
+    return err("x")
+}
+
+fn main() {
+    print("unreachable")
+}
