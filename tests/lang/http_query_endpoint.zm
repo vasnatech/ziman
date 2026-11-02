@@ -1,6 +1,7 @@
 use codec
 use http
 use mime
+use rest
 use server
 
 struct Ctx {
@@ -15,16 +16,16 @@ fn failure(e: string) -> http.Response {
     return server.text_response(422, format("failure: {}", e))
 }
 
-fn caller(ctx: Ctx, req: http.Request) -> Result<string, server.Denied> {
+fn caller(ctx: Ctx, req: http.Request) -> Result<string, rest.Denied> {
     if Some(header) = http.header(req, "Authorization") {
         return header
     }
-    return server.Denied.Unauthenticated("missing token")
+    return rest.Denied.Unauthenticated("missing token")
 }
 
 // `?kind=` is optional but must be a word from a short list when it is there.
 fn read_kind(req: http.Request) -> Result<Option<string>, string> {
-    if Some(kind) = server.query_param(req, "kind") {
+    if Some(kind) = rest.query_param(req, "kind") {
         if kind != "a" && kind != "b" {
             return err(format("kind must be a or b, not {}", kind))
         }
@@ -60,12 +61,12 @@ fn request(target: string, headers: [http.Header]) -> http.Request {
 
 fn main() {
     val out = codec.text_encoder<string>(mime.text_plain(), show)
-    val api = server.Api<string> { failure: failure, fault: fault }
+    val api = rest.Api<string> { failure: failure, fault: fault }
     val endpoints = [
-        server.Endpoint<Ctx> {
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/things",
-            handler: server.secure_query_handler(
+            handler: rest.secure_query_handler(
                 who: caller,
                 query: read_kind,
                 encoders: [out],
@@ -75,13 +76,13 @@ fn main() {
             )
         }
     ]
-    val table = server.routes<Ctx>(endpoints)
+    val table = rest.routes<Ctx>(endpoints)
     val ctx = Ctx { tag: "t" }
     val auth = [http.Header { name: "Authorization", value: "ada" }]
     for target in ["/things", "/things?kind=a", "/things?kind=b&x=1", "/things?kind=c", "/things?other=1"] {
-        val r = server.dispatch<Ctx>(table, ctx, request(target, auth), fault)
+        val r = rest.dispatch<Ctx>(table, ctx, request(target, auth), fault)
         print(format("{} -> {} {}", target, r.status, unwrap(bytes_to_string(r.body))))
     }
-    val r = server.dispatch<Ctx>(table, ctx, request("/things", []), fault)
+    val r = rest.dispatch<Ctx>(table, ctx, request("/things", []), fault)
     print(format("no token -> {} {}", r.status, unwrap(bytes_to_string(r.body))))
 }

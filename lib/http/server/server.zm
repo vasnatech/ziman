@@ -123,12 +123,6 @@ use uuid.Uuid
 // some of these sit in per-character loops and `locale.root()` is a call.
 val invariant: Locale = locale.root()
 
-// The `{name}` captures of a matched route, by position.
-pub struct Params {
-    names: [string]
-    values: [string]
-}
-
 // Why reading a request failed: malformed (`BadRequest`), too large (`BodyTooLarge`,
 // `HeadersTooLarge`), unsupported (`NotImplemented`), a stalled client (`Timeout`), a peer that
 // went away (`Closed`) or a socket error (`Io`). `serve` answers each with the matching status

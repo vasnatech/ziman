@@ -10,13 +10,14 @@ use http
 use http.HttpMethod
 use metrics
 use net
+use rest
 use server
 
-fn item<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
-    return server.text_response(200, concat("item ", server.param(params, "id")))
+fn item<C>(ctx: C, req: http.Request, params: rest.Params) -> http.Response {
+    return server.text_response(200, concat("item ", rest.param(params, "id")))
 }
 
-fn make<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
+fn make<C>(ctx: C, req: http.Request, params: rest.Params) -> http.Response {
     return server.text_response(201, "made")
 }
 
@@ -24,10 +25,10 @@ fn fault(status: int, message: string) -> http.Response {
     return server.text_response(status, message)
 }
 
-val table = server.metered_routes<int>([
-    server.Endpoint<int> { method: HttpMethod.Get, pattern: "/items/{id}", handler: item<int> },
-    server.Endpoint<int> { method: HttpMethod.Post, pattern: "/items", handler: make<int> },
-    server.Endpoint<int> { method: HttpMethod.Get, pattern: "/metrics", handler: server.metrics_handler<int> }
+val table = rest.metered_routes<int>([
+    rest.Endpoint<int> { method: HttpMethod.Get, pattern: "/items/{id}", handler: item<int> },
+    rest.Endpoint<int> { method: HttpMethod.Post, pattern: "/items", handler: make<int> },
+    rest.Endpoint<int> { method: HttpMethod.Get, pattern: "/metrics", handler: rest.metrics_handler<int> }
 ])
 
 fn serve_connection(sock: net.Socket) {
@@ -43,7 +44,7 @@ fn serve_connection(sock: net.Socket) {
         } else {
             val ex = unwrap(next)
             session = ex.session
-            val keep = server.write_response(sock, ex.request, server.dispatch<int>(table, 0, ex.request, fault))
+            val keep = server.write_response(sock, ex.request, rest.dispatch<int>(table, 0, ex.request, fault))
             if !is_ok(keep) || !unwrap(keep) {
                 open = false
             }

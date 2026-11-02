@@ -167,11 +167,11 @@ pub fn order_response_from_xml(doc: xml.Document) -> Result<OrderResponse, strin
 }
 
 // derive(Routes) for this module
-pub val main_routes: [server.Endpoint<Ctx>] = [
-    server.Endpoint<Ctx> {
+pub val main_routes: [rest.Endpoint<Ctx>] = [
+    rest.Endpoint<Ctx> {
         method: http.HttpMethod.Get,
         pattern: "/api/orders/{id}",
-        handler: server.secure_path_handler(
+        handler: rest.secure_path_handler(
             who: authenticated,
             path: uuid_param("order"),
             encoders: [encoder_of(json_format(), model.order_response_to_json)],
@@ -179,10 +179,10 @@ pub val main_routes: [server.Endpoint<Ctx>] = [
             api: api
         )
     },
-    server.Endpoint<Ctx> {
+    rest.Endpoint<Ctx> {
         method: http.HttpMethod.Get,
         pattern: "/api/orders/{orderId}/summary",
-        handler: server.secure_path_handler(
+        handler: rest.secure_path_handler(
             who: authenticated,
             path: named_uuid_param("orderId", "order"),
             encoders: [encoder_of(json_format(), model.order_response_to_json)],

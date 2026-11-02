@@ -28,6 +28,11 @@ GROUPS = [
     ("System", "core", ["fs", "os", "process", "thread", "log", "metrics", "random", "clock", "locale"]),
     ("Networking", "core", ["net", "url"]),
     ("HTTP", "http", ["http", "server", "client"]),
+    # **`rest` is its own group, not a line under HTTP**: it is the framework over the server --
+    # endpoints, the table, dispatch, the request bindings -- and a reader meets it by writing a
+    # resource API rather than by reaching for a socket. Split out of `server` on 2026-11-01; see
+    # lib/http/rest/rest.zm for the two misplaced functions that made the case.
+    ("REST", "http", ["rest"]),
     ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql", "memdb", "sql", "eql"]),
     ("Testing", "core", ["test"]),
     # Its own group rather than a line under Data, because the rules and the generator are one
@@ -47,7 +52,7 @@ GROUPS = [
     ("Deriving", "core", ["meta", "template", "derive_ord", "derive_properties", "derive_json", "derive_xml", "derive_reflect"]),
     ("Deriving for SQL", "db", ["derive_row", "derive_entity", "derive_repository"]),
     # Beside the SQL generators and for the same reason: what `#![derive(Routes)]` writes is
-    # `server.Endpoint`s over `codec`'s decoders, so it belongs with HTTP rather than with
+    # `rest.Endpoint`s over `codec`'s decoders, so it belongs with `rest` rather than with
     # `meta` -- and it is still its own group because a reader meets it through the attribute.
     ("Deriving for HTTP", "http", ["derive_routes"]),
     ("Graphics", "graphics", ["geom", "shape", "paint", "scene", "pdfobj", "pdf", "truetype", "font", "image", "stroker", "raster", "layout"]),

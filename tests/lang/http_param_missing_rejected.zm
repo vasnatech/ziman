@@ -1,8 +1,9 @@
+use rest
 use server
 
 // Asking for a parameter the pattern doesn't declare is a bug in the
 // route function, so it is fatal rather than a value to check.
 fn main() {
-    val m = server.path_params("/a/{id}", "/a/7")
-    print(server.param(Option.unwrap_Some(m), "nope"))
+    val m = rest.path_params("/a/{id}", "/a/7")
+    print(rest.param(Option.unwrap_Some(m), "nope"))
 }

@@ -15,6 +15,7 @@
 use codec
 use http
 use mime
+use rest
 use server
 use xml
 
@@ -75,22 +76,22 @@ fn getted(target: string) -> http.Request {
 }
 
 fn main() {
-    val api = server.Api<string> { failure: failure, fault: fault }
-    val table = server.routes<Ctx>([
-        server.Endpoint<Ctx> {
+    val api = rest.Api<string> { failure: failure, fault: fault }
+    val table = rest.routes<Ctx>([
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
             pattern: "/orders",
-            handler: server.public_body_handler(
+            handler: rest.public_body_handler(
                 decoders: [codec.xml_decoder<Order>(order_from_xml)],
                 encoders: [codec.xml_encoder<Order>(order_to_xml)],
                 run: handle,
                 api: api
             )
         },
-        server.Endpoint<Ctx> {
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/orders",
-            handler: server.public_handler(
+            handler: rest.public_handler(
                 encoders: [codec.xml_list_encoder<Order>("orderList", order_to_xml)],
                 run: handle_list,
                 api: api
@@ -104,14 +105,14 @@ fn main() {
     for sent in [["application/xml", "<order id=\"7\"><item>desk</item></order>"],
         ["application/xml", "<order><item>desk</item></order>"],
         ["application/json", "{\"id\":7}"]] {
-        val answer = server.dispatch<Ctx>(table, ctx, posted(sent[0], sent[1]), fault)
+        val answer = rest.dispatch<Ctx>(table, ctx, posted(sent[0], sent[1]), fault)
         val text = switch bytes_to_string(answer.body) {
             Ok(t) { t }
             Err(_) { "<not text>" }
         }
         print(prelude.format("{}  ->  {} {}", sent[0], str(answer.status), text))
     }
-    val listed = server.dispatch<Ctx>(table, ctx, getted("/orders"), fault)
+    val listed = rest.dispatch<Ctx>(table, ctx, getted("/orders"), fault)
     print(switch bytes_to_string(listed.body) {
         Ok(t) { t }
         Err(_) { "<not text>" }

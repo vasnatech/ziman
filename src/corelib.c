@@ -48,9 +48,7 @@
 #include "server_server_source.h"
 #include "server_read_source.h"
 #include "server_respond_source.h"
-#include "server_route_source.h"
 #include "server_multipart_source.h"
-#include "server_handler_source.h"
 #include "server_ratelimit_source.h"
 #include "server_metrics_source.h"
 #include "server_cors_source.h"
@@ -62,6 +60,11 @@
 #include "client_cookie_source.h"
 #include "client_request_source.h"
 #include "client_stream_source.h"
+#include "rest_rest_source.h"
+#include "rest_handler_source.h"
+#include "rest_route_source.h"
+#include "rest_table_source.h"
+#include "rest_dispatch_source.h"
 #include "derive_routes_source.h"
 #include "os_source.h"
 #include "sqlite_source.h"
@@ -157,6 +160,7 @@ static const CoreModule CORE_MODULES[] = {
      * `server` whether it is one file or ten. `corelib_source_for` answers NULL for both. */
     {"server", NULL, "lib/http/server/server.zm"},
     {"client", NULL, "lib/http/client/client.zm"},
+    {"rest", NULL, "lib/http/rest/rest.zm"},
     {"derive_routes", DERIVE_ROUTES_SOURCE, DERIVE_ROUTES_SOURCE_PATH},
     {"os", OS_SOURCE, OS_SOURCE_PATH},
     {"sqlite", SQLITE_SOURCE, SQLITE_SOURCE_PATH},
@@ -212,7 +216,11 @@ const char *corelib_module_name(int i) {
  *
  * `server` was 2,878 lines and `client` 1,445 before 2026-10-31. Splitting them needed the loader
  * to merge parts for any bundled module rather than for the prelude alone (prelude.c had the only
- * such mechanism, special-cased), which is the change this table is the data for. */
+ * such mechanism, special-cased), which is the change this table is the data for.
+ *
+ * `rest` is the third, and it is not a file that grew too large: it is the REST framework that sat
+ * inside `server`, split out on 2026-11-01 once moving `routes` and `dispatch` to where they
+ * belonged left the dependency between the two pointing one way. See lib/http/rest/rest.zm. */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Woverlength-strings"
 static const struct {
@@ -223,9 +231,7 @@ static const struct {
     {"server", "lib/http/server/server.zm", SERVER_SERVER_SOURCE},
     {"server", "lib/http/server/read.zm", SERVER_READ_SOURCE},
     {"server", "lib/http/server/respond.zm", SERVER_RESPOND_SOURCE},
-    {"server", "lib/http/server/route.zm", SERVER_ROUTE_SOURCE},
     {"server", "lib/http/server/multipart.zm", SERVER_MULTIPART_SOURCE},
-    {"server", "lib/http/server/handler.zm", SERVER_HANDLER_SOURCE},
     {"server", "lib/http/server/ratelimit.zm", SERVER_RATELIMIT_SOURCE},
     {"server", "lib/http/server/metrics.zm", SERVER_METRICS_SOURCE},
     {"server", "lib/http/server/cors.zm", SERVER_CORS_SOURCE},
@@ -237,6 +243,11 @@ static const struct {
     {"client", "lib/http/client/cookie.zm", CLIENT_COOKIE_SOURCE},
     {"client", "lib/http/client/request.zm", CLIENT_REQUEST_SOURCE},
     {"client", "lib/http/client/stream.zm", CLIENT_STREAM_SOURCE},
+    {"rest", "lib/http/rest/rest.zm", REST_REST_SOURCE},
+    {"rest", "lib/http/rest/handler.zm", REST_HANDLER_SOURCE},
+    {"rest", "lib/http/rest/route.zm", REST_ROUTE_SOURCE},
+    {"rest", "lib/http/rest/table.zm", REST_TABLE_SOURCE},
+    {"rest", "lib/http/rest/dispatch.zm", REST_DISPATCH_SOURCE},
 };
 #pragma GCC diagnostic pop
 

@@ -16,6 +16,7 @@ use derive_routes
 use http
 use json.Json
 use model
+use rest
 use server
 use wiring.Ctx
 use wiring.Principal

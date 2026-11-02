@@ -1,8 +1,7 @@
 use codec
-// `codec.text_decoder` says "the input is not text", not "the body": it is a serialization
-// decoder and knows nothing about requests, which is the point of its living outside `server`.
 use http
 use mime
+use rest
 use server
 
 struct Ctx {
@@ -37,8 +36,8 @@ fn read_item(text: string) -> Result<Item, string> {
     return Item { id: unwrap(n) }
 }
 
-fn read_id(params: server.Params) -> Result<int, string> {
-    val n = parse_int(server.param(params, "id"))
+fn read_id(params: rest.Params) -> Result<int, string> {
+    val n = parse_int(rest.param(params, "id"))
     if !is_ok(n) {
         return err("bad id")
     }
@@ -77,10 +76,10 @@ struct Caller {
 }
 
 // Who is calling, from `Authorization: Bearer <name>`: `ada` is a user, `root` an admin, `boom` makes the lookup itself fail.
-fn any_caller(ctx: Ctx, req: http.Request) -> Result<Caller, server.Denied> {
+fn any_caller(ctx: Ctx, req: http.Request) -> Result<Caller, rest.Denied> {
     val header = http.header(req, "Authorization")
     if !is_Some(header) {
-        return server.Denied.Unauthenticated("missing token")
+        return rest.Denied.Unauthenticated("missing token")
     }
     val token = unwrap_Some(header)
     if token == "Bearer ada" {
@@ -90,15 +89,15 @@ fn any_caller(ctx: Ctx, req: http.Request) -> Result<Caller, server.Denied> {
         return Caller { name: "root", admin: true }
     }
     if token == "Bearer boom" {
-        return server.Denied.Failed("token store down")
+        return rest.Denied.Failed("token store down")
     }
-    return server.Denied.Unauthenticated("bad token")
+    return rest.Denied.Unauthenticated("bad token")
 }
 
-fn admin_only(ctx: Ctx, req: http.Request) -> Result<Caller, server.Denied> {
+fn admin_only(ctx: Ctx, req: http.Request) -> Result<Caller, rest.Denied> {
     val caller = try any_caller(ctx, req)
     if !caller.admin {
-        return server.Denied.Forbidden("admins only")
+        return rest.Denied.Forbidden("admins only")
     }
     return caller
 }
@@ -189,12 +188,12 @@ fn main() {
     val text_in = codec.text_decoder<Item>(mime.text_plain(), read_item)
     val csv_in = codec.text_decoder<Item>(mime.text_csv(), read_csv_item)
     val caller_out = codec.text_encoder<Caller>(mime.text_plain(), me_as_text)
-    val api = server.Api<string> { failure: failure, fault: fault }
+    val api = rest.Api<string> { failure: failure, fault: fault }
     val endpoints = [
-        server.Endpoint<Ctx> {
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/items/{id}",
-            handler: server.public_path_handler(
+            handler: rest.public_path_handler(
                 path: read_id,
                 encoders: [text_out, csv_out],
                 status: 200,
@@ -202,29 +201,29 @@ fn main() {
                 api: api
             )
         },
-        server.Endpoint<Ctx> {
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/newest",
-            handler: server.public_handler(
+            handler: rest.public_handler(
                 encoders: [text_out],
                 run: newest_item,
                 api: api
             )
         },
-        server.Endpoint<Ctx> {
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/me",
-            handler: server.secure_handler(
+            handler: rest.secure_handler(
                 who: any_caller,
                 encoders: [caller_out],
                 run: whoami,
                 api: api
             )
         },
-        server.Endpoint<Ctx> {
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Get,
             pattern: "/admin/{id}",
-            handler: server.secure_path_handler(
+            handler: rest.secure_path_handler(
                 who: admin_only,
                 path: read_id,
                 encoders: [text_out],
@@ -232,10 +231,10 @@ fn main() {
                 api: api
             )
         },
-        server.Endpoint<Ctx> {
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
             pattern: "/secret",
-            handler: server.secure_body_handler(
+            handler: rest.secure_body_handler(
                 who: any_caller,
                 decoders: [text_in],
                 encoders: [text_out],
@@ -244,10 +243,10 @@ fn main() {
                 api: api
             )
         },
-        server.Endpoint<Ctx> {
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Put,
             pattern: "/items/{id}",
-            handler: server.public_path_body_handler(
+            handler: rest.public_path_body_handler(
                 path: read_id,
                 decoders: [text_in],
                 encoders: [text_out],
@@ -255,10 +254,10 @@ fn main() {
                 api: api
             )
         },
-        server.Endpoint<Ctx> {
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Delete,
             pattern: "/items/{id}",
-            handler: server.secure_path_handler(
+            handler: rest.secure_path_handler(
                 who: any_caller,
                 path: read_id,
                 encoders: [],
@@ -267,20 +266,20 @@ fn main() {
                 api: api
             )
         },
-        server.Endpoint<Ctx> {
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
             pattern: "/binary",
-            handler: server.public_body_handler(
+            handler: rest.public_body_handler(
                 decoders: [codec.decoder<[byte]>(mime.application_octet_stream(), reverse_bytes)],
                 encoders: [codec.encoder<[byte]>(mime.application_octet_stream(), fn(data) { return data })],
                 run: echo_binary,
                 api: api
             )
         },
-        server.Endpoint<Ctx> {
+        rest.Endpoint<Ctx> {
             method: http.HttpMethod.Post,
             pattern: "/items",
-            handler: server.public_body_handler(
+            handler: rest.public_body_handler(
                 decoders: [text_in, csv_in],
                 encoders: [text_out],
                 status: 201,
@@ -289,7 +288,7 @@ fn main() {
             )
         }
     ]
-    val table = server.routes<Ctx>(endpoints)
+    val table = rest.routes<Ctx>(endpoints)
     val ctx = Ctx { prefix: "x" }
     val plain = [h("Content-Type", "text/plain; charset=utf-8")]
 
@@ -348,7 +347,7 @@ fn main() {
     val nul_text = request_bytes("POST", "/items", plain, [53b, 0b])
     val all = concat(cases, [binary, nul_text])
     for c in all {
-        val r = server.dispatch<Ctx>(table, ctx, c, fault)
+        val r = rest.dispatch<Ctx>(table, ctx, c, fault)
         val kind = http.content_type(r.headers)
         val allow = http.header_value(r.headers, "Allow")
         print(format(

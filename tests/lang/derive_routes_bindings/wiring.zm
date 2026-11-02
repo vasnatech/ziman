@@ -6,6 +6,7 @@
 // `val api` beside the handlers would not be in scope for the table. An import is in scope
 // wherever it is written, which is also how an application with thirty controllers shares one.
 use http
+use rest
 use server
 use uuid.Uuid
 use validate
@@ -26,10 +27,10 @@ fn fault(status: int, message: string) -> http.Response {
     return server.text_response(status, message)
 }
 
-pub val api: server.Api<string> = server.Api<string> { failure: failure, fault: fault }
+pub val api: rest.Api<string> = rest.Api<string> { failure: failure, fault: fault }
 
-pub fn authenticated(ctx: Ctx, req: http.Request) -> Result<Principal, server.Denied> {
-    return server.Denied.Unauthenticated("no")
+pub fn authenticated(ctx: Ctx, req: http.Request) -> Result<Principal, rest.Denied> {
+    return rest.Denied.Unauthenticated("no")
 }
 
 // What `#[valid]` calls. **The application supplies it**, emitted bare like `api` and the `who`

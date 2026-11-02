@@ -167,21 +167,21 @@ pub fn order_response_from_xml(doc: xml.Document) -> Result<OrderResponse, strin
 }
 
 // derive(Routes) for this module
-pub val main_routes: [server.Endpoint<Ctx>] = [
-    server.Endpoint<Ctx> {
+pub val main_routes: [rest.Endpoint<Ctx>] = [
+    rest.Endpoint<Ctx> {
         method: http.HttpMethod.Get,
         pattern: "/api/orders/count",
-        handler: server.secure_handler(
+        handler: rest.secure_handler(
             who: authenticated,
             encoders: [count_encoder()],
             run: handle_count,
             api: api
         )
     },
-    server.Endpoint<Ctx> {
+    rest.Endpoint<Ctx> {
         method: http.HttpMethod.Get,
         pattern: "/api/orders/raw",
-        handler: server.secure_handler(
+        handler: rest.secure_handler(
             who: authenticated,
             encoders: [json_value_encoder()],
             run: handle_raw,

@@ -1,0 +1,134 @@
+// Matching a request to an endpoint and running it, and the per-request metrics that records.
+//
+// **Lived in `lib/http/server/cors.zm` until 2026-11-01**, which is where `dispatch` ended up when
+// CORS was generalised into the library and nobody moved it afterwards. A reader looking for the
+// function that answers a request had no reason to look in the file about `Access-Control-*`
+// headers, and `cors.zm` had to reach for `Routes`, `capture` and `segments_of` to hold it -- the
+// only place the transport half of `server` depended on the REST half, and the reason this module
+// could be split off at all.
+// Calls the handler of the **most specific** endpoint whose method and pattern match `req` -- a literal segment
+// beats a `{param}` wherever either is declared, and the order they were registered in is only the tiebreak
+// (`routes` orders the index; `compare_specificity` is the rule). When none matches, the answer is
+// `fault(404, ...)`, or `fault(405, ...)` with an `Allow` header when the path exists under another method.
+//
+// **It was the first in registration order until 2026-11-01**, which an application with one endpoint table
+// could keep right by writing `/orders/pending` above `/orders/{id}` and saying so in a comment. That stopped
+// working when `#![derive(Routes)]` began assembling the table from a controller per resource: "above" then
+// means the order of two functions in one of twenty-odd files, and the North Star lost an endpoint to it
+// (`/api/me/medications/interaction-check`, answered 400 "invalid medication id" instead of its own 501) the
+// moment that controller was converted. `tests/lang/server_route_specificity` registers every shadowing
+// pattern first on purpose.
+//
+// A `HEAD` that matches nothing is tried again as `GET`, since RFC 9110 makes HEAD a GET without a body and a
+// path serving GET has to serve HEAD; the GET handler's body comes back as usual and `write_response` withholds
+// it on the wire while keeping the `Content-Length` it would have had. `Allow` therefore names HEAD wherever
+// GET is served.
+pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {
+    if table.meter {
+        // Timed and counted around the same work, so every exit -- a handler, the HEAD fallback, a
+        // 405, a 404 -- is recorded exactly once. `dispatch_inner` is the whole of what this used to
+        // be; nothing is recorded when a table is not metered, not even the clock read.
+        val start = clock.monotonic_millis()
+        val answer = dispatch_inner<C>(table, ctx, req, fault)
+        record_request(
+            req.method,
+            matched_pattern<C>(table, req),
+            answer.status,
+            clock.monotonic_millis() - start
+        )
+        return answer
+    }
+    return dispatch_inner<C>(table, ctx, req, fault)
+}
+
+// The pattern a request matched, as a label: the registered pattern itself, or `<unmatched>` when
+// nothing took it. Never the request's path, which carries ids and would grow the registry past its
+// series cap. This repeats `dispatch_inner`'s matching rather than threading a value out of it,
+// which costs one more walk of a short list on a metered table only, and keeps the matching in one
+// place instead of two that could disagree about what `{id}` matched.
+fn matched_pattern<C>(table: Routes<C>, req: Request) -> string {
+    val got = segments_of(req.path)
+    val none: [int] = []
+    for i in get_or(table.by_method, method_key(req.method, len(got)), none) {
+        if table.endpoints[i].method == req.method {
+            if Option.is_Some(capture(table.patterns[i], got)) {
+                return table.endpoints[i].pattern
+            }
+        }
+    }
+    if HttpMethod.is_Head(req.method) {
+        for i in get_or(table.by_method, method_key(HttpMethod.Get, len(got)), none) {
+            if HttpMethod.is_Get(table.endpoints[i].method) {
+                if Option.is_Some(capture(table.patterns[i], got)) {
+                    return table.endpoints[i].pattern
+                }
+            }
+        }
+    }
+    return "<unmatched>"
+}
+
+fn dispatch_inner<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {
+    val got = segments_of(req.path)
+    val none: [int] = []
+    for i in get_or(table.by_method, method_key(req.method, len(got)), none) {
+        val e = table.endpoints[i]
+        if e.method == req.method {
+            if Some(params) = capture(table.patterns[i], got) {
+                val h = e.handler
+                return h(ctx, req, params)
+            }
+        }
+    }
+    // No route took it as the method asked for. HEAD is the one method that must still be answered: RFC 9110
+    // makes it GET without a body, so a server that serves GET on a path has to serve HEAD on it too, and
+    // answering 405 there breaks caches and link checkers that use HEAD to ask whether a resource exists. The
+    // GET handler runs and returns its body as usual -- `write_response` withholds it for a HEAD request while
+    // still writing the `Content-Length` the body would have had, which is what RFC 9110 asks for, so there is
+    // nothing to strip here. The exact-method loop above ran first, so an application that registers its own
+    // HEAD route keeps it.
+    if HttpMethod.is_Head(req.method) {
+        for i in get_or(table.by_method, method_key(HttpMethod.Get, len(got)), none) {
+            val e = table.endpoints[i]
+            if HttpMethod.is_Get(e.method) {
+                if Some(params) = capture(table.patterns[i], got) {
+                    val h = e.handler
+                    return h(ctx, req, params)
+                }
+            }
+        }
+    }
+    val allowed = mutable_array_new<string>()
+    var serves_get = false
+    var serves_head = false
+    for i in get_or(table.by_length, len(got), none) {
+        if Option.is_Some(capture(table.patterns[i], got)) {
+            val m = table.endpoints[i].method
+            push(allowed, method_name(m))
+            if HttpMethod.is_Get(m) { serves_get = true }
+            if HttpMethod.is_Head(m) { serves_head = true }
+        }
+    }
+    // `Allow` has to name HEAD when the path serves GET, because the fallback above means it really is allowed;
+    // listing only GET would tell a client the opposite of what the server does.
+    if serves_get && !serves_head {
+        push(allowed, "HEAD")
+    }
+    val methods = snapshot(allowed)
+    val unmatched = if len(methods) > 0 { server.method_not_allowed(methods) } else { server.not_found() }
+    val message = if unmatched.status == status_method_not_allowed { "method not allowed" } else { "not found" }
+    val reply = fault(unmatched.status, message)
+    val allow = header_value(unmatched.headers, "Allow")
+    return switch allow {
+        Some(names) { server.with_header(reply, "Allow", names) }
+        None { reply }
+    }
+}
+
+// `/metrics` as an endpoint: register it like any other and the scraper reads what `server.declare_metrics`
+// declared. **Here rather than beside `metrics_response`** (which stayed in `server`) because it is
+// an `Endpoint` handler -- it takes `Params` and conforms to the handler signature -- and `Params`
+// is this module's.
+pub fn metrics_handler<C>(ctx: C, req: Request, params: Params) -> Response {
+    return server.metrics_response()
+}

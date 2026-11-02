@@ -76,6 +76,12 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`server`](server.md) | An HTTP/1.1 *server* toolkit, written in Ziman on top of `net`. |
 | [`client`](client.md) | An HTTP/1.1 *client*, written in Ziman on top of `net`, so a Ziman program can call another service. |
 
+## REST
+
+| Module | What it is |
+|---|---|
+| [`rest`](rest.md) | A REST toolkit over `http` and `server`. |
+
 ## Databases
 
 | Module | What it is |

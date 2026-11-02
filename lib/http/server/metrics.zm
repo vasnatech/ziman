@@ -1,7 +1,12 @@
 // ---------------------------------------------------------------- metrics
 
-val requests_metric = "http_requests_total"
-val latency_metric = "http_request_seconds"
+// **`pub` for `rest`, which records against them** (2026-11-01). The five metric names are
+// declared together here, by one `declare_metrics` an application calls once, because an operator
+// meets them as one set -- but the two *request* metrics are recorded where a request is matched
+// and run, which is `rest.dispatch`. The three below are recorded here, by `serve`. Declaring in
+// one place and recording in two is the honest shape of that: a name is shared, an event is not.
+pub val requests_metric = "http_requests_total"
+pub val latency_metric = "http_request_seconds"
 val connections_metric = "http_open_connections"
 val received_metric = "http_received_bytes_total"
 val sent_metric = "http_sent_bytes_total"
@@ -56,127 +61,8 @@ pub fn metrics_response() -> Response {
     )
 }
 
-pub fn metrics_handler<C>(ctx: C, req: Request, params: Params) -> Response {
-    return metrics_response()
-}
-
-fn request_key(method: HttpMethod, route: string, status: int) -> string {
-    return concat(
-        "method=\"",
-        method_name(method),
-        "\",route=\"",
-        route,
-        "\",status=\"",
-        str(status),
-        "\""
-    )
-}
-
-fn latency_key(method: HttpMethod, route: string) -> string {
-    return concat("method=\"", method_name(method), "\",route=\"", route, "\"")
-}
-
 fn connection_closed(meter: bool) {
     if meter {
         metrics.gauge_add(connections_metric, -1.0)
     }
-}
-
-fn record_request(method: HttpMethod, route: string, status: int, millis: int) {
-    metrics.increment(metrics.series_of(key_name: requests_metric, key: request_key(method, route, status)))
-    metrics.observe(
-        metrics.series_of(key_name: latency_metric, key: latency_key(method, route)),
-        (millis as float) / 1000.0
-    )
-}
-
-fn method_key(m: HttpMethod, length: int) -> string {
-    return format("{} {}", method_name(m), length)
-}
-
-// Compiles `endpoints` for `dispatch`. Do it once, at start-up (a module-level `val`), not per request. The order
-// is what `dispatch` tries them in: the first endpoint that matches wins, so a `/items/{id}` listed before
-// `/items/new` answers for `/items/new`.
-fn routes_with<C>(endpoints: [Endpoint<C>], meter: bool) -> Routes<C> {
-    val patterns = mutable_array_new<Pattern>()
-    val methods = mutable_map_new<string, [int]>()
-    val lengths = mutable_map_new<int, [int]>()
-    val none: [int] = []
-    var i = 0
-    for e in endpoints {
-        val p = compile_pattern(e.pattern)
-        push(patterns, p)
-        val key = method_key(e.method, len(p.parts))
-        set(
-            methods,
-            key,
-            push(get_or(get(methods, key), none), i)
-        )
-        set(
-            lengths,
-            len(p.parts),
-            push(get_or(get(lengths, len(p.parts)), none), i)
-        )
-        i = i + 1
-    }
-    // **The index lists are ordered most specific first, not in registration order** (2026-11-01).
-    // `dispatch` takes the first endpoint whose pattern matches, so `/api/me/medications/{id}`
-    // registered before `/api/me/medications/interaction-check` swallowed it -- the literal path
-    // answered 400 "invalid medication id: interaction-check" instead of its own 501. That was
-    // survivable while one table held every endpoint in a deliberate order: the file said
-    // "the route exists, ahead of `/{id}`" and a reader could see it. It stopped being survivable
-    // when `#![derive(Routes)]` spread the table across 23 controllers, where "ahead of" means
-    // the order of two functions in a file nobody reads together with the other twenty-two.
-    //
-    // So specificity decides instead, and registration order is only the tiebreak. The rule is
-    // the one every router uses and the one an author writing those two patterns already meant:
-    // at the first segment where they differ, a literal beats a `{param}`.
-    val order = fn(a: int, b: int) -> int { return compare_specificity(patterns[a], patterns[b]) }
-    val ordered_methods = mutable_map_new<string, [int]>()
-    for key, idx in methods {
-        set(ordered_methods, key, sort_with(idx, order))
-    }
-    val ordered_lengths = mutable_map_new<int, [int]>()
-    for n, idx in lengths {
-        set(ordered_lengths, n, sort_with(idx, order))
-    }
-    return Routes<C> {
-        meter: meter,
-        endpoints: endpoints,
-        patterns: snapshot(patterns),
-        by_method: snapshot(ordered_methods),
-        by_length: snapshot(ordered_lengths)
-    }
-}
-
-// Which of two patterns of the same length is more specific: negative when `a` should be tried
-// first. **Only the first segment they disagree about counts** -- `/a/{x}/c` against `/a/b/{y}`
-// is decided at segment 2, where `b` is literal, and what segment 3 holds is not consulted. A
-// count of literals would call them equal and leave the answer to registration order again.
-//
-// Two patterns that differ in no such segment compare equal, and `sort_with` is a stable sort,
-// so they keep the order they were registered in. Two *identical* patterns likewise -- the first
-// registered still wins, which is what an application overriding a library's route relies on.
-fn compare_specificity(a: Pattern, b: Pattern) -> int {
-    for i in 0..len(a.parts) {
-        if i >= len(b.parts) {
-            return 0
-        }
-        if a.is_param[i] != b.is_param[i] {
-            return if a.is_param[i] { 1 } else { -1 }
-        }
-    }
-    return 0
-}
-
-pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {
-    return routes_with<C>(endpoints, false)
-}
-
-// `routes`, and `dispatch` on the result records `http_requests_total` and `http_request_seconds`
-// for every request, labelled with the method, the pattern that matched and the status. One line to
-// turn on, and the pattern is a label only something that did the matching can supply.
-pub fn metered_routes<C>(endpoints: [Endpoint<C>]) -> Routes<C> {
-    declare_metrics()
-    return routes_with<C>(endpoints, true)
 }

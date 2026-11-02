@@ -85,6 +85,9 @@ $(BUILD)/server_%_source.h: lib/http/server/%.zm | $(BUILD)
 $(BUILD)/client_%_source.h: lib/http/client/%.zm | $(BUILD)
 	$(call embed_zm,CLIENT_$(shell echo $* | tr a-z A-Z)_SOURCE)
 
+$(BUILD)/rest_%_source.h: lib/http/rest/%.zm | $(BUILD)
+	$(call embed_zm,REST_$(shell echo $* | tr a-z A-Z)_SOURCE)
+
 $(BUILD)/%.o: src/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 

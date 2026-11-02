@@ -181,10 +181,10 @@ struct HandleUpdateLinePath {
     line_id: Uuid
 }
 
-fn handle_update_line_path_of(params: server.Params) -> Result<HandleUpdateLinePath, string> {
+fn handle_update_line_path_of(params: rest.Params) -> Result<HandleUpdateLinePath, string> {
     return ok(HandleUpdateLinePath {
-        order_id: try server.as_uuid(server.param(params, "orderId"), "order"),
-        line_id: try server.as_uuid(server.param(params, "lineId"), "line")
+        order_id: try rest.as_uuid(rest.param(params, "orderId"), "order"),
+        line_id: try rest.as_uuid(rest.param(params, "lineId"), "line")
     })
 }
 
@@ -193,7 +193,7 @@ fn handle_update_line_route(ctx: Ctx, who: Principal, bound_path: HandleUpdateLi
 }
 
 fn handle_search_query_of(req: http.Request) -> Result<string, string> {
-    val term = try server.required(server.query_param(req, "term"), "term")
+    val term = try rest.required(rest.query_param(req, "term"), "term")
     return ok(term)
 }
 
@@ -206,15 +206,15 @@ struct HandleListQuery {
 }
 
 fn handle_list_query_of(req: http.Request) -> Result<HandleListQuery, string> {
-    val status = try server.required(server.query_param(req, "status"), "status")
+    val status = try rest.required(rest.query_param(req, "status"), "status")
     var term = Option<string>.None
-    if Some(raw) = server.query_param(req, "q") {
+    if Some(raw) = rest.query_param(req, "q") {
         term = Option<string>.Some(raw)
     }
-    val days = try server.as_int(server.given_or(server.query_param(req, "days"), "30"), "days")
+    val days = try rest.as_int(rest.given_or(rest.query_param(req, "days"), "30"), "days")
     var exact = Option<bool>.None
-    if Some(raw) = server.query_param(req, "exact") {
-        exact = Option<bool>.Some(try server.as_bool(raw, "exact"))
+    if Some(raw) = rest.query_param(req, "exact") {
+        exact = Option<bool>.Some(try rest.as_bool(raw, "exact"))
     }
     var accept_language = Option<string>.None
     if Some(raw) = http.header(req, "Accept-Language") {
@@ -240,11 +240,11 @@ fn handle_create_route(ctx: Ctx, who: Principal, data: model.OrderRequest) -> Re
     return handle_create(ctx, who, data)
 }
 
-pub val main_routes: [server.Endpoint<Ctx>] = [
-    server.Endpoint<Ctx> {
+pub val main_routes: [rest.Endpoint<Ctx>] = [
+    rest.Endpoint<Ctx> {
         method: http.HttpMethod.Get,
         pattern: "/api/orders/{id}",
-        handler: server.secure_path_handler(
+        handler: rest.secure_path_handler(
             who: authenticated,
             path: uuid_param("order"),
             encoders: [encoder_of(json_format(), model.order_response_to_json)],
@@ -252,10 +252,10 @@ pub val main_routes: [server.Endpoint<Ctx>] = [
             api: api
         )
     },
-    server.Endpoint<Ctx> {
+    rest.Endpoint<Ctx> {
         method: http.HttpMethod.Put,
         pattern: "/api/orders/{orderId}/lines/{lineId}",
-        handler: server.secure_path_body_handler(
+        handler: rest.secure_path_body_handler(
             who: authenticated,
             path: handle_update_line_path_of,
             decoders: [decoder_of(json_format(), model.order_request_from_json)],
@@ -264,10 +264,10 @@ pub val main_routes: [server.Endpoint<Ctx>] = [
             api: api
         )
     },
-    server.Endpoint<Ctx> {
+    rest.Endpoint<Ctx> {
         method: http.HttpMethod.Get,
         pattern: "/api/orders/search",
-        handler: server.secure_query_handler(
+        handler: rest.secure_query_handler(
             who: authenticated,
             query: handle_search_query_of,
             encoders: [list_encoder_of(json_format(), model.order_response_to_json)],
@@ -275,10 +275,10 @@ pub val main_routes: [server.Endpoint<Ctx>] = [
             api: api
         )
     },
-    server.Endpoint<Ctx> {
+    rest.Endpoint<Ctx> {
         method: http.HttpMethod.Get,
         pattern: "/api/orders",
-        handler: server.secure_query_handler(
+        handler: rest.secure_query_handler(
             who: authenticated,
             query: handle_list_query_of,
             encoders: [list_encoder_of(json_format(), model.order_response_to_json)],
@@ -286,10 +286,10 @@ pub val main_routes: [server.Endpoint<Ctx>] = [
             api: api
         )
     },
-    server.Endpoint<Ctx> {
+    rest.Endpoint<Ctx> {
         method: http.HttpMethod.Post,
         pattern: "/api/orders",
-        handler: server.secure_body_handler(
+        handler: rest.secure_body_handler(
             who: authenticated,
             decoders: [decoder_of(json_format(), model.order_request_from_json)],
             encoders: [encoder_of(json_format(), model.order_response_to_json)],

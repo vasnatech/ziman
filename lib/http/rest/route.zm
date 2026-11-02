@@ -119,7 +119,7 @@ pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Respon
         }
     }
     val methods = snapshot(allowed)
-    return if len(methods) > 0 { method_not_allowed(methods) } else { not_found() }
+    return if len(methods) > 0 { server.method_not_allowed(methods) } else { server.not_found() }
 }
 
 // A query-string value by name, percent-decoded ("+" is a space); the

@@ -10,9 +10,10 @@
 use http
 use http.HttpMethod
 use net
+use rest
 use server
 
-fn who<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
+fn who<C>(ctx: C, req: http.Request, params: rest.Params) -> http.Response {
     return server.text_response(200, concat("peer=", get_or<string>(req.peer, "<none>")))
 }
 
@@ -20,8 +21,8 @@ fn fault(status: int, message: string) -> http.Response {
     return server.text_response(status, message)
 }
 
-val table = server.routes<int>([
-    server.Endpoint<int> { method: HttpMethod.Get, pattern: "/who", handler: who<int> }
+val table = rest.routes<int>([
+    rest.Endpoint<int> { method: HttpMethod.Get, pattern: "/who", handler: who<int> }
 ])
 
 fn main() {
@@ -50,7 +51,7 @@ fn main() {
         max_connections_per_client: 0
     }
     spawn server.serve(l, fn(req: http.Request) -> http.Response {
-        return server.dispatch<int>(table, 0, req, fault)
+        return rest.dispatch<int>(table, 0, req, fault)
     }, options) on_error fn(m: string) {
         print(m)
     }

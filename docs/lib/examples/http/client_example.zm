@@ -2,6 +2,7 @@ use client
 use http
 use http.HttpMethod
 use net
+use rest
 use server
 
 // A tiny server and a client in one program, talking over the loopback interface.
@@ -9,8 +10,8 @@ use server
 // `route` answers Some only when the method and the pattern both match, and the match carries the
 // path parameters -- so one `if` tests the route and names the parameters.
 fn handle(req: http.Request) -> http.Response {
-    if Some(hit) = server.route(req, HttpMethod.Get, "/hello/{name}") {
-        return server.text_response(200, concat("hello ", server.param(hit, "name")))
+    if Some(hit) = rest.route(req, HttpMethod.Get, "/hello/{name}") {
+        return server.text_response(200, concat("hello ", rest.param(hit, "name")))
     }
     return server.not_found()
 }

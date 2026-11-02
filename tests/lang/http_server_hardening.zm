@@ -1,8 +1,9 @@
 use clock
 use http
-use server
 use http.HttpMethod
 use net
+use rest
+use server
 
 // Raw-socket checks that the server refuses what a proxy in front of it might read differently
 // (request smuggling), refuses to write a header that would split the response (CRLF injection),
@@ -16,11 +17,11 @@ fn route(req: http.Request) -> http.Response {
         return server.text_response(200, format("body={}", unwrap(bytes_to_string(req.body))))
     }
     if req.path == "/value" {
-        val v = server.query_param(req, "v")
+        val v = rest.query_param(req, "v")
         return server.with_header(server.text_response(200, "set"), "X-Echo", Option.unwrap_Some(v))
     }
     if req.path == "/name" {
-        val n = server.query_param(req, "n")
+        val n = rest.query_param(req, "n")
         return server.with_header(server.text_response(200, "set"), Option.unwrap_Some(n), "v")
     }
     return server.not_found()

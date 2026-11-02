@@ -6,13 +6,14 @@
 use http
 use http.HttpMethod
 use net
+use rest
 use server
 
-fn thing<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
+fn thing<C>(ctx: C, req: http.Request, params: rest.Params) -> http.Response {
     return server.text_response(200, "twelve bytes")
 }
 
-fn made<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
+fn made<C>(ctx: C, req: http.Request, params: rest.Params) -> http.Response {
     return server.text_response(201, "made")
 }
 
@@ -20,9 +21,9 @@ fn fault(status: int, message: string) -> http.Response {
     return server.text_response(status, message)
 }
 
-val table = server.routes<int>([
-    server.Endpoint<int> { method: HttpMethod.Get, pattern: "/thing", handler: thing<int> },
-    server.Endpoint<int> { method: HttpMethod.Post, pattern: "/made", handler: made<int> }
+val table = rest.routes<int>([
+    rest.Endpoint<int> { method: HttpMethod.Get, pattern: "/thing", handler: thing<int> },
+    rest.Endpoint<int> { method: HttpMethod.Post, pattern: "/made", handler: made<int> }
 ])
 
 fn serve_connection(sock: net.Socket) {
@@ -38,7 +39,7 @@ fn serve_connection(sock: net.Socket) {
         } else {
             val ex = unwrap(next)
             session = ex.session
-            val answer = server.dispatch<int>(table, 0, ex.request, fault)
+            val answer = rest.dispatch<int>(table, 0, ex.request, fault)
             val keep = server.write_response(sock, ex.request, answer)
             if !is_ok(keep) || !unwrap(keep) {
                 open = false

@@ -53,6 +53,7 @@ use client
 use http
 use http.HttpMethod
 use net
+use rest
 use server
 
 // Routes with path parameters, a JSON reply, and a 404 for everything else. The client module's
@@ -61,11 +62,11 @@ use server
 // `route` answers Some only when method and pattern both match, and the match carries the path
 // parameters -- so one `if` both tests the route and names what it captured.
 fn handle(req: http.Request) -> http.Response {
-    if Some(user) = server.route(req, HttpMethod.Get, "/users/{id}") {
-        val id = server.param(user, "id")
+    if Some(user) = rest.route(req, HttpMethod.Get, "/users/{id}") {
+        val id = rest.param(user, "id")
         return server.json_response(200, concat(concat("{\"id\":\"", id), "\"}"))
     }
-    return server.not_found_or_method_not_allowed(req, ["GET /users/{id}"])
+    return rest.not_found_or_method_not_allowed(req, ["GET /users/{id}"])
 }
 
 // The two requests, which answer the same ClientError; decoding the body answers a plain string.
@@ -112,17 +113,6 @@ Output:
 ```
 
 ## `server.zm`
-
-### `Params`
-
-```
-pub struct Params {
-    names: [string]
-    values: [string]
-}
-```
-
-The `{name}` captures of a matched route, by position.
 
 ### `HttpError`
 
@@ -383,134 +373,6 @@ pub fn write_error_with(
 application gets the status and the sentence, not the `HttpError`, and what it returns is written as-is, so its
 body shape and any header it adds (an HSTS header, say) are on the rejection too.
 
-## `route.zm`
-
-### `path_params`
-
-```
-pub fn path_params(pattern: string, path: string) -> Option<Params>
-```
-
-Matches `path` against `pattern`: literal segments must be equal, and a
-`{name}` segment captures any non-empty segment (percent-decoded). A
-trailing slash is ignored on both sides. `None` if it doesn't match.
-
-### `route`
-
-```
-pub fn route(req: Request, method: HttpMethod, pattern: string) -> Option<Params>
-```
-
-`Some(params)` if the request's method is `method` and its path matches
-`pattern`, else `None` -- the one-line test a route function is built
-from: `val m = server.route(req, HttpMethod.Get, "/patients/{id}")`.
-
-### `param`
-
-```
-pub fn param(p: Params, name: string) -> string
-```
-
-A captured parameter by name. Asking for a name the pattern doesn't
-have is a bug in the route function, so it is a fatal error rather than
-a value to check.
-
-### `not_found_or_method_not_allowed`
-
-```
-pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Response
-```
-
-What to answer when no route matched. `routes` lists every route as
-"METHOD /pattern": if the path matches some route under a *different*
-method the answer is 405 with an Allow header, otherwise 404.
-
-### `query_param`
-
-```
-pub fn query_param(req: Request, name: string) -> Option<string>
-```
-
-A query-string value by name, percent-decoded ("+" is a space); the
-first one if it is repeated. `None` if absent.
-
-### `required`
-
-```
-pub fn required(given: Option<string>, name: string) -> Result<string, string>
-```
-
-The value, or `"<name> is required"` -- the message `read_query`'s hand-written version answered,
-which `src/test/other` holds the API to.
-
-### `given_or`
-
-```
-pub fn given_or(given: Option<string>, fallback: string) -> string
-```
-
-The value or a default, for `@RequestParam(defaultValue = "30")`'s equivalent. No `Result`: a
-default means absence is not a failure.
-
-### `as_int`
-
-```
-pub fn as_int(text: string, name: string) -> Result<int, string>
-```
-
-`text` as an int, or `"<name> must be a whole number: <text>"`.
-
-### `as_uuid`
-
-```
-pub fn as_uuid(text: string, what: string) -> Result<Uuid, string>
-```
-
-`text` as a `Uuid`. **The message is `uuid_param`'s** -- "invalid <what> id: <text>" -- because a
-client that matches on it should not be able to tell a generated binding from the hand-written
-reader it replaced.
-
-### `as_bool`
-
-```
-pub fn as_bool(text: string, name: string) -> Result<bool, string>
-```
-
-`text` as a bool, in any of the spellings the web actually sends. **Wider than
-`xml.parse_bool`'s four on purpose**: that one implements `xs:boolean`, where the lexical space
-is defined and `on` is not in it. A query parameter has no such definition, an HTML checkbox
-sends `on`, and a hand-written reader in the North Star already took `on`/`off`/`yes`/`no` --
-so binding to this must not be the thing that silently narrows what a client may say.
-
-Case-insensitive for the same reason. Anything else is an `Err`, which a 400 carries:
-`?includeDismissed=maybe` is a request to fix, not a false.
-
-### `as_float`
-
-```
-pub fn as_float(text: string, name: string) -> Result<float, string>
-```
-
-`text` as a float, for a measurement or a threshold a client sends as a query parameter.
-
-### `uuid_param`
-
-```
-pub fn uuid_param(kind: string) -> fn(Params) -> Result<Uuid, string>
-```
-
-A `{id}` path parameter is just a string; this turns it into a `Uuid`, and a bad one is answered 400
-before the endpoint runs. `kind` names what the id belongs to, for the message ("invalid order id").
-
-### `named_uuid_param`
-
-```
-pub fn named_uuid_param(name: string, kind: string) -> fn(Params) -> Result<Uuid, string>
-```
-
-The same as `uuid_param`, but for a captured segment named something other than `{id}`: a pattern with
-two captures (`{orderId}/items/{itemId}`) needs to say which it means.
-
 ## `multipart.zm`
 
 ### `Part`
@@ -612,222 +474,6 @@ there but its bytes are not text. The error is the outer answer so a caller that
 `Result` can `try` this and go on with an `Option<string>`; an absent field and a field holding a JPEG
 are different things, and neither is silently the other.
 
-## `handler.zm`
-
-### `Endpoint`
-
-```
-pub struct Endpoint<C> {
-    method: HttpMethod
-    pattern: string
-    handler: fn(C, Request, Params) -> Response
-}
-```
-
-A route: the handler, already adapted to requests and responses, for `method` on `pattern`.
-
-### `Denied`
-
-```
-pub enum Denied {
-    Unauthenticated(string)
-    Forbidden(string)
-    Failed(string)
-}
-```
-
-Why a caller was refused before an endpoint ran: not identified (`Unauthenticated`, answered 401), identified but not
-allowed (`Forbidden`, 403), or identifying them failed for a reason that is the server's (`Failed`, 500).
-
-### `Api`
-
-```
-pub struct Api<E> {
-    failure: fn(E) -> Response
-    fault: fn(int, string) -> Response
-}
-```
-
-How an application answers what goes wrong, given once and passed to every builder below as `api:`. `failure(e)` builds
-the response for an `Err` of the endpoint's own error type `E`, and `fault(status, message)` the one for what the library
-itself rejects (400, 404, 405, 406, 415), so an application's error bodies have one shape:
-`val api = server.Api<ApiError> { failure: failure, fault: fault }`.
-
-### `secure_handler`
-
-```
-pub fn secure_handler<C, U, O, E>(
-    who: fn(C, Request) -> Result<U, Denied>,
-    encoders: [codec.Encoder<O>],
-    status: Option<int>,
-    run: fn(C, U) -> Result<O, E>,
-    api: Api<E>
-) -> fn(C, Request, Params) -> Response
-```
-
-A secured endpoint with no input: `run(ctx, caller)` returns the answer or an error; the answer is written with the
-first of `encoders` the client's `Accept` allows, with `status`.
-
-### `secure_path_handler`
-
-```
-pub fn secure_path_handler<C, U, P, O, E>(
-    who: fn(C, Request) -> Result<U, Denied>,
-    path: fn(Params) -> Result<P, string>,
-    encoders: [codec.Encoder<O>],
-    status: Option<int>,
-    run: fn(C, U, P) -> Result<O, E>,
-    api: Api<E>
-) -> fn(C, Request, Params) -> Response
-```
-
-A secured endpoint whose input is in the path: `path` turns the captured parameters into a `P` (an `Err` message is
-answered 400, so a bad id never reaches `run`), and `run(ctx, caller, input)` returns the answer or an error.
-
-### `secure_query_handler`
-
-```
-pub fn secure_query_handler<C, U, Q, O, E>(
-    who: fn(C, Request) -> Result<U, Denied>,
-    query: fn(Request) -> Result<Q, string>,
-    encoders: [codec.Encoder<O>],
-    status: Option<int>,
-    run: fn(C, U, Q) -> Result<O, E>,
-    api: Api<E>
-) -> fn(C, Request, Params) -> Response
-```
-
-A secured endpoint whose input is in the query string (`GET /things?type=x`): `query` reads what it wants from the request, for
-which `query_param` is the tool, and turns it into a `Q` (an `Err` message is answered 400, so a bad value never reaches `run`);
-`run(ctx, caller, input)` returns the answer or an error.
-
-### `public_query_handler`
-
-```
-pub fn public_query_handler<C, Q, O, E>(
-    query: fn(Request) -> Result<Q, string>,
-    encoders: [codec.Encoder<O>],
-    status: Option<int>,
-    run: fn(C, Q) -> Result<O, E>,
-    api: Api<E>
-) -> fn(C, Request, Params) -> Response
-```
-
-`secure_query_handler` without the caller: an endpoint whose only input is its query string and
-which anyone may ask. **Its absence was an asymmetry, not a decision** -- `#[route]`'s parameter
-bindings asked for it by name the first time a query endpoint was written without a
-`#[principal]`, which is how it was noticed.
-
-### `secure_body_handler`
-
-```
-pub fn secure_body_handler<C, U, I, O, E>(
-    who: fn(C, Request) -> Result<U, Denied>,
-    decoders: [codec.Decoder<I>],
-    encoders: [codec.Encoder<O>],
-    status: Option<int>,
-    run: fn(C, U, I) -> Result<O, E>,
-    api: Api<E>
-) -> fn(C, Request, Params) -> Response
-```
-
-A secured endpoint with a request body: it must arrive as one of `decoders`' media types (else 415), the answer is
-negotiated (else 406), the body is decoded with the decoder for its type (a failure is 400), and
-`run(ctx, caller, input)` returns the answer or an error.
-
-### `secure_path_body_handler`
-
-```
-pub fn secure_path_body_handler<C, U, P, I, O, E>(
-    who: fn(C, Request) -> Result<U, Denied>,
-    path: fn(Params) -> Result<P, string>,
-    decoders: [codec.Decoder<I>],
-    encoders: [codec.Encoder<O>],
-    status: Option<int>,
-    run: fn(C, U, P, I) -> Result<O, E>,
-    api: Api<E>
-) -> fn(C, Request, Params) -> Response
-```
-
-A secured endpoint with both an id in the path and a request body (a `PUT /things/{id}`): `path` decodes the parameters
-into a `P` and the body is decoded with the decoder for its media type; `run(ctx, caller, path_input, body_input)`
-returns the answer or an error. Either input failing to decode is a 400.
-
-### `public_handler`
-
-```
-pub fn public_handler<C, O, E>(
-    encoders: [codec.Encoder<O>],
-    status: Option<int>,
-    run: fn(C) -> Result<O, E>,
-    api: Api<E>
-) -> fn(C, Request, Params) -> Response
-```
-
-A public endpoint with no input: `run(ctx)`. Anyone may call it.
-
-### `public_path_handler`
-
-```
-pub fn public_path_handler<C, P, O, E>(
-    path: fn(Params) -> Result<P, string>,
-    encoders: [codec.Encoder<O>],
-    status: Option<int>,
-    run: fn(C, P) -> Result<O, E>,
-    api: Api<E>
-) -> fn(C, Request, Params) -> Response
-```
-
-A public endpoint whose input is in the path: `run(ctx, input)`.
-
-### `public_body_handler`
-
-```
-pub fn public_body_handler<C, I, O, E>(
-    decoders: [codec.Decoder<I>],
-    encoders: [codec.Encoder<O>],
-    status: Option<int>,
-    run: fn(C, I) -> Result<O, E>,
-    api: Api<E>
-) -> fn(C, Request, Params) -> Response
-```
-
-A public endpoint with a request body: `run(ctx, input)`.
-
-### `public_path_body_handler`
-
-```
-pub fn public_path_body_handler<C, P, I, O, E>(
-    path: fn(Params) -> Result<P, string>,
-    decoders: [codec.Decoder<I>],
-    encoders: [codec.Encoder<O>],
-    status: Option<int>,
-    run: fn(C, P, I) -> Result<O, E>,
-    api: Api<E>
-) -> fn(C, Request, Params) -> Response
-```
-
-A public endpoint with both an id in the path and a request body: `run(ctx, path_input, body_input)`.
-
-### `Routes`
-
-```
-pub struct Routes<C> {
-    endpoints: [Endpoint<C>]
-    patterns: [Pattern]
-    by_method: Map<string, [int]>
-    by_length: Map<int, [int]>
-    // Whether `dispatch` records a metric per request. Set by `metered_routes`, not by `routes`:
-    // the matched pattern is known here and nowhere else, which is the one label worth having and
-    // the reason this lives on the table rather than in `ServeOptions`.
-    meter: bool
-}
-```
-
-A table of endpoints compiled for dispatching: each pattern split once, and the endpoints grouped by method
-and number of path segments (in the order they were given) so a request only meets the ones that could match.
-Build it once with `routes`.
-
 ## `ratelimit.zm`
 
 ### `rate_allow`
@@ -911,6 +557,24 @@ clients control.
 
 ## `metrics.zm`
 
+### `requests_metric`
+
+```
+pub val requests_metric = "http_requests_total"
+```
+
+**`pub` for `rest`, which records against them** (2026-11-01). The five metric names are
+declared together here, by one `declare_metrics` an application calls once, because an operator
+meets them as one set -- but the two *request* metrics are recorded where a request is matched
+and run, which is `rest.dispatch`. The three below are recorded here, by `serve`. Declaring in
+one place and recording in two is the honest shape of that: a name is shared, an event is not.
+
+### `latency_metric`
+
+```
+pub val latency_metric = "http_request_seconds"
+```
+
 ### `declare_metrics`
 
 ```
@@ -951,28 +615,6 @@ server.Endpoint<Ctx> { method: HttpMethod.Get, pattern: "/metrics", handler: ser
 Nothing here restricts who may read it. A metrics page tells a reader the shape of your traffic
 and which routes exist, so put it behind the same `who` as the rest of an internal API, or on a
 listener that only your network can reach.
-
-### `metrics_handler`
-
-```
-pub fn metrics_handler<C>(ctx: C, req: Request, params: Params) -> Response
-```
-
-### `routes`
-
-```
-pub fn routes<C>(endpoints: [Endpoint<C>]) -> Routes<C>
-```
-
-### `metered_routes`
-
-```
-pub fn metered_routes<C>(endpoints: [Endpoint<C>]) -> Routes<C>
-```
-
-`routes`, and `dispatch` on the result records `http_requests_total` and `http_request_seconds`
-for every request, labelled with the method, the pattern that matched and the status. One line to
-turn on, and the pattern is a label only something that did the matching can supply.
 
 ## `cors.zm`
 
@@ -1022,30 +664,6 @@ pub fn cors_apply(policy: CorsPolicy, req: Request, answer: Response) -> Respons
 on the list. Without an `Origin`, or from an origin not on it, `answer` is returned untouched -- which is
 what makes the browser withhold it, and is the whole mechanism: a server does not refuse the request, it
 declines to say the answer may be read.
-
-### `dispatch`
-
-```
-pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response
-```
-
-Calls the handler of the **most specific** endpoint whose method and pattern match `req` -- a literal segment
-beats a `{param}` wherever either is declared, and the order they were registered in is only the tiebreak
-(`routes` orders the index; `compare_specificity` is the rule). When none matches, the answer is
-`fault(404, ...)`, or `fault(405, ...)` with an `Allow` header when the path exists under another method.
-
-**It was the first in registration order until 2026-11-01**, which an application with one endpoint table
-could keep right by writing `/orders/pending` above `/orders/{id}` and saying so in a comment. That stopped
-working when `#![derive(Routes)]` began assembling the table from a controller per resource: "above" then
-means the order of two functions in one of twenty-odd files, and the North Star lost an endpoint to it
-(`/api/me/medications/interaction-check`, answered 400 "invalid medication id" instead of its own 501) the
-moment that controller was converted. `tests/lang/server_route_specificity` registers every shadowing
-pattern first on purpose.
-
-A `HEAD` that matches nothing is tried again as `GET`, since RFC 9110 makes HEAD a GET without a body and a
-path serving GET has to serve HEAD; the GET handler's body comes back as usual and `write_response` withholds
-it on the wire while keeping the `Content-Length` it would have had. `Allow` therefore names HEAD wherever
-GET is served.
 
 ## `serve.zm`
 

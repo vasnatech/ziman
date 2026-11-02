@@ -2,6 +2,7 @@ use client
 use http
 use http.HttpMethod
 use net
+use rest
 use server
 
 // Routes with path parameters, a JSON reply, and a 404 for everything else. The client module's
@@ -10,11 +11,11 @@ use server
 // `route` answers Some only when method and pattern both match, and the match carries the path
 // parameters -- so one `if` both tests the route and names what it captured.
 fn handle(req: http.Request) -> http.Response {
-    if Some(user) = server.route(req, HttpMethod.Get, "/users/{id}") {
-        val id = server.param(user, "id")
+    if Some(user) = rest.route(req, HttpMethod.Get, "/users/{id}") {
+        val id = rest.param(user, "id")
         return server.json_response(200, concat(concat("{\"id\":\"", id), "\"}"))
     }
-    return server.not_found_or_method_not_allowed(req, ["GET /users/{id}"])
+    return rest.not_found_or_method_not_allowed(req, ["GET /users/{id}"])
 }
 
 // The two requests, which answer the same ClientError; decoding the body answers a plain string.

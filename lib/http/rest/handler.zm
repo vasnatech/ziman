@@ -91,9 +91,9 @@ fn answer<O, E>(
     }
     if Some(w) = encoder {
         val encode = w.encode
-        return media_response(status, encode(unwrap(result)), w.media)
+        return server.media_response(status, encode(unwrap(result)), w.media)
     }
-    return response(status, [])
+    return server.response(status, [])
 }
 
 // Why a caller was refused before an endpoint ran: not identified (`Unauthenticated`, answered 401), identified but not
@@ -465,15 +465,3 @@ pub struct Routes<C> {
     // the reason this lives on the table rather than in `ServeOptions`.
     meter: bool
 }
-
-// Caps how many malloc arenas glibc will create, unless `MALLOC_ARENA_MAX` is already set in the
-// environment, in which case the operator has decided and this leaves it alone. See
-// src/native_http.c for the measurements; the short version is that this server is
-// thread-per-connection, a password hash asks OpenSSL for a ~19 MiB buffer, and glibc keeps that
-// buffer in the arena of whichever thread allocated it -- so every connection that ever
-// authenticated left 19 MiB behind. 48 registrations at 16 concurrent grew resident memory by
-// 307 MB; capped from here, 136 MB. `MALLOC_ARENA_MAX=1` in the environment reaches 98 MB, because
-// glibc reads that at the process's first allocation while this can only bound arenas made after
-// `serve` starts -- which is why an operator's setting wins and is worth keeping as the documented
-// way to go further.
-native fn bound_malloc_arenas(n: int) -> bool

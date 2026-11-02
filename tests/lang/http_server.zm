@@ -1,6 +1,7 @@
 use http
 use http.HttpMethod
 use net
+use rest
 use server
 use server.HttpError
 
@@ -10,25 +11,25 @@ use server.HttpError
 // tests/integration/shutdown).
 
 fn route(req: http.Request) -> http.Response {
-    val health = server.route(req, HttpMethod.Get, "/health")
+    val health = rest.route(req, HttpMethod.Get, "/health")
     if Option.is_Some(health) {
         return server.text_response(200, "ok")
     }
-    val head = server.route(req, HttpMethod.Head, "/health")
+    val head = rest.route(req, HttpMethod.Head, "/health")
     if Option.is_Some(head) {
         return server.text_response(200, "ok")
     }
-    val item = server.route(req, HttpMethod.Get, "/items/{id}")
+    val item = rest.route(req, HttpMethod.Get, "/items/{id}")
     if Option.is_Some(item) {
-        return server.text_response(200, concat("item=", server.param(Option.unwrap_Some(item), "id")))
+        return server.text_response(200, concat("item=", rest.param(Option.unwrap_Some(item), "id")))
     }
-    val echo = server.route(req, HttpMethod.Post, "/echo")
+    val echo = rest.route(req, HttpMethod.Post, "/echo")
     if Option.is_Some(echo) {
         return server.json_response(201, unwrap(bytes_to_string(req.body)))
     }
-    val search = server.route(req, HttpMethod.Get, "/search")
+    val search = rest.route(req, HttpMethod.Get, "/search")
     if Option.is_Some(search) {
-        val q = server.query_param(req, "q")
+        val q = rest.query_param(req, "q")
         if Option.is_Some(q) {
             return server.text_response(200, concat("q=", Option.unwrap_Some(q)))
         }
@@ -38,7 +39,7 @@ fn route(req: http.Request) -> http.Response {
     if req.path == "/ua" && Option.is_Some(ua) {
         return server.text_response(200, Option.unwrap_Some(ua))
     }
-    return server.not_found_or_method_not_allowed(
+    return rest.not_found_or_method_not_allowed(
         req,
         ["GET /health", "HEAD /health", "GET /items/{id}", "POST /echo", "GET /search"]
     )

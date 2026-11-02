@@ -7,8 +7,8 @@
 //     pub fn handle_create(ctx: Ctx, who: Principal, data: model.OrderRequest)
 //         -> Result<model.OrderResponse, ApiError> { .. }
 //
-// writes `pub val <module>_routes: [server.Endpoint<Ctx>]`, which the application appends to its
-// own table. One attribute per handler replaces about ten lines of `server.Endpoint` literal.
+// writes `pub val <module>_routes: [rest.Endpoint<Ctx>]`, which the application appends to its
+// own table. One attribute per handler replaces about ten lines of `rest.Endpoint` literal.
 //
 // **Almost all of it comes from the signature, not the attribute.** Whether the endpoint is
 // secured is whether its second parameter is a `Principal`; whether its input is in the path or
@@ -47,7 +47,7 @@
 //     name with underscores as spaces -- which is what an application names them anyway.
 //
 // **What the application must have in scope where this is spliced**: `Ctx` (its context type),
-// `api` (its `server.Api`, which says how its own error type renders), the `who` function each
+// `api` (its `rest.Api`, which says how its own error type renders), the `who` function each
 // route names, and the four names below from `codec` and `server` -- `json_decoder`,
 // `json_encoder`, `json_list_encoder`, `uuid_param`/`named_uuid_param`. They are emitted bare rather than qualified
 // so that an application is free to bring them in by per-name import, and so that this module
@@ -61,11 +61,11 @@ use template
 // delete with a path id and a 204, each offering XML beside the tree formats. The module is
 // `tests/lang/derive_routes/main.zm`, which pins this text:
 //
-//     pub val main_routes: [server.Endpoint<Ctx>] = [
-//         server.Endpoint<Ctx> {
+//     pub val main_routes: [rest.Endpoint<Ctx>] = [
+//         rest.Endpoint<Ctx> {
 //             method: http.HttpMethod.Get,
 //             pattern: "/api/orders",
-//             handler: server.secure_handler(
+//             handler: rest.secure_handler(
 //                 who: authenticated,
 //                 encoders: [
 //                     list_encoder_of(json_format(), model.order_response_to_json),
@@ -78,10 +78,10 @@ use template
 //                 api: api
 //             )
 //         },
-//         server.Endpoint<Ctx> {
+//         rest.Endpoint<Ctx> {
 //             method: http.HttpMethod.Post,
 //             pattern: "/api/orders",
-//             handler: server.secure_body_handler(
+//             handler: rest.secure_body_handler(
 //                 who: authenticated,
 //                 decoders: [
 //                     decoder_of(json_format(), model.order_request_from_json),
@@ -98,10 +98,10 @@ use template
 //                 api: api
 //             )
 //         },
-//         server.Endpoint<Ctx> {
+//         rest.Endpoint<Ctx> {
 //             method: http.HttpMethod.Delete,
 //             pattern: "/api/orders/{id}",
-//             handler: server.secure_path_handler(
+//             handler: rest.secure_path_handler(
 //                 who: authenticated,
 //                 path: uuid_param("order"),
 //                 encoders: [],
@@ -132,7 +132,7 @@ struct @{name} {
 @end
 
 @template path_reader_fn
-fn @{name}(params: server.Params) -> Result<@{holds}, string> {
+fn @{name}(params: rest.Params) -> Result<@{holds}, string> {
     return ok(@{build})
 }
 
@@ -161,12 +161,12 @@ fn @{name}(@{params}) -> @{returns} {
 @end
 
 @template table
-pub val @{module}_routes: [server.Endpoint<Ctx>] = [
+pub val @{module}_routes: [rest.Endpoint<Ctx>] = [
 @for e in endpoints
-    server.Endpoint<Ctx> {
+    rest.Endpoint<Ctx> {
         method: http.HttpMethod.@{e.method},
         pattern: "@{e.path}",
-        handler: server.@{e.flavour}(
+        handler: rest.@{e.flavour}(
 @if e.secured
             who: @{e.who},
 @end
@@ -409,17 +409,17 @@ fn reader_of(t: meta.Type, text: string, name: string) -> Option<string> {
         return Option<string>.Some(text)
     }
     if Int = t {
-        return Option<string>.Some(concat("try server.as_int(", text, ", \"", name, "\")"))
+        return Option<string>.Some(concat("try rest.as_int(", text, ", \"", name, "\")"))
     }
     if Float = t {
-        return Option<string>.Some(concat("try server.as_float(", text, ", \"", name, "\")"))
+        return Option<string>.Some(concat("try rest.as_float(", text, ", \"", name, "\")"))
     }
     if Bool = t {
-        return Option<string>.Some(concat("try server.as_bool(", text, ", \"", name, "\")"))
+        return Option<string>.Some(concat("try rest.as_bool(", text, ", \"", name, "\")"))
     }
     if Some(named) = named_of(t) {
         if meta.bare_name(named) == "Uuid" {
-            return Option<string>.Some(concat("try server.as_uuid(", text, ", \"", name, "\")"))
+            return Option<string>.Some(concat("try rest.as_uuid(", text, ", \"", name, "\")"))
         }
     }
     return Option<string>.None
@@ -655,7 +655,7 @@ fn bound_struct(name: string, bs: [Binding]) -> Result<string, string> {
 // A path segment is always there -- the router only matches when every segment is -- so no
 // `required`, just the conversion.
 fn read_path(b: Binding, label: string) -> Result<string, string> {
-    val text = concat("server.param(params, \"", b.wire, "\")")
+    val text = concat("rest.param(params, \"", b.wire, "\")")
     switch reader_of(b.inner, text, if is_uuid(b.inner) { label } else { b.wire }) {
         Some(call) { return ok(call) }
         None { return err(concat("derive(Routes) cannot read a path segment as '", meta.type_text(b.inner), "'")) }
@@ -693,7 +693,7 @@ fn read_query(b: Binding) -> Result<string, string> {
     val source = if b.role == "header" {
         concat("http.header(req, \"", b.wire, "\")")
     } else {
-        concat("server.query_param(req, \"", b.wire, "\")")
+        concat("rest.query_param(req, \"", b.wire, "\")")
     }
     if b.optional {
         // An absent one is the `Option`'s `None`, and a present one still has to convert.
@@ -723,8 +723,8 @@ fn read_query(b: Binding) -> Result<string, string> {
         }
     }
     val text = switch b.default_text {
-        Some(given) { concat("server.given_or(", source, ", \"", given, "\")") }
-        None { concat("try server.required(", source, ", \"", b.wire, "\")") }
+        Some(given) { concat("rest.given_or(", source, ", \"", given, "\")") }
+        None { concat("try rest.required(", source, ", \"", b.wire, "\")") }
     }
     switch reader_of(b.inner, text, b.wire) {
         Some(call) { return ok(concat("    val ", b.param, " = ", call, "\n")) }

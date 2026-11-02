@@ -1,0 +1,63 @@
+// rest.zm -- a REST toolkit over `http` and `server`: an endpoint is a method, a URL pattern and a
+// handler, a table of them is compiled once, and `dispatch` answers a request from it.
+//
+// **Why this is not part of `server`.** It was, until 2026-11-01, and `lib/http/server/` was 2,900
+// lines holding two different things: an HTTP server -- accept loop, request parsing, keep-alive,
+// response writing -- and a REST framework on top of it. Different concerns and different readers:
+// someone writing a raw handler wants the first, someone writing a resource API wants the second.
+// Two symptoms said so before anyone decided it. `pub fn routes` lived in the file about metrics
+// and `pub fn dispatch` in the file about CORS -- neither on purpose, both because that was the
+// file that happened to be open -- and `cors.zm` had to reach for `Routes`, `capture` and
+// `segments_of` to keep `dispatch`, which was the single place the transport half depended on the
+// REST half. Moving those two functions out left the dependency pointing one way and the split
+// obvious: `http` is the protocol, `server` is the transport, `rest` is the framework.
+//
+// **What `rest` holds**: `Endpoint` and `Api` (`handler.zm`), the ten handler constructors that do
+// the protocol work a controller should not -- 415 for a body in the wrong media type, 406 when
+// `Accept` allows none of the encoders, 400 for a body or a path id that does not decode, all
+// before the handler runs -- URL patterns and the request bindings (`route.zm`), the compiled table
+// (`table.zm`), and matching plus per-request metrics (`dispatch.zm`). `derive_routes.zm` beside
+// them is the `#![derive(Routes)]` generator, a module of its own because a generator is loaded as
+// a program rather than imported as a library.
+//
+// **What it deliberately does not hold**: anything that reads or writes a socket. A `Response` is
+// built with `server`'s builders and a request arrives already parsed, so this module never sees a
+// byte of the wire.
+#![experimental]
+
+use clock
+use codec
+use http.Header
+use http.HttpMethod
+use http.Request
+use http.Response
+use http.content_type
+use http.header
+use http.header_value
+use http.method_name
+use http.method_parse
+use http.percent_decode
+use http.quality
+use http.status_bad_request
+use http.status_forbidden
+use http.status_internal_server_error
+use http.status_method_not_allowed
+use http.status_no_content
+use http.status_not_acceptable
+use http.status_not_found
+use http.status_ok
+use http.status_unauthorized
+use http.status_unsupported_media_type
+use metrics
+use mime
+use server
+use server.latency_metric
+use server.requests_metric
+use uuid
+use uuid.Uuid
+
+// The `{name}` captures of a matched route, by position.
+pub struct Params {
+    names: [string]
+    values: [string]
+}

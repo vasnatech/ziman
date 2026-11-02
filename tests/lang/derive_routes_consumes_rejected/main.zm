@@ -7,18 +7,19 @@
 // decoder, which encoder, or what the JSON functions are called.
 #![derive(Routes)]
 
+use codec.csv_format
 use codec.decoder_of
 use codec.encoder_of
 use codec.json_format
 use codec.list_encoder_of
 use codec.ndjson_format
 use codec.yaml_format
-use codec.csv_format
 use derive_routes
 use http
 use model
+use rest
+use rest.uuid_param
 use server
-use server.uuid_param
 use uuid.Uuid
 use wiring.Ctx
 use wiring.Principal

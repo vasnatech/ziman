@@ -19,8 +19,9 @@ use codec.yaml_format
 use derive_routes
 use http
 use model
+use rest
+use rest.uuid_param
 use server
-use server.uuid_param
 use uuid.Uuid
 use wiring.Ctx
 use wiring.Principal

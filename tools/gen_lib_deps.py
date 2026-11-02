@@ -24,6 +24,19 @@ for path in glob.glob(os.path.join(ROOT, "lib", "*", "*.zm")):
         continue
     mods[os.path.basename(path)[:-3]] = folder
 
+# **The multi-part modules, which this missed entirely until 2026-11-01.** `server`, `client` and
+# `rest` are folders of parts one level deeper (`lib/http/server/read.zm`), so `lib/*/*.zm` never
+# saw them -- and the prose above names `http.server` as though it were on the map. A part folder
+# is one whose name matches a file inside it (`lib/http/server/server.zm`), which is the same shape
+# `src/corelib.c`'s MODULE_PARTS and the Makefile's `<NAME>_PARTS` already encode; the first part
+# carries the imports, so that is the file to read.
+for path in glob.glob(os.path.join(ROOT, "lib", "*", "*", "*.zm")):
+    folder = os.path.basename(os.path.dirname(path))
+    group = os.path.basename(os.path.dirname(os.path.dirname(path)))
+    if group == "prelude" or os.path.basename(path)[:-3] != folder:
+        continue
+    mods[folder] = os.path.join(group, folder)
+
 deps = collections.defaultdict(set)
 for name in mods:
     with open(os.path.join(ROOT, "lib", mods[name], name + ".zm")) as f:

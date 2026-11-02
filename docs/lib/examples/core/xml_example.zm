@@ -1,3 +1,4 @@
+use rest
 use xml
 
 // XML is a tree of its own, not a Json tree: text and elements interleave, attributes are not

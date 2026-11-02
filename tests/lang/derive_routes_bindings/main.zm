@@ -13,9 +13,10 @@ use derive_routes
 use http
 use json.Json
 use model
+use rest
+use rest.named_uuid_param
+use rest.uuid_param
 use server
-use server.named_uuid_param
-use server.uuid_param
 use uuid.Uuid
 use wiring.Ctx
 use wiring.Principal

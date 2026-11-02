@@ -51,6 +51,7 @@ compare; `prefix` is only ever a hint to the writer.
 ## Example
 
 ```
+use rest
 use xml
 
 // XML is a tree of its own, not a Json tree: text and elements interleave, attributes are not
