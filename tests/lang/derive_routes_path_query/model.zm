@@ -1,0 +1,19 @@
+use xml
+// The request also derives `Xml`, and the response derives both -- which is what lets
+// `consumes:`/`produces:` name `"xml"` beside the tree formats. A type named with `"xml"` and not
+// deriving it is a generated call that does not resolve, reported where the attribute is.
+use validate
+
+#[derive(Json)]
+#[derive(Validate)]
+pub struct OrderRequest {
+    #[not_blank]
+    item: string
+}
+
+#[derive(Json)]
+#[derive(Xml)]
+pub struct OrderResponse {
+    id: int
+    item: string
+}

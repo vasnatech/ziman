@@ -491,15 +491,12 @@ fn wiring_for(f: meta.Function, module_name: string) -> Result<Wiring, string> {
     val secured = prelude.len(of_role(bs, "principal")) > 0
     val label = arg_or(f, "label", replace(module_name, "_", " "))
 
-    if prelude.len(paths) > 0 && prelude.len(queries) > 0 {
-        return err(prelude.format(
-            "#[route] on '{}' binds both a path segment and a query parameter, and `server` has no " \
-                "constructor for the pair -- `endpoint_core` takes both, so the missing piece is a " \
-                "`{}_path_query_handler` beside the other nine",
-            f.name,
-            if secured { "secure" } else { "public" }
-        ))
-    }
+    // **A path segment beside a query parameter** was refused here until 2026-11-01, by a message
+    // naming the constructor that would be needed -- and that is how `rest` came to have
+    // `secure_path_query_handler` and `public_path_query_handler`: a shared health record is a
+    // token in the path, a password in a header and an answer whose media type the route decides.
+    // `endpoint_core` had always taken both. The pair always takes an adapter, below, so that the
+    // order the author declared the parameters in is the order they are read in.
     if prelude.len(queries) > 0 && prelude.len(bodies) > 0 {
         return err(prelude.format(
             "#[route] on '{}' binds both a query parameter and a request body, and `server` has no " \
@@ -514,7 +511,9 @@ fn wiring_for(f: meta.Function, module_name: string) -> Result<Wiring, string> {
     val decls = mutable_string_new()
     var path_reader = ""
     var query_reader = ""
-    var adapter_needed = false
+    // The pair needs one whatever the parameters look like: the constructor passes the path and
+    // then the query, and the handler is free to declare them the other way round.
+    var adapter_needed = prelude.len(paths) > 0 && prelude.len(queries) > 0
     var validated = Option<Binding>.None
     for b in bodies {
         if b.validated {
@@ -758,10 +757,21 @@ fn adapter(
         }
         i = i + 1
     }
-    if prelude.len(paths) > 1 {
+    // **The constructor's own parameters, all of them.** One path segment is passed as itself and
+    // several as a holder struct; the same for the query. Writing only the holders was a real bug
+    // until 2026-11-01: a `{id}` beside a `#[valid] #[body]` needs an adapter for the validation,
+    // and the adapter came out `fn(ctx, who, data)` while calling `handle_update(ctx, who, id,
+    // data)` -- a name that was not a parameter. It type-checked nowhere and appeared nowhere,
+    // because no route in the North Star happened to have both; `tests/lang/derive_routes_path_query`
+    // has it now.
+    if prelude.len(paths) == 1 {
+        push(params, concat(paths[0].param, ": ", meta.type_text(paths[0].inner)))
+    } else if prelude.len(paths) > 1 {
         push(params, concat("bound_path: ", holder_name(f.name, "path")))
     }
-    if prelude.len(queries) > 1 {
+    if prelude.len(queries) == 1 {
+        push(params, concat(queries[0].param, ": ", meta.type_text(queries[0].type)))
+    } else if prelude.len(queries) > 1 {
         push(params, concat("bound_query: ", holder_name(f.name, "query")))
     }
     for b in bodies {
@@ -1322,15 +1332,15 @@ fn placeholders(pattern: string) -> [string] {
     return snapshot(out)
 }
 
-// `secure_path_body_handler` and its seven siblings, named from the three facts that pick one.
+// `secure_path_body_handler` and its nine siblings, named from the three facts that pick one.
 fn flavour(secured: bool, has_path: bool, has_query: bool, has_body: bool) -> string {
     val parts = mutable_array_new<string>()
     push(parts, if secured { "secure" } else { "public" })
     if has_path {
         push(parts, "path")
     }
-    // A query never appears beside a path or a body -- `wiring_for` refuses both pairs, because
-    // `server` has no constructor for either.
+    // A query may appear beside a path (`secure_path_query_handler`) and may not appear beside a
+    // body -- `wiring_for` refuses that pair, there being no constructor for it.
     if has_query {
         push(parts, "query")
     }

@@ -1,0 +1,79 @@
+// **A path segment beside something read off the request**, which was refused until 2026-11-01 and
+// is two routes here: a token in the path with a password in a header, and an id with a query
+// filter. `rest.secure_path_query_handler` and `rest.public_path_query_handler` are what answer
+// them -- `endpoint_core` had always taken both, so the pair was a missing name rather than a
+// missing mechanism, and the refusal said so by naming the constructor it wanted.
+//
+// **And the third route is the bug that pair uncovered.** A `{id}` beside a `#[valid] #[body]`
+// forces an adapter for the validation, and the adapter was written with only the *holder*
+// parameters -- so a lone path segment vanished from its signature while the call still used the
+// name: `fn handle_update_route(ctx, who, data)` calling `handle_update(ctx, who, id, data)`. It
+// compiled nowhere and appeared nowhere, because no route in the North Star had both a single path
+// id and a validated body. That is what a fixture is for.
+#![derive(Routes)]
+
+use codec.decoder_of
+use codec.encoder_of
+use codec.json_format
+use derive_routes
+use http
+use model
+use rest
+use rest.named_uuid_param
+use rest.uuid_param
+use server
+use uuid.Uuid
+use wiring.Ctx
+use wiring.Principal
+use wiring.api
+use wiring.authenticated
+use wiring.invalid
+
+// Secured: a path id and a query filter, declared in that order.
+#[route(method: GET, path: "/api/orders/{id}")]
+pub fn handle_get(
+    ctx: Ctx,
+    who: Principal,
+    id: Uuid,
+    #[query] currency: Option<string>
+) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+// Public: a token in the path and a password in a header -- the shape a shared record is read
+// through, and the one that wanted this constructor.
+#[route(method: GET, path: "/api/shared/{token}/order")]
+pub fn handle_shared(
+    ctx: Ctx,
+    #[path] token: Uuid,
+    #[header(name: "X-Share-Password")] password: Option<string>
+) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+// **The parameters the other way round**, to prove the adapter and not the declaration order is
+// what decides: the constructor passes the path and then the query, whatever the handler says.
+#[route(method: GET, path: "/api/orders/{id}/receipt")]
+pub fn handle_receipt(
+    ctx: Ctx,
+    who: Principal,
+    #[query] currency: Option<string>,
+    #[path] id: Uuid
+) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+// A single path id beside a validated body: the adapter has to carry both.
+#[route(method: PUT, path: "/api/orders/{id}")]
+pub fn handle_update(
+    ctx: Ctx,
+    who: Principal,
+    id: Uuid,
+    #[valid]#[body] data: model.OrderRequest
+) -> Result<model.OrderResponse, string> {
+    return err("x")
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}

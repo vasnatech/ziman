@@ -278,6 +278,39 @@ pub fn secure_path_handler<C, U, P, O, E>(
     )
 }
 
+// A secured endpoint with **both** a path segment and something read off the request:
+// `GET /orders/{id}?currency=EUR`, or a path id beside a header. `run(ctx, caller, id, filter)`.
+//
+// **The pair was the one hole in this matrix and `endpoint_core` always took both.** It stayed
+// unbuilt while nothing needed it, and `#![derive(Routes)]` refused such a route by naming the
+// constructor that would be here -- which is how the gap was found rather than guessed. The first
+// caller is a shared health record: a token in the path, a password in a header, and an answer
+// whose media type the route decides.
+pub fn secure_path_query_handler<C, U, P, Q, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    path: fn(Params) -> Result<P, string>,
+    query: fn(Request) -> Result<Q, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, U, P, Q) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return endpoint_core<C, U, P, Q, unit, O, E>(
+        who: who,
+        path: path,
+        query: query,
+        decoders: Option<[codec.Decoder<unit>]>.None,
+        blank: Option<unit>.Some(unit),
+        encoders: encoders,
+        status: get_or(status, 200),
+        run: fn(ctx: C, caller: U, id: P, filter: Q, input: unit) -> Result<O, E> {
+            return go(ctx, caller, id, filter)
+        },
+        api: api
+    )
+}
+
 // A secured endpoint whose input is in the query string (`GET /things?type=x`): `query` reads what it wants from the request, for
 // which `query_param` is the tool, and turns it into a `Q` (an `Err` message is answered 400, so a bad value never reaches `run`);
 // `run(ctx, caller, input)` returns the answer or an error.
@@ -408,6 +441,30 @@ pub fn public_path_handler<C, P, O, E>(
         encoders: encoders,
         status: status,
         run: fn(ctx: C, nobody: Anonymous, id: P) -> Result<O, E> { return go(ctx, id) },
+        api: api
+    )
+}
+
+// The same, open to anyone: a path segment and something off the request, with no caller.
+// `run(ctx, id, filter)`.
+pub fn public_path_query_handler<C, P, Q, O, E>(
+    path: fn(Params) -> Result<P, string>,
+    query: fn(Request) -> Result<Q, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, P, Q) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    return secure_path_query_handler<C, Anonymous, P, Q, O, E>(
+        who: anyone<C>,
+        path: path,
+        query: query,
+        encoders: encoders,
+        status: status,
+        run: fn(ctx: C, nobody: Anonymous, id: P, filter: Q) -> Result<O, E> {
+            return go(ctx, id, filter)
+        },
         api: api
     )
 }

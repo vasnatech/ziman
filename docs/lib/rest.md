@@ -17,7 +17,7 @@ file that happened to be open -- and `cors.zm` had to reach for `Routes`, `captu
 REST half. Moving those two functions out left the dependency pointing one way and the split
 obvious: `http` is the protocol, `server` is the transport, `rest` is the framework.
 
-**What `rest` holds**: `Endpoint` and `Api` (`handler.zm`), the ten handler constructors that do
+**What `rest` holds**: `Endpoint` and `Api` (`handler.zm`), the twelve handler constructors that do
 the protocol work a controller should not -- 415 for a body in the wrong media type, 406 when
 `Accept` allows none of the encoders, 400 for a body or a path id that does not decode, all
 before the handler runs -- URL patterns and the request bindings (`route.zm`), the compiled table
@@ -116,6 +116,29 @@ pub fn secure_path_handler<C, U, P, O, E>(
 A secured endpoint whose input is in the path: `path` turns the captured parameters into a `P` (an `Err` message is
 answered 400, so a bad id never reaches `run`), and `run(ctx, caller, input)` returns the answer or an error.
 
+### `secure_path_query_handler`
+
+```
+pub fn secure_path_query_handler<C, U, P, Q, O, E>(
+    who: fn(C, Request) -> Result<U, Denied>,
+    path: fn(Params) -> Result<P, string>,
+    query: fn(Request) -> Result<Q, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, U, P, Q) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response
+```
+
+A secured endpoint with **both** a path segment and something read off the request:
+`GET /orders/{id}?currency=EUR`, or a path id beside a header. `run(ctx, caller, id, filter)`.
+
+**The pair was the one hole in this matrix and `endpoint_core` always took both.** It stayed
+unbuilt while nothing needed it, and `#![derive(Routes)]` refused such a route by naming the
+constructor that would be here -- which is how the gap was found rather than guessed. The first
+caller is a shared health record: a token in the path, a password in a header, and an answer
+whose media type the route decides.
+
 ### `secure_query_handler`
 
 ```
@@ -211,6 +234,22 @@ pub fn public_path_handler<C, P, O, E>(
 ```
 
 A public endpoint whose input is in the path: `run(ctx, input)`.
+
+### `public_path_query_handler`
+
+```
+pub fn public_path_query_handler<C, P, Q, O, E>(
+    path: fn(Params) -> Result<P, string>,
+    query: fn(Request) -> Result<Q, string>,
+    encoders: [codec.Encoder<O>],
+    status: Option<int>,
+    run: fn(C, P, Q) -> Result<O, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response
+```
+
+The same, open to anyone: a path segment and something off the request, with no caller.
+`run(ctx, id, filter)`.
 
 ### `public_body_handler`
 
