@@ -23,7 +23,7 @@ with `format` and its own `parse*` (`2026-09-24`, `13:05:09.5`, `PT1.5S`, `+05:3
 types and `Instant` also take a `DateTimeFormat`, a pattern compiled once by
 `datetime_format_of` and reused: `yyyy MM dd HH mm ss` and `SSSSSSSSS` (nanoseconds), plus
 `MMM`/`MMMM` and `EEE`/`EEEE` for the month and day as names, taken from the host's locale data,
-anything else copied through as literal text. A compiled pattern carries no locale; the locale
+`Z`/`XXX` for the offset from UTC, anything else copied through as literal text. A compiled pattern carries no locale; the locale
 goes to the call that renders (`format(d, fmt, l)`), or is `locale.default()`. Every type has
 `to_json` / `to_<type>` and `to_sql` / `to_<type>`, so `#[derive(Json)]` and `#[derive(Row)]`
 handle a field of these types (an ISO string, and a TEXT column).
@@ -123,6 +123,10 @@ one with the identical signature, so the rename turned it into a duplicate. One 
 pub struct DateTimeFormat {
     parts: [DateTimePart]
     width: int
+    // Whether a `Z` or an `XXX` is in the pattern, computed once with `width` because every
+    // `format`/`parse` of an `Instant` asks: an offset the pattern carries is rendered and read in
+    // place, and one it does not is the suffix outside it that this module has always written.
+    carries_offset: bool
 }
 ```
 

@@ -1,0 +1,77 @@
+// D23: `Z` and `XXX`, the two pattern letters for the offset from UTC.
+//
+// **Until 2026-11-02 a timestamp carrying an offset could not be parsed by a pattern at all.**
+// `datetime_format_of` had letters for the date and the time and none for the zone, so Apple
+// Health's `2026-03-01 08:00:00 +0000` -- which Java reads with one formatter,
+// `yyyy-MM-dd HH:mm:ss Z` -- met a `Z` copied through as a literal and failed on every record of
+// every export. The North Star's importer split the offset off by hand, put back the colon ISO
+// wants, and called `parse_offset`: fifteen lines in an application for the commonest timestamp
+// shape there is.
+//
+// The two letters are Java's and differ **only in what they write**: `Z` is ISO 8601's basic form
+// (`+0000`, which is RFC 822's and Apple's) and `XXX` the extended one (`+00:00`, `Z` for zero).
+// Parsing is lenient for both, because an offset that has been understood should not be refused
+// for its spelling.
+use time
+use time.datetime_format_of
+use time.iso_datetime_format
+
+val apple = datetime_format_of("yyyy-MM-dd HH:mm:ss Z")
+val iso = datetime_format_of("yyyy-MM-ddTHH:mm:ssXXX")
+
+fn read(label: string, text: string, fmt: time.DateTimeFormat) {
+    print(switch time.parse_instant(text, fmt) {
+        Ok(i) { format("{}: {}", label, time.format(i)) }
+        Err(e) { format("{}: refused -- {}", label, e) }
+    })
+}
+
+fn main() {
+    // The string that raised the task, and the whole point of it.
+    read("apple, UTC", "2026-03-01 08:00:00 +0000", apple)
+    read("apple, +03:00", "2026-03-01 08:00:00 +0300", apple)
+    read("apple, -05:30", "2026-03-01 08:00:00 -0530", apple)
+
+    // **Lenient on the spelling, whichever letter the pattern named**: a `Z` pattern reads an
+    // extended offset and a `Z`, and an `XXX` pattern reads a basic one. Being strict here would
+    // refuse a file for a difference that has already been understood.
+    read("apple pattern, extended offset", "2026-03-01 08:00:00 +03:00", apple)
+    read("apple pattern, Z", "2026-03-01 08:00:00 Z", apple)
+    read("apple pattern, hour only", "2026-03-01 08:00:00 +03", apple)
+    read("iso pattern, Z", "2026-03-01T08:00:00Z", iso)
+    read("iso pattern, basic offset", "2026-03-01T08:00:00+0300", iso)
+    read("iso pattern, lowercase z", "2026-03-01T08:00:00z", iso)
+
+    // The value is still checked by `parse_offset`, which is where the hour and minute ranges live
+    // (D19) -- so one reader validates and this one only reads digits.
+    read("minute out of range", "2026-03-01 08:00:00 +0599", apple)
+    read("not an offset at all", "2026-03-01 08:00:00 nope", apple)
+    read("nothing where the offset goes", "2026-03-01 08:00:00 ", apple)
+    // A pattern that places the offset is read whole: anything after it is trailing content, where
+    // before this the tail *was* the offset and could not be checked.
+    read("trailing content", "2026-03-01 08:00:00 +0000 and more", apple)
+
+    // ---- rendering, which is the half that is not lenient --------------------------------------
+    val at = unwrap(time.parse_instant("2026-03-01T05:00:00Z"))
+    val three = unwrap(time.parse_offset("+03:00"))
+    print(concat("Z writes:   ", time.format(at, three, apple)))
+    print(concat("XXX writes: ", time.format(at, three, iso)))
+    // `XXX` writes `Z` for a zero offset and `Z` never does.
+    print(concat("Z at UTC:   ", time.format(at, time.zoneoffset_utc(), apple)))
+    print(concat("XXX at UTC: ", time.format(at, time.zoneoffset_utc(), iso)))
+
+    // **The suffix behaviour is unchanged for a pattern with no offset letter**, which is what
+    // every existing pattern is: `format` appends the offset and `parse_instant` takes it off the
+    // end, as this module has always done.
+    print(concat("no letter:  ", time.format(at, three, iso_datetime_format)))
+    print(concat("round trip: ", time.format(at)))
+
+    // A value with no offset of its own renders UTC, the same convention as the hour a date lacks
+    // printing as 00 -- and a date parsed with such a pattern reads the offset and discards it.
+    val day = unwrap(time.parse_localdate("2026-03-01"))
+    print(concat("a date with an offset pattern: ", time.format(day, datetime_format_of("yyyy-MM-dd Z"))))
+    print(switch time.parse_localdate("2026-03-01 +0300", datetime_format_of("yyyy-MM-dd Z")) {
+        Ok(d) { concat("a date read with one: ", time.format(d)) }
+        Err(e) { concat("refused: ", e) }
+    })
+}

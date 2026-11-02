@@ -3463,6 +3463,10 @@ pub fn is_leap_year(year: int) -> bool
 pub struct DateTimeFormat {
     parts: [DateTimePart]
     width: int
+    // Whether a `Z` or an `XXX` is in the pattern, computed once with `width` because every
+    // `format`/`parse` of an `Instant` asks: an offset the pattern carries is rendered and read in
+    // place, and one it does not is the suffix outside it that this module has always written.
+    carries_offset: bool
 }
 
 pub fn datetime_format_of(pattern: string) -> DateTimeFormat

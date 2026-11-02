@@ -28,7 +28,7 @@ Part of the [task list](README.md) -- see its preamble for the reviews these com
 - [x] **D21** The documentation generator published two wrong things because the source was wrong: `array_frequencies` ships undocumented while its prose appears under `array_join` (`prelude.zm:1034` -- the comment swap), and `server.zm:1014,1151` twice reference a `ServeOptions.max_body_bytes` field that does not exist. A doc comment that is in the wrong place is worse than a missing one, because the generator gives it authority. (DX3 item 15, D19, D18; trivial) Done 2026-10-14. The `array_frequencies`/`array_join` comment swap was fixed with D17, found while reading that function rather than looked for: the two comment blocks sat adjacent with no blank line, so the generator gave `array_join` the wrong prose and published `array_frequencies` with none. The `server.zm:1014,1151` half is the `ServeOptions.max_body_bytes` field, which does not exist -- the cap is a module constant -- so "raise that cap before expecting large uploads" was published advice to reach something a caller has no way to reach. Both comments now describe what is actually there and say plainly that it is not configurable. **Deliberately not** made into a real field here, although D22 asks for that and it would have made the comments true instead: `read_request(session: Session)` is public API that the North Star backend calls directly, so the cap has to arrive through either that signature or `Session`'s shape, and that is an API change rather than a trivial doc fix. Left to D22 with the reason recorded. Also worth noting: my first wording explained the mistake by quoting `ServeOptions.max_body_bytes`, which the generator then published into the manual -- the same trap as D17, caught the same way, by reading what the generator produced rather than what I wrote.
 - [x] **D22** The quadratic-accumulation sweep the `--lint` rule of F133 would find: `yaml.zm:670-708`, `csv.zm:329`, `time.zm:280`, and the linear body accumulation at `server.zm:487`. While there: make the 1 MiB body cap a real `ServeOptions` field rather than a constant, and delete the dead private `skip_lenenc_string` and `expect_ok` (`mysql.zm:282,346`). (DX3 item 24, D20; M) Done 2026-10-14. Measured, not assumed, and the sites are not all equal. **`csv.zm` was the big one**: a multi-line quoted field was rebuilt with `concat` per continuation line, and a 40,000-line field went **85.68s -> 0.13s**. The accumulated text is only read at the two places the loop finishes and `quotes` is counted per line rather than derived from it, so one builder and one `snapshot` per exit is enough. `yaml.zm` was four loops, not the one the task names, and the `keep` chomp loop appended a newline at a time to an already-snapshotted string -- now appended to the builder and snapshotted once. `server.zm:487` accumulated the request body with `bytes_concat` per read, about 128 MiB of copying for a 1 MiB body arriving in 4 KiB chunks; a byte builder makes each chunk one memcpy into packed storage. The two dead `mysql` helpers are gone, with the 6 MySQL driver tests re-run against a real server to be sure they were dead. The 1 MiB cap is now `ServeOptions.max_body_bytes`, which also makes D21's two published comments true: it reaches `read_request` through a new `Session` field rather than by widening that public signature, and 0 still means the library default, so `open_session` callers are unaffected -- verified at 64 bytes (200/200/413) and at the default (1 MiB accepted, +1 refused). **Two sites deliberately left.** `time.zm:280` is quadratic in the length of a *format pattern* -- tens of characters, so a few hundred operations -- and rewriting a pattern parser for that is risk without a measurement to justify it. The two `while flow_depth(text) > 0` loops in `yaml.zm` cannot be fixed by a builder at all: the predicate rescans the whole accumulation each round, so snapshotting for it costs exactly what the `concat` did, and making them linear means tracking depth incrementally -- a redesign, not a sweep. New fixtures `csv_multiline_field_is_linear` and `http_body_cap_option`; 1023 fixtures on both builds.
 
-- [ ] **D23** **`DateTimeFormat` has no letter for a zone offset, so a timestamp with one cannot be
+- [x] **D23** **`DateTimeFormat` has no letter for a zone offset, so a timestamp with one cannot be
   parsed by a pattern at all.** (raised 2026-11-02 while porting Spring's Apple Health import; S)
   Apple writes `2026-03-01 08:00:00 +0000`, and Spring reads it with one formatter
   (`yyyy-MM-dd HH:mm:ss Z`). Here `Z` is copied through as a literal, so
@@ -41,6 +41,38 @@ Part of the [task list](README.md) -- see its preamble for the reviews these com
   carries one. **Not a new mechanism**: `parse_offset` already reads the value, so this is a
   pattern letter and a call. Worth deciding whether it is Java's `Z` (`+0000`), `X`/`XXX`
   (`+00:00`, `Z` for UTC) or both, since an export in the wild uses each.
+
+  **Done 2026-11-02, and the answer to the question is both.** `Z` is ISO 8601's basic form and
+  `XXX` its extended one, spelled as Java spells them, and the two differ **only in what they
+  write**: an export in the wild really does use each, so picking one would have left the other
+  needing the hand-written split this task is about. Parsing is lenient for both -- `Z`, `z`,
+  `+05`, `+0530` and `+05:30` all read, whichever letter the pattern named -- because refusing a
+  file over the spelling of an offset that has already been understood buys nothing. Rendering is
+  strict, so a pattern round-trips.
+  * **The offset is validated by `parse_offset`**, not by a second reader: the digits are
+    normalised to `+HH:MM` and handed over, so D19's hour and minute ranges have one
+    implementation. `+0599` is refused with `parse_offset`'s own sentence.
+  * **The suffix behaviour is untouched for every existing pattern**, which matters more than the
+    new letters: this module has always written the offset *after* the pattern's output and taken
+    it off the end when parsing, which is why `iso_datetime_format` has no letter for one and
+    `format(i)` still answers `2026-09-24T13:05:09Z`. `DateTimeFormat` precomputes
+    `carries_offset` beside `width`, and only a pattern that places the offset suppresses the
+    suffix -- otherwise an `Instant` would render it twice.
+  * **A pattern that places the offset is read whole**: anything after it is trailing content and
+    refused, where previously the tail *was* the offset and could not be checked.
+  * **A value with no offset of its own renders UTC** (`format(d, "yyyy-MM-dd Z")` writes
+    `+0000`), which is this module's existing convention for a field the value lacks -- the hour of
+    a `LocalDate` prints as `00`. A date parsed with such a pattern reads the offset and discards
+    it, as `EEE` is read and discarded.
+  * **The one incompatibility, checked rather than assumed**: a `Z` or an `X` in a pattern used to
+    be an unrecognised character and so a literal. No pattern in this repository or the North
+    Star's contained either -- all 23 distinct patterns were listed -- and Java reads them the same
+    way, so a pattern copied from a Java codebase now means there what it means here.
+  * The language's own exhaustiveness check found both switches over `DateTimePart` the moment the
+    variants were added, which is what that rule is for.
+
+  `tests/lang/time_pattern_offset` pins all of it, including the fifteen lines it deletes from the
+  North Star's `service/apple_health.zm`. 1,394 fixtures, 457 library tests.
 
 - [ ] **D24** **There is no hexadecimal integer literal.** (raised 2026-11-02 while writing a zip
   reader for the FHIR bulk import; S) `0x02014b50` is a syntax error -- `0` followed by an
