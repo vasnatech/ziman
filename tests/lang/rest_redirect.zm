@@ -1,0 +1,116 @@
+// `rest.public_query_redirect_handler`: an endpoint whose answer is somewhere to go -- a 302 with a
+// `Location` and no body -- which is the shape of every OAuth callback. The provider sends the
+// browser here with a `code` and the `state` the flow began with, and the server has to put the
+// browser back where it came from, carrying whether the connection worked.
+//
+// **A `Redirect` is an answer, not a header set on one.** The handler does not build its own
+// response here -- a builder does, from what `run` returns -- so the location travels as the
+// value answered. `as_attachment` is a wrapper for the opposite reason: a filename is fixed for the
+// life of the endpoint, where a location is computed per request.
+//
+// What this pins, in order: a 302 with the `Location` answered and an empty body; an `Err` rendered
+// by the application's `Api` like any other failure, with no `Location`; and a query the route
+// requires and that is missing answered 400 by the builder before `run` is reached.
+//
+// **A location holding a CR is not refused here**, and the last case shows it reaching the response
+// intact: a header value is checked on the way *out*, by `write_response`, which refuses a value
+// with a control character and sends a 500 rather than two headers (`http_server_hardening`). One
+// check over every header beats one per builder that sets one.
+use http
+use rest
+use server
+
+struct Ctx {
+    settings_page: string
+}
+
+fn failure(e: string) -> http.Response {
+    return server.text_response(500, e)
+}
+
+fn fault(status: int, message: string) -> http.Response {
+    return server.text_response(status, message)
+}
+
+val api: rest.Api<string> = rest.Api<string> { failure: failure, fault: fault }
+
+struct Callback {
+    code: string
+}
+
+// What a derived route's query reader does: a parameter the route requires, missing is a 400.
+fn callback_of(req: http.Request) -> Result<Callback, string> {
+    val code = try rest.required(rest.query_param(req, "code"), "code")
+    return ok(Callback { code: code })
+}
+
+fn connected(ctx: Ctx, asked: Callback) -> Result<rest.Redirect, string> {
+    return ok(rest.Redirect { location: concat(ctx.settings_page, "?connected=", asked.code) })
+}
+
+fn refused(ctx: Ctx, asked: Callback) -> Result<rest.Redirect, string> {
+    return err("the provider refused the exchange")
+}
+
+// A location with a CR in it, which is the response half of request smuggling: the header would end
+// and another would begin. Nothing here refuses it -- `write_response` does, on the way out.
+fn injected(ctx: Ctx, asked: Callback) -> Result<rest.Redirect, string> {
+    return ok(rest.Redirect { location: "https://example.test/\r\nX-Injected: yes" })
+}
+
+fn endpoint(pattern: string, run: fn(Ctx, Callback) -> Result<rest.Redirect, string>) -> rest.Endpoint<Ctx> {
+    return rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Get,
+        pattern: pattern,
+        handler: rest.public_query_redirect_handler<Ctx, Callback, string>(
+            query: callback_of,
+            run: run,
+            api: api
+        )
+    }
+}
+
+val table = rest.routes<Ctx>([
+    endpoint("/callback", connected),
+    endpoint("/refused", refused),
+    endpoint("/injected", injected)
+])
+
+fn request(target: string, path: string, query: string) -> http.Request {
+    return http.Request {
+        method: http.HttpMethod.Get,
+        target: target,
+        path: path,
+        query: query,
+        version: "HTTP/1.1",
+        headers: [],
+        body: [],
+        peer: None
+    }
+}
+
+fn show(label: string, path: string, query: string) {
+    val target = if query == "" { path } else { concat(path, "?", query) }
+    val res = rest.dispatch<Ctx>(table, Ctx { settings_page: "https://example.test/settings" }, request(target, path, query), fault)
+    val location = switch http.header_value(res.headers, "Location") {
+        Some(value) { value }
+        None { "(none)" }
+    }
+    print(format(
+        "{}: {} body={} | {}",
+        label,
+        str(res.status),
+        str(prelude.len(res.body)),
+        location
+    ))
+}
+
+fn main() {
+    show("a redirect", "/callback", "code=abc123")
+    show("an error from the same route", "/refused", "code=abc123")
+    show("the query the route requires, missing", "/callback", "")
+
+    // A CR in the location reaches the response as it was answered. Nothing between the handler and
+    // the socket rewrites it, and nothing has to: `write_response` refuses the value there.
+    show("a location with a CR in it", "/injected", "code=x")
+}

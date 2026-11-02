@@ -1,0 +1,41 @@
+// **An endpoint that answers somewhere to go rather than a document**: `Result<rest.Redirect, E>`,
+// which picks `rest.public_query_redirect_handler` and emits no `encoders:` at all.
+//
+// Every OAuth callback is this shape. The provider sends the browser here with a `code` and the
+// `state` the authorisation began with; the server exchanges the code and then puts the browser
+// back where it came from -- the application's own page, or a mobile application's custom scheme --
+// with a word saying whether the connection worked. Nothing reads a body, so there is none: a 302
+// with a `Location`.
+#![derive(Routes)]
+
+use derive_routes
+use http
+use rest
+use wiring.Ctx
+use wiring.api
+
+// Two query parameters and no principal, which is what a callback can have: the caller is a browser
+// the provider redirected, carrying no session of this application's.
+#[route(method: GET, path: "/api/integrations/strava/callback")]
+pub fn handle_callback(
+    ctx: Ctx,
+    #[query] code: string,
+    #[query] state: string
+) -> Result<rest.Redirect, string> {
+    return ok(rest.Redirect { location: concat("https://example.test/settings?code=", code, state) })
+}
+
+// An optional parameter, because a provider that refuses sends `error=access_denied` and no `code`
+// -- and the callback still has to answer a redirect rather than a 400.
+#[route(method: GET, path: "/api/integrations/oura/callback")]
+pub fn handle_refusal(
+    ctx: Ctx,
+    #[query] code: Option<string>,
+    #[query] error: Option<string>
+) -> Result<rest.Redirect, string> {
+    return ok(rest.Redirect { location: "https://example.test/settings?oura=error" })
+}
+
+fn main() {
+    print(prelude.len(main_routes))
+}

@@ -1,0 +1,1 @@
+#[route] on 'handle_callback' answers a rest.Redirect, and only a public endpoint reading its request off the query string does today (rest.public_query_redirect_handler) -- this one is secured (it takes a principal)

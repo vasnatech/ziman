@@ -13,7 +13,7 @@
 // **Almost all of it comes from the signature, not the attribute.** Whether the endpoint is
 // secured is whether its second parameter is a `Principal`; whether its input is in the path or
 // the body is whether it takes a `Uuid`, a struct or a `server.Part`; and those three facts choose
-// one of `rest`'s sixteen handler constructors. The answer's encoder comes from the return type -- a
+// one of `rest`'s seventeen handler constructors. The answer's encoder comes from the return type -- a
 // `[T]` takes `json_list_encoder`, a `unit` takes none at all, a `Json` and an `int` take
 // `codec`'s two builders that hold no converter (`json_value_encoder()` and `count_encoder()`,
 // the second being what a count endpoint answers), a `Listing<T>` takes `paging`'s
@@ -225,7 +225,9 @@ pub val @{module}_routes: [rest.Endpoint<Ctx>] = [
 @if e.has_form
             form: @{e.form_reader},
 @end
+@if e.has_encoders
             encoders: @{e.encoders},
+@end
 @if e.has_status
             status: @{e.status},
 @end
@@ -1062,10 +1064,18 @@ fn row_for(
     if w.has_body {
         decoders = try decoders_for(f, w.body_type)
     }
+    val redirect = answers_redirect(f)
+    try check_redirect(f, w, secured)
+    // A redirect has no body, so it is given no encoders at all rather than an empty list: the
+    // builder that answers one takes no `encoders:` parameter.
+    var encoders = "[]"
+    if !redirect {
+        encoders = try encoders_for(f)
+    }
     return ok(template.row([
         template.text("method", capitalise(arg_or(f, "method", "GET"))),
         template.text("path", arg_or(f, "path", "/")),
-        template.text("flavour", flavour(secured, w.has_path, w.has_query, w.has_body, w.has_form)),
+        template.text("flavour", flavour(secured, w.has_path, w.has_query, w.has_body, w.has_form, redirect)),
         template.flag("secured", secured),
         template.text("who", arg_or(f, "who", "authenticated")),
         template.flag("has_path", w.has_path),
@@ -1077,7 +1087,8 @@ fn row_for(
         template.text("decoders", decoders),
         template.flag("has_form", w.has_form),
         template.text("form_reader", w.form_reader),
-        template.text("encoders", try encoders_for(f)),
+        template.text("encoders", encoders),
+        template.flag("has_encoders", !redirect),
         template.flag("has_status", Option.is_Some(meta.fn_attr_arg(f, "route", "status"))),
         template.text("status", arg_or(f, "status", "")),
         template.text("run", w.run),
@@ -1587,8 +1598,15 @@ fn placeholders(pattern: string) -> [string] {
     return snapshot(out)
 }
 
-// `secure_path_body_handler` and its fifteen siblings, named from the facts that pick one.
-fn flavour(secured: bool, has_path: bool, has_query: bool, has_body: bool, has_form: bool) -> string {
+// `secure_path_body_handler` and its sixteen siblings, named from the facts that pick one.
+fn flavour(
+    secured: bool,
+    has_path: bool,
+    has_query: bool,
+    has_body: bool,
+    has_form: bool,
+    redirect: bool
+) -> string {
     val parts = mutable_array_new<string>()
     push(parts, if secured { "secure" } else { "public" })
     if has_path {
@@ -1608,8 +1626,76 @@ fn flavour(secured: bool, has_path: bool, has_query: bool, has_body: bool, has_f
     if has_form {
         push(parts, "form")
     }
+    // **The answer's own word, after the request's.** A redirect is not another thing a request
+    // carries -- it is what the endpoint answers -- so it reads last: `public_query_redirect_handler`.
+    // `check_redirect` has already refused every shape but that one, so this never names a builder
+    // `rest` does not have.
+    if redirect {
+        push(parts, "redirect")
+    }
     push(parts, "handler")
     return join(separator: "_", pieces: snapshot(parts))
+}
+
+// Whether this route answers a `rest.Redirect`, which is the one answer with no body to encode and
+// a status of its own. Read off the return type, like `Listing` and `Json` are in `encoders_for`.
+fn answers_redirect(f: meta.Function) -> bool {
+    if ResultOf(r) = f.returns {
+        if Some(name) = named_of(r.ok) {
+            return meta.bare_name(name) == "Redirect"
+        }
+    }
+    return false
+}
+
+// **What a redirect route may not also say.** Each of these is a sentence about a body, and a 302
+// has none: the browser is being sent somewhere, and anything written here would be a document
+// nothing reads. `status:` is refused too -- the status *is* the redirect -- and so is every
+// request shape but the one `rest` has a builder for, because the alternative is a generated call
+// to a name that does not exist and an error about an unresolved function instead of about this.
+fn check_redirect(f: meta.Function, w: Wiring, secured: bool) -> Result<unit, string> {
+    if !answers_redirect(f) {
+        return ok(unit)
+    }
+    for said in ["produces", "encoder", "attachment", "status"] {
+        if Some(_) = meta.fn_attr_arg(f, "route", said) {
+            return err(prelude.format(
+                "#[route] on '{}' says {}: and answers a rest.Redirect -- a 302 carries a Location " \
+                    "and no body, so there is nothing to encode, name or save",
+                f.name,
+                said
+            ))
+        }
+    }
+    if secured || w.has_path || w.has_body || w.has_form {
+        return err(prelude.format(
+            "#[route] on '{}' answers a rest.Redirect, and only a public endpoint reading its " \
+                "request off the query string does today (rest.public_query_redirect_handler) -- " \
+                "this one is {}",
+            f.name,
+            redirect_shape_text(secured, w)
+        ))
+    }
+    return ok(unit)
+}
+
+// Which part of the signature put a redirect route outside the one shape that answers one. Written
+// out so the refusal names the parameter to remove rather than the rule it broke.
+fn redirect_shape_text(secured: bool, w: Wiring) -> string {
+    val said = mutable_array_new<string>()
+    if secured {
+        push(said, "secured (it takes a principal)")
+    }
+    if w.has_path {
+        push(said, "read from the path")
+    }
+    if w.has_body {
+        push(said, "given a body")
+    }
+    if w.has_form {
+        push(said, "given a form")
+    }
+    return join(separator: " and ", pieces: snapshot(said))
 }
 
 // **`attachment:` wraps the handler rather than being passed to it.** `rest.as_attachment` takes a

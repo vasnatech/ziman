@@ -1,0 +1,30 @@
+// A route answering a `rest.Redirect` from a *secured* signature. Only a public endpoint reading
+// its request off the query string answers a redirect today -- `rest.public_query_redirect_handler`
+// is the one builder of that shape -- so this is refused here, by name.
+//
+// **The alternative is a worse error.** Without this the generator would emit a call to
+// `rest.secure_query_redirect_handler`, and the build would fail with an unresolved function rather
+// than with a sentence about the signature.
+#![derive(Routes)]
+
+use derive_routes
+use http
+use rest
+use uuid.Uuid
+
+struct Ctx {
+    name: string
+}
+
+struct Principal {
+    id: Uuid
+}
+
+#[route(method: GET, path: "/api/me/integrations/strava/callback")]
+pub fn handle_callback(ctx: Ctx, who: Principal, #[query] code: string) -> Result<rest.Redirect, string> {
+    return err("x")
+}
+
+fn main() {
+    print("unreachable")
+}

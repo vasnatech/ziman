@@ -6,9 +6,15 @@
 // It is asserted two ways: the text must settle after one pass (`format(parse(format(parse(x))))`
 // equals `format(parse(x))`), and the formatted text must still parse.
 //
-// The corpus is deliberately not hand-written SQL. It is the sample application's own 40 migration
+// The corpus is deliberately not hand-written SQL. It is the sample application's own migration
 // files, read off disk, plus the statement shapes its repositories issue -- because a round trip
 // that only survives the examples its author thought of is not a property, it is a demonstration.
+//
+// **So the recording below counts them, and a new migration over there changes it here.** That is
+// the cost of a corpus that is somebody else's real schema, and it is worth paying: when
+// `V042__create_medical_codes.sql` was added to the application this fixture is what read it, and
+// a `CREATE TABLE` the formatter could not write would have been a changed recording rather than a
+// silent loss. The count is the only part that moves; `0 that do not round-trip` is the property.
 use db
 use fs
 use migrate

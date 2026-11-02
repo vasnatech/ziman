@@ -12,7 +12,7 @@
 // REST half. Moving those two functions out left the dependency pointing one way and the split
 // obvious: `http` is the protocol, `server` is the transport, `rest` is the framework.
 //
-// **What `rest` holds**: `Endpoint` and `Api` (`handler.zm`), the twelve handler constructors that do
+// **What `rest` holds**: `Endpoint` and `Api` (`handler.zm`), the seventeen handler constructors that do
 // the protocol work a controller should not -- 415 for a body in the wrong media type, 406 when
 // `Accept` allows none of the encoders, 400 for a body or a path id that does not decode, all
 // before the handler runs -- URL patterns and the request bindings (`route.zm`), the compiled table
@@ -40,6 +40,7 @@ use http.percent_decode
 use http.quality
 use http.status_bad_request
 use http.status_forbidden
+use http.status_found
 use http.status_internal_server_error
 use http.status_method_not_allowed
 use http.status_no_content

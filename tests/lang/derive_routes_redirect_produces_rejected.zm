@@ -1,0 +1,22 @@
+// `produces:` on a route that answers a `rest.Redirect`. A 302 carries a `Location` and no body, so
+// there is no document to negotiate a format for -- the same refusal `produces:` gets on a route
+// that answers `unit`, and for the same reason. `encoder:`, `attachment:` and `status:` are refused
+// on this shape too: the first two name a body that is not there, and the status *is* the redirect.
+#![derive(Routes)]
+
+use derive_routes
+use http
+use rest
+
+struct Ctx {
+    name: string
+}
+
+#[route(method: GET, path: "/api/integrations/oura/callback", produces: "json")]
+pub fn handle_callback(ctx: Ctx, #[query] code: string) -> Result<rest.Redirect, string> {
+    return err("x")
+}
+
+fn main() {
+    print("unreachable")
+}

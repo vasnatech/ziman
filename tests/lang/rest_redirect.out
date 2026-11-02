@@ -1,0 +1,5 @@
+a redirect: 302 body=0 | https://example.test/settings?connected=abc123
+an error from the same route: 500 body=33 | (none)
+the query the route requires, missing: 400 body=16 | (none)
+a location with a CR in it: 302 body=0 | https://example.test/
+X-Injected: yes

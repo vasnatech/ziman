@@ -1,0 +1,64 @@
+// derive(Routes) for this module
+struct HandleCallbackQuery {
+    code: string
+    state: string
+}
+
+fn handle_callback_query_of(req: http.Request) -> Result<HandleCallbackQuery, string> {
+    val code = try rest.required(rest.query_param(req, "code"), "code")
+    val state = try rest.required(rest.query_param(req, "state"), "state")
+    return ok(HandleCallbackQuery {
+        code: code,
+        state: state
+    })
+}
+
+fn handle_callback_route(ctx: Ctx, bound_query: HandleCallbackQuery) -> Result<rest.Redirect, string> {
+    return handle_callback(ctx, bound_query.code, bound_query.state)
+}
+
+struct HandleRefusalQuery {
+    code: Option<string>
+    error: Option<string>
+}
+
+fn handle_refusal_query_of(req: http.Request) -> Result<HandleRefusalQuery, string> {
+    var code = Option<string>.None
+    if Some(raw) = rest.query_param(req, "code") {
+        code = Option<string>.Some(raw)
+    }
+    var error = Option<string>.None
+    if Some(raw) = rest.query_param(req, "error") {
+        error = Option<string>.Some(raw)
+    }
+    return ok(HandleRefusalQuery {
+        code: code,
+        error: error
+    })
+}
+
+fn handle_refusal_route(ctx: Ctx, bound_query: HandleRefusalQuery) -> Result<rest.Redirect, string> {
+    return handle_refusal(ctx, bound_query.code, bound_query.error)
+}
+
+pub val main_routes: [rest.Endpoint<Ctx>] = [
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Get,
+        pattern: "/api/integrations/strava/callback",
+        handler: rest.public_query_redirect_handler(
+            query: handle_callback_query_of,
+            run: handle_callback_route,
+            api: api
+        )
+    },
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Get,
+        pattern: "/api/integrations/oura/callback",
+        handler: rest.public_query_redirect_handler(
+            query: handle_refusal_query_of,
+            run: handle_refusal_route,
+            api: api
+        )
+    }
+]
+

@@ -652,6 +652,61 @@ pub fn public_path_form_handler<C, P, I, O, E>(
     )
 }
 
+// ---- when the answer is somewhere else ---------------------------------------------------------
+
+// Where to go instead of a document: an endpoint answering this is answered `302 Found` with this
+// `Location` and an empty body.
+//
+// **A type rather than a header the handler sets**, because a handler does not build its own
+// response here -- a builder does, from what `run` returns -- and a redirect is an *answer*, not a
+// decoration on one. `as_attachment` is a wrapper for the opposite reason: a filename is fixed for
+// the life of the endpoint, where a location is computed per request from what the handler found.
+//
+// **What wants it**: an OAuth callback. The provider sends the browser to the server with a `code`
+// in the query, and the server has to put the browser back where it came from -- the application's
+// own page, or a mobile application's custom scheme -- carrying whether the connection worked. The
+// answer is read by a browser following it, so there is nothing to negotiate and nothing to encode.
+pub struct Redirect {
+    location: string
+}
+
+// An endpoint anyone may call that reads its request off the query string and answers a redirect:
+// `run(ctx, query)` says where to go, and the response is a 302 with that `Location`.
+//
+// **The one shape that answers a `Redirect` today**, and the shape every OAuth callback has. The
+// builders in this module arrived as something needed one; `#![derive(Routes)]` refuses a redirect
+// on any other shape by name rather than generating a call to a builder that does not exist.
+//
+// Written out rather than over `endpoint_core`, which negotiates an encoder, selects a decoder and
+// checks a body's media type -- none of which a redirect has. What is left is the query read, whose
+// `Err` is the same 400 it is everywhere else.
+//
+// **A location holding a control character is refused by `write_response`**, not here: a header
+// value is checked on the way out, so a `Location` built from something a caller sent cannot end
+// the header and begin another one. That check is the server's and applies to every header.
+pub fn public_query_redirect_handler<C, Q, E>(
+    query: fn(Request) -> Result<Q, string>,
+    run: fn(C, Q) -> Result<Redirect, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response {
+    val go = run
+    val fault = api.fault
+    val fail = api.failure
+    return fn(ctx: C, req: Request, params: Params) -> Response {
+        val read = query
+        val queried = read(req)
+        if Err(message) = queried {
+            return fault(status_bad_request, message)
+        }
+        val answered = go(ctx, unwrap(queried))
+        if Err(e) = answered {
+            return fail(e)
+        }
+        val going = unwrap(answered)
+        return server.with_header(server.response(status_found, []), "Location", going.location)
+    }
+}
+
 // ---- what the answer is called when it is a download ------------------------------------------
 
 // The same endpoint, answering `Content-Disposition: attachment; filename="..."` -- which is what

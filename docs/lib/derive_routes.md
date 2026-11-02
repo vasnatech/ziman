@@ -18,7 +18,7 @@ own table. One attribute per handler replaces about ten lines of `rest.Endpoint`
 **Almost all of it comes from the signature, not the attribute.** Whether the endpoint is
 secured is whether its second parameter is a `Principal`; whether its input is in the path or
 the body is whether it takes a `Uuid`, a struct or a `server.Part`; and those three facts choose
-one of `rest`'s sixteen handler constructors. The answer's encoder comes from the return type -- a
+one of `rest`'s seventeen handler constructors. The answer's encoder comes from the return type -- a
 `[T]` takes `json_list_encoder`, a `unit` takes none at all, a `Json` and an `int` take
 `codec`'s two builders that hold no converter (`json_value_encoder()` and `count_encoder()`,
 the second being what a count endpoint answers), a `Listing<T>` takes `paging`'s

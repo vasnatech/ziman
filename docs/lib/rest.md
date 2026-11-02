@@ -17,7 +17,7 @@ file that happened to be open -- and `cors.zm` had to reach for `Routes`, `captu
 REST half. Moving those two functions out left the dependency pointing one way and the split
 obvious: `http` is the protocol, `server` is the transport, `rest` is the framework.
 
-**What `rest` holds**: `Endpoint` and `Api` (`handler.zm`), the twelve handler constructors that do
+**What `rest` holds**: `Endpoint` and `Api` (`handler.zm`), the seventeen handler constructors that do
 the protocol work a controller should not -- 415 for a body in the wrong media type, 406 when
 `Accept` allows none of the encoders, 400 for a body or a path id that does not decode, all
 before the handler runs -- URL patterns and the request bindings (`route.zm`), the compiled table
@@ -351,6 +351,52 @@ pub fn public_path_form_handler<C, P, I, O, E>(
 ```
 
 A public endpoint with both an id in the path and an uploaded file: `run(ctx, path_input, form_input)`.
+
+### `Redirect`
+
+```
+pub struct Redirect {
+    location: string
+}
+```
+
+Where to go instead of a document: an endpoint answering this is answered `302 Found` with this
+`Location` and an empty body.
+
+**A type rather than a header the handler sets**, because a handler does not build its own
+response here -- a builder does, from what `run` returns -- and a redirect is an *answer*, not a
+decoration on one. `as_attachment` is a wrapper for the opposite reason: a filename is fixed for
+the life of the endpoint, where a location is computed per request from what the handler found.
+
+**What wants it**: an OAuth callback. The provider sends the browser to the server with a `code`
+in the query, and the server has to put the browser back where it came from -- the application's
+own page, or a mobile application's custom scheme -- carrying whether the connection worked. The
+answer is read by a browser following it, so there is nothing to negotiate and nothing to encode.
+
+### `public_query_redirect_handler`
+
+```
+pub fn public_query_redirect_handler<C, Q, E>(
+    query: fn(Request) -> Result<Q, string>,
+    run: fn(C, Q) -> Result<Redirect, E>,
+    api: Api<E>
+) -> fn(C, Request, Params) -> Response
+```
+
+An endpoint anyone may call that reads its request off the query string and answers a redirect:
+`run(ctx, query)` says where to go, and the response is a 302 with that `Location`.
+
+**The one shape that answers a `Redirect` today**, and the shape every OAuth callback has. The
+builders in this module arrived as something needed one; `#![derive(Routes)]` refuses a redirect
+on any other shape by name rather than generating a call to a builder that does not exist.
+
+Written out rather than over `endpoint_core`, which negotiates an encoder, selects a decoder and
+checks a body's media type -- none of which a redirect has. What is left is the query read, whose
+`Err` is the same 400 it is everywhere else.
+
+**A location holding a control character is refused by `write_response`**, not here: a header
+value is checked on the way out, so a `Location` built from something a caller sent cannot end
+the header and begin another one. That check is the server's and applies to every header.
 
 ### `as_attachment`
 
