@@ -51,3 +51,8 @@ logs/*.log.*
 
 # drawn by tools/gen_lib_map.py at publish time, never committed
 websites/ziman.dev/library-map.html
+
+# LinkedIn drafts, kept local on purpose (2026-11-01): a post is written days
+# before it goes out, and this repo is public, so a draft committed here would
+# publish itself. Remove this line to start version-controlling the series.
+social/
