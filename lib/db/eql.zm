@@ -625,6 +625,37 @@ fn deletable(binds: [Bound], tokens: [Token]) -> Result<unit, DbError> {
 // Called twice for a query that has one: once by `translate` with nothing known, to learn the
 // query's shape and which parameters are collections, and again by `prepare` once the values are
 // in hand and the placeholder count is settled.
+// **`TRUE` and `FALSE` are refused, and binding is the only portable form.** A bool is stored as
+// `1`/`0` -- `#[derive(Row)]` writes `SqlValue.Bool` and every driver sends it that way, `pg.zm`
+// as the text `"1"` -- so a column holding one is `INTEGER` in every schema written against this
+// library. A boolean *literal*, though, renders as `TRUE` (`sql.format_value`), and PostgreSQL
+// answers `operator does not exist: integer = boolean` while SQLite compares the two happily.
+//
+// That asymmetry cost the North Star a 500 on one endpoint for as long as it existed, green on
+// every SQLite run (2026-11-01, `GET /api/broadcasts/active`). **Rendering the literal as `1`
+// instead would not fix it**: against a real PostgreSQL `BOOLEAN` column `boolean = 1` is equally
+// an error, so no bare literal satisfies both. A *bound* value does, because the driver sends it
+// as text and PostgreSQL coerces per the column's own type -- which is why the fix is to say so
+// here rather than to pick a rendering.
+//
+// Refused at translation, which happens when the module holding the query loads, so this is a
+// startup failure rather than a 500 on the first request that reads that column.
+fn no_boolean_literal(tokens: [Token]) -> Result<unit, DbError> {
+    for t in tokens {
+        if is_name(t) && (t.upper == "TRUE" || t.upper == "FALSE") {
+            return err(problem(prelude.format(
+                "`{}` is a boolean literal, which is not portable: a bool is stored as 1/0, so " \
+                    "PostgreSQL answers `operator does not exist: integer = boolean` where SQLite " \
+                    "compares them. Bind it instead -- `= :flag` with `eql.bind(\"flag\", {})` -- " \
+                    "which the driver sends as text and each engine reads as its own column type",
+                t.text,
+                to_lower(t.upper)
+            )))
+        }
+    }
+    return unit
+}
+
 fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Result<Translated, DbError> {
     val tokens = try sql.tokenize(query)
     if prelude.len(tokens) == 0 {
@@ -644,6 +675,7 @@ fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Res
             "a DELETE is written `DELETE FROM Entity alias WHERE ..` -- the row list some engines allow between DELETE and FROM is spelled differently by each of them"
         ))
     }
+    try no_boolean_literal(tokens)
     val binds = try bindings_of(reg, tokens)
     if deleting {
         try deletable(binds, tokens)

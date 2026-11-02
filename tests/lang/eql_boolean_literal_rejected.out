@@ -1,0 +1,8 @@
+database error: `true` is a boolean literal, which is not portable: a bool is stored as 1/0, so PostgreSQL answers `operator does not exist: integer = boolean` where SQLite compares them. Bind it instead -- `= :flag` with `eql.bind("flag", true)` -- which the driver sends as text and each engine reads as its own column type
+
+database error: `FALSE` is a boolean literal, which is not portable: a bool is stored as 1/0, so PostgreSQL answers `operator does not exist: integer = boolean` where SQLite compares them. Bind it instead -- `= :flag` with `eql.bind("flag", false)` -- which the driver sends as text and each engine reads as its own column type
+
+translated
+
+translated
+

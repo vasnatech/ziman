@@ -1,0 +1,43 @@
+// A boolean literal in an entity query is refused, and the message says what to write instead.
+//
+// **The asymmetry it exists for.** A bool is stored as `1`/`0` -- `#[derive(Row)]` writes
+// `SqlValue.Bool` and `pg.zm` sends it as the text `"1"` -- so a column holding one is `INTEGER`.
+// A boolean *literal* renders as `TRUE`, and PostgreSQL answers
+// `operator does not exist: integer = boolean` where SQLite compares the two happily. That cost
+// the North Star a 500 on `GET /api/broadcasts/active` for as long as the endpoint existed, green
+// on every SQLite run, because nothing ran `--postgres`.
+//
+// Rendering the literal as `1` would not fix it: against a real PostgreSQL `BOOLEAN` column
+// `boolean = 1` is equally an error, so no bare literal satisfies both engines. A bound value
+// does, which is why this refuses rather than picking a rendering.
+use db
+use eql
+use time.Instant
+use uuid.Uuid
+
+#[derive(Row, Entity("broadcast_messages"))]
+pub struct Broadcast {
+    #[pk]
+    id: Uuid
+    message: string
+    active: bool
+    created_at: Instant
+}
+
+fn tried(reg: eql.Registry, query: string) -> string {
+    return switch eql.translate(reg, query) {
+        Ok(_) { "translated" }
+        Err(e) { db.db_error_message(e) }
+    }
+}
+
+fn main() {
+    val reg = eql.registry([broadcast_meta])
+    print(concat(tried(reg, "SELECT b FROM Broadcast b WHERE b.active = true"), "\n"))
+    print(concat(tried(reg, "SELECT b FROM Broadcast b WHERE b.active = FALSE"), "\n"))
+    // The portable form, which is what the message asks for.
+    print(concat(tried(reg, "SELECT b FROM Broadcast b WHERE b.active = :active"), "\n"))
+    // And a quoted column of that name is still a name, not a literal -- the refusal reads tokens,
+    // so this is the case worth pinning alongside it.
+    print(concat(tried(reg, "SELECT b FROM Broadcast b WHERE b.message = 'true'"), "\n"))
+}
