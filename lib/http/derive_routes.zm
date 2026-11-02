@@ -58,6 +58,13 @@
 //     other than the parameter is said.
 //   * **`Option<server.Part>` is a part the form need not carry**, and takes `optional_part`. A
 //     malformed body is still a 400 either way; only the part's absence becomes `None`.
+//   * **`#[part]` on a scalar is a form *field*, not a file** -- `@RequestParam("unit") String` on
+//     a multipart request, which reads the body rather than the query string. It is text on the
+//     wire like a query parameter, so it takes the same conversions and the same `default:`:
+//     `#[part(default: "mg/dL")] unit: string`, `#[part] rows: Option<int>`.
+//   * **Several `#[part]`s are a holder struct, a generated reader and an adapter**, exactly as
+//     several `#[query]` parameters are: the body is read once into `parts` and each binding taken
+//     out of it. A glucometer import -- one file and four fields -- is the shape that asked for it.
 //   * **`consumes:` has nothing to say about one** and saying it anyway is refused, which is the
 //     same fact as a form not being a `codec.Decoder`: a decoder is `[byte] -> T` and the boundary
 //     a multipart body is split on is in the `Content-Type` header, which it never sees.
@@ -165,6 +172,17 @@ fn @{name}(req: http.Request) -> Result<@{holds}, string> {
 
 @end
 
+@template form_reader_fn
+fn @{name}(req: http.Request) -> Result<@{holds}, string> {
+    val parts = try rest.parts_of(req)
+@for f in reads
+@yield f.read
+@end
+    return ok(@{build})
+}
+
+@end
+
 @template adapter
 fn @{name}(@{params}) -> @{returns} {
 @if validated
@@ -241,7 +259,7 @@ pub fn attributes() -> [meta.AttrSpec] {
         // as a query's is. **A `server.Part` parameter needs no attribute at all**, since a part
         // is the only thing that type can be bound from; the attribute is how a field named
         // differently is said.
-        meta.attr_spec("part", "name:string?", "parameter"),
+        meta.attr_spec("part", "name:string?,default:string?", "parameter"),
         meta.attr_spec("principal", "", "parameter"),
         // `@Valid`'s equivalent, on the body. The violations come from `#[derive(Validate)]`'s
         // `<snake>_violations`, which 24 of this application's request structs already have, and
@@ -432,22 +450,28 @@ fn check_bindable(f: meta.Function, b: Binding) -> Result<unit, string> {
     ))
 }
 
-// What a `#[part]` parameter may be: a `server.Part`, or an `Option` of one for a part the form
-// need not carry. Nothing else, because a part is bytes with a filename and no conversion is
-// implied -- a handler that wants a model out of an uploaded file parses it itself, which is what
-// the thing being a *file* means.
+// What a `#[part]` parameter may be, which is **two different things and that is Spring's own
+// shape**: a `server.Part` is the uploaded file (`@RequestPart("file") MultipartFile`), and anything
+// a query parameter can be read as is a *form field* of the same body (`@RequestParam("unit")
+// String`, which on a multipart request reads a field, not the query string). A form field is text
+// on the wire like a query parameter, so it takes the same conversions -- `#[part] rows: int` works
+// for the same reason `#[query] rows: int` does.
 //
-// **Matched exactly, where `is_uuid` matches by suffix.** `ends_with(name, "Part")` would accept an
-// application's own `BodyPart` or `CounterPart` -- a plausible type in a health record, which is the
-// application this answers to -- and the generated `rest.named_part` call would then fail to
-// type-check inside code its author never wrote.
+// **A `server.Part` is matched exactly, where `is_uuid` matches by suffix.**
+// `ends_with(name, "Part")` would accept an application's own `BodyPart` or `CounterPart` -- a
+// plausible type in a health record, which is the application this answers to -- and the generated
+// `rest.required_part` call would then fail to type-check inside code its author never wrote.
 fn check_part(f: meta.Function, b: Binding) -> Result<unit, string> {
     if is_part(b.inner) {
         return unit
     }
+    if Some(_) = reader_of(b.inner, "x", "y") {
+        return unit
+    }
     return err(prelude.format(
         "#[route] on '{}': '{}' carries #[part] and is of type '{}' -- a part binding takes a " \
-            "server.Part, or an Option of one for a part the form need not carry",
+            "server.Part for the uploaded file, or a string, an int, a float, a bool or a Uuid " \
+            "(or an Option of one) for a field of the same form",
         f.name,
         b.param,
         meta.type_text(b.type)
@@ -577,14 +601,6 @@ fn wiring_for(f: meta.Function, module_name: string) -> Result<Wiring, string> {
             f.name
         ))
     }
-    if prelude.len(parts) > 1 {
-        return err(prelude.format(
-            "#[route] on '{}' has more than one #[part], and `rest`'s form constructors pass one " \
-                "input value -- a route reading two parts has no constructor, the way a query " \
-                "beside a body has none",
-            f.name
-        ))
-    }
     if prelude.len(parts) > 0 && prelude.len(queries) > 0 {
         return err(prelude.format(
             "#[route] on '{}' binds both a #[part] and a query parameter, and `rest` has no " \
@@ -677,19 +693,32 @@ fn wiring_for(f: meta.Function, module_name: string) -> Result<Wiring, string> {
         append(decls, try query_reader_fn(query_reader, holder, queries, false))
     }
 
-    // ---- the form: a body read as its parts, so one reader and no struct of its own
+    // ---- the form: the body read as its parts
     //
-    // There is no generated function here, unlike a path or a query: the part is reached by name
-    // and `rest` has the two readers that do it, so the table names one the way a `{id}` route
-    // names `uuid_param`. An `Option<server.Part>` takes `optional_part`, which is the whole
-    // difference a form need not carry a file makes.
+    // **One uploaded file needs no generated function**, which is the common case and the whole of
+    // Spring's five file-based imports: the part is reached by name and `rest` has the two readers
+    // that do it, so the table names one the way a `{id}` route names `uuid_param`.
+    //
+    // Anything else -- a form field, or a file with fields beside it, which is what a glucometer
+    // import sends -- is a reader of its own, written here like a query's: the body is read once
+    // into `parts` and each binding taken out of it. More than one binding needs somewhere to put
+    // them, so it gets a holder struct too, exactly as two query parameters do.
     var form_reader = ""
-    if prelude.len(parts) == 1 {
+    if prelude.len(parts) == 1 && is_part(parts[0].inner) {
         form_reader = if parts[0].optional {
             concat("rest.optional_part(\"", parts[0].wire, "\")")
         } else {
             concat("rest.named_part(\"", parts[0].wire, "\")")
         }
+    } else if prelude.len(parts) == 1 {
+        form_reader = concat(f.name, "_form_of")
+        append(decls, try form_reader_fn(form_reader, meta.type_text(parts[0].type), parts, true))
+    } else if prelude.len(parts) > 1 {
+        adapter_needed = true
+        val holder = holder_name(f.name, "form")
+        form_reader = concat(f.name, "_form_of")
+        append(decls, try bound_struct(holder, parts))
+        append(decls, try form_reader_fn(form_reader, holder, parts, false))
     }
 
     // ---- the adapter, when the handler's parameters are not what the constructor passes
@@ -733,8 +762,8 @@ fn segment_label(b: Binding, only: bool) -> Option<string> {
     return Option<string>.Some(replace(name, "_", " "))
 }
 
-// The struct a multi-segment path or a multi-parameter query is held in. **Two names are reserved
-// per routed function** -- `HandleGetPath` and `HandleGetQuery` for `handle_get` -- and a module
+// The struct a multi-segment path, a multi-parameter query or a multi-binding form is held in.
+// **Three names are reserved per routed function** -- `HandleGetPath` and `HandleGetQuery` for `handle_get` -- and a module
 // that already defines one is told so rather than finding out from a redefinition error in
 // generated code it did not write.
 fn holder_name(fn_name: string, kind: string) -> string {
@@ -802,6 +831,82 @@ fn query_reader_fn(name: string, holds: string, bs: [Binding], scalar: bool) -> 
         template.rows("reads", snapshot(reads)),
         template.text("build", build)
     ])
+}
+
+// A generated form reader: the body read once into `parts`, then one read per binding. Written from
+// `query_reader_fn`, and the two differ in exactly one thing -- where a binding's text comes from --
+// which is why `read_part` below falls through to the same `reader_of` conversions.
+fn form_reader_fn(name: string, holds: string, bs: [Binding], scalar: bool) -> Result<string, string> {
+    val reads = mutable_array_new<template.Row>()
+    val fields = mutable_array_new<string>()
+    for b in bs {
+        push(reads, template.row([template.text("read", trim_end(try read_part(b)))]))
+        push(fields, concat(b.param, ": ", b.param))
+    }
+    val build = if scalar {
+        bs[0].param
+    } else {
+        concat(holds, " {\n        ", join(separator: ",\n        ", pieces: snapshot(fields)), "\n    }")
+    }
+    return template.render(sheet, "form_reader_fn", [
+        template.text("name", name),
+        template.text("holds", holds),
+        template.rows("reads", snapshot(reads)),
+        template.text("build", build)
+    ])
+}
+
+// One binding out of the parts already read. A `server.Part` is the file itself; anything else is a
+// field of the same form, which is text and converts exactly as a query parameter does -- so the
+// bottom half of this is `read_query`'s bottom half with a different source.
+fn read_part(b: Binding) -> Result<string, string> {
+    if is_part(b.inner) {
+        if b.optional {
+            return ok(concat("    val ", b.param, " = rest.part_of(parts, \"", b.wire, "\")\n"))
+        }
+        return ok(concat("    val ", b.param, " = try rest.required_part(parts, \"", b.wire, "\")\n"))
+    }
+    // **The text is read into a local first**, rather than inlined into the conversion: `try` has to
+    // run once and unconditionally, so it cannot sit inside the `if Some(..)` an optional binding is.
+    val sent = concat(b.param, "_sent")
+    val source = concat("    val ", sent, " = try rest.part_text_of(parts, \"", b.wire, "\")\n")
+    if b.optional {
+        val inner = meta.type_text(b.inner)
+        switch reader_of(b.inner, "raw", b.wire) {
+            Some(call) {
+                return ok(concat(
+                    source,
+                    "    var ",
+                    b.param,
+                    " = Option<",
+                    inner,
+                    ">.None\n",
+                    "    if Some(raw) = ",
+                    sent,
+                    " {\n",
+                    "        ",
+                    b.param,
+                    " = Option<",
+                    inner,
+                    ">.Some(",
+                    call,
+                    ")\n",
+                    "    }\n"
+                ))
+            }
+            None { return err(concat("derive(Routes) cannot read '", inner, "' from a form field")) }
+        }
+    }
+    val text = switch b.default_text {
+        Some(given) { concat("rest.given_or(", sent, ", \"", given, "\")") }
+        None { concat("try rest.required(", sent, ", \"", b.wire, "\")") }
+    }
+    switch reader_of(b.inner, text, b.wire) {
+        Some(call) { return ok(concat(source, "    val ", b.param, " = ", call, "\n")) }
+        None {
+            return err(concat("derive(Routes) cannot read '", meta.type_text(b.inner), "' from a form field"))
+        }
+    }
 }
 
 // A yielded block ends with its own newline and `@yield` supplies one, so the trailing one goes.
@@ -895,8 +1000,14 @@ fn adapter(
     } else if prelude.len(queries) > 1 {
         push(params, concat("bound_query: ", holder_name(f.name, "query")))
     }
-    for b in inputs {
-        push(params, concat(b.param, ": ", meta.type_text(b.type)))
+    if prelude.len(inputs) > 1 {
+        // Several `#[part]`s: the constructor passes one value, so they arrived in a holder and the
+        // handler's own parameters are fields of it.
+        push(params, concat("bound_form: ", holder_name(f.name, "form")))
+    } else {
+        for b in inputs {
+            push(params, concat(b.param, ": ", meta.type_text(b.type)))
+        }
     }
     // The handler's own argument order is the order of its parameters.
     val call_args = mutable_array_new<string>()
@@ -908,6 +1019,8 @@ fn adapter(
             push(call_args, if prelude.len(paths) > 1 { concat("bound_path.", b.param) } else { b.param })
         } else if b.role == "query" || b.role == "header" {
             push(call_args, if prelude.len(queries) > 1 { concat("bound_query.", b.param) } else { b.param })
+        } else if b.role == "part" {
+            push(call_args, if prelude.len(inputs) > 1 { concat("bound_form.", b.param) } else { b.param })
         } else {
             push(call_args, b.param)
         }

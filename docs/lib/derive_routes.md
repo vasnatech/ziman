@@ -68,6 +68,13 @@ where that one lists its `decoders:`.
   other than the parameter is said.
 * **`Option<server.Part>` is a part the form need not carry**, and takes `optional_part`. A
   malformed body is still a 400 either way; only the part's absence becomes `None`.
+* **`#[part]` on a scalar is a form *field*, not a file** -- `@RequestParam("unit") String` on
+  a multipart request, which reads the body rather than the query string. It is text on the
+  wire like a query parameter, so it takes the same conversions and the same `default:`:
+  `#[part(default: "mg/dL")] unit: string`, `#[part] rows: Option<int>`.
+* **Several `#[part]`s are a holder struct, a generated reader and an adapter**, exactly as
+  several `#[query]` parameters are: the body is read once into `parts` and each binding taken
+  out of it. A glucometer import -- one file and four fields -- is the shape that asked for it.
 * **`consumes:` has nothing to say about one** and saying it anyway is refused, which is the
   same fact as a form not being a `codec.Decoder`: a decoder is `[byte] -> T` and the boundary
   a multipart body is split on is in the `Content-Type` header, which it never sees.

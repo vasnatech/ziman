@@ -524,6 +524,51 @@ pub fn optional_part(name: string) -> fn(Request) -> Result<Option<server.Part>,
 **The body is still read**, so a malformed one is a 400 whether this part is in it or not; only
 the part being absent is `None` rather than a refusal.
 
+### `parts_of`
+
+```
+pub fn parts_of(req: Request) -> Result<[server.Part], string>
+```
+
+The parts of the request's `multipart/form-data` body, with the server's own sentence for a body
+it could not read: `multipart` answers an `HttpError` because it is the server's own parser, and a
+reader's error channel here is the message a 400 carries, which `error_text` already translates.
+
+**Public because a generated form reader is written in terms of it**: a route binding a file
+*and* a few fields reads the body once and then takes each binding out of it, which is what
+`#![derive(Routes)]` writes when a signature has more than one `#[part]`.
+
+### `part_of`
+
+```
+pub fn part_of(parts: [server.Part], name: string) -> Option<server.Part>
+```
+
+The part named `name`, or `None` -- `server.part` under this module's own name, because generated
+code speaks `rest.` and a route binding only form fields never names `server` itself.
+
+### `required_part`
+
+```
+pub fn required_part(parts: [server.Part], name: string) -> Result<server.Part, string>
+```
+
+The part named `name`, or the 400 that says the form has no such part. What a required `#[part]`
+binding is read with, as `required` is what a required `#[query]` is read with.
+
+### `part_text_of`
+
+```
+pub fn part_text_of(parts: [server.Part], name: string) -> Result<Option<string>, string>
+```
+
+A form field: the part named `name` as text, `None` when the form has no such field, and an
+`Err` -- a 400 -- when it has one whose bytes are not text.
+
+**The three answers are kept apart on purpose.** A field that is absent and a field holding a
+JPEG are different mistakes, and a reader that folded them together would make `default:` fire
+for a field that was sent and was unreadable.
+
 ## `table.zm`
 
 ### `routes`

@@ -35,4 +35,4 @@
     INSERT INTO t (a) VALUES (1)
     SELECT 'a;b' AS semi FROM t
 -- the application's real migrations, from disk --
-  39 files, 132 statements, 0 that do not round-trip
+  40 files, 134 statements, 0 that do not round-trip

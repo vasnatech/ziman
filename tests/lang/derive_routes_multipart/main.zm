@@ -80,6 +80,36 @@ pub fn handle_record_upload(
     return err("x")
 }
 
+// **A file with form fields beside it**, which is what Spring's glucometer import takes: four
+// `@RequestParam`s of a multipart body, which are fields of the form and not the query string. More
+// than one `#[part]` needs somewhere to put them, so the generator writes a holder struct, a reader
+// that reads the body once, and an adapter that destructures it back into these parameters.
+//
+// The fields show the three shapes: a required one, an optional one, and one with a `default:`.
+#[route(method: POST, path: "/api/me/glucometer/import")]
+pub fn handle_readings(
+    ctx: Ctx,
+    who: Principal,
+    #[part(name: "file")] file: server.Part,
+    #[part] column: string,
+    #[part(name: "timeColumn")] time_column: Option<string>,
+    #[part(default: "mg/dL")] unit: string,
+    #[part] rows: Option<int>
+) -> Result<model.ImportResult, string> {
+    return err("x")
+}
+
+// One form field and no file at all: the reader is generated but there is nothing to hold, so the
+// input is the field itself -- the same `scalar` case one `#[query]` parameter has.
+#[route(method: POST, path: "/api/me/notes/title")]
+pub fn handle_title(
+    ctx: Ctx,
+    who: Principal,
+    #[part(name: "title")] title: string
+) -> Result<model.ImportResult, string> {
+    return err("x")
+}
+
 fn main() {
     print(prelude.len(main_routes))
 }

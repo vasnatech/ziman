@@ -1,9 +1,9 @@
-// `#[part]` on something that is not a `server.Part`. A part is bytes with a filename and a
-// client's claim about its own media type; nothing converts it, so there is no "read a part as an
-// int" the way a query parameter is read as one -- and the refusal names what the binding takes.
+// `#[part]` on a type a form cannot carry. A part is either the uploaded file -- a `server.Part` --
+// or a field of the same form, which arrives as text and converts as a query parameter does; a
+// struct is neither, and the refusal names both halves rather than failing inside generated code.
 //
-// **The type is matched exactly, not by suffix.** `is_uuid` accepts anything ending in `Uuid`,
-// which is right for one type spelled two ways; `ends_with(name, "Part")` would accept an
+// **A `server.Part` is matched exactly, not by suffix.** `is_uuid` accepts anything ending in
+// `Uuid`, which is right for one type spelled two ways; `ends_with(name, "Part")` would accept an
 // application's own `BodyPart`, and in a health record that is a type somebody really has.
 #![derive(Routes)]
 
@@ -28,7 +28,7 @@ struct Upload {
 pub fn handle_import(
     ctx: Ctx,
     who: Principal,
-    #[part] file: string
+    #[part] file: Upload
 ) -> Result<Upload, string> {
     return err("x")
 }

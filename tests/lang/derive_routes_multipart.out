@@ -59,6 +59,51 @@ fn handle_record_upload_route(ctx: Ctx, who: Principal, id: Uuid, file: server.P
     return handle_record_upload(ctx, who, file, id)
 }
 
+struct HandleReadingsForm {
+    file: server.Part
+    column: string
+    time_column: Option<string>
+    unit: string
+    rows: Option<int>
+}
+
+fn handle_readings_form_of(req: http.Request) -> Result<HandleReadingsForm, string> {
+    val parts = try rest.parts_of(req)
+    val file = try rest.required_part(parts, "file")
+    val column_sent = try rest.part_text_of(parts, "column")
+    val column = try rest.required(column_sent, "column")
+    val time_column_sent = try rest.part_text_of(parts, "timeColumn")
+    var time_column = Option<string>.None
+    if Some(raw) = time_column_sent {
+        time_column = Option<string>.Some(raw)
+    }
+    val unit_sent = try rest.part_text_of(parts, "unit")
+    val unit = rest.given_or(unit_sent, "mg/dL")
+    val rows_sent = try rest.part_text_of(parts, "rows")
+    var rows = Option<int>.None
+    if Some(raw) = rows_sent {
+        rows = Option<int>.Some(try rest.as_int(raw, "rows"))
+    }
+    return ok(HandleReadingsForm {
+        file: file,
+        column: column,
+        time_column: time_column,
+        unit: unit,
+        rows: rows
+    })
+}
+
+fn handle_readings_route(ctx: Ctx, who: Principal, bound_form: HandleReadingsForm) -> Result<model.ImportResult, string> {
+    return handle_readings(ctx, who, bound_form.file, bound_form.column, bound_form.time_column, bound_form.unit, bound_form.rows)
+}
+
+fn handle_title_form_of(req: http.Request) -> Result<string, string> {
+    val parts = try rest.parts_of(req)
+    val title_sent = try rest.part_text_of(parts, "title")
+    val title = try rest.required(title_sent, "title")
+    return ok(title)
+}
+
 pub val main_routes: [rest.Endpoint<Ctx>] = [
     rest.Endpoint<Ctx> {
         method: http.HttpMethod.Post,
@@ -114,6 +159,28 @@ pub val main_routes: [rest.Endpoint<Ctx>] = [
             form: rest.named_part("file"),
             encoders: [encoder_of(json_format(), model.import_result_to_json)],
             run: handle_record_upload_route,
+            api: api
+        )
+    },
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/api/me/glucometer/import",
+        handler: rest.secure_form_handler(
+            who: authenticated,
+            form: handle_readings_form_of,
+            encoders: [encoder_of(json_format(), model.import_result_to_json)],
+            run: handle_readings_route,
+            api: api
+        )
+    },
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/api/me/notes/title",
+        handler: rest.secure_form_handler(
+            who: authenticated,
+            form: handle_title_form_of,
+            encoders: [encoder_of(json_format(), model.import_result_to_json)],
+            run: handle_title,
             api: api
         )
     }

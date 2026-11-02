@@ -6,4 +6,6 @@ no credentials: 401 no credentials
 an attachment: 200 got scan.png
 no attachment: 200 nothing attached
 a file for a record: 201 8 bytes for 0b7f4e2c-1d3a-4c5b-8e9f-2a1b3c4d5e6f
+a file with fields: 200 9 bytes, column=Glucose unit=mg/dL note=fasting
+a field that was not sent: 400 column is required
 a file for a bad id: 400 invalid record id: not-a-uuid

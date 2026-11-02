@@ -68,6 +68,37 @@ fn receive_for(ctx: Ctx, who: Principal, id: Uuid, file: server.Part) -> Result<
     return ok(format("{} bytes for {}", str(len(file.body)), uuid.format(id)))
 }
 
+// **A file with fields beside it**, which is what a glucometer import sends and what
+// `#![derive(Routes)]` writes a reader for: the body is read once with `parts_of` and each binding
+// taken out of it, so a form with four fields parses it once rather than four times.
+struct Upload {
+    file: server.Part
+    column: string
+    unit: string
+    note: Option<string>
+}
+
+fn upload_of(req: http.Request) -> Result<Upload, string> {
+    val parts = try rest.parts_of(req)
+    val file = try rest.required_part(parts, "file")
+    val column_sent = try rest.part_text_of(parts, "column")
+    val column = try rest.required(column_sent, "column")
+    val unit_sent = try rest.part_text_of(parts, "unit")
+    val unit = rest.given_or(unit_sent, "mg/dL")
+    val note_sent = try rest.part_text_of(parts, "note")
+    return ok(Upload { file: file, column: column, unit: unit, note: note_sent })
+}
+
+fn receive_form(ctx: Ctx, who: Principal, sent: Upload) -> Result<string, string> {
+    return ok(format(
+        "{} bytes, column={} unit={} note={}",
+        str(len(sent.file.body)),
+        sent.column,
+        sent.unit,
+        get_or(sent.note, "-")
+    ))
+}
+
 val table = rest.routes<Ctx>([
     rest.Endpoint<Ctx> {
         method: http.HttpMethod.Post,
@@ -89,6 +120,18 @@ val table = rest.routes<Ctx>([
             encoders: [codec.plain_text_encoder()],
             status: Option<int>.None,
             run: receive_optional,
+            api: api
+        )
+    },
+    rest.Endpoint<Ctx> {
+        method: http.HttpMethod.Post,
+        pattern: "/readings",
+        handler: rest.secure_form_handler<Ctx, Principal, Upload, string, string>(
+            who: authenticated,
+            form: upload_of,
+            encoders: [codec.plain_text_encoder()],
+            status: Option<int>.None,
+            run: receive_form,
             api: api
         )
     },
@@ -125,6 +168,11 @@ fn file_part(field: string, filename: string, body: string) -> string {
         "Content-Type: application/octet-stream\r\n\r\n",
         body
     )
+}
+
+// A form field, as a browser writes one: a name, no filename, no declared type.
+fn text_part(field: string, value: string) -> string {
+    return concat("Content-Disposition: form-data; name=\"", field, "\"\r\n\r\n", value)
 }
 
 fn request(path: string, media: string, body: [byte], authorised: bool) -> http.Request {
@@ -184,6 +232,15 @@ fn main() {
         [file_part("file", "scan.pdf", "%PDF-1.7")],
         true
     ))
+    show("a file with fields", multipart_request("/readings", [
+        file_part("file", "readings.csv", "when,mgdl"),
+        text_part("column", "Glucose"),
+        text_part("note", "fasting")
+    ], true))
+    show("a field that was not sent", multipart_request("/readings", [
+        file_part("file", "readings.csv", "when,mgdl")
+    ], true))
+
     show("a file for a bad id", multipart_request(
         "/records/not-a-uuid/files",
         [file_part("file", "scan.pdf", "%PDF-1.7")],

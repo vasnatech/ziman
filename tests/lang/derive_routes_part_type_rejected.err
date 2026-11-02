@@ -1,1 +1,1 @@
-#[route] on 'handle_import': 'file' carries #[part] and is of type 'string' -- a part binding takes a server.Part, or an Option of one for a part the form need not carry
+#[route] on 'handle_import': 'file' carries #[part] and is of type 'Upload' -- a part binding takes a server.Part for the uploaded file, or a string, an int, a float, a bool or a Uuid (or an Option of one) for a field of the same form
