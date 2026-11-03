@@ -10,11 +10,17 @@
 // files, read off disk, plus the statement shapes its repositories issue -- because a round trip
 // that only survives the examples its author thought of is not a property, it is a demonstration.
 //
-// **So the recording below counts them, and a new migration over there changes it here.** That is
-// the cost of a corpus that is somebody else's real schema, and it is worth paying: when
-// `V042__create_medical_codes.sql` was added to the application this fixture is what read it, and
-// a `CREATE TABLE` the formatter could not write would have been a changed recording rather than a
-// silent loss. The count is the only part that moves; `0 that do not round-trip` is the property.
+// **The recording does not count them, which took two tries to get right.** It used to print
+// `40 files, 134 statements`, so every migration added to the application failed this fixture --
+// twice on 2026-11-02, the second time refusing a push over `V043__create_oauth_state.sql`, a table
+// this test had just read and round-tripped correctly. A recording that breaks when the corpus grows
+// is measuring the corpus, not the property.
+//
+// What it prints now is the property and the fact that the corpus was read, with a floor on the file
+// count to catch an empty or missing folder -- the one failure a looser assertion could hide. The
+// value of borrowing somebody's real schema is unchanged: when `V042__create_medical_codes.sql` and
+// `V043__create_oauth_state.sql` arrived, this is what read them, and a `CREATE TABLE` the formatter
+// could not write would have shown up here rather than nowhere.
 use db
 use fs
 use migrate
@@ -258,7 +264,21 @@ fn main() {
                     }
                 }
             }
-            print(format("  {} files, {} statements, {} that do not round-trip", files, statements, broken))
+            // **The counts are deliberately not printed**, and the comment at the top of this file
+            // says why: a recording that holds `41 files, 136 statements` makes every new migration
+            // in the application a failed fixture here. That happened twice in one day -- the
+            // second time refusing a push over a table this test had just correctly round-tripped.
+            //
+            // What is asserted instead is the property, plus that the corpus was actually read: a
+            // floor on the file count catches an empty or missing folder, which is the vacuous pass
+            // worth guarding against. Anything above the floor is the application's business, not
+            // this test's. `statements` is still counted because the loop needs it to find nothing.
+            if files < 30 {
+                print(format("  only {} .sql files: this is not the application's migration folder", files))
+            } else {
+                print(format("  every migration read, {} that do not round-trip, {} statements in all",
+                    broken, if statements > 0 { "many" } else { "no" }))
+            }
         }
         Err(_) { print("  (no sample application checkout here; the corpus above still carries the property)") }
     }
