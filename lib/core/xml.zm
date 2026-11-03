@@ -404,11 +404,6 @@ struct PNode {
     next: int
 }
 
-struct PElem {
-    elem: Element
-    next: int
-}
-
 struct RawAttr {
     qname: string
     value: string
@@ -976,32 +971,413 @@ fn read_bang(cs: io.Cursor, pos: int) -> Result<PNode, string> {
     return err(fail(cs, pos, "expected a comment or a CDATA section after '<!'"))
 }
 
-fn read_element(
-    cs: io.Cursor,
-    pos: int,
-    scope: Map<string, string>,
-    limits: XmlLimits,
-    depth: int
-) -> Result<PElem, string> {
-    if depth > limits.max_depth {
-        return err(fail(cs, pos, prelude.format("nesting deeper than {} levels", limits.max_depth)))
-    }
-    val open = try read_name(cs, pos + 1)
-    val raw = try read_attributes(cs, open.next, limits)
-    try check_declarations(cs, raw.attrs)
-    val inner = extend_scope(scope, raw.attrs)
+// ---------------------------------------------------------------- reading as events
+//
+// **A document as a sequence of events, so that it never has to be a tree.** `parse` answers a
+// `Document`, which means the whole document is in memory as nodes whatever the reader does; an
+// import that only wants one `<Record>` at a time wants this instead. It is also what `parse` is
+// built on now, so there is one scanner rather than two.
+//
+// The shape is a pull parser's -- `events` answers an `Iter`, the caller asks for the next event,
+// nothing is read ahead. A self-closing `<a/>` is a `Start` and then an `End`, which is what every
+// pull parser does and is lossless here: an `Element` with no children is written back as `<a/>`.
 
-    val elem_name = try resolve(cs, pos, open.text, inner, false)
+// One thing read from a document.
+pub enum Event {
+    // The `<?xml ..?>` declaration, if the document has one. First, and at most once.
+    Declaration(Declaration)
+    Start(StartTag)
+    End(Name)
+    Text(string)
+    CData(string)
+    Comment(string)
+    ProcessingInstruction(Instruction)
+}
+
+// An element's opening tag: its name and attributes, with namespaces already resolved.
+//
+// **Not an `Element` with no children**, which would have been free to reuse: a reader cannot tell
+// an `Element` that is empty from one whose children have not arrived, and the event stream's whole
+// point is that they have not.
+pub struct StartTag {
+    name: Name
+    attributes: [Attribute]
+}
+
+// One open element: what is needed to close it, resolve names inside it, and report it unclosed.
+//
+// **The line is kept here rather than looked up later.** A frame outlives the window the cursor
+// holds -- an element can open a megabyte before it closes -- and a position that has been released
+// can no longer be turned into a line. Taken when the element opens, when the position is certainly
+// still in the window.
+struct Frame {
+    name: Name
+    written: string
+    scope: Map<string, string>
+    line: int
+}
+
+// A document being read. Made by `reader`, walked by `next_event`, wrapped in an `Iter` by `events`.
+pub struct Reader {
+    cs: io.Cursor
+    limits: XmlLimits
+    pos: Mutable<int>
+    stack: Mutable<[Frame]>
+    // The `End` owed for a self-closing tag, which is reported as two events.
+    owed: Mutable<Option<Name>>
+    started: Mutable<bool>
+    seen_root: Mutable<bool>
+    done: Mutable<bool>
+}
+
+// A reader over a document arriving as bytes.
+//
+// **The byte ceiling is `io.limited`, not a length check**, which is the difference a stream makes:
+// `parse` of a string can measure it before starting and say so, and a source cannot be measured at
+// all. So the limit is a layer, and a document over it fails partway through reading with
+// `TooLarge` rather than before reading with a count.
+pub fn reader(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Reader {
+    return Reader {
+        cs: io.cursor(normalised(without_bom(io.text(io.limited(source, limits.max_bytes))))),
+        limits: limits,
+        pos: mutable_new(0),
+        stack: mutable_new<[Frame]>([]),
+        owed: mutable_new<Option<Name>>(None),
+        started: mutable_new(false),
+        seen_root: mutable_new(false),
+        done: mutable_new(false)
+    }
+}
+
+// Every event of the document, in order. An `Err` ends the stream, as it does for a byte source.
+//
+// **Release is what keeps this bounded**, and it happens here: after each event, everything before
+// the position the reader has reached is dropped, because no later event refers to it. Without that
+// the cursor holds the document and this is `parse` with extra steps.
+pub fn events(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Iter<Result<Event, string>> {
+    val r = reader(source, limits)
+    return iter_from(
+        fn() -> Option<Result<Event, string>> { next_event(r) },
+        fn() { io.cursor_close(r.cs) }
+    )
+}
+
+// `events` with the default limits.
+pub fn events(source: Iter<Result<[byte], io.IoError>>) -> Iter<Result<Event, string>> {
+    return events(source, xml_limits())
+}
+
+// The next event, or `None` at the end of the document.
+//
+// **One switch over what is at the position, which is what the recursion became.** `read_element`
+// called itself for each child and returned a built `Element`; a reader cannot return and resume, so
+// the nesting lives in `stack` and each call answers one event. Everything it calls to read a token
+// -- names, attributes, text, references, comments, CDATA, instructions -- is the same function the
+// recursive reader called.
+pub fn next_event(r: Reader) -> Option<Result<Event, string>> {
+    if get(r.done) {
+        return None
+    }
+    // **Released here rather than in `events`' wrapper**, so that a caller driving a `Reader`
+    // itself gets a bounded window too -- the alternative is an API where the convenient path is
+    // bounded and the explicit one quietly is not. Everything before the position already reached
+    // belongs to events already answered, and nothing later refers to it: an element's opening line
+    // is taken when it opens, for exactly this reason.
+    io.release(r.cs, get(r.pos))
+    // A self-closing tag owes an `End`.
+    if Some(name) = get(r.owed) {
+        set(r.owed, Option<Name>.None)
+        return finished_if_closed(r, Event.End(name))
+    }
+    val cs = r.cs
+    if !get(r.started) {
+        set(r.started, true)
+        val decl = read_declaration(cs)
+        if Err(why) = decl {
+            return stop(r, why)
+        }
+        if Some(d) = unwrap(decl) {
+            set(r.pos, find_from(cs, tok_pi_end, 0) + 2)
+            return Some(ok(Event.Declaration(d)))
+        }
+    }
+    // **Whitespace is skipped only outside the root element**, which is where it is insignificant.
+    // Inside one it is content: skipping it everywhere turned `<b>2</b> tablets` into
+    // `<b>2</b>tablets`, which the mixed-content test caught immediately -- the recursive reader
+    // skipped space in its top-level loop alone and `read_text` took everything else as it stood.
+    var p = get(r.pos)
+    if prelude.len(get(r.stack)) == 0 {
+        p = skip_space(cs, p)
+        set(r.pos, p)
+    }
+    if at_end(cs, p) {
+        // A source that failed is not a document that ended, which is the one thing a scanner over a
+        // stream has to ask and one over an array never did.
+        if Some(why) = io.failure(cs) {
+            return stop(r, io.io_error_message(why))
+        }
+        if prelude.len(get(r.stack)) > 0 {
+            val open = get(r.stack)[prelude.len(get(r.stack)) - 1]
+            return stop(r, prelude.format("line {}: <{}> is never closed", open.line, open.written))
+        }
+        if !get(r.seen_root) {
+            return stop(r, "the document has no root element")
+        }
+        set(r.done, true)
+        return None
+    }
+    if !at_is(cs, p, "<") {
+        if prelude.len(get(r.stack)) == 0 {
+            return stop(r, fail(cs, p, "text is not allowed outside the root element"))
+        }
+        val read = read_text(cs, p)
+        if Err(why) = read {
+            return stop(r, why)
+        }
+        val got = unwrap(read)
+        set(r.pos, got.next)
+        if got.text == "" {
+            return next_event(r)
+        }
+        return Some(ok(Event.Text(got.text)))
+    }
+    if at_starts(cs, p, tok_close) {
+        return close_tag(r, p)
+    }
+    if at_starts(cs, p, tok_bang) {
+        val read = read_bang(cs, p)
+        if Err(why) = read {
+            return stop(r, why)
+        }
+        val got = unwrap(read)
+        if CData(text) = got.node {
+            if prelude.len(get(r.stack)) == 0 {
+                return stop(r, fail(cs, p, "a CDATA section is not allowed outside the root element"))
+            }
+            set(r.pos, got.next)
+            return Some(ok(Event.CData(text)))
+        }
+        set(r.pos, got.next)
+        return switch got.node {
+            Comment(text) { Some(ok(Event.Comment(text))) }
+            ProcessingInstruction(pi) { Some(ok(Event.ProcessingInstruction(pi))) }
+            CData(text) { Some(ok(Event.CData(text))) }
+            Text(text) { Some(ok(Event.Text(text))) }
+            Element(_) { stop(r, fail(cs, p, "expected a comment or a CDATA section")) }
+        }
+    }
+    if at_starts(cs, p, tok_pi_start) {
+        val read = read_pi(cs, p)
+        if Err(why) = read {
+            return stop(r, why)
+        }
+        val got = unwrap(read)
+        set(r.pos, got.next)
+        return switch got.node {
+            ProcessingInstruction(pi) { Some(ok(Event.ProcessingInstruction(pi))) }
+            Comment(text) { Some(ok(Event.Comment(text))) }
+            CData(text) { Some(ok(Event.CData(text))) }
+            Text(text) { Some(ok(Event.Text(text))) }
+            Element(_) { stop(r, fail(cs, p, "expected a processing instruction")) }
+        }
+    }
+    return open_tag(r, p)
+}
+
+// `<name attrs>` or `<name attrs/>`.
+fn open_tag(r: Reader, p: int) -> Option<Result<Event, string>> {
+    val cs = r.cs
+    val held = get(r.stack)
+    if prelude.len(held) == 0 && get(r.seen_root) {
+        return stop(r, fail(cs, p, "a second root element: an XML document has exactly one"))
+    }
+    // The depth limit, which was `read_element`'s `depth` parameter and is the stack's own height.
+    if prelude.len(held) + 1 > r.limits.max_depth {
+        return stop(r, fail(cs, p, prelude.format("nesting deeper than {} levels", r.limits.max_depth)))
+    }
+    val open = read_name(cs, p + 1)
+    if Err(why) = open {
+        return stop(r, why)
+    }
+    val name_read = unwrap(open)
+    val raw = read_attributes(cs, name_read.next, r.limits)
+    if Err(why) = raw {
+        return stop(r, why)
+    }
+    val got = unwrap(raw)
+    if Err(why) = check_declarations(cs, got.attrs) {
+        return stop(r, why)
+    }
+    val outer = if prelude.len(held) == 0 { Map<string, string> {} } else { held[prelude.len(held) - 1].scope }
+    val inner = extend_scope(outer, got.attrs)
+    val resolved = resolve(cs, p, name_read.text, inner, false)
+    if Err(why) = resolved {
+        return stop(r, why)
+    }
+    val name = unwrap(resolved)
+    val attributes = resolved_attributes(cs, got.attrs, inner)
+    if Err(why) = attributes {
+        return stop(r, why)
+    }
+    val tag = StartTag { name: name, attributes: unwrap(attributes) }
+    set(r.seen_root, true)
+    if at_starts(cs, got.next, tok_empty_end) {
+        // Self-closing: the `End` is owed, and no frame is pushed -- nothing can be inside it.
+        set(r.pos, got.next + 2)
+        set(r.owed, Option<Name>.Some(name))
+        return Some(ok(Event.Start(tag)))
+    }
+    set(r.pos, got.next + 1)
+    set(r.stack, push(held, Frame {
+        name: name,
+        written: name_read.text,
+        scope: inner,
+        line: line_of(cs, p)
+    }))
+    return Some(ok(Event.Start(tag)))
+}
+
+// `</name>`, checked against what is open.
+fn close_tag(r: Reader, p: int) -> Option<Result<Event, string>> {
+    val cs = r.cs
+    val held = get(r.stack)
+    if prelude.len(held) == 0 {
+        return stop(r, fail(cs, p, "a closing tag with nothing open"))
+    }
+    val open = held[prelude.len(held) - 1]
+    val close = read_name(cs, p + 2)
+    if Err(why) = close {
+        return stop(r, why)
+    }
+    val name_read = unwrap(close)
+    if name_read.text != open.written {
+        return stop(r, fail(cs, p, prelude.format("</{}> closes <{}>", name_read.text, open.written)))
+    }
+    val after = skip_space(cs, name_read.next)
+    if !at_is(cs, after, ">") {
+        return stop(r, fail(cs, after, prelude.format("expected '>' to end </{}>", name_read.text)))
+    }
+    set(r.pos, after + 1)
+    set(r.stack, slice(held, 0, prelude.len(held) - 1))
+    return finished_if_closed(r, Event.End(open.name))
+}
+
+// An event, and the note that the root has closed -- after which only comments and instructions may
+// follow, which `next_event` enforces by the stack being empty and `seen_root` being set.
+fn finished_if_closed(r: Reader, e: Event) -> Option<Result<Event, string>> {
+    return Some(ok(e))
+}
+
+// Ends the stream with a message. **The reader is left `done`**, so a caller that keeps asking gets
+// `None` rather than the same error for ever -- an `Err` is terminal here as it is for a byte source.
+fn stop(r: Reader, message: string) -> Option<Result<Event, string>> {
+    set(r.done, true)
+    val failure: Result<Event, string> = err(message)
+    return Option<Result<Event, string>>.Some(failure)
+}
+
+// ---------------------------------------------------------------- the two stream-shaped transforms
+
+// `\r\n` and a bare `\r` as `\n`, which XML 1.0 requires of a parser -- **across chunk boundaries**,
+// which is why it is a transform here rather than `replace` over the whole document: a chunk ending
+// in `\r` cannot be decided until the next one arrives, exactly as a split UTF-8 character cannot.
+fn normalised(source: Iter<Result<string, io.IoError>>) -> Iter<Result<string, io.IoError>> {
+    val inner = source
+    val held_cr = mutable_new(false)
+    val ended = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<string, io.IoError>> {
+            if get(ended) {
+                return None
+            }
+            val item = iter_next(inner)
+            if None = item {
+                set(ended, true)
+                if get(held_cr) {
+                    set(held_cr, false)
+                    return Some(ok("\n"))
+                }
+                return None
+            }
+            val got = unwrap(item)
+            if Err(why) = got {
+                set(ended, true)
+                return Some(err(why))
+            }
+            var text = unwrap(got)
+            if get(held_cr) {
+                // The `\r` held back: joined to this chunk so that a `\r\n` split across the two is
+                // one ending, not two.
+                text = concat("\r", text)
+                set(held_cr, false)
+            }
+            if ends_with(text, "\r") {
+                set(held_cr, true)
+                text = substring(text, 0, prelude.len(text) - 1)
+            }
+            if text == "" {
+                return Some(ok("\n"))
+            }
+            // **Only when there is a `\r` to replace**, which is the guard `normalise_newlines` had
+            // and this transform lost: `replace` walks a string with `char_at`, which is O(1) for
+            // ASCII and a scan otherwise, so replacing nothing in a chunk with one accented word in
+            // it was quadratic in the chunk. 95% of a profile, and the document under it had no
+            // carriage return at all. Longest match first, so `\r\n` cannot be read as two endings.
+            if index_of(text, "\r", 0) < 0 {
+                return Some(ok(text))
+            }
+            return Some(ok(replace(text, Map<string, string> { "\r\n": "\n", "\r": "\n" })))
+        },
+        fn() { iter_close(inner) }
+    )
+}
+
+// A leading byte-order mark dropped, which is one character however many bytes it took.
+fn without_bom(source: Iter<Result<string, io.IoError>>) -> Iter<Result<string, io.IoError>> {
+    val inner = source
+    val first = mutable_new(true)
+    return iter_from(
+        fn() -> Option<Result<string, io.IoError>> {
+            val item = iter_next(inner)
+            if None = item {
+                return None
+            }
+            val got = unwrap(item)
+            if Err(_) = got {
+                return Some(got)
+            }
+            if !get(first) {
+                return Some(got)
+            }
+            set(first, false)
+            val text = unwrap(got)
+            if prelude.len(text) > 0 && has_bom(substring(text, 0, 1)) {
+                return Some(ok(substring(text, 1, prelude.len(text))))
+            }
+            return Some(got)
+        },
+        fn() { iter_close(inner) }
+    )
+}
+
+// The attributes of one element, resolved and checked for duplicates.
+//
+// **Lifted out of the recursive `read_element` when the event scanner replaced it**, because for a
+// while both readers needed it: the rule it enforces is subtle enough that two copies would have
+// been two rules. Written names can
+// differ while the *expanded* names match -- `p:id` and `q:id` with both prefixes bound to one URI
+// are one attribute twice, which is what the specification says ("no element have two attributes
+// with the same expanded name") and is not obvious from the document.
+fn resolved_attributes(
+    cs: io.Cursor,
+    raw: [RawAttr],
+    inner: Map<string, string>
+) -> Result<[Attribute], string> {
     var attributes: [Attribute] = []
-    for a in raw.attrs {
+    for a in raw {
         val an = try resolve(cs, a.at, a.qname, inner, true)
         for seen in attributes {
             if same_name(seen.name, an) {
-                // The written names can differ while the *expanded* names match -- `p:id` and
-                // `q:id` with both prefixes bound to one URI are one attribute twice, which is
-                // the rule ("no element have two attributes with the same expanded name") and is
-                // not obvious from the document. Saying only "'q:id' appears twice" named an
-                // attribute that appears once.
                 val written = switch seen.name.prefix {
                     Some(px) { concat(px, ":", seen.name.local) }
                     None { seen.name.local }
@@ -1030,63 +1406,7 @@ fn read_element(
         }
         attributes = push(attributes, Attribute { name: an, value: a.value })
     }
-
-    var p = raw.next
-    if at_starts(cs, p, tok_empty_end) {
-        return ok(PElem {
-            elem: Element { name: elem_name, attributes: attributes, children: [] },
-            next: p + 2
-        })
-    }
-    p = p + 1
-    var kids: [Node] = []
-    while true {
-        if at_end(cs, p) {
-            return err(fail(cs, pos, prelude.format("<{}> is never closed", open.text)))
-        }
-        if at_is(cs, p, "<") {
-            // In place, for the same reason as read_bang above: this copied the rest of the
-            // document once per child node.
-            if at_starts(cs, p, tok_close) {
-                val close = try read_name(cs, p + 2)
-                if close.text != open.text {
-                    return err(fail(cs, p, prelude.format(
-                        "</{}> closes <{}>",
-                        close.text,
-                        open.text
-                    )))
-                }
-                val after = skip_space(cs, close.next)
-                if !at_is(cs, after, ">") {
-                    return err(fail(cs, after, prelude.format("expected '>' to end </{}>", close.text)))
-                }
-                return ok(PElem {
-                    elem: Element { name: elem_name, attributes: attributes, children: kids },
-                    next: after + 1
-                })
-            }
-            if at_starts(cs, p, tok_bang) {
-                val n = try read_bang(cs, p)
-                kids = push(kids, n.node)
-                p = n.next
-            } else if at_starts(cs, p, tok_pi_start) {
-                val n = try read_pi(cs, p)
-                kids = push(kids, n.node)
-                p = n.next
-            } else {
-                val sub = try read_element(cs, p, inner, limits, depth + 1)
-                kids = push(kids, Node.Element(sub.elem))
-                p = sub.next
-            }
-        } else {
-            val t = try read_text(cs, p)
-            if t.text != "" {
-                kids = push(kids, Node.Text(t.text))
-            }
-            p = t.next
-        }
-    }
-    return err(fail(cs, pos, prelude.format("<{}> is never closed", open.text)))
+    return ok(attributes)
 }
 
 val tok_decl_start: [string] = ["<", "?", "x", "m", "l"]
@@ -1193,6 +1513,10 @@ pub fn parse(text: string) -> Result<Document, string> {
 // arriving from somewhere you do not control has a size you are willing to spend memory on, and
 // it is smaller than 16 MiB.
 pub fn parse(text: string, limits: XmlLimits) -> Result<Document, string> {
+    // **A string can be measured, so it still is.** The streaming reader cannot -- see `reader`,
+    // where the same ceiling is an `io.limited` layer and a document over it fails partway through
+    // with `TooLarge`. Here the count is available before anything is read and the message is
+    // better for it.
     if byte_len(text) > limits.max_bytes {
         return err(prelude.format(
             "the document is {} bytes, over the {}-byte limit",
@@ -1200,74 +1524,81 @@ pub fn parse(text: string, limits: XmlLimits) -> Result<Document, string> {
             limits.max_bytes
         ))
     }
-    var s = normalise_newlines(text)
-    if has_bom(s) {
-        s = substring(s, 1, len(s))  // one character, not its three bytes -- see has_bom
-    }
-    // **A cursor over the document, which is what every function below reads** (2026-11-02). It
-    // was `chars(s)` -- the whole document decoded into a `[string]` -- for the reason the helpers
-    // above `line_of` record: `char_at` walks the string, so threading a character position over a
-    // document was quadratic in it, and 40 KB of CJK XML took 2.2 s. A cursor keeps that O(1)
-    // access and does not need the document in one piece, which is what `events` is for.
-    //
-    // `normalise_newlines` and `has_bom` still run over the whole string here, because this entry
-    // point has the whole string. The streaming entry point cannot, and they become layers.
-    val cs = io.cursor(io.text(io.of_bytes(to_bytes(s))))
-    val decl = try read_declaration(cs)
-    var p = 0
-    if Some(_) = decl {
-        p = find_from(cs, tok_pi_end, 0) + 2
-    }
+    return folded(events(io.of_bytes(to_bytes(text)), limits))
+}
 
+// An element whose children are still arriving.
+struct Building {
+    name: Name
+    attributes: [Attribute]
+    children: [Node]
+}
+
+// A `Document` built from an event stream.
+//
+// **This is what `parse` is now, and the recursive scanner is gone.** `read_element` called itself
+// per child and returned a finished `Element`; the events carry the same information in the order a
+// document presents it, and the nesting that was the call stack is `open` here. One scanner serves
+// both readers, which is the point: two scanners for one grammar is how two grammars happen.
+fn folded(stream: Iter<Result<Event, string>>) -> Result<Document, string> {
+    var decl = Option<Declaration>.None
     var prolog: [Node] = []
-    var root = Option<Element>.None
     var epilog: [Node] = []
-    while true {
-        p = skip_space(cs, p)
-        if at_end(cs, p) {
-            break
+    var root = Option<Element>.None
+    var open: [Building] = []
+    for item in stream {
+        val e = try item
+        switch e {
+            Declaration(d) {
+                decl = Option<Declaration>.Some(d)
+            }
+            Start(tag) {
+                open = push(open, Building {
+                    name: tag.name,
+                    attributes: tag.attributes,
+                    children: []
+                })
+            }
+            End(_) {
+                val last = prelude.len(open) - 1
+                val top = open[last]
+                open = slice(open, 0, last)
+                val built = Element {
+                    name: top.name,
+                    attributes: top.attributes,
+                    children: top.children
+                }
+                if prelude.len(open) == 0 {
+                    root = Option<Element>.Some(built)
+                } else {
+                    open = with_child(open, Node.Element(built))
+                }
+            }
+            Text(s) {
+                open = with_child(open, Node.Text(s))
+            }
+            CData(s) {
+                open = with_child(open, Node.CData(s))
+            }
+            Comment(s) {
+                if prelude.len(open) > 0 {
+                    open = with_child(open, Node.Comment(s))
+                } else if None = root {
+                    prolog = push(prolog, Node.Comment(s))
+                } else {
+                    epilog = push(epilog, Node.Comment(s))
+                }
+            }
+            ProcessingInstruction(pi) {
+                if prelude.len(open) > 0 {
+                    open = with_child(open, Node.ProcessingInstruction(pi))
+                } else if None = root {
+                    prolog = push(prolog, Node.ProcessingInstruction(pi))
+                } else {
+                    epilog = push(epilog, Node.ProcessingInstruction(pi))
+                }
+            }
         }
-        if !at_is(cs, p, "<") {
-            return err(fail(cs, p, "text is not allowed outside the root element"))
-        }
-        // Three prefix tests against the document in place. This built `substring(s, p, len(s))`
-        // first -- a copy of everything from `p` to the end of the document, per iteration, to look
-        // at two characters.
-        if at_starts(cs, p, tok_bang) {
-            val n = try read_bang(cs, p)
-            if CData(_) = n.node {
-                return err(fail(cs, p, "a CDATA section is not allowed outside the root element"))
-            }
-            if None = root {
-                prolog = push(prolog, n.node)
-            } else {
-                epilog = push(epilog, n.node)
-            }
-            p = n.next
-        } else if at_starts(cs, p, tok_pi_start) {
-            val n = try read_pi(cs, p)
-            if None = root {
-                prolog = push(prolog, n.node)
-            } else {
-                epilog = push(epilog, n.node)
-            }
-            p = n.next
-        } else if at_starts(cs, p, tok_close) {
-            return err(fail(cs, p, "a closing tag with nothing open"))
-        } else {
-            if Some(_) = root {
-                return err(fail(cs, p, "a second root element: an XML document has exactly one"))
-            }
-            val e = try read_element(cs, p, Map<string, string> {}, limits, 1)
-            root = Option<Element>.Some(e.elem)
-            p = e.next
-        }
-    }
-    // **A source that failed is not a document that ended.** Reading from a string cannot fail, so
-    // this is unreachable from here -- it is the check the streaming entry point needs, and it is
-    // written where every caller passes rather than in the one that will.
-    if Some(why) = io.failure(cs) {
-        return err(io.io_error_message(why))
     }
     return switch root {
         Some(r) { ok(Document { declaration: decl, prolog: prolog, root: r, epilog: epilog }) }
@@ -1275,8 +1606,13 @@ pub fn parse(text: string, limits: XmlLimits) -> Result<Document, string> {
     }
 }
 
-// `parse` over the bytes of a document -- what `fs.read_bytes` gives, or an HTTP body. The
-// bytes must be UTF-8; invalid UTF-8 is an Err rather than a tree with broken text in it.
+// `node` appended to the innermost open element's children.
+fn with_child(open: [Building], node: Node) -> [Building] {
+    val last = prelude.len(open) - 1
+    val top = open[last]
+    return set(open, last, with top { children: push(top.children, node) })
+}
+
 pub fn parse(data: [byte]) -> Result<Document, string> {
     return parse(data, xml_limits())
 }

@@ -228,6 +228,17 @@ pub struct Cursor {
     failure: Mutable<Option<IoError>>
     // Newlines dropped with the window, so `line` stays right as it advances.
     lines_before: Mutable<int>
+    // **How `line` stays cheap.** Newlines are counted once, forward, as positions are asked
+    // about: `counted_to` is how far that has reached and `lines_counted` is the count before it.
+    // A scanner asks about increasing positions -- each element's opening line, in order -- so the
+    // counting is linear over the document rather than linear *per question*. Scanning the window
+    // on every call put 82% of a profile in this function and made a parse quadratic.
+    counted_to: Mutable<int>
+    lines_counted: Mutable<int>
+    // The position before which nothing will be asked for again. **`release` only moves this**;
+    // the characters are dropped later, by `compact`, which is what keeps releasing cheap -- see
+    // `release`.
+    live: Mutable<int>
 }
 ```
 
@@ -245,9 +256,16 @@ whole document to a `[string]` of characters for a measured reason -- reaching p
 `char_at` walks the string, so threading a character position over a document was quadratic in the
 document, and 40 KB of CJK XML took 2.2 s. The window keeps that property over a stream.
 
-**`release` is what makes it bounded.** Nothing is dropped until a caller says a position will not
-be asked for again; a parser that never releases holds the whole document, which is correct and
-no better than reading it whole. A scanner releases as it finishes each token.
+**`release` is what makes it bounded, and the bound is `max(the largest chunk, what has not been
+released)`.** Nothing is dropped until a caller says a position will not be asked for again, so a
+parser that never releases holds the whole document -- correct, and no better than reading it
+whole. A scanner releases as it finishes each token.
+
+**A chunk is the floor, and that is not a detail.** The cursor cannot hold less than the piece its
+source handed it: `of_bytes` of a whole document is one chunk, so the window is the document --
+which is honest, since it already was a `[byte]`. Over a source that delivers pieces, the window
+is a piece: `xml_events` reads a 26,309-character document in 512-byte chunks and the window
+never passes 510, with the one-chunk case measured beside it for the contrast.
 
 ### `cursor`
 
@@ -310,8 +328,16 @@ ceiling belongs.
 pub fn release(c: Cursor, upto: int)
 ```
 
-Says that nothing before `upto` will be asked for again, so it can be dropped. **This is the only
-thing that bounds a cursor's memory**, and a scanner calls it as it finishes each token.
+Says that nothing before `upto` will be asked for again, so it can be dropped. **This is the
+only thing that bounds a cursor's memory**, and a scanner calls it as it finishes each token.
+
+**It records the position and drops nothing**, which is the difference between a cursor that works
+and one that does not: dropping eagerly means copying the rest of the window on every call, and a
+scanner calls this once per token. Measured, because the first version did drop eagerly: a 235 KB
+document parsed in **75 seconds**, against 463 ms for the same scanner with no releasing at all --
+ten thousand events each copying a hundred thousand characters. `compact` does the dropping when
+the dead prefix is at least half the window, which makes it amortised constant per character, the
+same bargain a growable array makes in the other direction.
 
 ### `line`
 
@@ -321,10 +347,15 @@ pub fn line(c: Cursor, p: int) -> int
 
 Which line position `p` is on, counting from 1 -- for a parser's error messages.
 
+**Counted forward once, not scanned per call.** A scanner asks about increasing positions, so the
+common path advances a counter from where it last reached to `p`; the total work over a document
+is one pass. Scanning the window from its base on every call is the same answer and was 82% of a
+profile, turning a parse into a quadratic -- a cursor's window can be the whole document when
+nothing has released, and an element's opening line was asked for per element.
+
 A position already released answers the line the window now starts on, which is the closest true
-answer still available: the newlines before it were counted as they were dropped, and the ones
-between it and the window's start were not kept. A scanner reporting an error at a position it has
-released is reporting it late.
+answer still available. A scanner reporting an error at a position it has released is reporting
+it late.
 
 ### `window_size`
 

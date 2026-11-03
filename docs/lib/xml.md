@@ -444,7 +444,104 @@ pub fn find_first(e: Element, path: string) -> Option<Element>
 
 The first element `find` reaches, or None.
 
-## Reading
+## Reading as events
+
+### `Event`
+
+```
+pub enum Event {
+    // The `<?xml ..?>` declaration, if the document has one. First, and at most once.
+    Declaration(Declaration)
+    Start(StartTag)
+    End(Name)
+    Text(string)
+    CData(string)
+    Comment(string)
+    ProcessingInstruction(Instruction)
+}
+```
+
+One thing read from a document.
+
+### `StartTag`
+
+```
+pub struct StartTag {
+    name: Name
+    attributes: [Attribute]
+}
+```
+
+An element's opening tag: its name and attributes, with namespaces already resolved.
+
+**Not an `Element` with no children**, which would have been free to reuse: a reader cannot tell
+an `Element` that is empty from one whose children have not arrived, and the event stream's whole
+point is that they have not.
+
+### `Reader`
+
+```
+pub struct Reader {
+    cs: io.Cursor
+    limits: XmlLimits
+    pos: Mutable<int>
+    stack: Mutable<[Frame]>
+    // The `End` owed for a self-closing tag, which is reported as two events.
+    owed: Mutable<Option<Name>>
+    started: Mutable<bool>
+    seen_root: Mutable<bool>
+    done: Mutable<bool>
+}
+```
+
+A document being read. Made by `reader`, walked by `next_event`, wrapped in an `Iter` by `events`.
+
+### `reader`
+
+```
+pub fn reader(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Reader
+```
+
+A reader over a document arriving as bytes.
+
+**The byte ceiling is `io.limited`, not a length check**, which is the difference a stream makes:
+`parse` of a string can measure it before starting and say so, and a source cannot be measured at
+all. So the limit is a layer, and a document over it fails partway through reading with
+`TooLarge` rather than before reading with a count.
+
+### `events`
+
+```
+pub fn events(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Iter<Result<Event, string>>
+```
+
+Every event of the document, in order. An `Err` ends the stream, as it does for a byte source.
+
+**Release is what keeps this bounded**, and it happens here: after each event, everything before
+the position the reader has reached is dropped, because no later event refers to it. Without that
+the cursor holds the document and this is `parse` with extra steps.
+
+```
+pub fn events(source: Iter<Result<[byte], io.IoError>>) -> Iter<Result<Event, string>>
+```
+
+`events` with the default limits.
+
+### `next_event`
+
+```
+pub fn next_event(r: Reader) -> Option<Result<Event, string>>
+```
+
+The next event, or `None` at the end of the document.
+
+**One switch over what is at the position, which is what the recursion became.** `read_element`
+called itself for each child and returned a built `Element`; a reader cannot return and resume, so
+the nesting lives in `stack` and each call answers one event. Everything it calls to read a token
+-- names, attributes, text, references, comments, CDATA, instructions -- is the same function the
+recursive reader called.
+
+## The two stream-shaped transforms
 
 ### `parse`
 
@@ -473,9 +570,6 @@ it is smaller than 16 MiB.
 ```
 pub fn parse(data: [byte]) -> Result<Document, string>
 ```
-
-`parse` over the bytes of a document -- what `fs.read_bytes` gives, or an HTTP body. The
-bytes must be UTF-8; invalid UTF-8 is an Err rather than a tree with broken text in it.
 
 ```
 pub fn parse(data: [byte], limits: XmlLimits) -> Result<Document, string>

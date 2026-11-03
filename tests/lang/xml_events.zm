@@ -1,0 +1,204 @@
+// `xml.events`: a document as a sequence of events, so that it never has to be a tree.
+//
+// **The bound is the point, so the last section measures it**: a document is walked through a
+// `Reader` and the cursor's window is checked at every step. That is what this whole exercise was
+// for -- `parse` answers a `Document`, which holds the document whatever the reader does, and an
+// import that wants one record at a time wants this instead.
+//
+// What else it pins: the event order for nesting, self-closing tags (a `Start` and then an `End`,
+// which is lossless because an `Element` with no children is written back as `<a/>`), entities
+// decoded in text, CDATA and comments and instructions, namespaces resolved by the time a `Start`
+// arrives; every error the recursive reader used to give, including the line an unclosed element
+// opened on; a source that **fails** midway, which is not a document that ended; and the byte
+// ceiling, which is a layer over a stream rather than a length known in advance.
+use io
+use io.IoError
+use xml
+
+fn described(e: xml.Event) -> string {
+    return switch e {
+        Declaration(d) { concat("decl ", d.version) }
+        Start(t) { concat("<", shown(t.name), attrs_of(t)) }
+        End(n) { concat("</", shown(n)) }
+        Text(s) { concat("text '", s, "'") }
+        CData(s) { concat("cdata '", s, "'") }
+        Comment(s) { concat("comment '", s, "'") }
+        ProcessingInstruction(pi) { concat("pi ", pi.target) }
+    }
+}
+
+fn shown(n: xml.Name) -> string {
+    return switch n.namespace {
+        Some(uri) { concat("{", uri, "}", n.local) }
+        None { n.local }
+    }
+}
+
+fn attrs_of(t: xml.StartTag) -> string {
+    if len(t.attributes) == 0 {
+        return ""
+    }
+    val out = mutable_array_new<string>()
+    for a in t.attributes {
+        push(out, concat(shown(a.name), "=", a.value))
+    }
+    return concat(" [", join(separator: " ", pieces: snapshot(out)), "]")
+}
+
+fn stream(doc: string) {
+    val out = mutable_array_new<string>()
+    for item in xml.events(io.of_bytes(to_bytes(doc))) {
+        push(out, switch item {
+            Ok(e) { described(e) }
+            Err(why) { concat("ERR ", why) }
+        })
+    }
+    print(join(separator: " | ", pieces: snapshot(out)))
+}
+
+fn main() {
+    print("-- the shapes --")
+    stream("<a><b x=\"1\">hi</b><c/></a>")
+    stream("<?xml version=\"1.0\"?><!--note--><a>&amp;&#65;<![CDATA[<raw>]]></a><?after?>")
+    stream("<p>Take <b>2</b> tablets.</p>")
+    stream("<p:a xmlns:p=\"urn:x\" xmlns=\"urn:d\"><b/><p:c/></p:a>")
+
+    print("-- the refusals --")
+    stream("<a><b></c></a>")
+    stream("<a>\n\n<b>\n")
+    stream("<a/><b/>")
+    stream("text outside")
+    stream("<a x=\"1\" x=\"2\"/>")
+    stream("<a>&nope;</a>")
+
+    print("-- a source that fails is not a document that ended --")
+    stream_of(cuts_off())
+
+    print("-- the byte ceiling is a layer --")
+    val tight = xml.XmlLimits {
+        max_bytes: 8,
+        max_depth: xml.xml_limits().max_depth,
+        max_attributes: xml.xml_limits().max_attributes
+    }
+    val out = mutable_array_new<string>()
+    for item in xml.events(io.of_bytes(to_bytes("<a>0123456789</a>")), tight) {
+        push(out, switch item {
+            Ok(e) { described(e) }
+            Err(why) { concat("ERR ", why) }
+        })
+    }
+    print(join(separator: " | ", pieces: snapshot(out)))
+
+    print("-- the window stays bounded --")
+    //
+    // **Over a chunked source, which is what a stream is.** `of_bytes` hands over the whole
+    // document as one chunk, and the window is then the document -- correctly, because a chunk is
+    // the unit a source delivers and the cursor cannot hold less than the piece it was given. The
+    // bound is `max(the largest chunk, what the scanner has not released)`, so the measurement that
+    // means anything uses chunks the size a reader actually reads: `fs.chunks` takes a size, a
+    // socket delivers what arrived.
+    val big = records(400)
+    val r = xml.reader(in_chunks(to_bytes(big), 512), xml.xml_limits())
+    var events = 0
+    var widest = 0
+    while true {
+        val item = xml.next_event(r)
+        if None = item {
+            break
+        }
+        if Err(why) = unwrap(item) {
+            print(concat("unexpected: ", why))
+            break
+        }
+        events = events + 1
+        val held = io.window_size(r.cs)
+        if held > widest {
+            widest = held
+        }
+    }
+    print(format(
+        "{} characters in 512-byte chunks, {} events, window never above {}",
+        str(len(chars(big))),
+        str(events),
+        str(widest)
+    ))
+    // The same document in one chunk, for the contrast: the window is the chunk.
+    val whole = xml.reader(io.of_bytes(to_bytes(big)), xml.xml_limits())
+    var seen = 0
+    var held_whole = 0
+    while true {
+        val item = xml.next_event(whole)
+        if None = item {
+            break
+        }
+        seen = seen + 1
+        val held = io.window_size(whole.cs)
+        if held > held_whole {
+            held_whole = held
+        }
+    }
+    print(format("the same document in one chunk: window reached {}", str(held_whole)))
+}
+
+fn stream_of(source: Iter<Result<[byte], IoError>>) {
+    val out = mutable_array_new<string>()
+    for item in xml.events(source) {
+        push(out, switch item {
+            Ok(e) { described(e) }
+            Err(why) { concat("ERR ", why) }
+        })
+    }
+    print(join(separator: " | ", pieces: snapshot(out)))
+}
+
+// A document that stops in the middle of itself because the source broke, not because the document
+// did -- the case an array-backed scanner could not have.
+fn cuts_off() -> Iter<Result<[byte], IoError>> {
+    val sent = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<[byte], IoError>> {
+            if get(sent) {
+                return Some(err(IoError.Closed("the peer hung up")))
+            }
+            set(sent, true)
+            return Some(ok(to_bytes("<a><b>partial")))
+        },
+        fn() {}
+    )
+}
+
+// A source that delivers `data` in pieces of `size`, as a file or a socket does.
+fn in_chunks(data: [byte], size: int) -> Iter<Result<[byte], IoError>> {
+    val held = data
+    val step = size
+    val at = mutable_new(0)
+    return iter_from(
+        fn() -> Option<Result<[byte], IoError>> {
+            val from = get(at)
+            if from >= len(held) {
+                return None
+            }
+            var to = from + step
+            if to > len(held) {
+                to = len(held)
+            }
+            set(at, to)
+            return Some(ok(slice(held, from, to)))
+        },
+        fn() {}
+    )
+}
+
+fn records(n: int) -> string {
+    val out = mutable_string_new()
+    append(out, "<records>")
+    var i = 0
+    while i < n {
+        append(out, "<record id=\"r")
+        append(out, str(i))
+        append(out, "\"><value>72.5</value><note>ünïcødé</note></record>")
+        i = i + 1
+    }
+    append(out, "</records>")
+    return snapshot(out)
+}

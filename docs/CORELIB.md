@@ -674,6 +674,17 @@ pub struct Cursor {
     failure: Mutable<Option<IoError>>
     // Newlines dropped with the window, so `line` stays right as it advances.
     lines_before: Mutable<int>
+    // **How `line` stays cheap.** Newlines are counted once, forward, as positions are asked
+    // about: `counted_to` is how far that has reached and `lines_counted` is the count before it.
+    // A scanner asks about increasing positions -- each element's opening line, in order -- so the
+    // counting is linear over the document rather than linear *per question*. Scanning the window
+    // on every call put 82% of a profile in this function and made a parse quadratic.
+    counted_to: Mutable<int>
+    lines_counted: Mutable<int>
+    // The position before which nothing will be asked for again. **`release` only moves this**;
+    // the characters are dropped later, by `compact`, which is what keeps releasing cheap -- see
+    // `release`.
+    live: Mutable<int>
 }
 
 pub fn cursor(source: Iter<Result<string, IoError>>) -> Cursor
@@ -2477,6 +2488,42 @@ pub fn find(e: Element, path: string) -> [Element]
 pub fn find_ns(e: Element, uri: string, path: string) -> [Element]
 
 pub fn find_first(e: Element, path: string) -> Option<Element>
+
+pub enum Event {
+    // The `<?xml ..?>` declaration, if the document has one. First, and at most once.
+    Declaration(Declaration)
+    Start(StartTag)
+    End(Name)
+    Text(string)
+    CData(string)
+    Comment(string)
+    ProcessingInstruction(Instruction)
+}
+
+pub struct StartTag {
+    name: Name
+    attributes: [Attribute]
+}
+
+pub struct Reader {
+    cs: io.Cursor
+    limits: XmlLimits
+    pos: Mutable<int>
+    stack: Mutable<[Frame]>
+    // The `End` owed for a self-closing tag, which is reported as two events.
+    owed: Mutable<Option<Name>>
+    started: Mutable<bool>
+    seen_root: Mutable<bool>
+    done: Mutable<bool>
+}
+
+pub fn reader(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Reader
+
+pub fn events(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Iter<Result<Event, string>>
+
+pub fn events(source: Iter<Result<[byte], io.IoError>>) -> Iter<Result<Event, string>>
+
+pub fn next_event(r: Reader) -> Option<Result<Event, string>>
 
 pub fn parse(text: string) -> Result<Document, string>
 

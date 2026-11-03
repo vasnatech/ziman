@@ -1,0 +1,22 @@
+-- the shapes --
+<a | <b [x=1] | text 'hi' | </b | <c | </c | </a
+decl 1.0 | comment 'note' | <a | text '&A' | cdata '<raw>' | </a | pi after
+<p | text 'Take ' | <b | text '2' | </b | text ' tablets.' | </p
+<{urn:x}a [{http://www.w3.org/2000/xmlns/}p=urn:x xmlns=urn:d] | <{urn:d}b | </{urn:d}b | <{urn:x}c | </{urn:x}c | </{urn:x}a
+-- the refusals --
+<a | <b | ERR line 1: </c> closes <b>
+<a | text '
+
+' | <b | text '
+' | ERR line 3: <b> is never closed
+<a | </a | ERR line 1: a second root element: an XML document has exactly one
+ERR line 1: text is not allowed outside the root element
+ERR line 1: attribute 'x' appears twice
+<a | ERR line 1: undefined entity '&nope;' -- this parser has no DTD, so only &lt; &gt; &amp; &quot; &apos; and &#...; are defined
+-- a source that fails is not a document that ended --
+<a | <b | text 'partial' | ERR the stream closed: the peer hung up
+-- the byte ceiling is a layer --
+ERR the stream is too large: more than 8 bytes
+-- the window stays bounded --
+26309 characters in 512-byte chunks, 3202 events, window never above 510
+the same document in one chunk: window reached 26309

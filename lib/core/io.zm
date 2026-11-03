@@ -353,9 +353,16 @@ pub fn lines(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoErr
 // `char_at` walks the string, so threading a character position over a document was quadratic in the
 // document, and 40 KB of CJK XML took 2.2 s. The window keeps that property over a stream.
 //
-// **`release` is what makes it bounded.** Nothing is dropped until a caller says a position will not
-// be asked for again; a parser that never releases holds the whole document, which is correct and
-// no better than reading it whole. A scanner releases as it finishes each token.
+// **`release` is what makes it bounded, and the bound is `max(the largest chunk, what has not been
+// released)`.** Nothing is dropped until a caller says a position will not be asked for again, so a
+// parser that never releases holds the whole document -- correct, and no better than reading it
+// whole. A scanner releases as it finishes each token.
+//
+// **A chunk is the floor, and that is not a detail.** The cursor cannot hold less than the piece its
+// source handed it: `of_bytes` of a whole document is one chunk, so the window is the document --
+// which is honest, since it already was a `[byte]`. Over a source that delivers pieces, the window
+// is a piece: `xml_events` reads a 26,309-character document in 512-byte chunks and the window
+// never passes 510, with the one-chunk case measured beside it for the contrast.
 pub struct Cursor {
     source: Iter<Result<string, IoError>>
     // The window, as characters, and the absolute position of its first one.
@@ -369,6 +376,17 @@ pub struct Cursor {
     failure: Mutable<Option<IoError>>
     // Newlines dropped with the window, so `line` stays right as it advances.
     lines_before: Mutable<int>
+    // **How `line` stays cheap.** Newlines are counted once, forward, as positions are asked
+    // about: `counted_to` is how far that has reached and `lines_counted` is the count before it.
+    // A scanner asks about increasing positions -- each element's opening line, in order -- so the
+    // counting is linear over the document rather than linear *per question*. Scanning the window
+    // on every call put 82% of a profile in this function and made a parse quadratic.
+    counted_to: Mutable<int>
+    lines_counted: Mutable<int>
+    // The position before which nothing will be asked for again. **`release` only moves this**;
+    // the characters are dropped later, by `compact`, which is what keeps releasing cheap -- see
+    // `release`.
+    live: Mutable<int>
 }
 
 // A cursor over a text source.
@@ -379,7 +397,10 @@ pub fn cursor(source: Iter<Result<string, IoError>>) -> Cursor {
         base: mutable_new(0),
         ended: mutable_new(false),
         failure: mutable_new<Option<IoError>>(None),
-        lines_before: mutable_new(1)
+        lines_before: mutable_new(1),
+        counted_to: mutable_new(0),
+        lines_counted: mutable_new(1),
+        live: mutable_new(0)
     }
 }
 
@@ -389,6 +410,9 @@ fn reach(c: Cursor, want: int) -> bool {
         if get(c.ended) {
             return false
         }
+        // Before taking more, give back what was released: this is where a bounded window actually
+        // becomes bounded, and doing it here means one copy per chunk rather than one per release.
+        compact(c)
         val item = iter_next(c.source)
         if None = item {
             set(c.ended, true)
@@ -497,15 +521,39 @@ pub fn find(c: Cursor, needle: [string], from: int) -> int {
     return -1
 }
 
-// Says that nothing before `upto` will be asked for again, so it can be dropped. **This is the only
-// thing that bounds a cursor's memory**, and a scanner calls it as it finishes each token.
+// Says that nothing before `upto` will be asked for again, so it can be dropped. **This is the
+// only thing that bounds a cursor's memory**, and a scanner calls it as it finishes each token.
+//
+// **It records the position and drops nothing**, which is the difference between a cursor that works
+// and one that does not: dropping eagerly means copying the rest of the window on every call, and a
+// scanner calls this once per token. Measured, because the first version did drop eagerly: a 235 KB
+// document parsed in **75 seconds**, against 463 ms for the same scanner with no releasing at all --
+// ten thousand events each copying a hundred thousand characters. `compact` does the dropping when
+// the dead prefix is at least half the window, which makes it amortised constant per character, the
+// same bargain a growable array makes in the other direction.
 pub fn release(c: Cursor, upto: int) {
-    val from = get(c.base)
-    if upto <= from {
+    if upto > get(c.live) {
+        set(c.live, upto)
+    }
+    // **Compacted here, not only when more is read.** A source that arrives in one chunk -- which
+    // `of_bytes` is, and `parse` of a string goes through it -- never reads again, so a `compact`
+    // that waited for `reach` never ran and the window stayed the whole document. That is not just
+    // a memory question: `line` counts newlines from the window's base, so a window the size of the
+    // document makes it O(position) and the scanner's own line-keeping quadratic. Measured at 93% of
+    // a profile in `io::line` before this moved.
+    compact(c)
+}
+
+// Drops the released prefix when it is worth the copy: at least half the window, which makes the
+// copying amortised constant per character.
+fn compact(c: Cursor) {
+    val base = get(c.base)
+    val held = get(c.window)
+    val dead = get(c.live) - base
+    if dead <= 0 || dead * 2 < prelude.len(held) {
         return
     }
-    val held = get(c.window)
-    val drop = if upto - from > prelude.len(held) { prelude.len(held) } else { upto - from }
+    val drop = if dead > prelude.len(held) { prelude.len(held) } else { dead }
     var counted = get(c.lines_before)
     var i = 0
     while i < drop {
@@ -516,23 +564,55 @@ pub fn release(c: Cursor, upto: int) {
     }
     set(c.lines_before, counted)
     set(c.window, slice<string>(held, drop, prelude.len(held)))
-    set(c.base, from + drop)
+    set(c.base, base + drop)
+    // The forward counter cannot be left behind the window, or the characters it would have to
+    // count are gone. Dropping past it means it has reached exactly the new base.
+    if get(c.counted_to) < base + drop {
+        set(c.counted_to, base + drop)
+        set(c.lines_counted, counted)
+    }
 }
 
 // Which line position `p` is on, counting from 1 -- for a parser's error messages.
 //
+// **Counted forward once, not scanned per call.** A scanner asks about increasing positions, so the
+// common path advances a counter from where it last reached to `p`; the total work over a document
+// is one pass. Scanning the window from its base on every call is the same answer and was 82% of a
+// profile, turning a parse into a quadratic -- a cursor's window can be the whole document when
+// nothing has released, and an element's opening line was asked for per element.
+//
 // A position already released answers the line the window now starts on, which is the closest true
-// answer still available: the newlines before it were counted as they were dropped, and the ones
-// between it and the window's start were not kept. A scanner reporting an error at a position it has
-// released is reporting it late.
+// answer still available. A scanner reporting an error at a position it has released is reporting
+// it late.
 pub fn line(c: Cursor, p: int) -> int {
-    var counted = get(c.lines_before)
-    if p <= get(c.base) {
+    val base = get(c.base)
+    if p <= base {
+        return get(c.lines_before)
+    }
+    val reached = get(c.counted_to)
+    if p >= reached {
+        reach(c, p - 1)
+        val held = get(c.window)
+        val from = if reached > base { reached - base } else { 0 }
+        val upto = if p - base > prelude.len(held) { prelude.len(held) } else { p - base }
+        var counted = get(c.lines_counted)
+        var i = from
+        while i < upto {
+            if held[i] == "\n" {
+                counted = counted + 1
+            }
+            i = i + 1
+        }
+        set(c.lines_counted, counted)
+        set(c.counted_to, base + upto)
         return counted
     }
+    // Behind the furthest position asked about: counted from the window's base, which only an error
+    // path reaches.
     reach(c, p - 1)
     val held = get(c.window)
-    val upto = if p - get(c.base) > prelude.len(held) { prelude.len(held) } else { p - get(c.base) }
+    val upto = if p - base > prelude.len(held) { prelude.len(held) } else { p - base }
+    var counted = get(c.lines_before)
     var i = 0
     while i < upto {
         if held[i] == "\n" {

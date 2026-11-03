@@ -38,8 +38,11 @@ fn main() {
     print(format("starts at 0 with <a> {}", str(io.starts(c, 0, ["<", "a", ">"]))))
     print(format("span 3..5 is '{}'", io.span(c, 3, 5)))
     print(format("span past the end is '{}'", io.span(c, 7, 99)))
-    print(format("find </ from 0 is {}, find <z> is {}",
-        str(io.find(c, ["<", "/"], 0)), str(io.find(c, ["<", "z", ">"], 0))))
+    print(format(
+        "find </ from 0 is {}, find <z> is {}",
+        str(io.find(c, ["<", "/"], 0)),
+        str(io.find(c, ["<", "z", ">"], 0))
+    ))
 
     print("-- release bounds it --")
     val big = over(repeated("0123456789", 200))
@@ -67,8 +70,12 @@ fn main() {
 
     print("-- lines --")
     val multi = over("one\ntwo\nthree")
-    print(format("line at 0 is {}, at 5 is {}, at 10 is {}",
-        str(io.line(multi, 0)), str(io.line(multi, 5)), str(io.line(multi, 10))))
+    print(format(
+        "line at 0 is {}, at 5 is {}, at 10 is {}",
+        str(io.line(multi, 0)),
+        str(io.line(multi, 5)),
+        str(io.line(multi, 10))
+    ))
     io.release(multi, 8)
     print(format("after releasing past two newlines, line at 10 is still {}", str(io.line(multi, 10))))
 
