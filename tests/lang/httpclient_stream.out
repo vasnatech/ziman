@@ -6,8 +6,8 @@ hello world
 3
 3
 abc
-request timed out
-bad response: invalid chunk size: zz
+the stream timed out
+the stream is malformed: invalid chunk size: zz
 200
 0
 302

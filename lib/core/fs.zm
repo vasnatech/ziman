@@ -11,6 +11,7 @@
 // Text is UTF-8 in a `string`, which cannot hold a NUL byte; anything else -- images, archives,
 // files that might contain NUL -- is read and written as `[byte]`.
 
+use io
 use os
 
 // ---------------------------------------------------------------- errors
@@ -93,14 +94,17 @@ pub fn read_text(path: string) -> Result<string, FsError> {
 
 // The lines of a file, read lazily as a `for` loop asks for them, so a file of any size uses memory
 // for one line: `val lines = try fs.lines(path)` then `for line in lines { val text = try line ... }`. Each item is a
-// `Result<string, string>`: the line without its `\n` or `\r\n` (a final line with no newline counts,
+// `Result<string, io.IoError>`: the line without its `\n` or `\r\n` (a final line with no newline counts,
 // an empty file has no lines), or an Err for a line with a NUL byte (a string cannot hold one) or a read
 // error, after which the iteration ends. The Err on the call itself is the file failing to open.
 // Leaving the loop early closes the file.
 native fn lines_raw(path: string) -> Result<Iter<Result<string, string>>, string>
 
-pub fn lines(path: string) -> Result<Iter<Result<string, string>>, FsError> {
-    return lift(lines_raw(path))
+pub fn lines(path: string) -> Result<Iter<Result<string, io.IoError>>, FsError> {
+    return switch lines_raw(path) {
+        Ok(reading) { ok(io.mapped<string, string, io.IoError>(reading, read_failure)) }
+        Err(e) { err(fs_error_from_raw(e)) }
+    }
 }
 
 // The bytes of a file in blocks of `size` (1 to 1073741824), read lazily as a `for` loop asks for them, so
@@ -110,8 +114,44 @@ pub fn lines(path: string) -> Result<Iter<Result<string, string>>, FsError> {
 // or a `size` out of range. Leaving the loop early closes the file.
 native fn chunks_raw(path: string, size: int) -> Result<Iter<Result<[byte], string>>, string>
 
-pub fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], string>>, FsError> {
-    return lift(chunks_raw(path, size))
+pub fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], io.IoError>>, FsError> {
+    return switch chunks_raw(path, size) {
+        Ok(reading) { ok(io.mapped<[byte], string, io.IoError>(reading, read_failure)) }
+        Err(e) { err(fs_error_from_raw(e)) }
+    }
+}
+
+// **Why the two levels carry different error types, which is deliberate.** The `Result` on the call
+// is `FsError`, because failing to *open* a file is a filesystem subject and `NotFound` says more
+// about it than any of `io`'s five variants could. An item's error is `io.IoError`, because failing
+// partway through a read is the subject `io` is for, and because every layer a caller stacks over
+// this -- a limit, a decompressor, a parser -- fails that way too. The two were `FsError` and a bare
+// `string` until 2026-11-02, and the `string` was not a decision: the chunks are produced in C,
+// whose error channel is text, and `lift` converts only what has already failed by the time it runs.
+// `io.mapped` is where that conversion finally has somewhere to happen.
+//
+// A read that fails midway is this server's problem rather than a caller's, so it is `Failed` and
+// keeps the OS's own wording.
+fn read_failure(why: string) -> io.IoError {
+    return io.IoError.Failed(why)
+}
+
+// This module's own error as `io`'s, for a caller that wants one type across a whole pipeline --
+// `try map_err(fs.chunks(path, 4096), fs.io_error)` and everything downstream speaks `IoError`.
+//
+// **The converter lives here rather than in `io`**, which is the one thing the design document got
+// backwards: `io` offering `of_fs` would mean importing `fs` for the type while `fs` imports `io`
+// for the chunk's error, and a cycle. The module that owns an error owns its conversion, so the
+// dependency points one way and `io` stays at layer 0.
+pub fn io_error(e: FsError) -> io.IoError {
+    return switch e {
+        NotFound(why) { io.IoError.Failed(why) }
+        Denied(why) { io.IoError.Failed(why) }
+        IsDirectory(why) { io.IoError.Failed(why) }
+        NotDirectory(why) { io.IoError.Failed(why) }
+        Exists(why) { io.IoError.Failed(why) }
+        Other(why) { io.IoError.Failed(why) }
+    }
 }
 
 // The files under a directory, found lazily and depth first, each directory's entries in sorted order:

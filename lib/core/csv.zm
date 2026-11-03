@@ -23,6 +23,7 @@
 // `csv.format(rows)`, where `csv.parse_csv` and `csv.csv_to_string` stuttered.
 
 use fs
+use io
 use json.Json
 use json.Number
 use json.float_to_json
@@ -457,7 +458,11 @@ fn next_object(
 // record at a time (via `next_object`) as the caller asks for them.
 fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Json, string>>, string> {
     try check_delimiter(sep)
-    val lines = try map_err(fs.lines(path), fs.fs_error_message)
+    // `fs.lines`'s items carry an `io.IoError` since 2026-11-02; this module's own error vocabulary
+    // is text (a malformed record is a sentence), so the stream's errors are brought into it here
+    // rather than spreading a second error type through the reader.
+    val reading = try map_err(fs.lines(path), fs.fs_error_message)
+    val lines = io.mapped<string, io.IoError, string>(reading, io.io_error_message)
     val cell: Channel<int> = channel_new()
     send(cell, 0)
     val header_text = switch read_record(lines, cell, sep) {

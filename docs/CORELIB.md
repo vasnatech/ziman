@@ -576,9 +576,11 @@ pub fn fs_error_message(e: FsError) -> string
 
 pub fn read_text(path: string) -> Result<string, FsError>
 
-pub fn lines(path: string) -> Result<Iter<Result<string, string>>, FsError>
+pub fn lines(path: string) -> Result<Iter<Result<string, io.IoError>>, FsError>
 
-pub fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], string>>, FsError>
+pub fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], io.IoError>>, FsError>
+
+pub fn io_error(e: FsError) -> io.IoError
 
 pub fn walk(dir: string) -> Result<Iter<Result<string, string>>, FsError>
 
@@ -649,7 +651,7 @@ pub fn io_error_message(e: IoError) -> string
 
 pub fn of_bytes(data: [byte]) -> Iter<Result<[byte], IoError>>
 
-pub fn mapped<E>(
+pub fn mapped<T, E, F>(
 
 pub fn limited(source: Iter<Result<[byte], IoError>>, max: int) -> Iter<Result<[byte], IoError>>
 

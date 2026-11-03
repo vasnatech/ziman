@@ -2,3 +2,4 @@ connection refused: Connection refused
 database connection error: unable to open database file
 malformed token: a token has three parts separated by dots
 connection refused: Connection refused
+the stream is too large: more than 2 bytes

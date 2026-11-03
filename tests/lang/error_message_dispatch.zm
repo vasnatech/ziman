@@ -1,8 +1,15 @@
 // error_message(e) dispatches to whichever <snake_type>_message function the enum's own module
-// declares (net_error_message, db_error_message, jwt_error_message, client_error_message),
-// the same naming-convention dispatch Ord's compare already uses for <snake_type>_compare.
+// declares (net_error_message, db_error_message, jwt_error_message, client_error_message,
+// io_error_message), the same naming-convention dispatch Ord's compare already uses for
+// <snake_type>_compare.
+//
+// **`io.IoError` joined the set in 2026-11-02 without a line of C**, which is the point of a
+// convention over a registry: the module declared `io_error_message` and the builtin found it. It is
+// here because a streamed body's chunks and a file's lines now carry that type, so it is one of the
+// errors a program is most likely to hand this function.
 use client
 use datasource
+use io
 use jwt
 use net
 use sqlite
@@ -27,6 +34,12 @@ fn main() {
 
     val c = client.get("http://127.0.0.1:1/")
     if Err(e) = c {
+        print(error_message(e))
+    }
+
+    // A stream's own error, which a file's lines and a streamed response body both carry now.
+    val over = io.drain(io.limited(io.of_bytes(to_bytes("too much")), 2), -1)
+    if Err(e) = over {
         print(error_message(e))
     }
 }

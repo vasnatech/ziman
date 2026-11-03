@@ -131,14 +131,28 @@ pub fn read_text(path: string) -> Result<string, FsError>
 ### `lines`
 
 ```
-pub fn lines(path: string) -> Result<Iter<Result<string, string>>, FsError>
+pub fn lines(path: string) -> Result<Iter<Result<string, io.IoError>>, FsError>
 ```
 
 ### `chunks`
 
 ```
-pub fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], string>>, FsError>
+pub fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], io.IoError>>, FsError>
 ```
+
+### `io_error`
+
+```
+pub fn io_error(e: FsError) -> io.IoError
+```
+
+This module's own error as `io`'s, for a caller that wants one type across a whole pipeline --
+`try map_err(fs.chunks(path, 4096), fs.io_error)` and everything downstream speaks `IoError`.
+
+**The converter lives here rather than in `io`**, which is the one thing the design document got
+backwards: `io` offering `of_fs` would mean importing `fs` for the type while `fs` imports `io`
+for the chunk's error, and a cycle. The module that owns an error owns its conversion, so the
+dependency points one way and `io` stays at layer 0.
 
 ### `walk`
 

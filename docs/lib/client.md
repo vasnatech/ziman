@@ -136,6 +136,24 @@ pub enum ClientError {
 
 Why an exchange failed (any HTTP status, even 500, is a success).
 
+### `io_error`
+
+```
+pub fn io_error(e: ClientError) -> io.IoError
+```
+
+This module's error as `io`'s, which is what a streamed body's chunks carry.
+
+**The mapping is total and loses nothing that matters mid-stream**: a `Timeout` is a `Timeout`, a
+`Network` is `Closed` because that is what a peer hanging up is, a `BadResponse` is `Malformed`
+because the bytes are not what this layer reads, and `TooLarge` is `TooLarge`. The two that are
+failures of *making* the request rather than of reading it -- `BadUrl` and `TooManyRedirects` --
+cannot reach a chunk at all, and are `Failed` for the caller who converts an outer error by hand.
+
+**It lives here rather than in `io`** for the reason `fs.io_error` does: `io` offering `of_client`
+would import `client` for the type while `client` imports `io` for the chunk's error, and that is
+a cycle. The module that owns an error owns its conversion.
+
 ### `client_error_message`
 
 ```
@@ -377,7 +395,7 @@ POST an HTML-form-style body built from `fields` (`Content-Type: application/x-w
 pub struct StreamResponse {
     status: int
     headers: [Header]
-    body: Iter<Result<[byte], ClientError>>
+    body: Iter<Result<[byte], io.IoError>>
 }
 ```
 
@@ -400,7 +418,7 @@ pub fn stream(
 
 Sends one request and returns the status and headers as soon as they arrive, with the body left on the
 connection to be read lazily -- for a large download, or a response that never ends. The body is an
-`Iter` of `Result<[byte], ClientError>` blocks of at most 8192 bytes, read as a `for` loop asks for
+`Iter` of `Result<[byte], io.IoError>` blocks of at most 8192 bytes, read as a `for` loop asks for
 them: `val r = try client.stream(method: HttpMethod.Get, url: u)` then `for block in r.body { val bytes =
 try block ... }`. A read error, or a timeout waiting for the next block, is a last Err item. The body comes
 as sent: this asks for no compression (`Accept-Encoding: identity`), and a server that compresses anyway

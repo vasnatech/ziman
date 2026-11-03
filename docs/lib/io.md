@@ -124,19 +124,26 @@ this module starts here.
 ### `mapped`
 
 ```
-pub fn mapped<E>(
-    source: Iter<Result<[byte], E>>,
-    as_io: fn(E) -> IoError
-) -> Iter<Result<[byte], IoError>>
+pub fn mapped<T, E, F>(
+    source: Iter<Result<T, E>>,
+    as_error: fn(E) -> F
+) -> Iter<Result<T, F>>
 ```
 
-A source whose chunks fail some other way, as a source that fails this way.
+A source whose items fail some other way, as a source that fails this way.
 
 **This is the combinator the library was missing**, and `fs` is the proof: its chunks are produced
 in C, whose error channel is a `string`, and the conversion had nowhere to happen -- `fs`'s own
 `lift` converts the error of *opening* the file, because that one has already happened, where the
 chunks' errors do not exist until the iterator produces them. So the `string` leaked to every
 caller for want of this function.
+
+**Generic in all three**, which it became while the retrofit was being written and is the honest
+shape: this is "the error of every item, mapped", and nothing about it is specific to `IoError`.
+`fs.lines` needs `string -> IoError` over `string` items, `fs.chunks` needs it over `[byte]` ones,
+and `csv` needs `IoError -> string` because its own error vocabulary is text -- one function
+serves all three, where an `IoError`-shaped one would have served the first two and left the third
+writing its own.
 
 ## The ceiling
 

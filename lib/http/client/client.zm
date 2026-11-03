@@ -39,6 +39,7 @@ use http.Response
 use http.method_name
 use http.percent_decode
 use http.percent_encode
+use io
 use locale
 use mime
 use net
@@ -64,6 +65,28 @@ pub enum ClientError {
     BadResponse(string)
     TooLarge
     TooManyRedirects
+}
+
+// This module's error as `io`'s, which is what a streamed body's chunks carry.
+//
+// **The mapping is total and loses nothing that matters mid-stream**: a `Timeout` is a `Timeout`, a
+// `Network` is `Closed` because that is what a peer hanging up is, a `BadResponse` is `Malformed`
+// because the bytes are not what this layer reads, and `TooLarge` is `TooLarge`. The two that are
+// failures of *making* the request rather than of reading it -- `BadUrl` and `TooManyRedirects` --
+// cannot reach a chunk at all, and are `Failed` for the caller who converts an outer error by hand.
+//
+// **It lives here rather than in `io`** for the reason `fs.io_error` does: `io` offering `of_client`
+// would import `client` for the type while `client` imports `io` for the chunk's error, and that is
+// a cycle. The module that owns an error owns its conversion.
+pub fn io_error(e: ClientError) -> io.IoError {
+    return switch e {
+        Timeout { io.IoError.Timeout }
+        Network(why) { io.IoError.Closed(why) }
+        BadResponse(why) { io.IoError.Malformed(why) }
+        TooLarge { io.IoError.TooLarge("the response body is larger than the limit") }
+        BadUrl(why) { io.IoError.Failed(why) }
+        TooManyRedirects { io.IoError.Failed("too many redirects") }
+    }
 }
 
 // The error as one line of text, for logging or showing to a user. Named `client_error_message`,

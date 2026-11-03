@@ -94,7 +94,7 @@ fn main() {
     print("-- an error is terminal --")
     show("a failed chunk ends the stream", io.drain(failing(to_bytes("partial")), -1))
     show("and mapped converts another error into this one",
-         io.drain(io.mapped<string>(mapping_source(), as_malformed), -1))
+         io.drain(io.mapped<[byte], string, IoError>(mapping_source(), as_malformed), -1))
 
     print("-- text across chunk boundaries --")
     // `ö` is two bytes and `→` is three, so a one-byte source splits both.

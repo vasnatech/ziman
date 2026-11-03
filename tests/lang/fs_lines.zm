@@ -1,8 +1,14 @@
 use fs
+use io
 use os
 
+// **A line's error is an `io.IoError` and this function's channel is text**, so the stream's errors
+// are brought into it with `io.mapped` -- the shape every caller with its own error vocabulary takes
+// after the 2026-11-02 retrofit. The `Err` on the call itself is still an `FsError`: failing to open
+// the file is a filesystem subject, failing partway through reading it is `io`'s.
 fn count_matching(path: string, needle: string) -> Result<int, string> {
-    val lines = try map_err(fs.lines(path), fs.fs_error_message)
+    val reading = try map_err(fs.lines(path), fs.fs_error_message)
+    val lines = io.mapped<string, io.IoError, string>(reading, io.io_error_message)
     var n = 0
     for line in lines {
         val text = try line
@@ -14,7 +20,8 @@ fn count_matching(path: string, needle: string) -> Result<int, string> {
 }
 
 fn first(path: string) -> Result<string, string> {
-    val lines = try map_err(fs.lines(path), fs.fs_error_message)
+    val reading = try map_err(fs.lines(path), fs.fs_error_message)
+    val lines = io.mapped<string, io.IoError, string>(reading, io.io_error_message)
     for line in lines {
         return line
     }
@@ -47,11 +54,11 @@ fn main() {
 
     // by hand: iter_next until None, and iter_close early
     val it = unwrap(fs.lines(path))
-    print(iter_next<Result<string, string>>(it))
-    print(iter_next<Result<string, string>>(it))
-    iter_close<Result<string, string>>(it)
-    print(iter_next<Result<string, string>>(it))
-    iter_close<Result<string, string>>(it)
+    print(iter_next<Result<string, io.IoError>>(it))
+    print(iter_next<Result<string, io.IoError>>(it))
+    iter_close<Result<string, io.IoError>>(it)
+    print(iter_next<Result<string, io.IoError>>(it))
+    iter_close<Result<string, io.IoError>>(it)
     print(os.open_descriptors() == before)
 
     // a finished iterator has closed itself and stays finished

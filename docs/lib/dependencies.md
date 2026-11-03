@@ -80,6 +80,7 @@ flowchart LR
     client --> compress
     client --> encoding
     client --> http
+    client --> io
     client --> locale
     client --> mime
     client --> net
@@ -96,6 +97,7 @@ flowchart LR
     crypto --> encoding
     crypto --> random
     csv --> fs
+    csv --> io
     csv --> json
     csv --> number
     datasource --> clock
@@ -135,6 +137,7 @@ flowchart LR
     expr --> json
     expr --> regex
     font --> truetype
+    fs --> io
     fs --> os
     geom --> math
     http --> locale
@@ -315,12 +318,12 @@ otherwise: everything on a layer depends only on lower layers.
 | Module | Uses | Used by |
 |---|---|---|
 | `bits` | - | `image` |
-| `client` | `clock`, `compress`, `encoding`, `http`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
+| `client` | `clock`, `compress`, `encoding`, `http`, `io`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
-| `csv` | `fs`, `json`, `number` | `codec` |
+| `csv` | `fs`, `io`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `eql`, `migrate` |
 | `db` | `net`, `number`, `url` | `datasource`, `eql`, `memdb`, `migrate`, `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
 | `derive_entity` | `meta`, `template` | - |
@@ -337,11 +340,11 @@ otherwise: everything on a layer depends only on lower layers.
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `expr` | `json`, `regex` | `template` |
 | `font` | `truetype` | `layout`, `pdf`, `raster` |
-| `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `sql`, `zone` |
+| `fs` | `io`, `os` | `csv`, `log`, `migrate`, `process`, `properties`, `sql`, `zone` |
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
 | `http` | `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
-| `io` | - | - |
+| `io` | - | `client`, `csv`, `fs` |
 | `json` | `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `paging`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
