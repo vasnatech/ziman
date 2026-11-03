@@ -53,8 +53,12 @@ struct Line {
     body: string
     raw: string
     cont: bool
-    // `body` with its trailing comment removed, computed once here rather than by every reader.
-    // `content_of` is called at twelve sites and each one re-ran the whole scan over the line.
+    // `body` with its trailing comment removed, computed once here rather than by every reader --
+    // twelve sites ask for it, and each one used to re-run the whole scan over the line.
+    //
+    // **Read as `lines[j].content`, not through an accessor.** There was a `content_of(ln)` that
+    // returned exactly this field, and at twelve sites on a hot path it cost a function call each
+    // to save nothing: 2.3% of a 1.6 MB parse was spent entering and leaving it.
     content: string
 }
 
@@ -211,6 +215,14 @@ fn span_text(cs: [string], a: int, b: int) -> string {
 }
 
 fn strip_comment(body: string) -> string {
+    // **A line with no `#` in it has no comment**, whatever its quoting, so the walk below -- which
+    // decodes the line into an array of one-character strings -- is skipped for almost every line
+    // of almost every document. One native scan instead, and no allocation: `strip_comment` was
+    // 6.8% of a 1.6 MB parse with `chars` another 3.1% and the garbage collector 39.6%, and this
+    // is the same guard `xml`'s `\r` normaliser needed for the same reason.
+    if index_of(body, "#", 0) < 0 {
+        return trim(body)
+    }
     var in_single = false
     var in_double = false
     var skip_next = false
@@ -242,14 +254,17 @@ fn strip_comment(body: string) -> string {
     return trim(body)
 }
 
-fn content_of(ln: Line) -> string {
-    return ln.content
+// Whether the line at `j` continues a plain scalar that started above it: a more-indented line with
+// something on it. Written once because two places ask -- the loop that gathers the continuation
+// and the fast path that skips the gathering when there is none.
+fn continues(lines: [Line], j: int, parent_indent: int) -> bool {
+    return j < len(lines) && byte_len(lines[j].content) > 0 && lines[j].indent > parent_indent
 }
 
 // The first line at or after `i` that is neither blank nor a comment.
 fn next_sig(lines: [Line], i: int) -> int {
     var j = i
-    while j < len(lines) && byte_len(content_of(lines[j])) == 0 {
+    while j < len(lines) && byte_len(lines[j].content) == 0 {
         j = j + 1
     }
     return j
@@ -257,18 +272,23 @@ fn next_sig(lines: [Line], i: int) -> int {
 
 // ------------------------------------------------------------------ scalars
 
+// **`len` is read once**, where both of these called it per character of every plain scalar a
+// document holds -- a call each to answer a question that cannot change inside the loop. `len` is
+// the character count and so is O(1) only while the text is all-ASCII; on anything else it walks,
+// which made a long non-ASCII scalar quadratic here twice over.
 fn looks_int(s: string) -> bool {
+    val n = len(s)
     var i = 0
     if is_char_at(s, 0, "-") || is_char_at(s, 0, "+") {
         i = 1
     }
-    if i >= len(s) {
+    if i >= n {
         return false
     }
-    if char_at(s, i) == "0" && len(s) > i + 1 {
+    if char_at(s, i) == "0" && n > i + 1 {
         return false
     }
-    while i < len(s) {
+    while i < n {
         if !is_digit(char_at(s, i)) {
             return false
         }
@@ -278,20 +298,21 @@ fn looks_int(s: string) -> bool {
 }
 
 fn looks_float(s: string) -> bool {
+    val n = len(s)
     var i = 0
     if is_char_at(s, 0, "-") || is_char_at(s, 0, "+") {
         i = 1
     }
-    if i >= len(s) {
+    if i >= n {
         return false
     }
-    if char_at(s, i) == "0" && len(s) > i + 1 && is_digit(char_at(s, i + 1)) {
+    if char_at(s, i) == "0" && n > i + 1 && is_digit(char_at(s, i + 1)) {
         return false
     }
     var seen_dot = false
     var seen_exp = false
     var digits = 0
-    while i < len(s) {
+    while i < n {
         val c = char_at(s, i)
         if is_digit(c) {
             digits = digits + 1
@@ -302,7 +323,7 @@ fn looks_float(s: string) -> bool {
             if is_char_at(s, i + 1, "+") || is_char_at(s, i + 1, "-") {
                 i = i + 1
             }
-            if i + 1 >= len(s) {
+            if i + 1 >= n {
                 return false
             }
         } else {
@@ -697,9 +718,18 @@ fn split_key(content: string, no: int) -> Result<Option<KeyRes>, string> {
         }
         return ok(Option<KeyRes>.None)
     }
-    var i = 0
-    while i < len(content) {
-        if char_at(content, i) == ":" && (i + 1 >= len(content) || is_char_at(content, i + 1, " ")) {
+    // **Asked where the next `:` is, rather than told one character at a time.** This walked every
+    // character of every line with `char_at` and recomputed `len(content)` per step -- two calls
+    // per character for a question `index_of` answers in one native scan, and a loop that now runs
+    // once per `:` in the line rather than once per character (F263's lesson, one module over).
+    val n = len(content)
+    var from = 0
+    while true {
+        val i = index_of(content, ":", from)
+        if i < 0 {
+            return ok(Option<KeyRes>.None)
+        }
+        if i + 1 >= n || is_char_at(content, i + 1, " ") {
             val key = trim(substring(content, 0, i))
             if key == "<<" {
                 return err(fail(no, "the '<<' merge key is not supported"))
@@ -709,10 +739,10 @@ fn split_key(content: string, no: int) -> Result<Option<KeyRes>, string> {
             }
             return ok(Option<KeyRes>.Some(KeyRes {
                 key: key,
-                rest: trim(substring(content, i + 1, len(content)))
+                rest: trim(substring(content, i + 1, n))
             }))
         }
-        i = i + 1
+        from = i + 1
     }
     return ok(Option<KeyRes>.None)
 }
@@ -838,7 +868,7 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
         push(pieces, rest)
         var st = flow_advance(flow_begin(), rest)
         while st.depth > 0 && next < len(lines) {
-            val piece = concat(" ", content_of(lines[next]))
+            val piece = concat(" ", lines[next].content)
             push(pieces, piece)
             st = flow_advance(st, piece)
             next = next + 1
@@ -852,13 +882,35 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
         return ok(NodeRes { value: node.value, next: next })
     }
     if first == "\"" || first == "'" {
+        // **The quoted scalar that needs no decoding at all**, which is most of them: one line,
+        // closed on it, and nothing in it that the reader below would have to turn into something
+        // else -- no `\\` escape in a double-quoted one, no `''` in a single-quoted one. Then the
+        // value *is* the text between the quotes, and `substring` answers it as a view onto the
+        // line with nothing copied (`string_slice`, src/prelude.c). The general path costs a pieces
+        // array, a `concat`, a `chars` array of one-character strings and a string builder; on a
+        // 1.6 MB document of quoted SKUs those were `chars`, `quote_advance`, `read_double`,
+        // `mutable_string_new` and `append` together, with the garbage collector at 39% behind
+        // them.
+        // A `\\` anywhere in the line sends a double-quoted scalar down the general path, since the
+        // reader has to turn the escape into what it means. A single-quoted scalar needs no such
+        // test, and that is worth stating because the obvious version of this had one: its only
+        // escape is a doubled quote, and a doubled quote always leaves text after the quote this
+        // finds, so the "nothing significant follows" test below already excludes every one of
+        // them. (Checked by deleting that test and watching the three doubled-quote cases in
+        // `yaml_quoted_scalars` stay correct while `"one\\ntwo"` broke: a condition that cannot
+        // fire is not a safeguard.)
+        val closing = index_of(rest, first, 1)
+        val undecoded = closing > 0 && (first == "'" || index_of(rest, "\\", 0) < 0)
+        if undecoded && byte_len(trim(substring(rest, closing + 1, len(rest)))) == 0 {
+            return ok(NodeRes { value: Json.JString(substring(rest, 1, closing)), next: next })
+        }
         // Same shape as the flow branch above. `from` is 1 on the first piece, to step over the
         // opening quote, and 0 on every continuation.
         val pieces = mutable_array_new<string>()
         push(pieces, rest)
         var qs = quote_advance(quote_begin(), rest, first, 1)
         while qs.open && next < len(lines) {
-            val piece = concat(" ", content_of(lines[next]))
+            val piece = concat(" ", lines[next].content)
             push(pieces, piece)
             qs = quote_advance(qs, piece, first, 0)
             next = next + 1
@@ -878,11 +930,17 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
     // those two reread the whole accumulation, so only this loop could avoid being quadratic. D22
     // and F133 recorded that as open and named the fix as "the depth and quote state tracked
     // incrementally"; FlowState and QuoteState are that, and all three loops are linear now.
+    // **A plain scalar that is only this line**, which is every scalar in a document written one
+    // key to a line: the text is already in hand, so the builder below -- which exists for the
+    // continuation case -- would copy it to say the same thing.
+    if !continues(lines, next, parent_indent) {
+        return ok(NodeRes { value: try plain_scalar(text, no), next: next })
+    }
     val plain = mutable_string_new()
     append(plain, text)
-    while next < len(lines) && byte_len(content_of(lines[next])) > 0 && lines[next].indent > parent_indent {
+    while continues(lines, next, parent_indent) {
         append(plain, " ")
-        append(plain, content_of(lines[next]))
+        append(plain, lines[next].content)
         next = next + 1
     }
     val value = try plain_scalar(snapshot(plain), no)
@@ -895,7 +953,7 @@ fn parse_node(lines: [Line], i: int, min_indent: int) -> Result<NodeRes, string>
         return ok(NodeRes { value: Json.JNull, next: j })
     }
     val ln = lines[j]
-    val content = content_of(ln)
+    val content = ln.content
     if content == "-" {
         return parse_seq(lines, j, ln.indent)
     }
@@ -916,7 +974,7 @@ fn parse_seq(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
     var j = i
     while true {
         j = next_sig(lines, j)
-        if j >= len(lines) || lines[j].indent != ind || content_of(lines[j]) != "-" {
+        if j >= len(lines) || lines[j].indent != ind || lines[j].content != "-" {
             break
         }
         val nxt = next_sig(lines, j + 1)
@@ -929,7 +987,7 @@ fn parse_seq(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
             j = item.next
         }
     }
-    if j < len(lines) && lines[j].indent > ind && byte_len(content_of(lines[j])) > 0 {
+    if j < len(lines) && lines[j].indent > ind && byte_len(lines[j].content) > 0 {
         return err(fail(lines[j].no, "unexpected indentation"))
     }
     return ok(NodeRes { value: Json.JArray(snapshot(items)), next: j })
@@ -947,7 +1005,7 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
         if ln.indent > ind {
             return err(fail(ln.no, "unexpected indentation"))
         }
-        val content = content_of(ln)
+        val content = ln.content
         if content == "-" {
             break
         }
@@ -966,7 +1024,7 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
                 val node = try parse_node(lines, j + 1, ind + 1)
                 value = node.value
                 after = node.next
-            } else if nxt < len(lines) && lines[nxt].indent == ind && content_of(lines[nxt]) == "-" {
+            } else if nxt < len(lines) && lines[nxt].indent == ind && lines[nxt].content == "-" {
                 val node = try parse_seq(lines, nxt, ind)
                 value = node.value
                 after = node.next
@@ -996,7 +1054,7 @@ pub fn parse(text: string) -> Result<Json, string> {
     var seen_start = false
     var ended = false
     for ln in all {
-        val c = content_of(ln)
+        val c = ln.content
         if !ln.cont && (c == "---" || starts_with(c, "--- ")) {
             if seen_start || len(kept) > 0 {
                 return err(fail(ln.no, "multiple documents are not supported"))

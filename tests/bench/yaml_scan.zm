@@ -1,0 +1,161 @@
+// **What a YAML parse costs against the JSON parse of the same data, and where it went.**
+//
+// `yaml` builds a `Json` tree, so the two parsers can be measured on one document on one machine:
+// the tree they produce is the same and the difference is theirs. The roadmap measured **23x**
+// through `codec` on a 1.3 MB body, which is its reason for saying that the entry which would pay
+// for itself on YAML is a faster YAML parser rather than removing the tree (the tree is 8% of a
+// YAML decode and a third of a JSON one).
+//
+// On this bench's 1.6 MB document of 20,000 orders, each parser alone in a fresh process, before
+// and after the 2026-11-03 work:
+//
+//     yaml, a character at a time    6,535 ms     121x the json parse
+//     yaml, reading runs             1,955 ms      36x
+//     json                              54 ms
+//
+// **3.3x, and four changes none of which touched how YAML is read.** In profile order:
+//
+//   * **`strip_comment` decoded every line into an array of one-character strings** to find a `#`
+//     that almost no line has. A line with no `#` in it has no comment, whatever its quoting, so
+//     one native scan answers it: 6.8% of the parse plus most of `chars`' 3.1%.
+//   * **`split_key` walked every character of every line** asking `char_at` where the `:` was, and
+//     recomputed `len(content)` each step. `index_of` answers in one scan and the loop now runs
+//     once per `:` rather than once per character.
+//   * **A quoted scalar that needs no decoding is a view onto the line.** One line, closed on it,
+//     no escape in it -- which is most of them -- and the value *is* the text between the quotes,
+//     where the general path built a pieces array, a `concat`, a `chars` array and a string
+//     builder. A plain scalar with no continuation line skips its builder the same way.
+//   * **`looks_int`/`looks_float` read `len` once** instead of per character, and the field
+//     accessor `content_of` went: at twelve sites on a hot path it cost a call each to save
+//     nothing.
+//
+// The collector went from **39.6% to 24.9%** of the parse, which is the measurement that says what
+// the work was about: the parser was allocating per line and per scalar, not computing. A mild
+// superlinearity went with it -- 10x the input was 13x the time and is now 10x.
+//
+// **Two things about measuring this, both of which produced a wrong number first.**
+//
+//   * **Two parsers in one loop charge the second for the first one's garbage.** The first version
+//     of this file parsed the YAML and then the JSON of each size in turn, and reported the JSON
+//     parse at 150 ms where it is 54 ms alone -- it was paying for the YAML tree still being live.
+//     The ratio came out at 10x instead of 36x.
+//   * **A warm heap hides exactly what this work removed.** The same 1.6 MB parse is ~950 ms after
+//     two smaller ones have already raised the collection threshold and ~1,955 ms in a fresh
+//     process. Measuring warm made the improvement look like 2.3x instead of 3.3x, because what
+//     the changes stopped doing was allocating. The figures above are therefore fresh-process
+//     figures, one document per run; the series below is warm after its first size, which is fine
+//     for the shape it checks and wrong for an absolute number.
+//
+// **What is left, in order**: the `Line` struct allocated per line (seven fields, two per `- `
+// item), `split_key`'s own 10.5%, and the `tokenize`/`parse_map` pair. Those want the parser to
+// work over indices into one array rather than a struct per line, which is a different change from
+// these four.
+//
+// Run it directly: `./ziman tests/bench/yaml_scan.zm`. The series must stay linear and the ratio
+// to the JSON parse must stay in the same range -- a jump in either is the regression this exists
+// to catch.
+use clock
+use json
+use math
+use os
+use yaml
+
+// A block sequence of block mappings with a handful of scalars each: the shape the roadmap
+// measured, and the shape a configuration file or an exported record actually has.
+fn build_yaml(n: int) -> string {
+    val b = mutable_string_new()
+    append(b, "orders:\n")
+    for i in 0..n {
+        append(b, "  - id: ", str(i), "\n")
+        append(b, "    sku: \"AB-", str(i), "\"\n")
+        append(b, "    quantity: ", str(i % 7 + 1), "\n")
+        append(b, "    price: 19.99\n")
+        append(b, "    express: true\n")
+    }
+    return snapshot(b)
+}
+
+fn build_json(n: int) -> string {
+    val b = mutable_string_new()
+    append(b, "{\"orders\":[")
+    for i in 0..n {
+        if i > 0 {
+            append(b, ",")
+        }
+        append(b, "{\"id\":", str(i), ",\"sku\":\"AB-", str(i), "\",\"quantity\":", str(i % 7 + 1))
+        append(b, ",\"price\":19.99,\"express\":true}")
+    }
+    append(b, "]}")
+    return snapshot(b)
+}
+
+fn yaml_ms(text: string) -> int {
+    val started = clock.monotonic_millis()
+    switch yaml.parse(text) {
+        Ok(v) {}
+        Err(e) { printf("  YAML FAILED: {}\n", e) }
+    }
+    return clock.monotonic_millis() - started
+}
+
+fn json_ms(text: string) -> int {
+    val started = clock.monotonic_millis()
+    switch json.parse(text) {
+        Ok(v) {}
+        Err(e) { printf("  JSON FAILED: {}\n", e) }
+    }
+    return clock.monotonic_millis() - started
+}
+
+fn growth_of(times: [int]) -> int {
+    return math.max(times[len(times) - 1], 1) / math.max(times[0], 1)
+}
+
+// Built and measured inside one call so each document is collectable before the next is built:
+// three sizes of two documents held at once is enough large-block churn for the collector to print
+// a warning about it, which is noise in a bench nobody is reading for that.
+fn yaml_series(counts: [int]) -> [int] {
+    val times = mutable_array_new<int>()
+    for n in counts {
+        val text = build_yaml(n)
+        val ms = yaml_ms(text)
+        push(times, ms)
+        printf("{} orders: yaml {} bytes in {} ms\n", str(n), str(byte_len(text)), str(ms))
+    }
+    return snapshot(times)
+}
+
+fn main() {
+    val counts = [2000, 8000, 20000]
+    val yt = yaml_series(counts)
+    // **The json parse is measured once, at the largest size only, and that is deliberate.** At
+    // 2,000 orders it is about 3 ms -- the clock's own resolution -- so a growth ratio taken from
+    // it reads as 50x for a parser that is perfectly linear. One measurable number, for the one
+    // comparison this bench makes.
+    val biggest = counts[len(counts) - 1]
+    val jm = json_ms(build_json(biggest))
+    printf("{} orders: json in {} ms\n", str(biggest), str(jm))
+    val ratio = math.max(yt[len(yt) - 1], 1) / math.max(jm, 1)
+    printf(
+        "10x the input cost {}x for yaml; yaml is {}x the json parse\n",
+        str(growth_of(yt)),
+        str(ratio)
+    )
+    var bad = false
+    // 10x the input: linear is 10, and this was 13 before the work. 20 leaves room for a slow
+    // machine without leaving room for a quadratic.
+    if growth_of(yt) > 20 {
+        print("FAIL: the yaml series is not linear")
+        bad = true
+    }
+    // 70 against the measured 36, so a machine where the json parse rounds low does not fail the
+    // gate; what this catches is a return to the 121x this was before 2026-11-03.
+    if ratio > 70 {
+        printf("FAIL: yaml is {}x the json parse, which is the shape it had before 2026-11-03\n", str(ratio))
+        bad = true
+    }
+    if bad {
+        os.exit(1)
+    }
+    print("ok   both parsers are linear and yaml is within a small factor of json")
+}

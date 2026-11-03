@@ -1,0 +1,34 @@
+-- a double-quoted scalar, with and without escapes --
+plain => {"a":"hello"}
+empty => {"a":""}
+newline escape => {"a":"one\ntwo"}
+tab escape => {"a":"one\ttwo"}
+escaped quote => {"a":"she said \"hi\""}
+escaped backslash => {"a":"a\\b"}
+unicode escape => {"a":"été"}
+a hash inside quotes is not a comment => {"a":"two # three"}
+a colon inside quotes is not a key => {"a":"12:30"}
+-- a single-quoted scalar, where '' is the only escape --
+plain => {"a":"hello"}
+doubled quote => {"a":"it's"}
+doubled quote at the end => {"a":"ok'"}
+a backslash is literal => {"a":"a\\nb"}
+empty => {"a":""}
+-- where the fast path must give way --
+trailing spaces are fine => {"a":"hello"}
+a comment after it is fine => {"a":"hello"}
+text after the closing quote is refused => ERR line 1: unexpected text after a quoted scalar
+an unterminated double quote => ERR line 1: unterminated double-quoted string
+an unterminated single quote => ERR line 1: unterminated single-quoted string
+a quoted scalar over two lines => {"a":"one two"}
+a quoted key is still a key => {"a b":1}
+-- plain scalars, with and without a continuation --
+one line => {"a":"hello there"}
+a continuation line => {"a":"one two"}
+two continuation lines => {"a":"one two three"}
+a number is a number => {"a":42}
+a leading zero stays a string => {"a":"007"}
+a float => {"a":19.99}
+true is a boolean => {"a":true}
+yes is a string => {"a":"yes"}
+an empty value is null => {"a":null}

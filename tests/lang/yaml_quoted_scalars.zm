@@ -1,0 +1,59 @@
+// Quoted and plain scalars across the boundary of the fast paths added for the parser's speed
+// (2026-11-03): a quoted scalar that is one line, closed on it, and carries nothing the reader
+// would have to decode is taken as a **view onto the line** with nothing copied, and a plain scalar
+// with no continuation line skips the builder that exists for the continuation case.
+//
+// So the cases that matter are the ones on either side of "needs decoding": `\n` in a double-quoted
+// scalar, `''` in a single-quoted one, a scalar that runs onto the next line, one that never
+// closes, and text after the closing quote -- which must still be refused rather than ignored.
+// **The module had no coverage of any escape at all before this**, which is what made the fast
+// path's own condition the risk rather than the path.
+use json
+use yaml
+
+fn show(label: string, src: string) {
+    switch yaml.parse(src) {
+        Ok(tree) { printf("{} => {}\n", label, json.format(tree)) }
+        Err(why) { printf("{} => ERR {}\n", label, why) }
+    }
+}
+
+fn main() {
+    print("-- a double-quoted scalar, with and without escapes --")
+    show("plain", "a: \"hello\"\n")
+    show("empty", "a: \"\"\n")
+    show("newline escape", "a: \"one\\ntwo\"\n")
+    show("tab escape", "a: \"one\\ttwo\"\n")
+    show("escaped quote", "a: \"she said \\\"hi\\\"\"\n")
+    show("escaped backslash", "a: \"a\\\\b\"\n")
+    show("unicode escape", "a: \"\\u00e9t\\u00e9\"\n")
+    show("a hash inside quotes is not a comment", "a: \"two # three\"\n")
+    show("a colon inside quotes is not a key", "a: \"12:30\"\n")
+
+    print("-- a single-quoted scalar, where '' is the only escape --")
+    show("plain", "a: 'hello'\n")
+    show("doubled quote", "a: 'it''s'\n")
+    show("doubled quote at the end", "a: 'ok'''\n")
+    show("a backslash is literal", "a: 'a\\nb'\n")
+    show("empty", "a: ''\n")
+
+    print("-- where the fast path must give way --")
+    show("trailing spaces are fine", "a: \"hello\"   \n")
+    show("a comment after it is fine", "a: \"hello\" # why\n")
+    show("text after the closing quote is refused", "a: \"hello\" there\n")
+    show("an unterminated double quote", "a: \"hello\n")
+    show("an unterminated single quote", "a: 'hello\n")
+    show("a quoted scalar over two lines", "a: \"one\n  two\"\n")
+    show("a quoted key is still a key", "\"a b\": 1\n")
+
+    print("-- plain scalars, with and without a continuation --")
+    show("one line", "a: hello there\n")
+    show("a continuation line", "a: one\n  two\n")
+    show("two continuation lines", "a: one\n  two\n  three\n")
+    show("a number is a number", "a: 42\n")
+    show("a leading zero stays a string", "a: 007\n")
+    show("a float", "a: 19.99\n")
+    show("true is a boolean", "a: true\n")
+    show("yes is a string", "a: yes\n")
+    show("an empty value is null", "a:\n")
+}
