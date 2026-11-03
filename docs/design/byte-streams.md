@@ -264,16 +264,9 @@ Steps 1-3 are a library with fixtures and no callers waiting; step 4 is where th
 
 ## 11. Open questions
 
-1. **Retrofit or convert at the edges?** Changing `fs.chunks`, `fs.lines` and `client.stream` to
-   `IoError` is a breaking change to three public signatures, against three `io.of_*` calls at every
-   use site forever. I would retrofit -- the modules are young and the inconsistency is the thing
-   this document exists to remove -- but it is a change to published API.
-
-   **§1 makes this cheaper than it looks for `fs`.** Its inner `string` is there because the
-   conversion had nowhere to happen, so the retrofit is `io.map_err` over the `Iter` the native
-   already returns -- the same combinator §6 needs anyway -- and not a change to how the bytes are
-   produced. `client.stream` is the one that is genuinely a signature change, since its chunks carry
-   a `ClientError` that some caller may be matching on today.
+1. ~~**Retrofit or convert at the edges?**~~ **Decided: retrofit** -- the inconsistency is the thing
+   this document exists to remove, and leaving it means `io.of_*` at every use site forever. §12 has
+   the shape, the blast radius and the one refinement that halves it.
 2. ~~**Does `limited` replace `compress`'s `max_size` parameters, or sit beside them?**~~
    **Decided: replace them** -- one ceiling, not nine. §6.1 has the reasoning, the ordering hazard
    it introduces (a limit on the input side reads like a guard and is none), and the boundary: a
@@ -281,5 +274,73 @@ Steps 1-3 are a library with fixtures and no callers waiting; step 4 is where th
    `drain`'s and there is no stream in view for a caller to wrap.
 3. **`io.text` and `fs.lines`: one implementation or two?** Whatever `fs.lines` does about a
    multi-byte sequence split across a read should move into `io` and be called from there.
-4. **Is the threshold in §8.1 a setting?** `server.spill-body-bytes` beside `max-body-bytes`, or a
-   constant with a comment.
+4. ~~**Is the threshold in §8.1 a setting?**~~ **Decided: a setting** -- §13.
+
+## 12. The retrofit: the inner error only
+
+**Each module keeps its own outer error.** That is the refinement that halves the change, and it is
+also the honest reading of §1's two levels:
+
+```
+fs.chunks(path, size) -> Result<Iter<Result<[byte], io.IoError>>, FsError>
+client.stream(..)     -> Result<StreamResponse, ClientError>
+                              // .body: Iter<Result<[byte], io.IoError>>
+```
+
+`FsError`'s `NotFound` and `PermissionDenied` say more about a file that will not open than any of
+`IoError`'s five ever could, and `ClientError`'s `BadUrl` and `TooManyRedirects` say more about a
+request that could not be made. Those are failures of *starting*, they are each module's own
+subject, and flattening them into `IoError` would lose detail to buy nothing -- `io.of_fs` and
+`io.of_client` exist for the caller who wants one type.
+
+What changes is the **chunk**, where the two modules disagree today and where the five variants are
+exactly right.
+
+**For `client` the mapping is total**, which is why nothing is lost: its mid-stream variants are
+`Timeout` -> `Timeout`, `Network` -> `Closed` or `Failed`, `BadResponse` -> `Malformed`, `TooLarge`
+-> `TooLarge`. For `fs` there is nothing to map from -- the `string` becomes a classified error for
+the first time, which means the native's text lands in `Failed(..)`/`Malformed(..)` and a caller can
+finally tell a disk failure from a truncated read.
+
+**The blast radius, counted rather than estimated** -- every in-tree consumer of the three:
+
+| | |
+|---|---|
+| `lib/core/fs.zm`, `lib/http/client/{stream,read}.zm` | the producers |
+| `lib/core/csv.zm` | reads `fs.lines`; the one real library consumer |
+| `lib/prelude/iter.zm` | prose naming `Iter<Result<string, string>>` as what `fs.lines` answers |
+| `docs/lib/examples/core/fs_example.zm`, `.../process_example.zm`, `.../http/client_example.zm`, `.../prelude/iter_example.zm` | four examples, two of them only in prose |
+| `tests/lang/fs_lines*.zm` and the chunk fixtures | recordings |
+| the North Star's `service/audit.zm` | reads `fs.lines` for the log viewer |
+
+Nine files and some prose, one of them outside this repository. Editing an example forces
+`make corelib-reference` and a commit before `make check` passes, so the retrofit is one commit with
+the regenerated manuals in it.
+
+**`csv` is also the fourth caller this design has been looking for.** It consumes `fs.lines` today,
+so `csv.records(source)` over `io.lines` would read a CSV off a socket or out of a zip entry -- which
+is what the North Star's Omron and glucometer imports do through a whole-body `multipart` upload
+now.
+
+## 13. The spill threshold is a setting, and it moves what the cap bounds
+
+Two levels, because `server` is a library and does not read properties:
+
+* **`ServeOptions.spill_body_bytes`** -- the library's field, in bytes.
+* **`server.spill-body-bytes`** -- the North Star's property beside `server.max-body-bytes`, mapped
+  in `config.zm` like every other one.
+
+Three things that follow, and the first is the one to say out loud:
+
+1. **Spilling does not remove `max_body_bytes`. It changes what that number bounds** -- from memory
+   to disk, which is the cheaper resource and still not an infinite one. So the Apple Health fix is
+   two settings, not one: raise `max-body-bytes` to something disk-sized and set
+   `spill-body-bytes` to about a megabyte. A reader who expects the cap to disappear should be
+   corrected here rather than in a support thread.
+2. **0 means never spill**, which is this codebase's convention for a setting that turns something
+   off (`hsts-max-age-seconds`, `max-auth-attempts-per-address`), and it is the **default** -- so
+   adding the feature changes no behaviour anywhere until a deployment asks for it.
+3. **The temporary file is the server's, not the handler's.** It is created when the threshold is
+   crossed and deleted when the request ends, including when the handler fails, which makes one
+   contract: **a handler must not keep the source past its return.** Worth stating before anything
+   is written, because a handler that stores it and reads later gets a file that is already gone.

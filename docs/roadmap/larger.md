@@ -441,6 +441,15 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   Deliberately **not** symmetric: `OutputStream`'s counterpart waits for a caller, because inputs
   are unbounded and outputs here are generated, and `codec.Encoder` is `T -> [byte]` on purpose.
 
+  **All four open questions are now decided** (§§11-13): the three producers are retrofitted to
+  `IoError` **in the chunk only** -- each module keeps its own outer error, since `FsError.NotFound`
+  says more about a file that will not open than any of the five ever could -- which is nine files
+  and some prose, counted; and the spill threshold is a setting,
+  `ServeOptions.spill_body_bytes` with `server.spill-body-bytes` over it, defaulting to 0 (never
+  spill, so nothing changes until a deployment asks). **Spilling does not remove `max_body_bytes`;
+  it changes what that number bounds**, from memory to disk, so the Apple Health fix is two settings
+  rather than one.
+
 - **Derived queries: a repository function's name is its query. Shipped 2026-10-28 (F217);
   designed in full first, in `docs/design/derived-queries.md`.**
   Raised 2026-10-27, after converting all 26 repositories of the sample backend to `eql`. The
