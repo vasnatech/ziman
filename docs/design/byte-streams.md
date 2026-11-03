@@ -385,3 +385,22 @@ Three things that follow, and the first is the one to say out loud:
 only shrinks when something calls `release` and `parse` builds a `Document` regardless. The
 conversion is the half that makes `events` possible, not a win on its own -- which is why it is one
 commit with the measurements in it rather than a claim about memory.
+
+## 16. What is built, and the layer §8 missed
+
+Built and measured: `io` (§§4-6), the `fs`/`client` retrofit (§12), `io.cursor`, `xml`'s scanner over
+it, `xml.events` and `xml.elements`, and the North Star's Apple Health import over the last of those
+-- **1,913 MB to 897 MB** peak resident for a 14.7 MB export, with the parser's live set one record
+and a cursor window measured at 510 characters over a chunked source.
+
+**§8 is wrong about one thing, and it is the thing that matters.** It treats the request body as the
+last obstacle: spill it to a file, hand the handler a source, done. But the uploads this was for are
+`multipart/form-data`, and `server/multipart.zm` parses from `req.body` **in memory** -- so a spilled
+body is read straight back in and the ceiling does not move. The chain is spill, then multipart over
+a source, then a `rest` family that binds a part's source. **F264** carries it with that order.
+
+What the spill does buy on its own, which is still worth having: a large upload stops being held in
+memory by the server, and `server.body_source` exists for whatever streams next.
+
+**`io.Sink` is still unbuilt and still has no caller** (§7), which is the prediction that held: the
+export path never needed one.
