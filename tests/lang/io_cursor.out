@@ -1,0 +1,16 @@
+-- reading --
+at 0 is <, at 2 is >, at 99 is ''
+has 8 true, has 9 false
+starts at 0 with <a> true
+span 3..5 is 'hi'
+span past the end is 'a>'
+find </ from 0 is 5, find <z> is -1
+-- release bounds it --
+read 2000 characters, window never above 9
+without release the window holds 2000 of 2000
+-- lines --
+line at 0 is 1, at 5 is 2, at 10 is 3
+after releasing past two newlines, line at 10 is still 3
+-- a failure is not an end --
+read 2 characters, then: the stream closed: the peer hung up
+a clean end reports: nothing

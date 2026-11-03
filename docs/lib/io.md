@@ -209,3 +209,151 @@ needs.
 
 A `\r\n` and a bare `\n` both end a line; a last line with no ending is still a line. An empty
 stream has no lines, and a stream that is just `"\n"` has one empty one.
+
+## A cursor for a parser
+
+### `Cursor`
+
+```
+pub struct Cursor {
+    source: Iter<Result<string, IoError>>
+    // The window, as characters, and the absolute position of its first one.
+    window: Mutable<[string]>
+    base: Mutable<int>
+    // Whether the source is finished, and the first failure it reported -- kept rather than thrown
+    // so that the helpers a scanner calls can stay the plain `bool` and `string` answers they were
+    // over an array. A scanner checks `failure` once, at the end; a read error cannot be mistaken
+    // for a document that simply stopped, because `parse` asks.
+    ended: Mutable<bool>
+    failure: Mutable<Option<IoError>>
+    // Newlines dropped with the window, so `line` stays right as it advances.
+    lines_before: Mutable<int>
+}
+```
+
+A window over a text source, addressed by **absolute character position**, so that a parser can
+look ahead, take a span it has already passed, and ask what line a position is on -- over a
+stream it never holds whole.
+
+**This is what `buffered` should have been.** The design document proposed a chunk combinator and
+justified it with "a parser asks for a few bytes at a time"; a consumer of an `Iter` takes whole
+chunks and cannot ask for four characters, so the thing a parser actually needs is this: random
+access over a *bounded window*, and a way to say what it will not look at again.
+
+**Characters, not bytes**, because that is what a text parser indexes: `xml`'s scanner decoded its
+whole document to a `[string]` of characters for a measured reason -- reaching position `p` with
+`char_at` walks the string, so threading a character position over a document was quadratic in the
+document, and 40 KB of CJK XML took 2.2 s. The window keeps that property over a stream.
+
+**`release` is what makes it bounded.** Nothing is dropped until a caller says a position will not
+be asked for again; a parser that never releases holds the whole document, which is correct and
+no better than reading it whole. A scanner releases as it finishes each token.
+
+### `cursor`
+
+```
+pub fn cursor(source: Iter<Result<string, IoError>>) -> Cursor
+```
+
+A cursor over a text source.
+
+### `at`
+
+```
+pub fn at(c: Cursor, p: int) -> string
+```
+
+The character at `p`, or `""` past the end -- the answer a scanner's bounds check wants, rather
+than an error it would have to thread through every helper.
+
+### `has`
+
+```
+pub fn has(c: Cursor, p: int) -> bool
+```
+
+Whether there is a character at `p`.
+
+### `starts`
+
+```
+pub fn starts(c: Cursor, p: int, needle: [string]) -> bool
+```
+
+Whether the text at `p` is `needle`, character by character.
+
+### `span`
+
+```
+pub fn span(c: Cursor, a: int, b: int) -> string
+```
+
+The text of characters `a` up to `b`. Empty when `a` is behind the window, which a scanner that
+releases correctly never asks for.
+
+### `find`
+
+```
+pub fn find(c: Cursor, needle: [string], from: int) -> int
+```
+
+The position of the first `needle` at or after `from`, or -1.
+
+**This is the one operation that can grow the window without bound**, since a needle that is not
+there is only known absent at the end of the document -- a text run with no `<` after it, for
+instance. A caller that reads untrusted input puts `limited` under the cursor, which is where that
+ceiling belongs.
+
+### `release`
+
+```
+pub fn release(c: Cursor, upto: int)
+```
+
+Says that nothing before `upto` will be asked for again, so it can be dropped. **This is the only
+thing that bounds a cursor's memory**, and a scanner calls it as it finishes each token.
+
+### `line`
+
+```
+pub fn line(c: Cursor, p: int) -> int
+```
+
+Which line position `p` is on, counting from 1 -- for a parser's error messages.
+
+A position already released answers the line the window now starts on, which is the closest true
+answer still available: the newlines before it were counted as they were dropped, and the ones
+between it and the window's start were not kept. A scanner reporting an error at a position it has
+released is reporting it late.
+
+### `window_size`
+
+```
+pub fn window_size(c: Cursor) -> int
+```
+
+How many characters the window is holding.
+
+**Here because the bound is this type's whole claim.** `release` is documented as the only thing
+that keeps a cursor from holding the document, and a claim with no way to observe it is a
+comment: `io_cursor` walks a 2,000-character stream twice, releasing in one walk and not in the
+other, and asserts the difference. A caller tuning its own release discipline reads this for the
+same reason.
+
+### `failure`
+
+```
+pub fn failure(c: Cursor) -> Option<IoError>
+```
+
+The read failure this cursor saw, if any. **A scanner checks this before calling a document
+well-formed**: a source that failed halfway looks like a document that ended, and the two are not
+the same answer.
+
+### `cursor_close`
+
+```
+pub fn cursor_close(c: Cursor)
+```
+
+Closes the source under the cursor.

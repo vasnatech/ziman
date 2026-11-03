@@ -661,6 +661,43 @@ pub fn text(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoErro
 
 pub fn lines(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoError>>
 
+pub struct Cursor {
+    source: Iter<Result<string, IoError>>
+    // The window, as characters, and the absolute position of its first one.
+    window: Mutable<[string]>
+    base: Mutable<int>
+    // Whether the source is finished, and the first failure it reported -- kept rather than thrown
+    // so that the helpers a scanner calls can stay the plain `bool` and `string` answers they were
+    // over an array. A scanner checks `failure` once, at the end; a read error cannot be mistaken
+    // for a document that simply stopped, because `parse` asks.
+    ended: Mutable<bool>
+    failure: Mutable<Option<IoError>>
+    // Newlines dropped with the window, so `line` stays right as it advances.
+    lines_before: Mutable<int>
+}
+
+pub fn cursor(source: Iter<Result<string, IoError>>) -> Cursor
+
+pub fn at(c: Cursor, p: int) -> string
+
+pub fn has(c: Cursor, p: int) -> bool
+
+pub fn starts(c: Cursor, p: int, needle: [string]) -> bool
+
+pub fn span(c: Cursor, a: int, b: int) -> string
+
+pub fn find(c: Cursor, needle: [string], from: int) -> int
+
+pub fn release(c: Cursor, upto: int)
+
+pub fn line(c: Cursor, p: int) -> int
+
+pub fn window_size(c: Cursor) -> int
+
+pub fn failure(c: Cursor) -> Option<IoError>
+
+pub fn cursor_close(c: Cursor)
+
 ```
 
 ## `json`

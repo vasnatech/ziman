@@ -337,6 +337,220 @@ pub fn lines(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoErr
     )
 }
 
+// ---------------------------------------------------------------- a cursor for a parser
+
+// A window over a text source, addressed by **absolute character position**, so that a parser can
+// look ahead, take a span it has already passed, and ask what line a position is on -- over a
+// stream it never holds whole.
+//
+// **This is what `buffered` should have been.** The design document proposed a chunk combinator and
+// justified it with "a parser asks for a few bytes at a time"; a consumer of an `Iter` takes whole
+// chunks and cannot ask for four characters, so the thing a parser actually needs is this: random
+// access over a *bounded window*, and a way to say what it will not look at again.
+//
+// **Characters, not bytes**, because that is what a text parser indexes: `xml`'s scanner decoded its
+// whole document to a `[string]` of characters for a measured reason -- reaching position `p` with
+// `char_at` walks the string, so threading a character position over a document was quadratic in the
+// document, and 40 KB of CJK XML took 2.2 s. The window keeps that property over a stream.
+//
+// **`release` is what makes it bounded.** Nothing is dropped until a caller says a position will not
+// be asked for again; a parser that never releases holds the whole document, which is correct and
+// no better than reading it whole. A scanner releases as it finishes each token.
+pub struct Cursor {
+    source: Iter<Result<string, IoError>>
+    // The window, as characters, and the absolute position of its first one.
+    window: Mutable<[string]>
+    base: Mutable<int>
+    // Whether the source is finished, and the first failure it reported -- kept rather than thrown
+    // so that the helpers a scanner calls can stay the plain `bool` and `string` answers they were
+    // over an array. A scanner checks `failure` once, at the end; a read error cannot be mistaken
+    // for a document that simply stopped, because `parse` asks.
+    ended: Mutable<bool>
+    failure: Mutable<Option<IoError>>
+    // Newlines dropped with the window, so `line` stays right as it advances.
+    lines_before: Mutable<int>
+}
+
+// A cursor over a text source.
+pub fn cursor(source: Iter<Result<string, IoError>>) -> Cursor {
+    return Cursor {
+        source: source,
+        window: mutable_new<[string]>([]),
+        base: mutable_new(0),
+        ended: mutable_new(false),
+        failure: mutable_new<Option<IoError>>(None),
+        lines_before: mutable_new(1)
+    }
+}
+
+// Reads until the window holds position `want`, or the source ends. Answers whether it does.
+fn reach(c: Cursor, want: int) -> bool {
+    while get(c.base) + prelude.len(get(c.window)) <= want {
+        if get(c.ended) {
+            return false
+        }
+        val item = iter_next(c.source)
+        if None = item {
+            set(c.ended, true)
+            return false
+        }
+        val got = unwrap(item)
+        if Err(why) = got {
+            set(c.ended, true)
+            if None = get(c.failure) {
+                set(c.failure, Option<IoError>.Some(why))
+            }
+            return false
+        }
+        set(c.window, concat(get(c.window), characters(unwrap(got))))
+    }
+    return true
+}
+
+// A chunk of text as its characters, which is what the window holds.
+fn characters(text: string) -> [string] {
+    val out = mutable_array_new<string>()
+    var at = 0
+    val size = prelude.len(text)
+    while at < size {
+        push(out, substring(text, at, at + 1))
+        at = at + 1
+    }
+    return snapshot(out)
+}
+
+// The character at `p`, or `""` past the end -- the answer a scanner's bounds check wants, rather
+// than an error it would have to thread through every helper.
+pub fn at(c: Cursor, p: int) -> string {
+    if p < get(c.base) || !reach(c, p) {
+        return ""
+    }
+    return get(c.window)[p - get(c.base)]
+}
+
+// Whether there is a character at `p`.
+pub fn has(c: Cursor, p: int) -> bool {
+    return at(c, p) != ""
+}
+
+// Whether the text at `p` is `needle`, character by character.
+pub fn starts(c: Cursor, p: int, needle: [string]) -> bool {
+    if p < get(c.base) {
+        return false
+    }
+    var i = 0
+    while i < prelude.len(needle) {
+        if at(c, p + i) != needle[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// The text of characters `a` up to `b`. Empty when `a` is behind the window, which a scanner that
+// releases correctly never asks for.
+pub fn span(c: Cursor, a: int, b: int) -> string {
+    if a < get(c.base) || b <= a {
+        return ""
+    }
+    if !reach(c, b - 1) {
+        // Past the end: take what there is, which is what a span to the end of the document means.
+        val end = get(c.base) + prelude.len(get(c.window))
+        if end <= a {
+            return ""
+        }
+        return concat(slice<string>(get(c.window), a - get(c.base), end - get(c.base)))
+    }
+    return concat(slice<string>(get(c.window), a - get(c.base), b - get(c.base)))
+}
+
+// The position of the first `needle` at or after `from`, or -1.
+//
+// **This is the one operation that can grow the window without bound**, since a needle that is not
+// there is only known absent at the end of the document -- a text run with no `<` after it, for
+// instance. A caller that reads untrusted input puts `limited` under the cursor, which is where that
+// ceiling belongs.
+pub fn find(c: Cursor, needle: [string], from: int) -> int {
+    var p = if from < get(c.base) { get(c.base) } else { from }
+    while has(c, p) {
+        if starts(c, p, needle) {
+            return p
+        }
+        p = p + 1
+    }
+    return -1
+}
+
+// Says that nothing before `upto` will be asked for again, so it can be dropped. **This is the only
+// thing that bounds a cursor's memory**, and a scanner calls it as it finishes each token.
+pub fn release(c: Cursor, upto: int) {
+    val from = get(c.base)
+    if upto <= from {
+        return
+    }
+    val held = get(c.window)
+    val drop = if upto - from > prelude.len(held) { prelude.len(held) } else { upto - from }
+    var counted = get(c.lines_before)
+    var i = 0
+    while i < drop {
+        if held[i] == "\n" {
+            counted = counted + 1
+        }
+        i = i + 1
+    }
+    set(c.lines_before, counted)
+    set(c.window, slice<string>(held, drop, prelude.len(held)))
+    set(c.base, from + drop)
+}
+
+// Which line position `p` is on, counting from 1 -- for a parser's error messages.
+//
+// A position already released answers the line the window now starts on, which is the closest true
+// answer still available: the newlines before it were counted as they were dropped, and the ones
+// between it and the window's start were not kept. A scanner reporting an error at a position it has
+// released is reporting it late.
+pub fn line(c: Cursor, p: int) -> int {
+    var counted = get(c.lines_before)
+    if p <= get(c.base) {
+        return counted
+    }
+    reach(c, p - 1)
+    val held = get(c.window)
+    val upto = if p - get(c.base) > prelude.len(held) { prelude.len(held) } else { p - get(c.base) }
+    var i = 0
+    while i < upto {
+        if held[i] == "\n" {
+            counted = counted + 1
+        }
+        i = i + 1
+    }
+    return counted
+}
+
+// How many characters the window is holding.
+//
+// **Here because the bound is this type's whole claim.** `release` is documented as the only thing
+// that keeps a cursor from holding the document, and a claim with no way to observe it is a
+// comment: `io_cursor` walks a 2,000-character stream twice, releasing in one walk and not in the
+// other, and asserts the difference. A caller tuning its own release discipline reads this for the
+// same reason.
+pub fn window_size(c: Cursor) -> int {
+    return prelude.len(get(c.window))
+}
+
+// The read failure this cursor saw, if any. **A scanner checks this before calling a document
+// well-formed**: a source that failed halfway looks like a document that ended, and the two are not
+// the same answer.
+pub fn failure(c: Cursor) -> Option<IoError> {
+    return get(c.failure)
+}
+
+// Closes the source under the cursor.
+pub fn cursor_close(c: Cursor) {
+    iter_close(c.source)
+}
+
 // A line without its `\r`, so that a file written on Windows does not leave one on the end of every
 // value a caller reads.
 fn without_return(line: string) -> string {

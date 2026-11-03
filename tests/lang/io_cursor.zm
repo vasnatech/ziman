@@ -1,0 +1,118 @@
+// `io.cursor`: random access over a *bounded window* of a text stream, which is what a parser needs
+// and what the withdrawn `buffered` was reaching for.
+//
+// What this pins: `at`/`has`/`starts`/`span`/`find` answer as they would over a materialised
+// character array, including past the end; `release` is what bounds the memory and a cursor that
+// never releases holds everything; `line` counts from 1 and stays right across a release; and a
+// source that **fails** halfway is not a document that ended -- `failure` is how a parser tells
+// those apart, which is the whole reason the helpers can keep returning plain `bool` and `string`.
+use io
+use io.IoError
+
+// A source that hands out one character at a time, so every lookahead crosses a chunk boundary.
+fn letter_by_letter(text: string) -> Iter<Result<[byte], IoError>> {
+    val held = text
+    val at = mutable_new(0)
+    return iter_from(
+        fn() -> Option<Result<[byte], IoError>> {
+            val i = get(at)
+            if i >= len(held) {
+                return None
+            }
+            set(at, i + 1)
+            return Some(ok(to_bytes(substring(held, i, i + 1))))
+        },
+        fn() {}
+    )
+}
+
+fn over(text: string) -> io.Cursor {
+    return io.cursor(io.text(letter_by_letter(text)))
+}
+
+fn main() {
+    print("-- reading --")
+    val c = over("<a>hi</a>")
+    print(format("at 0 is {}, at 2 is {}, at 99 is '{}'", io.at(c, 0), io.at(c, 2), io.at(c, 99)))
+    print(format("has 8 {}, has 9 {}", str(io.has(c, 8)), str(io.has(c, 9))))
+    print(format("starts at 0 with <a> {}", str(io.starts(c, 0, ["<", "a", ">"]))))
+    print(format("span 3..5 is '{}'", io.span(c, 3, 5)))
+    print(format("span past the end is '{}'", io.span(c, 7, 99)))
+    print(format("find </ from 0 is {}, find <z> is {}",
+        str(io.find(c, ["<", "/"], 0)), str(io.find(c, ["<", "z", ">"], 0))))
+
+    print("-- release bounds it --")
+    val big = over(repeated("0123456789", 200))
+    // Walk the whole thing, releasing as we go: the window never holds more than a step.
+    var p = 0
+    var widest = 0
+    while io.has(big, p) {
+        p = p + 1
+        if p % 10 == 0 {
+            io.release(big, p)
+        }
+        val held = io.window_size(big)
+        if held > widest {
+            widest = held
+        }
+    }
+    print(format("read {} characters, window never above {}", str(p), str(widest)))
+    // The same walk without releasing holds the document.
+    val whole = over(repeated("0123456789", 200))
+    var q = 0
+    while io.has(whole, q) {
+        q = q + 1
+    }
+    print(format("without release the window holds {} of {}", str(io.window_size(whole)), str(q)))
+
+    print("-- lines --")
+    val multi = over("one\ntwo\nthree")
+    print(format("line at 0 is {}, at 5 is {}, at 10 is {}",
+        str(io.line(multi, 0)), str(io.line(multi, 5)), str(io.line(multi, 10))))
+    io.release(multi, 8)
+    print(format("after releasing past two newlines, line at 10 is still {}", str(io.line(multi, 10))))
+
+    print("-- a failure is not an end --")
+    val broken = io.cursor(io.text(stops_badly()))
+    var r = 0
+    while io.has(broken, r) {
+        r = r + 1
+    }
+    print(format("read {} characters, then: {}", str(r), switch io.failure(broken) {
+        Some(e) { io.io_error_message(e) }
+        None { "(no failure reported -- which would be the bug)" }
+    }))
+    val fine = over("abc")
+    var s = 0
+    while io.has(fine, s) {
+        s = s + 1
+    }
+    print(format("a clean end reports: {}", switch io.failure(fine) {
+        Some(e) { io.io_error_message(e) }
+        None { "nothing" }
+    }))
+}
+
+fn repeated(piece: string, times: int) -> string {
+    val out = mutable_string_new()
+    var i = 0
+    while i < times {
+        append(out, piece)
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
+fn stops_badly() -> Iter<Result<[byte], IoError>> {
+    val sent = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<[byte], IoError>> {
+            if get(sent) {
+                return Some(err(IoError.Closed("the peer hung up")))
+            }
+            set(sent, true)
+            return Some(ok(to_bytes("ab")))
+        },
+        fn() {}
+    )
+}
