@@ -127,6 +127,62 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   and `0` -- and a reader that knows only the first turns a document written by a Java or .NET
   serialiser silently into `false`.
 
+- **A `Result` or an `Option` that does not cost a heap object.** -- first step done 2026-11-03,
+  measured; the rest is designed here and deliberately not attempted.
+
+  **The measurement, because this entry exists because of it.** `./ziman-allocprofile` over 100,000
+  calls of `fn f(i: int) -> Result<int, string> { return ok(i + 1) }`, against the same loop
+  returning a bare `int`:
+
+  | | allocations | bytes | 2M calls |
+  | --- | --- | --- | --- |
+  | `-> int` | 11,398 | 2.5 MB | 155 ms |
+  | `-> Result<int, string>`, before | 211,405 | 12.1 MB | +190 ms |
+  | `-> Result<int, string>`, now | 111,405 | 5.7 MB | +90 ms |
+
+  **The first step was free and is done** (`f30a9b19`): one of the two allocations was a `Type`,
+  built by `type_ref` on every `ok`/`err`/`Some` *evaluated*, for a type the checker had already
+  resolved onto the expression. A `Result` return is 1 allocation and 32 bytes now, and costs 1.6x
+  a plain return where it cost 2.2x. The 1.6 MB YAML parse went 1,962 to 1,837 ms on it alone.
+
+  **What is left is the `ResultObj`/`EnumObj` itself, and it is a representation question.** It
+  matters because of how this language is written: a parser calls six `Result`-returning helpers per
+  line, so `yaml`'s own profile is 3.07 million allocations and 61% collector for 1.6 MB of input,
+  of which 400,009 are `EnumObj` and 380,006 `ResultObj`. Nothing inside such a module can change
+  that.
+
+  **Why it does not simply fit.** A `Value` is 24 bytes: an 8-byte `const Type *` and a 16-byte
+  union whose widest member (`str`: pointer, length, flags) uses all 16. An unboxed `Result` needs a
+  discriminant plus its payload's union -- 17 bytes. The payload's *type* is not needed, being
+  `type_args[0]` or `[1]` of the `Result`'s own type, which is the one piece of good news. Four ways
+  to find that bit, none of them cheap:
+
+  * **Widen `Value` to 32 bytes.** Reverses the change that took it from 80 to 24, which `src/ast.c`
+    calls the thing that made that whole migration worth having. Every array element, every `Env`
+    slot and every copy pays 33% for a win on two types.
+  * **Steal a bit from the `type` pointer** (a `Type` is `xmalloc`'d, so its low three bits are
+    free). This is the one that would work, and it means every `v.type` read -- a thousand sites --
+    goes through an accessor that masks. Mechanical, wide, and wrong in exactly one place is a
+    corrupt type.
+  * **Steal a bit from the payload union**: only possible for payloads that do not use all 16
+    bytes, which `str` does. Not general, so it would be two representations of a `Result`.
+  * **Pool the objects.** No help: the cost is as much the mark phase walking them as the bump
+    allocation making them.
+
+  **The direction worth exploring instead is not a representation at all.** `try f()` destructures
+  a `Result` one instruction after the callee built it, and that is the dominant shape -- the
+  wrapper never escapes. If the checker marked a call in `try` position as non-escaping, the callee
+  could write its answer into a slot the caller owns rather than allocate a wrapper the caller
+  immediately discards. That is escape analysis on one syntactic form, not a general one, and it
+  leaves the representation alone for every `Result` that really is stored, sent or returned
+  onward. It needs the checker to prove what it claims, which is the work.
+
+  **What this entry should not be read as saying**: that `Result` is expensive in a way the language
+  should apologise for. 45 ns per wrapped return is what a tree-walking interpreter costs for a
+  heap object, and the alternative at the source level -- an out-parameter, a sentinel, a panic --
+  is worse for the reader. The number is here so that a decision about the *interpreter* can be
+  made on evidence, and so that nobody optimises a parser again before reading it.
+
 - **Decode a request body straight into the object, with no `Json` tree in between.** -- not
   started; measured 2026-10-31 and the measurement changes which half of it is worth doing.
 
