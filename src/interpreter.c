@@ -23,7 +23,6 @@
 #include "error.h"
 #include "fmtstr.h"
 #include "gc_boehm_roots.h"
-#include "gc_guard_roots.h"
 #include "gc_heap.h"
 #include "gc_interp_roots.h"
 #include "gc_mark.h"
@@ -1850,10 +1849,6 @@ static void mark_this_threads_roots(const Arena *a, void *ctx) {
     /* See t_active_iters's own comment (just above defer_env_untrack): every `for ... in <iter>`
      * loop currently running on this thread, innermost last. */
     for (int i = 0; i < t_active_iter_count; i++) gc_mark_value(a, t_active_iters[i]);
-    /* See gc_guard_roots.h's own comment: every still-live Guard this thread created, protecting
-     * its own `message` for as long as Boehm might still get around to finalizing it, independent
-     * of whether any Ziman-visible value still points at the guard at all. */
-    gc_mark_live_guards(ziman_thread_heap(), a);
     /* See ziman_thread_mark_slots' own comment: this thread's `thread.local` values, which are
      * reachable only from a slot array Boehm scans and this collector did not know about. */
     ziman_thread_mark_slots(a);

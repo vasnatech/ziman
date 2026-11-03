@@ -20,12 +20,12 @@
 #include "decimal.h"
 #include "error.h"
 #include "fmtstr.h"
-#include "gc_guard_roots.h"
 #include "gc_mark.h"
 #include "gc_thread_heap.h"
 #include "native.h"
 #include "native_locale.h"
 #include "value.h"
+#include "value_copy.h"
 
 /* Generated from lib/prelude/<part>.zm by the Makefile's own prelude rule --
  * real .zm source, never a hand-escaped C string literal (see
@@ -3230,10 +3230,11 @@ typedef struct {
 static void guard_finalizer(void *obj, void *client_data) {
     (void)client_data;
     GuardBuf *g = obj;
-    /* needs_receive 0: `message` is not a value_copy_send copy -- it is whatever guard_new was
-     * handed, already safe to share as it stands (see channel_send's own comment). */
-    (void)channel_send(g->ch, g->message, 0);
-    ziman_guard_unregister(&g->message);
+    /* needs_receive 1: `message` *is* a value_copy_send copy, made by guard_new on whichever
+     * thread created the guard, so the receiving side owes it a value_copy_receive like any other
+     * value that crossed a thread (see channel_send's own comment, and native_guard_new's below
+     * for why the copy is made that early rather than here). */
+    (void)channel_send(g->ch, g->message, 1);
 }
 #endif
 
@@ -3265,13 +3266,31 @@ static Value native_guard_new(Value *args, int argc, int line, int col) {
     GuardBuf *g = ziman_xmalloc(sizeof(GuardBuf));
     g->magic = GUARD_MAGIC;
     g->ch = args[0].as.ch;
-    g->message = args[1];
-    /* See gc_guard_roots.h's own comment: `message` may point into this thread's own gc_heap
-     * arena (any Request/EndRequest-shaped value does, through enum_obj_new/struct_obj_new), which
-     * nothing else protects from this same thread's own, entirely separate Phase 3 sweep once the
-     * Guard value itself stops being Ziman-visible -- exactly the window the finalizer below exists
-     * to act in. */
-    ziman_guard_register(ziman_thread_heap(), &g->message);
+    /* **A crossing copy, not the value as it was handed in** (value_copy.h): a guard's whole
+     * purpose is to act arbitrarily later than the code that made it -- the finalizer runs once
+     * Boehm gets around to deciding nothing references the guard any more -- and `args[1]` as it
+     * stands lives in *this* thread's own gc_heap arena (any Request/EndRequest-shaped value does,
+     * through enum_obj_new/struct_obj_new). Two separate things reclaim such a value well before
+     * the finalizer runs: this thread's own Phase 3 sweep, once the Guard value stops being
+     * Ziman-visible, and `ziman_thread_heap_release` at this thread's own exit, which `munmap`s
+     * the arena outright. A copy on Boehm's shared heap is tied to no thread's lifetime and is
+     * *traced* rather than rooted -- Boehm finds it through this very GuardBuf, itself a
+     * GC_MALLOC'd block, and ordered finalization below keeps everything reachable from `g` alive
+     * until the finalizer has run -- so the message is simply still there whenever that is.
+     *
+     * This replaced a registry (`src/gc_guard_roots.{c,h}`, deleted) that instead told every
+     * thread's Phase 3 collection to mark each live guard's own `message` field as a root, keyed
+     * on the creating thread's `ziman_thread_heap()` pointer. It closed the sweep window and left
+     * the other two open, and the key was the bug (F265): a `GcHeap *` is a malloc'd address that
+     * is freed at thread exit and handed straight back out to the next thread's own
+     * `gc_heap_create`, so a worker thread inherited a dead thread's guard records and marked
+     * three enums in an already-`munmap`ed arena -- a SIGSEGV in `gc_mark_enum` roughly one run in
+     * six of the health-record backend's admin-database test, always on the request after one that
+     * had opened a db cursor (`open_rows`, lib/db/db.zm, makes a guard per cursor) on a thread that
+     * had since exited. The finalizer's own send was dangling in that window too, which no amount
+     * of fixing the key would have addressed. Nothing here needs registering, marking under a lock
+     * on every collection, or unregistering now. */
+    g->message = value_copy_send(args[1]);
 #ifdef ZIMAN_GC
     /* Ordered finalization, not NO_ORDER: the finalizer sends `message` on `ch`, both reachable only
      * from `g`, and an unordered finalizer may find them already collected (a message that turned into

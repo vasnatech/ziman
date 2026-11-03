@@ -1294,3 +1294,64 @@ Seven backend files failed `--fmt --check` after the import rewrite — `use pag
 controllers had `val paging = switch paging.page_request_of(..)`, a local shadowing the module it
 was reading; they had been aliased `paging_model` for exactly that reason, and the local is `asked`
 now. Both are the ordinary cost of a rename, and both were found by a gate rather than by reading.
+
+## 2026-11-02 — the root source whose key was the bug
+
+F265 is fixed, and the fix deletes a root source instead of adding one. The symptom was the
+health-record backend's server dying of SIGSEGV on `POST /api/admin/database/query`, about one run
+in six on PostgreSQL, always on the first statement the endpoint has to *refuse* — which is the one
+path that parses nothing and touches no database, so the request that crashed was never the request
+at fault.
+
+**The core dump named the site in one read.** `gc_mark_enum` ← `mark_trace` ← `gc_mark_live_guards`
+← `mark_this_threads_roots`, on a freshly spawned request thread, marking `en = 0x7ff3443d5b90` —
+*Cannot access memory at that address*. Walking `g_roots` in the core finished it: seven live guard
+records, three of them claiming `owner_heap = 0x7ff3498a3a80`, which was indeed the crashing
+thread's own `GcHeap *`, and all three pointing at enums in one unmapped region. That thread's heap
+had a single 256 KB arena block with 32 KB used, and none of the three addresses was inside it.
+
+**So the key was the bug.** `gc_guard_roots.c` keyed each registered guard on the `ziman_thread_heap()`
+pointer of the thread that created it, and `gc_mark_live_guards` marked every record whose
+`owner_heap` matched the collecting thread's own heap. A `GcHeap *` is a `malloc`'d address.
+`ziman_thread_heap_release` (`spawn_thread_entry`, at a request thread's exit) destroys the heap —
+`munmap`ping its arena, which is where the guard's `message` lived — and frees the struct, and the
+*next* request thread's `gc_heap_create` is handed the same address straight back. From then on that
+thread's every collection marked a dead thread's guard messages: three enums in an already-unmapped
+arena. `lib/db/db.zm`'s `open_rows` makes one guard per cursor, so the crashing request was simply
+the next one after a request that had opened a cursor and exited, and the write-refusal path's
+innocence was the clue rather than a contradiction.
+
+**The registry had closed one window of three and left the two that follow from a thread's death.**
+Its own header named the window it was for: this thread's Phase 3 sweep reclaiming `message` once
+the Ziman-visible `Guard` stops being reachable, while Boehm has not got round to the finalizer yet.
+It said nothing about `ziman_thread_heap_release`, which unmaps the same memory outright, and nothing
+about the finalizer itself then *sending* that message — a dangling `Request.EndCursor` handed to the
+connection's owning thread. No amount of fixing the key would have closed those two, because both
+follow from `message` living in a heap with a thread's lifetime.
+
+**The fix is one line, in `native_guard_new`:**
+
+```c
+g->message = value_copy_send(args[1]);
+```
+
+`value_copy.h`'s crossing copy already solves exactly this problem for every value that crosses a
+`Channel` or a `spawn`: Boehm's shared heap is tied to no thread, and a copy there is *traced*
+rather than *rooted* — Boehm finds it through the `GuardBuf` itself, a `GC_MALLOC`'d block, and the
+ordered `GC_REGISTER_FINALIZER` keeps everything reachable from `g` alive until the finalizer has
+run. The finalizer sends with `needs_receive 1` now, because the message *is* a crossing copy, so the
+receiving side copies it out the ordinary way. `src/gc_guard_roots.{c,h}` are deleted, with their
+global list, their mutex, and the lock every Phase 3 collection on every thread took to walk it.
+
+**Three things worth keeping from how it was found.** The crash had been read as a flaky test four
+times over, and what broke that was not a better guess but the diagnostic committed in place of a
+fix — the test now prints the server's exit status, and said `exited with -11`. A `gdb` wrapper
+around the server was tried first and failed for an unrelated reason (gdb's startup plus a fresh
+migration exceeds the test's 10-second readiness window), so the core dump was the second choice and
+answered in one read what six hypotheses had not. And the hypothesis going in — the row iterator
+over a Postgres result being closed after its pooled connection was reused — was wrong, which the
+backtrace said before any of it was tested.
+
+**Verified**: 20 consecutive runs of `admin_database_test.py` against a throwaway `postgres:17`, all
+green, against a rate of about 1 in 6 before (at that rate, 20 clean runs is a 2.6% event). Then
+`make check-fast` and the backend's own `run-all.sh --both`.

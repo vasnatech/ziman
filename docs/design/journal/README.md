@@ -287,5 +287,6 @@ them against the code.
 - [A bundled module may be several files (2026-10-31)](part-09.md#a-bundled-module-may-be-several-files-2026-10-31)
 - [2026-11-01 — the route table stopped being one table, so order stopped deciding](part-09.md#2026-11-01-the-route-table-stopped-being-one-table-so-order-stopped-deciding)
 - [2026-11-01 — what makes a module a library module is its import list](part-09.md#2026-11-01-what-makes-a-module-a-library-module-is-its-import-list)
+- [2026-11-02 — the root source whose key was the bug](part-09.md#2026-11-02-the-root-source-whose-key-was-the-bug)
 
 <!-- end index -->
