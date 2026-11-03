@@ -23,6 +23,7 @@ flowchart LR
         encoding["encoding"]
         expr["expr"]
         fs["fs"]
+        io["io"]
         json["json"]
         jwt["jwt"]
         locale["locale"]
@@ -299,7 +300,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
+| 0 | `bits`, `clock`, `compress`, `io`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
 | 1 | `derive_reflect`, `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `validate`, `xml` |
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
@@ -340,6 +341,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
 | `http` | `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
+| `io` | - | - |
 | `json` | `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `paging`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |

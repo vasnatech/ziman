@@ -632,6 +632,35 @@ pub fn extension(path: string) -> string
 
 ```
 
+## `io`
+
+**Experimental** (see docs/design/journal/ "Experimental modules"). File I/O. The first native module -- proved the `native fn` mechanism end to end.
+
+```
+pub enum IoError {
+    Timeout
+    Closed(string)
+    TooLarge(string)
+    Malformed(string)
+    Failed(string)
+}
+
+pub fn io_error_message(e: IoError) -> string
+
+pub fn of_bytes(data: [byte]) -> Iter<Result<[byte], IoError>>
+
+pub fn mapped<E>(
+
+pub fn limited(source: Iter<Result<[byte], IoError>>, max: int) -> Iter<Result<[byte], IoError>>
+
+pub fn drain(source: Iter<Result<[byte], IoError>>, max: int) -> Result<[byte], IoError>
+
+pub fn text(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoError>>
+
+pub fn lines(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoError>>
+
+```
+
 ## `json`
 
 A JSON parser/serializer (`Json`, a genuinely recursive enum), written in pure Ziman -- no native code needed. `\uXXXX` unicode escapes are read; `==`/`!=` on `Json` is the one known gap.

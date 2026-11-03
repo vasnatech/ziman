@@ -1,0 +1,24 @@
+-- of_bytes and drain --
+a whole value round-trips: 5 bytes, hello
+an empty source drains to nothing: 0 bytes, 
+chunks are joined in order: 7 bytes, abcdefg
+-- limited --
+under the ceiling: 7 bytes, abcdefg
+over it: the stream is too large: more than 5 bytes
+drain's own ceiling says the same: the stream is too large: more than 5 bytes
+a ceiling of zero admits nothing: the stream is too large: more than 0 bytes
+-- an error is terminal --
+a failed chunk ends the stream: the stream closed: the peer hung up
+and mapped converts another error into this one: the stream failed: read error 5
+-- text across chunk boundaries --
+one byte at a time: [a][ö][b][→][c]
+two bytes at a time: [a][öb][→c]
+all at once: [aöb→c]
+truncated: [a]<the stream is malformed: the stream ends in the middle of a UTF-8 character>
+not UTF-8 at all: <the stream is malformed: the stream is not UTF-8>
+-- lines --
+mixed endings: [one][two][three]
+one byte at a time: [one][two][three]
+just a newline: []
+empty: 
+a split character in a line: [aö][b→]

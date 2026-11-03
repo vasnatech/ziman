@@ -1,0 +1,33 @@
+use io
+use io.IoError
+
+// A byte source is an `Iter<Result<[byte], IoError>>`: pull one chunk at a time, so a stream of any
+// size costs one chunk of memory. `of_bytes` makes one from bytes already in hand, which is how a
+// whole-value caller reaches the layers.
+fn demo() -> Result<unit, string> {
+    // `drain` goes back to a whole `[byte]`, with a ceiling (negative for none). It is what hands
+    // the bytes to anything that still takes them whole -- a parser, a hash, a codec.
+    val whole = try map_err(io.drain(io.of_bytes(to_bytes("hello")), -1), io.io_error_message)
+    print(try bytes_to_string(whole))
+
+    // `limited` is the ceiling, as a layer. **Put it on the side that grows**: over a decompressor,
+    // not under it, since a bomb is small going in.
+    val capped = io.drain(io.limited(io.of_bytes(to_bytes("hello")), 3), -1)
+    print(switch capped {
+        Ok(_) { "under the ceiling" }
+        Err(e) { io.io_error_message(e) }
+    })
+
+    // `text` decodes UTF-8 and holds back a character split across two chunks, which is the one job
+    // Java needs a whole `Reader` hierarchy for. `lines` reads it a line at a time, `\r\n` or `\n`.
+    for line in io.lines(io.of_bytes(to_bytes("one\r\ntwo\nthree"))) {
+        print(try map_err(line, io.io_error_message))
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("io example failed: {}\n", e)
+    }
+}

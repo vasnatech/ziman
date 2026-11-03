@@ -1,0 +1,341 @@
+// io.zm -- byte streams: a pull source of `[byte]` chunks, one error for every layer over it, and
+// the layers themselves.
+//
+// **A byte source is an `Iter<Result<[byte], IoError>>`** -- a convention, not a type of its own, so
+// that `for chunk in source` and `iter_close` keep meaning what they mean everywhere else. A chunk
+// is never empty, `None` is a clean end, and an `Err` is terminal: a consumer that sees one stops
+// and closes. See docs/design/byte-streams.md for why this is a convention and not a `struct
+// Source`, and for everything here that is deliberately absent.
+//
+// **The shape existed three times before this module did** -- `fs.chunks`, `fs.lines` and
+// `client.stream` -- with two different error types for the same kind of failure and nothing that
+// composed. This is the name, the one error, and the combinators.
+//
+// **Reading a whole value is still the normal thing to do.** `drain` exists to go back to `[byte]`
+// in one call, and most of this library should keep taking one: a SHA-256 of a token and a base64 of
+// a key are whole-value operations, and a stream buys nothing there. What a stream is for is the
+// case where **the size is the caller's rather than ours**: an uploaded file, an archive entry, a
+// response being read from someone else's server.
+#![experimental]
+
+// Why a stream stopped early. **Five variants, each named after the answer a server gives**, which
+// is the one thing a caller actually has to decide from an I/O failure:
+//
+// | | | |
+// |---|---|---|
+// | `Timeout` | the source stopped producing within its deadline | 408 |
+// | `Closed` | the other end went away mid-stream | nothing to answer; drop |
+// | `TooLarge` | a `limited` ceiling was passed | 413 |
+// | `Malformed` | the bytes are not what this layer reads | 400 -- the caller's data |
+// | `Failed` | a disk, a socket, an allocation | 500, logged -- ours |
+//
+// **`Closed` and `Failed` are different on purpose**, though both mean "it stopped": a client that
+// hung up is nothing to answer and nothing to log, and a disk that failed is both.
+pub enum IoError {
+    Timeout
+    Closed(string)
+    TooLarge(string)
+    Malformed(string)
+    Failed(string)
+}
+
+// The message to show a human, the counterpart of `fs_error_message` and `net_error_message`.
+pub fn io_error_message(e: IoError) -> string {
+    return switch e {
+        Timeout { "the stream timed out" }
+        Closed(why) { concat("the stream closed: ", why) }
+        TooLarge(why) { concat("the stream is too large: ", why) }
+        Malformed(why) { concat("the stream is malformed: ", why) }
+        Failed(why) { concat("the stream failed: ", why) }
+    }
+}
+
+// ---------------------------------------------------------------- starting one
+
+// Bytes already in hand, as a source: one chunk and then the end.
+//
+// **This is how a whole-value caller reaches the layers.** `compress`'s ceiling is `limited` now
+// rather than a parameter of its own (docs/design/byte-streams.md §6.1), so decompressing a `[byte]`
+// under a cap reads `drain(limited(inflating(of_bytes(data)), max), max)` -- and every fixture for
+// this module starts here.
+pub fn of_bytes(data: [byte]) -> Iter<Result<[byte], IoError>> {
+    val held = data
+    val done = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<[byte], IoError>> {
+            if get(done) {
+                return None
+            }
+            set(done, true)
+            if prelude.len(held) == 0 {
+                return None
+            }
+            return Some(ok(held))
+        },
+        fn() {}
+    )
+}
+
+// A source whose chunks fail some other way, as a source that fails this way.
+//
+// **This is the combinator the library was missing**, and `fs` is the proof: its chunks are produced
+// in C, whose error channel is a `string`, and the conversion had nowhere to happen -- `fs`'s own
+// `lift` converts the error of *opening* the file, because that one has already happened, where the
+// chunks' errors do not exist until the iterator produces them. So the `string` leaked to every
+// caller for want of this function.
+pub fn mapped<E>(
+    source: Iter<Result<[byte], E>>,
+    as_io: fn(E) -> IoError
+) -> Iter<Result<[byte], IoError>> {
+    val inner = source
+    val convert = as_io
+    return iter_from(
+        fn() -> Option<Result<[byte], IoError>> {
+            return switch iter_next(inner) {
+                Some(item) {
+                    switch item {
+                        Ok(chunk) { Some(ok(chunk)) }
+                        Err(why) { Some(err(convert(why))) }
+                    }
+                }
+                None { None }
+            }
+        },
+        fn() { iter_close(inner) }
+    )
+}
+
+// ---------------------------------------------------------------- the ceiling
+
+// The same source, refusing to produce more than `max` bytes in total: the chunk that would pass the
+// ceiling is answered `TooLarge` instead, and the stream ends there. A negative `max` is no ceiling,
+// which is `compress`'s own convention for the parameter this replaces.
+//
+// **Put this on the side that grows.** A decompressor's output is what a bomb inflates, so
+// `limited(inflating(source), max)` is a guard and `inflating(limited(source, max))` is not -- it
+// caps the compressed bytes, which were never the problem. docs/design/byte-streams.md §6.1 has the
+// two lines side by side, and `compress`'s own documentation leads with the right one.
+pub fn limited(source: Iter<Result<[byte], IoError>>, max: int) -> Iter<Result<[byte], IoError>> {
+    val inner = source
+    val ceiling = max
+    val seen = mutable_new(0)
+    val stopped = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<[byte], IoError>> {
+            if get(stopped) {
+                return None
+            }
+            return switch iter_next(inner) {
+                Some(item) {
+                    switch item {
+                        Err(why) {
+                            set(stopped, true)
+                            Some(err(why))
+                        }
+                        Ok(chunk) {
+                            val total = get(seen) + prelude.len(chunk)
+                            if ceiling >= 0 && total > ceiling {
+                                set(stopped, true)
+                                iter_close(inner)
+                                Some(err(IoError.TooLarge(prelude.format(
+                                    "more than {} bytes",
+                                    str(ceiling)
+                                ))))
+                            } else {
+                                set(seen, total)
+                                Some(ok(chunk))
+                            }
+                        }
+                    }
+                }
+                None { None }
+            }
+        },
+        fn() { iter_close(inner) }
+    )
+}
+
+// ---------------------------------------------------------------- ending one
+
+// Every byte of the source, in one `[byte]`, with `max` as the ceiling (negative for none).
+//
+// **The way back to the whole-value world, and the reason this module can arrive without rewriting
+// anything**: every existing codec, parser and `crypto` function takes a `[byte]`, and this is what
+// hands them one. It is also where a whole-value reader's ceiling lives now that `compress` does not
+// carry its own.
+//
+// The source is closed, including when the ceiling or a chunk ends it early.
+pub fn drain(source: Iter<Result<[byte], IoError>>, max: int) -> Result<[byte], IoError> {
+    val held = mutable_array_new<byte>()
+    for item in limited(source, max) {
+        switch item {
+            Ok(chunk) { push(held, chunk) }
+            Err(why) { return err(why) }
+        }
+    }
+    return ok(snapshot(held))
+}
+
+// ---------------------------------------------------------------- bytes as text
+
+// The source decoded as UTF-8 text, in chunks that do not have to line up with its bytes.
+//
+// **This is the one thing Java needs a whole parallel `Reader` hierarchy for**, and it is a function:
+// a multi-byte sequence split across two reads has to be held back until the rest of it arrives.
+// Decoding each chunk on its own would fail on a 4 KiB read that ends in the middle of a `ö`, which
+// is a bug that only appears on the files that happen to split there.
+//
+// Bytes that are not UTF-8 at all are `Malformed`, and so is a sequence still unfinished at the end
+// of the stream -- a truncated document should be reported, not silently shortened.
+pub fn text(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoError>> {
+    val inner = source
+    val carried = mutable_new<[byte]>([])
+    val stopped = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<string, IoError>> {
+            if get(stopped) {
+                return None
+            }
+            // A `while` rather than one read: a chunk can be entirely the first half of one
+            // character, and then there is nothing to answer yet and more to read.
+            while true {
+                val item = iter_next(inner)
+                if None = item {
+                    set(stopped, true)
+                    if prelude.len(get(carried)) > 0 {
+                        return Some(err(IoError.Malformed(
+                            "the stream ends in the middle of a UTF-8 character"
+                        )))
+                    }
+                    return None
+                }
+                val got = unwrap(item)
+                if Err(why) = got {
+                    set(stopped, true)
+                    return Some(err(why))
+                }
+                val all = concat(get(carried), unwrap(got))
+                val whole = complete_prefix(all)
+                set(carried, slice(all, whole, prelude.len(all)))
+                if whole > 0 {
+                    return switch bytes_to_string(slice(all, 0, whole)) {
+                        Ok(decoded) { Some(ok(decoded)) }
+                        Err(_) {
+                            set(stopped, true)
+                            Some(err(IoError.Malformed("the stream is not UTF-8")))
+                        }
+                    }
+                }
+            }
+            return None
+        },
+        fn() { iter_close(inner) }
+    )
+}
+
+// How many bytes of `data` are complete UTF-8 -- that is, where to cut so that nothing is left
+// holding half a character.
+//
+// **Walks back from the end over at most three continuation bytes**, which is the most a sequence can
+// be short by: at the lead byte it asks how long that sequence should be, and keeps it only if all of
+// it is here. Anything that is not a lead byte where one is expected is left for `bytes_to_string`
+// to refuse -- this function decides *where to cut*, not whether the bytes are valid.
+fn complete_prefix(data: [byte]) -> int {
+    val size = prelude.len(data)
+    var back = 0
+    while back < 3 && back < size {
+        val at = size - 1 - back
+        val b = data[at]
+        if !is_continuation(b) {
+            val wanted = sequence_length(b)
+            if wanted == 0 || wanted <= back + 1 {
+                // Either not a lead byte at all, or a sequence that is already complete.
+                return size
+            }
+            return at
+        }
+        back = back + 1
+    }
+    return size
+}
+
+// Whether this is a continuation byte, `10xxxxxx` -- which is to say 0x80 through 0xBF.
+//
+// Compared as a number rather than masked with `bits`, because a byte literal is written `128b` and
+// `bits.and(b, 0xC0b) == 0x80b` reads worse than the range it stands for.
+fn is_continuation(b: byte) -> bool {
+    val v = b as int
+    return v >= 0x80 && v < 0xC0
+}
+
+// How many bytes the sequence beginning with `b` has, or 0 if `b` does not begin one.
+fn sequence_length(b: byte) -> int {
+    val v = b as int
+    if v < 0x80 {
+        return 1
+    }
+    if v >= 0xC0 && v < 0xE0 {
+        return 2
+    }
+    if v >= 0xE0 && v < 0xF0 {
+        return 3
+    }
+    if v >= 0xF0 && v < 0xF8 {
+        return 4
+    }
+    return 0
+}
+
+// The source as text, a line at a time, with the line ending removed -- `fs.lines` over anything
+// rather than only over a file, which is what a CSV read off a socket or out of an archive entry
+// needs.
+//
+// A `\r\n` and a bare `\n` both end a line; a last line with no ending is still a line. An empty
+// stream has no lines, and a stream that is just `"\n"` has one empty one.
+pub fn lines(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoError>> {
+    val inner = text(source)
+    val carried = mutable_new("")
+    val stopped = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<string, IoError>> {
+            if get(stopped) {
+                return None
+            }
+            while true {
+                val held = get(carried)
+                val at = index_of(held, "\n", 0)
+                if at >= 0 {
+                    set(carried, substring(held, at + 1, prelude.len(held)))
+                    return Some(ok(without_return(substring(held, 0, at))))
+                }
+                val item = iter_next(inner)
+                if None = item {
+                    set(stopped, true)
+                    if prelude.len(held) > 0 {
+                        set(carried, "")
+                        return Some(ok(without_return(held)))
+                    }
+                    return None
+                }
+                val got = unwrap(item)
+                if Err(why) = got {
+                    set(stopped, true)
+                    return Some(err(why))
+                }
+                set(carried, concat(held, unwrap(got)))
+            }
+            return None
+        },
+        fn() { iter_close(inner) }
+    )
+}
+
+// A line without its `\r`, so that a file written on Windows does not leave one on the end of every
+// value a caller reads.
+fn without_return(line: string) -> string {
+    val size = prelude.len(line)
+    if size > 0 && substring(line, size - 1, size) == "\r" {
+        return substring(line, 0, size - 1)
+    }
+    return line
+}

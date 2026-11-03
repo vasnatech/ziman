@@ -1,0 +1,133 @@
+// `io`: a byte source is an `Iter<Result<[byte], IoError>>`, and these are the layers over it.
+//
+// What this pins, in order: `of_bytes` and `drain` round-trip; `limited` refuses past its ceiling and
+// **caps the side it is put on**, which is the hazard of a ceiling that is a layer rather than a
+// parameter; `mapped` converts another error into this one, which is the combinator `fs`'s chunks
+// needed and never had; `text` decodes UTF-8 **across chunk boundaries**, which is the one job Java
+// needs a whole `Reader` hierarchy for; and `lines` handles `\r\n`, a last line with no ending, and
+// an empty stream.
+//
+// **The split-character cases are the reason this fixture exists.** A decoder that handles each chunk
+// on its own passes every test written with ASCII and fails on the first file that happens to break
+// in the middle of a `ö` -- so the sources here are deliberately chopped one byte at a time.
+use io
+use io.IoError
+
+// A source that hands out `data` in chunks of `size`, which is how a split character is forced.
+fn chopped(data: [byte], size: int) -> Iter<Result<[byte], IoError>> {
+    val held = data
+    val step = size
+    val at = mutable_new(0)
+    return iter_from(
+        fn() -> Option<Result<[byte], IoError>> {
+            val from = get(at)
+            if from >= len(held) {
+                return None
+            }
+            var to = from + step
+            if to > len(held) {
+                to = len(held)
+            }
+            set(at, to)
+            return Some(ok(slice(held, from, to)))
+        },
+        fn() {}
+    )
+}
+
+// A source that produces `before` and then fails, for the terminal-error rule.
+fn failing(before: [byte]) -> Iter<Result<[byte], IoError>> {
+    val head = before
+    val sent = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<[byte], IoError>> {
+            if get(sent) {
+                return Some(err(IoError.Closed("the peer hung up")))
+            }
+            set(sent, true)
+            return Some(ok(head))
+        },
+        fn() {}
+    )
+}
+
+fn show(label: string, r: Result<[byte], IoError>) {
+    print(switch r {
+        Ok(bytes) { format("{}: {} bytes, {}", label, str(len(bytes)), text_of(bytes)) }
+        Err(e) { format("{}: {}", label, io.io_error_message(e)) }
+    })
+}
+
+fn text_of(bytes: [byte]) -> string {
+    return switch bytes_to_string(bytes) {
+        Ok(s) { s }
+        Err(_) { "(not text)" }
+    }
+}
+
+fn collected(source: Iter<Result<string, IoError>>) -> string {
+    val out = mutable_array_new<string>()
+    for item in source {
+        push(out, switch item {
+            Ok(piece) { concat("[", piece, "]") }
+            Err(e) { concat("<", io.io_error_message(e), ">") }
+        })
+    }
+    return join(separator: "", pieces: snapshot(out))
+}
+
+fn main() {
+    print("-- of_bytes and drain --")
+    show("a whole value round-trips", io.drain(io.of_bytes(to_bytes("hello")), -1))
+    show("an empty source drains to nothing", io.drain(io.of_bytes([]), -1))
+    show("chunks are joined in order", io.drain(chopped(to_bytes("abcdefg"), 3), -1))
+
+    print("-- limited --")
+    show("under the ceiling", io.drain(io.limited(chopped(to_bytes("abcdefg"), 3), 7), -1))
+    show("over it", io.drain(io.limited(chopped(to_bytes("abcdefg"), 3), 5), -1))
+    show("drain's own ceiling says the same", io.drain(chopped(to_bytes("abcdefg"), 3), 5))
+    // **The hazard of a ceiling that is a layer**: it caps the side it is put on. Here both sides are
+    // the same bytes, so the two read alike -- with a decompressor between them they do not, which
+    // is what `compress.inflating`'s documentation has to lead with.
+    show("a ceiling of zero admits nothing", io.drain(io.limited(io.of_bytes(to_bytes("a")), 0), -1))
+
+    print("-- an error is terminal --")
+    show("a failed chunk ends the stream", io.drain(failing(to_bytes("partial")), -1))
+    show("and mapped converts another error into this one",
+         io.drain(io.mapped<string>(mapping_source(), as_malformed), -1))
+
+    print("-- text across chunk boundaries --")
+    // `ö` is two bytes and `→` is three, so a one-byte source splits both.
+    print(concat("one byte at a time: ", collected(io.text(chopped(to_bytes("aöb→c"), 1)))))
+    print(concat("two bytes at a time: ", collected(io.text(chopped(to_bytes("aöb→c"), 2)))))
+    print(concat("all at once: ", collected(io.text(io.of_bytes(to_bytes("aöb→c"))))))
+    // A stream that stops mid-character is reported rather than quietly shortened.
+    print(concat("truncated: ", collected(io.text(io.of_bytes(slice(to_bytes("aö"), 0, 2))))))
+    print(concat("not UTF-8 at all: ", collected(io.text(io.of_bytes([255b, 254b])))))
+
+    print("-- lines --")
+    print(concat("mixed endings: ", collected(io.lines(io.of_bytes(to_bytes("one\r\ntwo\nthree"))))))
+    print(concat("one byte at a time: ", collected(io.lines(chopped(to_bytes("one\r\ntwo\nthree"), 1)))))
+    print(concat("just a newline: ", collected(io.lines(io.of_bytes(to_bytes("\n"))))))
+    print(concat("empty: ", collected(io.lines(io.of_bytes([])))))
+    print(concat("a split character in a line: ", collected(io.lines(chopped(to_bytes("aö\nb→"), 1)))))
+}
+
+// A source whose chunks carry a `string` error, which is what `fs.chunks` answers today.
+fn mapping_source() -> Iter<Result<[byte], string>> {
+    val sent = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<[byte], string>> {
+            if get(sent) {
+                return Some(err("read error 5"))
+            }
+            set(sent, true)
+            return Some(ok(to_bytes("some")))
+        },
+        fn() {}
+    )
+}
+
+fn as_malformed(why: string) -> IoError {
+    return IoError.Failed(why)
+}

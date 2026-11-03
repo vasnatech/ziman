@@ -157,7 +157,7 @@ Nothing here is included for symmetry; each line names what asks for it.
 | | |
 |---|---|
 | `io.drain(source, max) -> Result<[byte], IoError>` | **the migration path.** Turns a source back into the `[byte]` every existing codec, parser and `crypto` function takes, so streams can arrive without rewriting any of them. The first consumer of every new source. |
-| `io.buffered(source, size)` | `xml.events` asks for a few bytes at a time; a 4-byte read must not become a 4-byte syscall. |
+| ~~`io.buffered(source, size)`~~ | **Withdrawn while writing §14.** The justification was "`xml.events` asks for a few bytes at a time" -- but a consumer of an `Iter` takes whole chunks and cannot ask for four bytes, so what a parser needs is a **cursor** over a source, not a chunk combinator. It waits for the parser, by this document's own rule that every line names its caller. |
 | `io.limited(source, max)` | **the one ceiling.** Replaces the `max_size` parameter on `compress`'s readers (§6.1), so a limit is one concept rather than a convention repeated per function. |
 | `io.text(source) -> Iter<Result<string, IoError>>` | UTF-8 across chunk boundaries: the one thing `Reader` is for. |
 | `io.lines(source)` | `fs.lines` off the filesystem. The FHIR bulk reader wants exactly this over a zip entry. |
@@ -344,3 +344,19 @@ Three things that follow, and the first is the one to say out loud:
    crossed and deleted when the request ends, including when the handler fails, which makes one
    contract: **a handler must not keep the source past its return.** Worth stating before anything
    is written, because a handler that stores it and reads later gets a file that is already gone.
+
+## 14. What building step 1 changed about this document
+
+`lib/core/io.zm` exists as of the first implementation commit, with `IoError`, `of_bytes`, `drain`,
+`limited`, `mapped`, `text` and `lines`. Three things the writing got wrong or left out:
+
+1. **`buffered` was a cursor wearing the wrong name** (§6). Withdrawn rather than built.
+2. **`io` cannot own the converters.** §5 said it would offer `io.of_fs`, `io.of_net` and
+   `io.of_client`; that is a cycle -- `io` would import `fs` for the type while `fs` imports `io` for
+   the chunk's error. **The converters belong to the module that owns the error**: `fs.io_error(e)`,
+   `net.io_error(e)`, `client.io_error(e)`, so the dependency points one way and `io` stays at layer
+   0 of `docs/lib/dependencies.md`, which it now is.
+3. **The state question had an answer nobody had written down.** `lib/prelude/iter.zm` said an
+   `iter_from` closure's state must live in "a native handle ... or a Channel", which was true before
+   `Mutable` existed. Every combinator here captures a `Mutable` cell, and that is also how one
+   `Iter` wraps another; the prelude's comment now says so.
