@@ -408,21 +408,36 @@ fn reach(c: Cursor, want: int) -> bool {
 }
 
 // A chunk of text as its characters, which is what the window holds.
+//
+// **`chars` and not a `substring` per character**, which is a 193x difference and was measured
+// rather than reasoned about: `substring(s, i, i + 1)` walks the string to find character `i` unless
+// the text is all-ASCII, so building the window a character at a time was quadratic *in the chunk*
+// for any text with one non-ASCII character in it. A 235 KB document with a few accented words took
+// **43 seconds** against 223 ms for the array scanner this replaced; with `chars`, which decodes in
+// one pass, it is back in the same range. The same trap the parser's own history records one layer
+// up -- see `xml.zm`'s helpers, where `char_at` cost 2.2 s on 40 KB of CJK.
 fn characters(text: string) -> [string] {
-    val out = mutable_array_new<string>()
-    var at = 0
-    val size = prelude.len(text)
-    while at < size {
-        push(out, substring(text, at, at + 1))
-        at = at + 1
-    }
-    return snapshot(out)
+    return chars(text)
 }
 
 // The character at `p`, or `""` past the end -- the answer a scanner's bounds check wants, rather
 // than an error it would have to thread through every helper.
 pub fn at(c: Cursor, p: int) -> string {
-    if p < get(c.base) || !reach(c, p) {
+    // **The fast path is written out, and that is not premature.** A scanner calls this once per
+    // character of the document, several times over; reading `base` and `window` once and answering
+    // from the window without calling `reach` took a 235 KB parse from 568 ms to the range of the
+    // array scanner it replaced. The ordinary path -- the window already covers `p` -- does two
+    // cell reads and an index.
+    val base = get(c.base)
+    if p < base {
+        return ""
+    }
+    val held = get(c.window)
+    val at_in_window = p - base
+    if at_in_window < prelude.len(held) {
+        return held[at_in_window]
+    }
+    if !reach(c, p) {
         return ""
     }
     return get(c.window)[p - get(c.base)]

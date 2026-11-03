@@ -360,3 +360,28 @@ Three things that follow, and the first is the one to say out loud:
    `iter_from` closure's state must live in "a native handle ... or a Channel", which was true before
    `Mutable` existed. Every combinator here captures a `Mutable` cell, and that is also how one
    `Iter` wraps another; the prelude's comment now says so.
+
+## 15. What the scanner conversion cost, measured
+
+`xml`'s scanner reads an `io.Cursor` rather than a `[string]` of the whole document, which is step
+3's groundwork. Two numbers from it, both on a 235 KB document with some accented text:
+
+* **A `substring` per character is 193x.** The first version of the cursor built its window with
+  `substring(text, i, i + 1)`, which walks the string unless the text is all-ASCII: **43 seconds**
+  against 223 ms for the array scanner. `chars`, which decodes in one pass, brought it to 568 ms.
+  This is the same trap `xml.zm`'s own helpers record one layer up, where `char_at` cost 2.2 s on
+  40 KB of CJK -- and it was walked into anyway, which is the argument for measuring a rewrite
+  rather than reasoning about it.
+* **The cursor itself costs 2x**: 223 ms as an array against 463 ms through the window, after the
+  `at` fast path was written out (568 -> 463). **Accepted**, because the alternative is two access
+  layers -- `parse` on an array and `events` on a cursor -- which means two copies of seven helpers
+  and 23 function signatures, and two copies drift. Filed as F263 to earn back: the overhead is the
+  *number* of accessor calls per character rather than one hot line (inlining the hottest helper
+  changed nothing, 472 against 463), so `read_text` should read a span between `<` markers instead
+  of a character at a time -- which would beat the array version too, that one being
+  character-at-a-time as well.
+
+**What this does not yet buy**: nothing. A tree parse still holds the document, because the window
+only shrinks when something calls `release` and `parse` builds a `Document` regardless. The
+conversion is the half that makes `events` possible, not a win on its own -- which is why it is one
+commit with the measurements in it rather than a claim about memory.
