@@ -15,9 +15,9 @@ use server
 // Reports where this body is, what each of the three readers says about it, and -- last, so the
 // caller can cut it off before printing -- the file it is in.
 fn handler(r: http.Request) -> http.Response {
-    val source = unwrap(http.body_source(r))
+    val source = unwrap(http.body_source(r.body))
     val streamed = len(unwrap(io.drain(source, 0 - 1)))
-    val whole = len(unwrap(http.body_bytes(r)))
+    val whole = len(unwrap(http.body_bytes(r.body)))
     val place = switch r.body {
         Bytes(_) { "memory" }
         Spilled(s) { concat("a file that ", if fs.exists(s.path) { "exists" } else { "is missing" }) }
@@ -29,7 +29,7 @@ fn handler(r: http.Request) -> http.Response {
     return server.text_response(200, format(
         "in {}, size={} source={} bytes={} path={}",
         place,
-        http.body_size(r),
+        http.body_size(r.body),
         streamed,
         whole,
         path

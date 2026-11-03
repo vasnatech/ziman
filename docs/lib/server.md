@@ -410,7 +410,7 @@ pub struct Part {
     name: string
     filename: Option<string>
     content_type: Option<string>
-    body: [byte]
+    body: Body
 }
 ```
 
@@ -422,8 +422,12 @@ the name some other machine's filesystem had: show it, store it as text, but nev
 it may be `../../etc/passwd`, an absolute path, or 300 bytes of control characters. The content type is
 likewise a claim; sniff the bytes if what they are matters.
 
-`body` is bytes rather than a string because a part may be a file: it can hold a NUL, invalid UTF-8 or a
-JPEG, and nothing here decodes or validates it.
+`body` is a `Body`, the same type a request's own body has, and for the same reason: a part may be
+the 100 MB file the upload was for. `Bytes` when the request body was in memory, `Spilled` -- a
+range of the file the server already wrote -- when it was not, and read either way with
+`http.body_bytes(p.body)`, `http.body_source(p.body)` or `http.body_size(p.body)`. It stays bytes
+rather than text whichever it is, because a part can hold a NUL, invalid UTF-8 or a JPEG, and
+nothing here decodes or validates it.
 
 ### `multipart_max_parts`
 

@@ -17,9 +17,12 @@
 //         return fault(status_unsupported_media_type, "expected multipart/form-data")
 //     }
 //
-// The whole body is already in memory -- `read_request` caps it at this module's `max_body_bytes`,
-// 1 MiB -- so this parses it in one pass and streams nothing. `multipart` stops at `multipart_max_parts`
-// parts, since a body of nothing but boundary lines would otherwise make one value per 40 bytes.
+// **It reads the body as a source, not as bytes** (F264 step 2), so a body the server spilled to a
+// file is never read back whole to be split up: the scan holds one chunk plus a delimiter, and each
+// part's own bytes are a *range of the same file* the reader already wrote -- `Spill` carries an
+// offset for exactly this, and nothing is copied. For a body in memory each part is a slice of it,
+// which is what this always did. `multipart` stops at `multipart_max_parts` parts, since a body of
+// nothing but boundary lines would otherwise make one value per 40 bytes.
 
 // One part of a `multipart/form-data` body: the form field's `name`, a `filename` that is `Some` only for
 // an upload, the `Content-Type` the part declared, and its bytes.
@@ -29,13 +32,17 @@
 // it may be `../../etc/passwd`, an absolute path, or 300 bytes of control characters. The content type is
 // likewise a claim; sniff the bytes if what they are matters.
 //
-// `body` is bytes rather than a string because a part may be a file: it can hold a NUL, invalid UTF-8 or a
-// JPEG, and nothing here decodes or validates it.
+// `body` is a `Body`, the same type a request's own body has, and for the same reason: a part may be
+// the 100 MB file the upload was for. `Bytes` when the request body was in memory, `Spilled` -- a
+// range of the file the server already wrote -- when it was not, and read either way with
+// `http.body_bytes(p.body)`, `http.body_source(p.body)` or `http.body_size(p.body)`. It stays bytes
+// rather than text whichever it is, because a part can hold a NUL, invalid UTF-8 or a JPEG, and
+// nothing here decodes or validates it.
 pub struct Part {
     name: string
     filename: Option<string>
     content_type: Option<string>
-    body: [byte]
+    body: Body
 }
 
 // How many parts `multipart` reads before it refuses the body; `multipart_with` takes another limit. A body
@@ -114,6 +121,161 @@ fn disposition_param(line: string, key: string) -> Option<string> {
     return Option<string>.None
 }
 
+// ----------------------------------------------------- scanning a body it does not hold
+
+// The most of a part's own header block to hold while looking for the blank line that ends it. A
+// part that never sends one is a malformed body, and this is where that is noticed instead of in the
+// memory the search was growing.
+val max_part_header_bytes = 8192
+
+// A byte-level scan over a source: find a delimiter, take or discard what is before it, and know
+// the absolute offset of everything -- which is what lets a part be recorded as a *range* rather
+// than as bytes.
+//
+// **Not `io.Cursor`, and that is not an oversight.** The cursor is a *character* window: it decodes,
+// its `span` answers a string, and its positions count characters. A multipart body is bytes -- a
+// part is a JPEG as often as it is text, and a boundary is matched byte for byte (`mime.parse`
+// deliberately leaves a boundary's case alone for the same reason) -- so decoding it would be wrong
+// before it was slow. The two have the same shape and different alphabets; if a second byte-level
+// caller turns up, this is what moves into `io`.
+struct Scan {
+    source: Iter<Result<[byte], io.IoError>>
+    window: Mutable<[byte]>
+    base: Mutable<int>
+    ended: Mutable<bool>
+}
+
+// A scan over `source`, seeded with the CRLF that the first boundary does not have in front of it.
+// Absolute offsets are therefore counted from the body's own first byte: the seed sits at -2, and
+// every part's body starts at or after 0.
+fn scan_of(source: Iter<Result<[byte], io.IoError>>) -> Scan {
+    return Scan {
+        source: source,
+        window: mutable_new(to_bytes("\r\n")),
+        base: mutable_new(0 - 2),
+        ended: mutable_new(false)
+    }
+}
+
+// One more chunk onto the window; false once the source is finished.
+fn scan_fill(s: Scan) -> Result<bool, HttpError> {
+    if get(s.ended) {
+        return false
+    }
+    return switch iter_next(s.source) {
+        Some(item) {
+            switch item {
+                Ok(chunk) {
+                    set(s.window, concat(get(s.window), chunk))
+                    true
+                }
+                Err(why) { err(HttpError.Io(io.io_error_message(why))) }
+            }
+        }
+        None {
+            set(s.ended, true)
+            false
+        }
+    }
+}
+
+// The absolute offset the window now starts at: the body's own position, which is what a part's
+// range is recorded in.
+fn scan_at(s: Scan) -> int {
+    return get(s.base)
+}
+
+// Finds `needle` at or after the window's start, **keeping** everything it scans, and refusing a
+// search that would hold more than `cap` bytes. For a part's header block, which has to be read.
+fn scan_find_keeping(s: Scan, needle: [byte], cap: int, what: string) -> Result<int, HttpError> {
+    var from = 0
+    while true {
+        val window = get(s.window)
+        val at = index_of(window, needle, from)
+        if at >= 0 {
+            return get(s.base) + at
+        }
+        if len(window) > cap {
+            return err(HttpError.BadRequest(what))
+        }
+        // A match may straddle the join, so the next search starts a delimiter-width back.
+        from = if len(window) >= len(needle) { len(window) - len(needle) + 1 } else { 0 }
+        val more = try scan_fill(s)
+        if !more {
+            return err(HttpError.BadRequest(what))
+        }
+    }
+    return err(HttpError.BadRequest(what))
+}
+
+// Finds `needle`, **discarding** what it passes over: the window keeps only the bytes that could
+// still begin a match, so the end of a part's body is found without the body ever being held. This
+// is the function that makes the whole thing stream.
+fn scan_find_discarding(s: Scan, needle: [byte], what: string) -> Result<int, HttpError> {
+    while true {
+        val window = get(s.window)
+        val at = index_of(window, needle, 0)
+        if at >= 0 {
+            return get(s.base) + at
+        }
+        val keep = if len(window) >= len(needle) { len(needle) - 1 } else { len(window) }
+        val cut = len(window) - keep
+        if cut > 0 {
+            set(s.base, get(s.base) + cut)
+            set(s.window, slice(window, cut, len(window)))
+        }
+        val more = try scan_fill(s)
+        if !more {
+            return err(HttpError.BadRequest(what))
+        }
+    }
+    return err(HttpError.BadRequest(what))
+}
+
+// The bytes from the window's start to the absolute offset `upto`, consumed.
+fn scan_take(s: Scan, upto: int) -> Result<[byte], HttpError> {
+    val want = upto - get(s.base)
+    while len(get(s.window)) < want {
+        val more = try scan_fill(s)
+        if !more {
+            return err(HttpError.BadRequest("a multipart body ends inside a part"))
+        }
+    }
+    val window = get(s.window)
+    set(s.base, upto)
+    set(s.window, slice(window, want, len(window)))
+    return slice(window, 0, want)
+}
+
+// Discards everything up to the absolute offset `upto`. Only ever used to step over a delimiter or a
+// blank line, so what it holds is bounded by that -- a part's body is passed with
+// `scan_find_discarding` instead.
+fn scan_skip(s: Scan, upto: int) -> Result<unit, HttpError> {
+    val _ = try scan_take(s, upto)
+    return ok(unit)
+}
+
+// The next `n` bytes without consuming them; fewer only where the body ends.
+fn scan_peek(s: Scan, n: int) -> Result<[byte], HttpError> {
+    while len(get(s.window)) < n {
+        val more = try scan_fill(s)
+        if !more {
+            return get(s.window)
+        }
+    }
+    return slice(get(s.window), 0, n)
+}
+
+// A part's own bytes as a range of whatever the request's body is: a slice of the bytes in memory,
+// or the same file at an offset. **This is where the second copy of a large upload does not
+// happen** -- the reader wrote the body once and a part is a window onto it.
+fn range_of(body: Body, from: int, size: int) -> Body {
+    return switch body {
+        Bytes(b) { Body.Bytes(slice(b, from, from + size)) }
+        Spilled(s) { Body.Spilled(Spill { path: s.path, offset: s.offset + from, size: size }) }
+    }
+}
+
 // A header's value out of a part's own header block, matched without regard to case; "" when absent.
 fn part_header(block: string, name: string) -> string {
     for line in split(block, "\r\n") {
@@ -125,13 +287,11 @@ fn part_header(block: string, name: string) -> string {
     return ""
 }
 
-// One part, from its headers through to the end of its bytes.
-fn part_of(chunk: [byte]) -> Result<Part, HttpError> {
-    val blank = index_of(chunk, to_bytes("\r\n\r\n"), 0)
-    if blank < 0 {
-        return err(HttpError.BadRequest("a multipart part has no blank line after its headers"))
-    }
-    val block = switch bytes_to_string(slice(chunk, 0, blank)) {
+// One part, from its own header block and the range its bytes are in. The headers are read as text
+// and the body never is -- which is also why they are two arguments: the block is small and in hand,
+// the body may be a file.
+fn part_of(header_block: [byte], body: Body) -> Result<Part, HttpError> {
+    val block = switch bytes_to_string(header_block) {
         Ok(text) { text }
         Err(_) { return err(HttpError.BadRequest("a multipart part's headers are not text")) }
     }
@@ -145,7 +305,7 @@ fn part_of(chunk: [byte]) -> Result<Part, HttpError> {
         name: name,
         filename: disposition_param(disposition, "filename"),
         content_type: if byte_len(declared) > 0 { Option<string>.Some(declared) } else { Option<string>.None },
-        body: slice(chunk, blank + 4, len(chunk))
+        body: body
     })
 }
 
@@ -179,37 +339,44 @@ pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
         Some(b) { b }
         None { return err(HttpError.BadRequest("expected a multipart/form-data Content-Type with a boundary")) }
     }
-    // Every boundary but the first is preceded by a CRLF that belongs to the delimiter, not to the part
-    // before it. Prepending one lets the first be found the same way instead of as a special case, and
-    // costs a copy of a body already bounded by `max_body_bytes`.
-    val body = concat([to_bytes("\r\n"), try lift_io<[byte]>(body_bytes(req))])
+    // Every boundary but the first is preceded by a CRLF that belongs to the delimiter, not to the
+    // part before it. The scan is seeded with one so the first is found the same way instead of as a
+    // special case -- two bytes, where this used to prepend them to a copy of the whole body.
+    val source = try lift_io<Iter<Result<[byte], io.IoError>>>(body_source(req.body))
+    defer iter_close(source)
+    val scan = scan_of(source)
     val delim = to_bytes(concat("\r\n--", boundary))
     val close = to_bytes("--")
     val line_end = to_bytes("\r\n")
     val out = mutable_array_new<Part>()
-    var at = index_of(body, delim, 0)
-    if at < 0 {
-        return err(HttpError.BadRequest("the multipart body contains no boundary"))
-    }
+    // Whatever is before the first boundary is a preamble, which RFC 2046 says to ignore -- and
+    // which is discarded rather than held, like every other stretch this does not need.
+    var at = try scan_find_discarding(scan, delim, "the multipart body contains no boundary")
     while true {
-        var from = at + len(delim)
-        // `--boundary--` ends the body. Anything after it is an epilogue, which RFC 2046 says to ignore.
-        if from + 2 <= len(body) && slice(body, from, from + 2) == close {
+        try scan_skip(scan, at + len(delim))
+        val after = try scan_peek(scan, 2)
+        // `--boundary--` ends the body. Anything after it is an epilogue, also ignored.
+        if len(after) >= 2 && after == close {
             return ok(snapshot(out))
-        }
-        val next = index_of(body, delim, from)
-        if next < 0 {
-            return err(HttpError.BadRequest("the multipart body ends without a closing boundary"))
         }
         if len(out) >= max_parts {
             return err(HttpError.BadRequest(concat("a multipart body of more than ", str(max_parts), " parts")))
         }
         // The CRLF that ends the boundary line is not part of the part's headers.
-        if from + 2 <= len(body) && slice(body, from, from + 2) == line_end {
-            from = from + 2
+        if len(after) >= 2 && after == line_end {
+            try scan_skip(scan, scan_at(scan) + 2)
         }
-        push(out, try part_of(slice(body, from, next)))
-        at = next
+        val blank = try scan_find_keeping(
+            scan,
+            to_bytes("\r\n\r\n"),
+            max_part_header_bytes,
+            "a multipart part has no blank line after its headers"
+        )
+        val header_block = try scan_take(scan, blank)
+        try scan_skip(scan, blank + 4)
+        val body_from = scan_at(scan)
+        at = try scan_find_discarding(scan, delim, "the multipart body ends without a closing boundary")
+        push(out, try part_of(header_block, range_of(req.body, body_from, at - body_from)))
     }
     return ok(snapshot(out))
 }
@@ -230,7 +397,11 @@ pub fn part(parts: [Part], name: string) -> Option<Part> {
 // are different things, and neither is silently the other.
 pub fn part_text(parts: [Part], name: string) -> Result<Option<string>, string> {
     if Some(p) = part(parts, name) {
-        return ok(Option<string>.Some(try bytes_to_string(p.body)))
+        val bytes = switch body_bytes(p.body) {
+            Ok(b) { b }
+            Err(e) { return err(io.io_error_message(e)) }
+        }
+        return ok(Option<string>.Some(try bytes_to_string(bytes)))
     }
     return ok(Option<string>.None)
 }

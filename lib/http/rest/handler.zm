@@ -261,7 +261,7 @@ fn endpoint_core<C, U, P, Q, I, O, E>(
             // The body in memory, which is what a `codec.Decoder` takes: a spilled one is read back
             // off disk here. A route that wants the upload a chunk at a time takes a part's source
             // instead (F264) rather than a decoder.
-            val raw = body_bytes(req)
+            val raw = body_bytes(req.body)
             if Err(e) = raw {
                 return fault(status_internal_server_error, io.io_error_message(e))
             }

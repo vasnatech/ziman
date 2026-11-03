@@ -51,7 +51,7 @@ fn receive(ctx: Ctx, who: Principal, file: server.Part) -> Result<string, string
         who.name,
         file.name,
         get_or(file.filename, "-"),
-        str(len(file.body))
+        str(http.body_size(file.body))
     ))
 }
 
@@ -65,7 +65,7 @@ fn receive_optional(ctx: Ctx, file: Option<server.Part>) -> Result<string, strin
 
 // A path segment beside the upload, which is `secure_path_form_handler`.
 fn receive_for(ctx: Ctx, who: Principal, id: Uuid, file: server.Part) -> Result<string, string> {
-    return ok(format("{} bytes for {}", str(len(file.body)), uuid.format(id)))
+    return ok(format("{} bytes for {}", str(http.body_size(file.body)), uuid.format(id)))
 }
 
 // **A file with fields beside it**, which is what a glucometer import sends and what
@@ -92,7 +92,7 @@ fn upload_of(req: http.Request) -> Result<Upload, string> {
 fn receive_form(ctx: Ctx, who: Principal, sent: Upload) -> Result<string, string> {
     return ok(format(
         "{} bytes, column={} unit={} note={}",
-        str(len(sent.file.body)),
+        str(http.body_size(sent.file.body)),
         sent.column,
         sent.unit,
         get_or(sent.note, "-")

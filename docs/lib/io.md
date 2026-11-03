@@ -162,6 +162,37 @@ which is `compress`'s own convention for the parameter this replaces.
 caps the compressed bytes, which were never the problem. docs/design/byte-streams.md §6.1 has the
 two lines side by side, and `compress`'s own documentation leads with the right one.
 
+## A range of one
+
+### `taking`
+
+```
+pub fn taking(source: Iter<Result<[byte], IoError>>, n: int) -> Iter<Result<[byte], IoError>>
+```
+
+The first `n` bytes of the source and no more: the chunk the count lands inside is split, and the
+stream ends there. A negative `n` is the whole source.
+
+**This is not `limited`, and the difference is the error.** `limited` refuses a source that is
+larger than it should be -- the chunk that would pass the ceiling becomes a `TooLarge` -- because
+its caller is guarding against a bomb. This one *cuts a source to size* for a caller that knows
+how long the piece it wants is: a part of a multipart body, a range of a file. Nothing has gone
+wrong when the source holds more, so nothing is reported.
+
+### `skipping`
+
+```
+pub fn skipping(source: Iter<Result<[byte], IoError>>, n: int) -> Iter<Result<[byte], IoError>>
+```
+
+The same source with its first `n` bytes dropped: the chunk the count lands inside is split and
+its remainder is the first chunk out. A negative or zero `n` changes nothing.
+
+**It reads what it skips**, because a source is a pull sequence and has no seek (§10): skipping
+40 MB means reading 40 MB and discarding it. That is why `taking(skipping(s, from), length)` is a
+cheap way to read a range near the *start* of something and an expensive way to read one near its
+end -- and why a format that can arrange to want the first range should.
+
 ## Ending one
 
 ### `drain`

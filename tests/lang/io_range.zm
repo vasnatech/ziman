@@ -1,0 +1,41 @@
+// `io.taking` and `io.skipping`: a range of a source, which is how a multipart part is read out of
+// the one file the server wrote the whole body to (F264 step 2).
+//
+// `taking` is not `limited`, and the difference is the error: `limited` refuses a source that is
+// larger than its ceiling, because its caller is guarding against a bomb, while `taking` cuts a
+// source to a length its caller already knows and reports nothing. `skipping` reads what it skips --
+// a source has no seek -- so a range near the start is cheap and one near the end is not.
+use io
+
+// Three chunks, so every cut below lands inside one rather than on a boundary.
+fn chunked() -> Iter<Result<[byte], io.IoError>> {
+    val parts = [to_bytes("abcde"), to_bytes("fghij"), to_bytes("klmno")]
+    val at = mutable_new(0)
+    return iter_from<Result<[byte], io.IoError>>(fn() -> Option<Result<[byte], io.IoError>> {
+        val i = get(at)
+        if i >= len(parts) {
+            return Option<Result<[byte], io.IoError>>.None
+        }
+        set(at, i + 1)
+        val chunk: Result<[byte], io.IoError> = parts[i]
+        return Option<Result<[byte], io.IoError>>.Some(chunk)
+    }, fn() {})
+}
+
+fn text_of(source: Iter<Result<[byte], io.IoError>>) -> string {
+    return unwrap(bytes_to_string(unwrap(io.drain(source, 0 - 1))))
+}
+
+fn main() {
+    print(text_of(io.taking(chunked(), 7)))
+    print(text_of(io.skipping(chunked(), 7)))
+    // A range, which is the pair's reason to exist.
+    print(text_of(io.taking(io.skipping(chunked(), 3), 6)))
+    // Nothing, and everything: a zero take is empty, a skip past the end is empty, and a take or a
+    // skip of more than there is answers what there is rather than failing.
+    print(concat("[", text_of(io.taking(chunked(), 0)), "]"))
+    print(concat("[", text_of(io.skipping(chunked(), 99)), "]"))
+    print(text_of(io.taking(chunked(), 99)))
+    // Negative is the whole source for both, like `limited`'s own ceiling.
+    print(text_of(io.taking(io.skipping(chunked(), 0 - 1), 0 - 1)))
+}

@@ -225,7 +225,7 @@ fn serve_burst(
             // per crash (checked, not assumed). It is also why a handler must not keep the source.
             defer discard_body(exchange.request)
             if meter {
-                metrics.add(received_metric, (body_size(exchange.request) as float))
+                metrics.add(received_metric, (body_size(exchange.request.body) as float))
             }
             val response = handler(exchange.request)
             if meter {

@@ -655,6 +655,10 @@ pub fn mapped<T, E, F>(
 
 pub fn limited(source: Iter<Result<[byte], IoError>>, max: int) -> Iter<Result<[byte], IoError>>
 
+pub fn taking(source: Iter<Result<[byte], IoError>>, n: int) -> Iter<Result<[byte], IoError>>
+
+pub fn skipping(source: Iter<Result<[byte], IoError>>, n: int) -> Iter<Result<[byte], IoError>>
+
 pub fn drain(source: Iter<Result<[byte], IoError>>, max: int) -> Result<[byte], IoError>
 
 pub fn text(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoError>>
@@ -3440,6 +3444,7 @@ pub struct Header {
 
 pub struct Spill {
     path: string
+    offset: int
     size: int
 }
 
@@ -3485,11 +3490,11 @@ pub fn request(method: HttpMethod, target: string, headers: [Header], body: [byt
 
 pub fn response_text(r: Response) -> Result<string, string>
 
-pub fn body_size(req: Request) -> int
+pub fn body_size(body: Body) -> int
 
-pub fn body_bytes(req: Request) -> Result<[byte], io.IoError>
+pub fn body_bytes(body: Body) -> Result<[byte], io.IoError>
 
-pub fn body_source(req: Request) -> Result<Iter<Result<[byte], io.IoError>>, io.IoError>
+pub fn body_source(body: Body) -> Result<Iter<Result<[byte], io.IoError>>, io.IoError>
 
 pub fn request_text(req: Request) -> Result<string, string>
 

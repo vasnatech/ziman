@@ -105,9 +105,15 @@ pub struct Header {
     value: string
 }
 
-// A request body the server wrote to a file rather than holding in memory, because it passed
-// `ServeOptions.spill_body_bytes`. `path` is the file, in `fs.temp_dir()`; `size` is how many bytes
-// are in it, recorded by the reader so that asking how big a body is costs no syscall.
+// Bytes in a file rather than in memory: a request body the server wrote out because it passed
+// `ServeOptions.spill_body_bytes`, or a range of one. `path` is the file, in `fs.temp_dir()`;
+// `offset` is where these bytes start in it and `size` how many there are, both recorded by
+// whichever reader wrote or scanned the file, so that asking how big a body is costs no syscall.
+//
+// **`offset` is what lets a multipart part be a part of the same file**, rather than a copy of a
+// range of it: the body is written once by the reader, and each part is a range of that one file
+// with nothing copied at all. Only the request owns the file -- a part never does -- so there is
+// still exactly one place it is deleted.
 //
 // **The file is the server's, not the handler's.** It is created when the threshold is crossed and
 // deleted when the request ends -- including when the handler fails -- so **a handler must not keep
@@ -115,6 +121,7 @@ pub struct Header {
 // gets a file that is already gone.
 pub struct Spill {
     path: string
+    offset: int
     size: int
 }
 
@@ -210,47 +217,47 @@ pub fn response_text(r: Response) -> Result<string, string> {
     return bytes_to_string(r.body)
 }
 
-// How many bytes the body of `req` holds. Costs nothing either way: a spilled body's reader
-// recorded its size, so this never opens the file.
-pub fn body_size(req: Request) -> int {
-    return switch req.body {
+// How many bytes `body` holds. Costs nothing either way: whichever reader spilled it recorded the
+// size, so this never opens the file.
+pub fn body_size(body: Body) -> int {
+    return switch body {
         Bytes(b) { len(b) }
         Spilled(s) { s.size }
     }
 }
 
-// The whole body of `req` in memory: the bytes as they stand, or a spilled body read back off disk.
-// For a reader that wants all of it -- a JSON decoder, a signature check -- where `body_source` is
-// for one that does not. **A spilled body is spilled because it was large**, so this undoes the
-// saving; it is here because a 100 MB upload still has to reach a decoder that only takes bytes,
-// and reading it back is strictly better than having held it the whole time.
-pub fn body_bytes(req: Request) -> Result<[byte], io.IoError> {
-    return switch req.body {
+// The whole of `body` in memory: the bytes as they stand, or a spilled one read back off disk. For
+// a reader that wants all of it -- a JSON decoder, a signature check -- where `body_source` is for
+// one that does not. **A spilled body is spilled because it was large**, so this undoes the saving;
+// it is here because a 100 MB upload still has to reach a decoder that only takes bytes, and reading
+// it back is strictly better than having held it the whole time.
+pub fn body_bytes(body: Body) -> Result<[byte], io.IoError> {
+    return switch body {
         Bytes(b) { ok(b) }
-        Spilled(s) {
-            switch fs.read_bytes(s.path) {
-                Ok(bytes) { ok(bytes) }
-                Err(e) { err(fs.io_error(e)) }
-            }
-        }
+        Spilled(_) { io.drain(try body_source(body), 0 - 1) }
     }
 }
 
-// The body of `req` as a source: one chunk at a time, for a reader that does not need all of it at
-// once (`xml.events`, a multipart scanner, `io.lines`). A body in memory answers as one chunk, a
-// spilled one as `fs.chunks` over its file -- so a caller is written once and the threshold decides
-// nothing about it.
+// `body` as a source: one chunk at a time, for a reader that does not need all of it at once
+// (`xml.events`, a zip reader, `io.lines`). A body in memory answers as one chunk, a spilled one as
+// its range of the file it is in -- so a caller is written once and the threshold decides nothing
+// about it.
 //
-// The source is only valid until the handler returns: the file behind it is the server's (see
-// `Spill`).
-pub fn body_source(req: Request) -> Result<Iter<Result<[byte], io.IoError>>, io.IoError> {
-    return switch req.body {
+// A range is `io.taking(io.skipping(..))`, which **reads and discards everything before `offset`**,
+// there being no seek on a source. For a multipart body that is a few hundred bytes of preamble and
+// headers before the first part, and the cost grows for a part further in -- the honest reason to
+// read the part you want first where a format allows it.
+//
+// The source is only valid until the request ends: the file behind it is the server's (see `Spill`).
+pub fn body_source(body: Body) -> Result<Iter<Result<[byte], io.IoError>>, io.IoError> {
+    return switch body {
         Bytes(b) { ok(io.of_bytes(b)) }
         Spilled(s) {
-            switch fs.chunks(s.path, spill_read_bytes) {
-                Ok(source) { ok(source) }
-                Err(e) { err(fs.io_error(e)) }
+            val file = switch fs.chunks(s.path, spill_read_bytes) {
+                Ok(source) { source }
+                Err(e) { return err(fs.io_error(e)) }
             }
+            ok(io.taking(io.skipping(file, s.offset), s.size))
         }
     }
 }
@@ -258,7 +265,7 @@ pub fn body_source(req: Request) -> Result<Iter<Result<[byte], io.IoError>>, io.
 // The body of `req` as text: an Err when it holds a NUL byte (it is binary, not text), or when a
 // spilled body could not be read back.
 pub fn request_text(req: Request) -> Result<string, string> {
-    val bytes = switch body_bytes(req) {
+    val bytes = switch body_bytes(req.body) {
         Ok(b) { b }
         Err(e) { return err(io.io_error_message(e)) }
     }

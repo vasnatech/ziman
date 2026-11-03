@@ -9,13 +9,13 @@ use number.to_hex
 use server
 
 fn handler(r: http.Request) -> http.Response {
-    val source = unwrap(http.body_source(r))
+    val source = unwrap(http.body_source(r.body))
     val streamed = len(unwrap(io.drain(source, 0 - 1)))
     val place = switch r.body {
         Bytes(_) { "memory" }
         Spilled(_) { "a file" }
     }
-    return server.text_response(200, format("in {}, size={} source={}", place, http.body_size(r), streamed))
+    return server.text_response(200, format("in {}, size={} source={}", place, http.body_size(r.body), streamed))
 }
 
 // A chunked request written by hand: `client` sends a `Content-Length`, so the only way to exercise

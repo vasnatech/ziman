@@ -40,9 +40,9 @@ fn text_part(headers: string, body: string) -> [byte] {
 }
 
 fn describe(p: server.Part) -> string {
-    val text = switch bytes_to_string(p.body) {
+    val text = switch bytes_to_string(unwrap(http.body_bytes(p.body))) {
         Ok(s) { concat("\"", replace(replace(s, "\r", "\\r"), "\n", "\\n"), "\"") }
-        Err(_) { concat(str(len(p.body)), " bytes, not text") }
+        Err(_) { concat(str(http.body_size(p.body)), " bytes, not text") }
     }
     return concat(
         "name=",

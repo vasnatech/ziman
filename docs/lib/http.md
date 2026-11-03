@@ -262,13 +262,20 @@ One header line. `name` keeps the case it had; compare names with `equals_ignore
 ```
 pub struct Spill {
     path: string
+    offset: int
     size: int
 }
 ```
 
-A request body the server wrote to a file rather than holding in memory, because it passed
-`ServeOptions.spill_body_bytes`. `path` is the file, in `fs.temp_dir()`; `size` is how many bytes
-are in it, recorded by the reader so that asking how big a body is costs no syscall.
+Bytes in a file rather than in memory: a request body the server wrote out because it passed
+`ServeOptions.spill_body_bytes`, or a range of one. `path` is the file, in `fs.temp_dir()`;
+`offset` is where these bytes start in it and `size` how many there are, both recorded by
+whichever reader wrote or scanned the file, so that asking how big a body is costs no syscall.
+
+**`offset` is what lets a multipart part be a part of the same file**, rather than a copy of a
+range of it: the body is written once by the reader, and each part is a range of that one file
+with nothing copied at all. Only the request owns the file -- a part never does -- so there is
+still exactly one place it is deleted.
 
 **The file is the server's, not the handler's.** It is created when the threshold is crossed and
 deleted when the request ends -- including when the handler fails -- so **a handler must not keep
@@ -376,37 +383,41 @@ The body of `r` as text: an Err when it holds a NUL byte (it is binary, not text
 ### `body_size`
 
 ```
-pub fn body_size(req: Request) -> int
+pub fn body_size(body: Body) -> int
 ```
 
-How many bytes the body of `req` holds. Costs nothing either way: a spilled body's reader
-recorded its size, so this never opens the file.
+How many bytes `body` holds. Costs nothing either way: whichever reader spilled it recorded the
+size, so this never opens the file.
 
 ### `body_bytes`
 
 ```
-pub fn body_bytes(req: Request) -> Result<[byte], io.IoError>
+pub fn body_bytes(body: Body) -> Result<[byte], io.IoError>
 ```
 
-The whole body of `req` in memory: the bytes as they stand, or a spilled body read back off disk.
-For a reader that wants all of it -- a JSON decoder, a signature check -- where `body_source` is
-for one that does not. **A spilled body is spilled because it was large**, so this undoes the
-saving; it is here because a 100 MB upload still has to reach a decoder that only takes bytes,
-and reading it back is strictly better than having held it the whole time.
+The whole of `body` in memory: the bytes as they stand, or a spilled one read back off disk. For
+a reader that wants all of it -- a JSON decoder, a signature check -- where `body_source` is for
+one that does not. **A spilled body is spilled because it was large**, so this undoes the saving;
+it is here because a 100 MB upload still has to reach a decoder that only takes bytes, and reading
+it back is strictly better than having held it the whole time.
 
 ### `body_source`
 
 ```
-pub fn body_source(req: Request) -> Result<Iter<Result<[byte], io.IoError>>, io.IoError>
+pub fn body_source(body: Body) -> Result<Iter<Result<[byte], io.IoError>>, io.IoError>
 ```
 
-The body of `req` as a source: one chunk at a time, for a reader that does not need all of it at
-once (`xml.events`, a multipart scanner, `io.lines`). A body in memory answers as one chunk, a
-spilled one as `fs.chunks` over its file -- so a caller is written once and the threshold decides
-nothing about it.
+`body` as a source: one chunk at a time, for a reader that does not need all of it at once
+(`xml.events`, a zip reader, `io.lines`). A body in memory answers as one chunk, a spilled one as
+its range of the file it is in -- so a caller is written once and the threshold decides nothing
+about it.
 
-The source is only valid until the handler returns: the file behind it is the server's (see
-`Spill`).
+A range is `io.taking(io.skipping(..))`, which **reads and discards everything before `offset`**,
+there being no seek on a source. For a multipart body that is a few hundred bytes of preamble and
+headers before the first part, and the cost grows for a part further in -- the honest reason to
+read the part you want first where a format allows it.
+
+The source is only valid until the request ends: the file behind it is the server's (see `Spill`).
 
 ### `request_text`
 

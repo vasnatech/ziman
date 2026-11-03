@@ -1,0 +1,105 @@
+// A `multipart/form-data` body that the server spilled to a file, read without ever being brought
+// back into memory: each part is a **range of that one file**, which is what `Spill.offset` is for
+// (F264 step 2). The two things this pins are that a part shares the body's own file rather than
+// copying out of it, and that reading one through `body_source` gives the same bytes either way.
+use client
+use http
+use http.HttpMethod
+use io
+use net
+use server
+
+val boundary = "zimanSpilled7"
+
+fn handler(r: http.Request) -> http.Response {
+    val parts = switch server.multipart(r) {
+        Ok(ps) { ps }
+        Err(e) { return server.error_response(e) }
+    }
+    val note = switch unwrap(server.part_text(parts, "note")) {
+        Some(t) { t }
+        None { "(none)" }
+    }
+    val file = switch server.part(parts, "export") {
+        Some(p) { p }
+        None { return server.text_response(400, "no export part") }
+    }
+    // The part's bytes, pulled through its own source: for a spilled body that is a ranged read of
+    // the request's file, and the range is the thing that could be wrong.
+    val streamed = unwrap(io.drain(unwrap(http.body_source(file.body)), 0 - 1))
+    val first = if len(streamed) > 0 { slice(streamed, 0, 1) } else { to_bytes("?") }
+    val last = if len(streamed) > 0 { slice(streamed, len(streamed) - 1, len(streamed)) } else { to_bytes("?") }
+    // Where the two bodies are: the same file, at different offsets, and no copy between them.
+    val shared = switch r.body {
+        Bytes(_) { "the body was in memory" }
+        Spilled(whole) {
+            switch file.body {
+                Bytes(_) { "the part was copied out" }
+                Spilled(piece) {
+                    if piece.path == whole.path && piece.offset > 0 {
+                        "the part is a range of the body's own file"
+                    } else {
+                        "the part is somewhere else"
+                    }
+                }
+            }
+        }
+    }
+    return server.text_response(200, format(
+        "note={} export={} bytes [{}..{}] size={} {}",
+        note,
+        str(len(streamed)),
+        unwrap(bytes_to_string(first)),
+        unwrap(bytes_to_string(last)),
+        str(http.body_size(file.body)),
+        shared
+    ))
+}
+
+// A body written the way a client sends it, with the file part last so that reading it has to pass
+// over everything before it.
+fn form_body(file_bytes: int) -> [byte] {
+    val out = mutable_string_new()
+    append(out, concat("--", boundary, "\r\n"))
+    append(out, "Content-Disposition: form-data; name=\"note\"\r\n\r\nhello\r\n")
+    append(out, concat("--", boundary, "\r\n"))
+    append(out, "Content-Disposition: form-data; name=\"export\"; filename=\"export.xml\"\r\n")
+    append(out, "Content-Type: application/xml\r\n\r\n")
+    append(out, "A")
+    for i in 0..(file_bytes - 2) {
+        append(out, "x")
+    }
+    append(out, "Z\r\n")
+    append(out, concat("--", boundary, "--\r\n"))
+    return to_bytes(snapshot(out))
+}
+
+fn post(port: int, file_bytes: int) -> string {
+    return switch client.request(
+        method: HttpMethod.Post,
+        url: format("http://127.0.0.1:{}/", port),
+        headers: [http.Header {
+            name: "Content-Type",
+            value: concat("multipart/form-data; boundary=", boundary)
+        }],
+        body: form_body(file_bytes)
+    ) {
+        Ok(resp) { unwrap(http.response_text(resp)) }
+        Err(e) { concat("client: ", error_message(e)) }
+    }
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    spawn server.serve(l, handler, with server.serve_options() {
+        spill_body_bytes: 1024,
+        max_body_bytes: 1048576
+    }) on_error fn(message: string) {
+        print(concat("server: ", message))
+    }
+    // Under the threshold: the body is in memory and a part is a slice of it, as it always was.
+    print(post(port, 100))
+    // Over it: the body is a file and the parts are ranges of it.
+    print(post(port, 40000))
+}

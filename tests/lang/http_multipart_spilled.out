@@ -1,0 +1,2 @@
+note=hello export=100 bytes [A..Z] size=100 the body was in memory
+note=hello export=40000 bytes [A..Z] size=40000 the part is a range of the body's own file

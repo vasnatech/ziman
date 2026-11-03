@@ -162,6 +162,107 @@ pub fn limited(source: Iter<Result<[byte], IoError>>, max: int) -> Iter<Result<[
     )
 }
 
+// ---------------------------------------------------------------- a range of one
+
+// The first `n` bytes of the source and no more: the chunk the count lands inside is split, and the
+// stream ends there. A negative `n` is the whole source.
+//
+// **This is not `limited`, and the difference is the error.** `limited` refuses a source that is
+// larger than it should be -- the chunk that would pass the ceiling becomes a `TooLarge` -- because
+// its caller is guarding against a bomb. This one *cuts a source to size* for a caller that knows
+// how long the piece it wants is: a part of a multipart body, a range of a file. Nothing has gone
+// wrong when the source holds more, so nothing is reported.
+pub fn taking(source: Iter<Result<[byte], IoError>>, n: int) -> Iter<Result<[byte], IoError>> {
+    val inner = source
+    val wanted = n
+    val left = mutable_new(n)
+    val stopped = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<[byte], IoError>> {
+            if get(stopped) {
+                return None
+            }
+            if wanted >= 0 && get(left) <= 0 {
+                set(stopped, true)
+                iter_close(inner)
+                return None
+            }
+            return switch iter_next(inner) {
+                Some(item) {
+                    switch item {
+                        Err(why) {
+                            set(stopped, true)
+                            Some(err(why))
+                        }
+                        Ok(chunk) {
+                            if wanted < 0 {
+                                Some(ok(chunk))
+                            } else if prelude.len(chunk) <= get(left) {
+                                set(left, get(left) - prelude.len(chunk))
+                                Some(ok(chunk))
+                            } else {
+                                val cut = slice(chunk, 0, get(left))
+                                set(left, 0)
+                                Some(ok(cut))
+                            }
+                        }
+                    }
+                }
+                None {
+                    set(stopped, true)
+                    None
+                }
+            }
+        },
+        fn() { iter_close(inner) }
+    )
+}
+
+// The same source with its first `n` bytes dropped: the chunk the count lands inside is split and
+// its remainder is the first chunk out. A negative or zero `n` changes nothing.
+//
+// **It reads what it skips**, because a source is a pull sequence and has no seek (§10): skipping
+// 40 MB means reading 40 MB and discarding it. That is why `taking(skipping(s, from), length)` is a
+// cheap way to read a range near the *start* of something and an expensive way to read one near its
+// end -- and why a format that can arrange to want the first range should.
+pub fn skipping(source: Iter<Result<[byte], IoError>>, n: int) -> Iter<Result<[byte], IoError>> {
+    val inner = source
+    val owed = mutable_new(n)
+    val stopped = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<[byte], IoError>> {
+            if get(stopped) {
+                return None
+            }
+            while true {
+                val item = iter_next(inner)
+                if Some(got) = item {
+                    if Err(why) = got {
+                        set(stopped, true)
+                        return Some(err(why))
+                    }
+                    val chunk = unwrap(got)
+                    if get(owed) <= 0 {
+                        return Some(ok(chunk))
+                    }
+                    if prelude.len(chunk) <= get(owed) {
+                        set(owed, get(owed) - prelude.len(chunk))
+                    } else {
+                        val kept = slice(chunk, get(owed), prelude.len(chunk))
+                        set(owed, 0)
+                        return Some(ok(kept))
+                    }
+                } else {
+                    set(stopped, true)
+                    return None
+                }
+            }
+            return None
+        },
+        fn() { iter_close(inner) }
+    )
+}
+
 // ---------------------------------------------------------------- ending one
 
 // Every byte of the source, in one `[byte]`, with `max` as the ceiling (negative for none).

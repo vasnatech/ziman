@@ -186,7 +186,7 @@ fn read_chunked(
                     written = written + len(body)
                 }
                 return ChunkedBody {
-                    body: Body.Spilled(Spill { path: path, size: written }),
+                    body: Body.Spilled(Spill { path: path, offset: 0, size: written }),
                     rest: slice(buf, 2, len(buf))
                 }
             }
@@ -438,7 +438,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
             val _ = fs.remove(path)
             return err(failed)
         }
-        spilled = Option<Spill>.Some(Spill { path: path, size: content_length })
+        spilled = Option<Spill>.Some(Spill { path: path, offset: 0, size: content_length })
         rest = slice(rest, have, len(rest))
     } else if content_length > len(rest) {
         try continue_if_expected(sock, header_list)
