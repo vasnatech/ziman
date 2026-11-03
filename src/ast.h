@@ -224,6 +224,13 @@ struct Expr {
     ExprKind kind;
     int line, col;
     Type resolved_type; /* filled in by the type checker */
+    /* EXPR_STRUCT_LIT only: this literal's field initialisers in the *declaration's* field order,
+     * worked out on first evaluation. A resolved cache beside `resolved_type` and the slot
+     * resolution below, for the same reason they are here -- it is a property of this expression
+     * and cannot change between evaluations -- and it replaces a `count` x `count` walk with
+     * `strcmp` per field, run again on every single evaluation: 49 string comparisons per instance
+     * of a seven-field struct, which a parser building one per line of its input does per line. */
+    struct Expr **struct_lit_order;
     /* For EXPR_IDENT (an ordinary variable, not a function reference -- see fn_ref below) and
      * for `call.local_name` (calling through a local of function type): how many `Env->parent`
      * hops from this expression's own runtime `env`, and which index into that scope's
@@ -927,6 +934,16 @@ typedef struct {
     const char *deprecated_message;
     int line, col;
     const char *source_file; /* the file it was loaded from; NULL for a bundled module */
+    /* The declared field names as one array, built on first use and shared by every `StructObj`
+     * of this type -- a resolved cache like `Expr.resolved_type`, not part of the parse.
+     *
+     * A `StructObj`'s `field_names` is read in four places and written in none, and five callers
+     * of `struct_obj_new` already pass a shared static array (`ITER_FIELD_NAMES`,
+     * `MUTABLE_FIELD_NAMES` and the three builders), as does the `with` path, which hands on the
+     * old struct's. Only an ordinary struct literal built a fresh copy per evaluation, of pointers
+     * borrowed from this declaration: **360,006 allocations and 10.6 MB for one 1.6 MB YAML parse**,
+     * all of them the same seven pointers (tests/bench/yaml_scan.zm). */
+    char **field_names;
 } StructDecl;
 
 typedef struct {

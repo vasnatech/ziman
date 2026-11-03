@@ -1703,22 +1703,18 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_STRUCT_LIT: {
             StructDecl *decl = find_struct(module, e->as.struct_lit.type_name);
             int count = decl->fields.count;
-            char **names = ziman_xmalloc((size_t)count * sizeof(char *));
+            /* Both the shared name array and this literal's field order come from the checker
+             * (`check_struct_literal`), which is where a cache that several threads will read has
+             * to be filled. This used to copy the names per evaluation -- 360,006 allocations of
+             * the same seven pointers for one YAML parse -- and re-derive the order with
+             * `count` x `count` strcmps each time. */
             Value *fields = ziman_xmalloc((size_t)count * sizeof(Value));
             gc_unsafe_enter();
             for (int i = 0; i < count; i++) {
-                names[i] = decl->fields.items[i].name; /* borrowed from the StructDecl, never freed */
-                Expr *value_expr = NULL;
-                for (int j = 0; j < e->as.struct_lit.fields.count; j++) {
-                    if (strcmp(e->as.struct_lit.fields.items[j].name, names[i]) == 0) {
-                        value_expr = e->as.struct_lit.fields.items[j].value;
-                        break;
-                    }
-                }
-                fields[i] = eval_expr(module, env, value_expr);
+                fields[i] = eval_expr(module, env, e->struct_lit_order[i]);
             }
             gc_unsafe_leave();
-            return value_struct(&e->resolved_type, struct_obj_new(names, fields, count));
+            return value_struct(&e->resolved_type, struct_obj_new(decl->field_names, fields, count));
         }
         case EXPR_FIELD_ACCESS: {
             if (e->fn_ref != NULL) return value_function((FunctionDecl *)e->fn_ref);

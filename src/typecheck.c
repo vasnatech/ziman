@@ -5255,6 +5255,37 @@ static Type check_struct_literal(Module *module, Env *env, Expr *e) {
             ziman_error("type", e->line, e->col, "missing field '%s' in construction of '%s'", field_name, type_name_str);
         }
     }
+    /* Two caches for the interpreter, filled here because **here is single-threaded**. Both are
+     * properties of this expression and that declaration which cannot change between evaluations,
+     * and the obvious place to work them out -- on first evaluation -- is a data race in any
+     * program that builds the same struct on two threads, which a server does on every request.
+     * `resolved_type` and `fn_ref` are set here for the same reason.
+     *
+     * `field_names`: the declaration's own names as one array, shared by every instance instead of
+     * copied per evaluation. `struct_lit_order`: this literal's initialisers in the declaration's
+     * field order, so the interpreter stops re-deriving it with `count` x `count` strcmps every
+     * time. Measured on a 1.6 MB YAML parse: 360,006 allocations of 10.6 MB for the names, and 49
+     * string comparisons per instance of a seven-field struct. */
+    if (decl->field_names == NULL && decl->fields.count > 0) {
+        char **names = ziman_xmalloc((size_t)decl->fields.count * sizeof(char *));
+        for (int i = 0; i < decl->fields.count; i++) {
+            names[i] = decl->fields.items[i].name; /* borrowed from the StructDecl, never freed */
+        }
+        decl->field_names = names;
+    }
+    if (decl->fields.count > 0) {
+        Expr **order = ziman_xmalloc((size_t)decl->fields.count * sizeof(Expr *));
+        for (int i = 0; i < decl->fields.count; i++) {
+            order[i] = NULL;
+            for (int j = 0; j < inits->count; j++) {
+                if (strcmp(inits->items[j].name, decl->fields.items[i].name) == 0) {
+                    order[i] = inits->items[j].value;
+                    break;
+                }
+            }
+        }
+        e->struct_lit_order = order;
+    }
     Type result = type_struct(type_name_str);
     result.type_args = *type_args;
     return result;

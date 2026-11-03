@@ -46,10 +46,19 @@
 //     figures, one document per run; the series below is warm after its first size, which is fine
 //     for the shape it checks and wrong for an absolute number.
 //
-// **What is left, in order**: the `Line` struct allocated per line (seven fields, two per `- `
-// item), `split_key`'s own 10.5%, and the `tokenize`/`parse_map` pair. Those want the parser to
-// work over indices into one array rather than a struct per line, which is a different change from
-// these four.
+// **What is left is mostly not in this module**, which `./ziman-allocprofile` says plainly: a fresh
+// parse of this document is **3.07 million allocations and 208 MB** for 1.6 MB of input, and the
+// collector is 61% of it. The top sites are `type_ref` (500,014 calls, 16%: a `Type` per
+// constructed value), `enum_obj_new` (400,009), `struct_obj_new` and `result_obj_new` (380,000
+// each) -- which is to say **a `Result`-returning helper called six times per line costs a dozen
+// heap objects per line**, and no amount of care inside `yaml.zm` changes that. `src/ast.c`'s own
+// comment records that interning types was tried and abandoned for no gain.
+//
+// So the two directions from here are: fewer helper calls per line (the parser working over indices
+// into one array rather than a struct per line, which also cuts the wrappers), or an interpreter
+// that does not allocate a wrapper for every `Result` and `Option`. The second is the larger prize
+// and the larger change. Inside this module the next items are `split_key`'s own 5.9%, `tokenize`'s
+// 5.8% and the `tokenize`/`parse_map` pair.
 //
 // Run it directly: `./ziman tests/bench/yaml_scan.zm`. The series must stay linear and the ratio
 // to the JSON parse must stay in the same range -- a jump in either is the regression this exists
