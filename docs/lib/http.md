@@ -282,6 +282,10 @@ deleted when the request ends -- including when the handler fails -- so **a hand
 the body, or a source over it, past its own return**. A handler that stores one and reads later
 gets a file that is already gone.
 
+A process killed outright mid-request leaves its file behind, there being nothing left to run the
+deletion: that is the temporary directory's own business, which is why the file is put there
+rather than somewhere this server would have to sweep at startup.
+
 ### `Body`
 
 ```
