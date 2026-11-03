@@ -465,9 +465,22 @@ fn find_from(cs: io.Cursor, needle: [string], from: int) -> int {
     return io.find(cs, needle, from)
 }
 
+// Where the run starting at `from` ends: the first of `stops`, or the end of the document. **One
+// call per run, where this parser used to ask the cursor about every character** (F263).
+fn run_to(cs: io.Cursor, stops: [string], from: int) -> int {
+    return io.run_until(cs, stops, from)
+}
+
 // The needles the scanners look for, built once at module level rather than per call: a `[string]`
 // literal in an argument position would allocate on every comparison.
 val tok_semicolon: [string] = [";"]
+// The stop sets `run_until` scans for: what ends a run of content, and what ends a run inside an
+// attribute value -- one set per quote, because a single-quoted value may hold a double quote and
+// the other way round. Single characters rather than tokens, since `run_until` asks "is this
+// character one of these" where `find` asks "does this token start here".
+val stop_content: [string] = ["<", "&"]
+val stop_in_double: [string] = ["\"", "<", "&"]
+val stop_in_single: [string] = ["'", "<", "&"]
 val tok_comment_end: [string] = ["-", "-", ">"]
 val tok_cdata_end: [string] = ["]", "]", ">"]
 val tok_pi_end: [string] = ["?", ">"]
@@ -671,49 +684,110 @@ fn read_char_code(cs: io.Cursor, pos: int, body: string) -> Result<int, string> 
 // Character data up to the next `<`. References are expanded; a raw `]]>` is refused because it
 // ends a CDATA section and so cannot appear literally in content.
 
+// **A run at a time, not a character at a time** (F263, 2026-11-03). The version before this asked
+// the cursor four questions per character of content -- `at_end`, `at_is`, `illegal_char(char_of)`
+// and the `]]>` check, each one re-reading the window's two cells -- which is where the cursor's 2x
+// over the array scanner lived. `run_until` finds where the run ends in one call, `span` takes it
+// whole, and what is left to do per character is done over a string already in hand.
+//
+// The two things that had to survive the change: an `&` still has to be expanded by
+// `read_reference`, so a run stops there as well as at `<` and the loop goes round again; and both
+// refusals still name the position they found, which `offending_at` recovers by walking the run --
+// on the path that is about to fail anyway.
 fn read_text(cs: io.Cursor, pos: int) -> Result<PStr, string> {
     val out = mutable_string_new()
     var p = pos
-    while !at_end(cs, p) && !at_is(cs, p, "<") {
-        if at_is(cs, p, "&") {
-            p = try read_reference(cs, p, out)
-        } else {
-            if illegal_char(char_of(cs, p)) {
-                return err(fail(cs, p, "a control character XML cannot represent"))
-            }
-            if at_is(cs, p, "]") && at_starts(cs, p, tok_cdata_end) {
-                return err(fail(cs, p, "']]>' cannot appear in content; write '&gt;' for the '>'"))
-            }
-            append(out, char_of(cs, p))
-            p = p + 1
+    while true {
+        val end = run_to(cs, stop_content, p)
+        if end > p {
+            val run = span_text(cs, p, end)
+            try check_content(cs, p, run)
+            append(out, run)
+            p = end
         }
+        if at_end(cs, p) || at_is(cs, p, "<") {
+            return ok(PStr { text: snapshot(out), next: p })
+        }
+        // The only other thing `stop_content` stops at.
+        p = try read_reference(cs, p, out)
     }
     return ok(PStr { text: snapshot(out), next: p })
 }
 
+// A run of content, checked in one pass over its bytes rather than character by character. **A byte
+// below 0x20 is always a standalone ASCII control**: every byte of a multi-byte UTF-8 sequence is
+// 0x80 or above, so this cannot mistake the middle of a character for one, and it is the same test
+// `illegal_char` makes one character at a time.
+fn check_controls(cs: io.Cursor, from: int, run: string) -> Result<unit, string> {
+    val bytes = to_bytes(run)
+    var i = 0
+    while i < len(bytes) {
+        val b = bytes[i]
+        if b < 32b && b != 9b && b != 10b && b != 13b {
+            return err(fail(cs, from + offending_at(run, i), "a control character XML cannot represent"))
+        }
+        i = i + 1
+    }
+    return ok(unit)
+}
+
+// A run of *content*, which has one rule more than an attribute value does.
+fn check_content(cs: io.Cursor, from: int, run: string) -> Result<unit, string> {
+    try check_controls(cs, from, run)
+    // `index_of` on a string counts characters, so this position needs no converting -- unlike the
+    // byte scan above, which is why only that one goes through `offending_at`.
+    val cdata = index_of(run, "]]>", 0)
+    if cdata >= 0 {
+        return err(fail(cs, from + cdata, "']]>' cannot appear in content; write '&gt;' for the '>'"))
+    }
+    return ok(unit)
+}
+
+// The character index of the byte at `at`, for the one refusal that finds its position in bytes.
+// Only ever reached on a path that is about to fail, so walking the run again costs nothing that
+// matters -- and it keeps the scan itself over bytes, which is the point.
+fn offending_at(run: string, at: int) -> int {
+    var bytes = 0
+    var index = 0
+    for c in chars(run) {
+        if bytes >= at {
+            return index
+        }
+        bytes = bytes + byte_len(c)
+        index = index + 1
+    }
+    return index
+}
+
+// A run at a time, like `read_text` above and for the same reason (F263): an attribute value is the
+// other half of a document of the shape `<entry id="7" kind="note">text</entry>`, so leaving it
+// character-at-a-time would have paid back half the cursor's cost and called it done.
 fn read_attr_value(cs: io.Cursor, pos: int) -> Result<PStr, string> {
     if at_end(cs, pos) || (!at_is(cs, pos, "\"") && !at_is(cs, pos, "'")) {
         return err(fail(cs, pos, "an attribute value must be quoted"))
     }
     val quote = char_of(cs, pos)
+    val stops = if quote == "\"" { stop_in_double } else { stop_in_single }
     val out = mutable_string_new()
     var p = pos + 1
-    while !at_end(cs, p) {
+    while true {
+        val end = run_to(cs, stops, p)
+        if end > p {
+            val run = span_text(cs, p, end)
+            try check_controls(cs, p, run)
+            append(out, run)
+            p = end
+        }
+        if at_end(cs, p) {
+            return err(fail(cs, pos, "an attribute value with no closing quote"))
+        }
         if at_is(cs, p, quote) {
             return ok(PStr { text: snapshot(out), next: p + 1 })
         }
         if at_is(cs, p, "<") {
             return err(fail(cs, p, "'<' cannot appear in an attribute value; write '&lt;'"))
         }
-        if at_is(cs, p, "&") {
-            p = try read_reference(cs, p, out)
-        } else {
-            if illegal_char(char_of(cs, p)) {
-                return err(fail(cs, p, "a control character XML cannot represent"))
-            }
-            append(out, char_of(cs, p))
-            p = p + 1
-        }
+        p = try read_reference(cs, p, out)
     }
     return err(fail(cs, pos, "an attribute value with no closing quote"))
 }

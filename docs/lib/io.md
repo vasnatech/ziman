@@ -353,6 +353,28 @@ there is only known absent at the end of the document -- a text run with no `<` 
 instance. A caller that reads untrusted input puts `limited` under the cursor, which is where that
 ceiling belongs.
 
+### `run_until`
+
+```
+pub fn run_until(c: Cursor, stops: [string], from: int) -> int
+```
+
+Where a run of characters that are none of `stops` ends: the position of the first character in
+`stops` at or after `from`, or **the end of the document** when there is none. Never -1, which is
+the difference from `find` and the reason this exists beside it -- a scanner reading a run wants
+one number for "here is where it stops", and asking twice (find, then a bounds check) is what
+made the character-at-a-time version expensive.
+
+**It reads the window once per chunk, not once per character.** `at` has to re-read `base` and
+`window` on every call because anything may have moved between calls; a run cannot move under
+itself, so this hoists both out of the loop and indexes the array directly, going back for more
+only when it reaches the end of what is held. That is the whole optimisation: the same work with
+two cell reads and a call per *chunk* instead of per character (docs/reviews/tasks/ F263).
+
+Unlike `find`, this cannot grow the window past the first stop -- so a scanner whose stop set
+includes the character that ends what it is reading is bounded by the thing it is reading, not by
+the document.
+
 ### `release`
 
 ```

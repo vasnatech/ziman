@@ -1,0 +1,14 @@
+references inside a run => parsed a & b < c
+a control character on line 3 => ERR line 3: a control character XML cannot represent
+after non-ASCII text => ERR line 3: a control character XML cannot represent
+in an attribute value => ERR line 2: a control character XML cannot represent
+]]> in content => ERR line 1: ']]>' cannot appear in content; write '&gt;' for the '>'
+a lone ] is text => parsed a]b
+]] with no > is text => parsed a]]b
+text with no closing tag => ERR line 1: <r> is never closed
+an attribute value with no closing quote => ERR line 1: an attribute value with no closing quote
+first of & or < from 0: 3
+from just past it: 7
+no stop at all: 11
+a stop at the first character: 0
+from past the end: 11

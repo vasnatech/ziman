@@ -622,6 +622,44 @@ pub fn find(c: Cursor, needle: [string], from: int) -> int {
     return -1
 }
 
+// Where a run of characters that are none of `stops` ends: the position of the first character in
+// `stops` at or after `from`, or **the end of the document** when there is none. Never -1, which is
+// the difference from `find` and the reason this exists beside it -- a scanner reading a run wants
+// one number for "here is where it stops", and asking twice (find, then a bounds check) is what
+// made the character-at-a-time version expensive.
+//
+// **It reads the window once per chunk, not once per character.** `at` has to re-read `base` and
+// `window` on every call because anything may have moved between calls; a run cannot move under
+// itself, so this hoists both out of the loop and indexes the array directly, going back for more
+// only when it reaches the end of what is held. That is the whole optimisation: the same work with
+// two cell reads and a call per *chunk* instead of per character (docs/reviews/tasks/ F263).
+//
+// Unlike `find`, this cannot grow the window past the first stop -- so a scanner whose stop set
+// includes the character that ends what it is reading is bounded by the thing it is reading, not by
+// the document.
+pub fn run_until(c: Cursor, stops: [string], from: int) -> int {
+    var p = if from < get(c.base) { get(c.base) } else { from }
+    while true {
+        val base = get(c.base)
+        val held = get(c.window)
+        val n = prelude.len(held)
+        var i = p - base
+        while i < n {
+            if contains(stops, held[i]) {
+                return base + i
+            }
+            i = i + 1
+        }
+        p = base + n
+        if !reach(c, p) {
+            // Nothing more to read: the run goes to the end of the document, and `p` is where that
+            // is -- which a caller then recognises as the end with `has`, exactly as before.
+            return p
+        }
+    }
+    return p
+}
+
 // Says that nothing before `upto` will be asked for again, so it can be dropped. **This is the
 // only thing that bounds a cursor's memory**, and a scanner calls it as it finishes each token.
 //

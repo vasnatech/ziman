@@ -703,6 +703,8 @@ pub fn span(c: Cursor, a: int, b: int) -> string
 
 pub fn find(c: Cursor, needle: [string], from: int) -> int
 
+pub fn run_until(c: Cursor, stops: [string], from: int) -> int
+
 pub fn release(c: Cursor, upto: int)
 
 pub fn line(c: Cursor, p: int) -> int

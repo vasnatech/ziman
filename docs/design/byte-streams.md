@@ -381,6 +381,16 @@ Three things that follow, and the first is the one to say out loud:
   of a character at a time -- which would beat the array version too, that one being
   character-at-a-time as well.
 
+  **Done on 2026-11-03, and that last clause was wrong.** `io.run_until` reads a run of content or
+  of an attribute value in one call -- hoisting the window's two cell reads out of the per-character
+  loop, which is where the win actually was -- and took the bench's 261 KB document from 634 ms to
+  380 ms. But the array scanner, rebuilt from before the conversion to measure it on the same
+  machine, does it in 265 ms: the cursor still costs **1.45x, down from 2.4x**, because what is left
+  is the rest of the scan (names, spaces, delimiters) plus bookkeeping an array has no equivalent
+  of. `find` also turned out to be the wrong primitive for a run -- an absent needle is only known
+  absent at the end of the document, which would have undone the streaming property -- which is why
+  `run_until` answers the end rather than -1. F263 has the detail.
+
 **What this does not yet buy**: nothing. A tree parse still holds the document, because the window
 only shrinks when something calls `release` and `parse` builds a `Document` regardless. The
 conversion is the half that makes `events` possible, not a win on its own -- which is why it is one

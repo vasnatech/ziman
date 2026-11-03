@@ -1,0 +1,61 @@
+// F263: the scanner reads a *run* of content or of an attribute value in one call and does the
+// per-character work over a string already in hand, rather than asking the cursor four questions per
+// character. What has to survive that, and is what this fixture is for:
+//
+//   * an `&` inside a run still stops it, so the reference is expanded and the run goes on;
+//   * a refusal still names the *line* it found, which means counting characters within the run --
+//     and the control-character check scans bytes, so its position has to be converted back;
+//   * `]]>` in content is still refused, where a lone `]` is not;
+//   * a run that reaches the end of the document ends there rather than running off it.
+//
+// The messages themselves are pinned by `xml_rejects_control_characters`, which sweeps every control
+// byte in both content and an attribute value. This one is about positions and run boundaries.
+use io
+use xml
+
+fn parse_case(label: string, text: string) {
+    switch xml.parse(text) {
+        Ok(d) { printf("{} => parsed {}\n", label, xml.text_of(d.root)) }
+        Err(e) { printf("{} => ERR {}\n", label, e) }
+    }
+}
+
+fn vertical_tab() -> string {
+    val b = mutable_string_new()
+    append_byte(b, [11b])
+    return snapshot(b)
+}
+
+fn main() {
+    // A run split by two references, which must come back as one piece of text.
+    parse_case("references inside a run", "<r>a &amp; b &lt; c</r>")
+    // A run of several lines, then a control character on the third: the line must be the third,
+    // which is only right if the position inside the run is counted rather than lost to the span.
+    parse_case("a control character on line 3", concat("<r>one\ntwo\nthree ", vertical_tab(), "</r>"))
+    // The same, with multi-byte characters before it: the check scans bytes, so its position has to
+    // be converted back to characters or this says the wrong line. **The newlines after the control
+    // character are what makes this bite**: the eight-byte overshoot of eleven multi-byte
+    // characters would otherwise land inside the same line and the fixture would pass either way.
+    parse_case(
+        "after non-ASCII text",
+        concat("<r>héllo wörld\n\n日本語 ", vertical_tab(), "\n\n\nx</r>")
+    )
+    // And in an attribute value, which is the other run.
+    parse_case("in an attribute value", concat("<r a=\"one\ntwo ", vertical_tab(), "\"/>"))
+    // `]]>` is refused in content; a lone `]` is ordinary text.
+    parse_case("]]> in content", "<r>a]]>b</r>")
+    parse_case("a lone ] is text", "<r>a]b</r>")
+    parse_case("]] with no > is text", "<r>a]]b</r>")
+    // A document that ends inside a run, which `run_until` answers with the end rather than -1.
+    parse_case("text with no closing tag", "<r>unterminated")
+    parse_case("an attribute value with no closing quote", "<r a=\"unterminated")
+
+    // `io.run_until` on its own: the first stop, the end of the document when there is none, and a
+    // `from` behind the window's start.
+    val cs = io.cursor(io.text(io.of_bytes(to_bytes("abc&def<ghi"))))
+    printf("first of & or < from 0: {}\n", io.run_until(cs, ["&", "<"], 0))
+    printf("from just past it: {}\n", io.run_until(cs, ["&", "<"], 4))
+    printf("no stop at all: {}\n", io.run_until(cs, ["z"], 0))
+    printf("a stop at the first character: {}\n", io.run_until(cs, ["a"], 0))
+    printf("from past the end: {}\n", io.run_until(cs, ["&"], 99))
+}

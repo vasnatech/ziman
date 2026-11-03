@@ -16,6 +16,22 @@
 // costs about 45% on a pure-ASCII document (262 KB: 162 -> 235 ms). That buys the removal of a
 // three-orders-of-magnitude cliff triggered by one character of ordinary text.
 //
+// **What the cursor cost, and what reading runs paid back (F263, 2026-11-03).** Three scanners
+// measured on one machine, one build apart, on the 261,826-character ASCII document of this bench
+// (and its 525,826-character sibling):
+//
+//     the array scanner, before io.Cursor      265 ms    515 ms
+//     the cursor, a character at a time        634 ms   1332 ms
+//     the cursor, a run at a time              380 ms    838 ms
+//
+// So the cursor's price over indexing a plain array is **1.45x, down from 2.4x**, and the parse is
+// 1.65x faster than it was. **F263 predicted spans would come out ahead of the array version and
+// they do not**, which is worth having measured rather than assumed: the runs are no longer the
+// cost, and what is left is the rest of the scan -- names, spaces, delimiters -- still asking the
+// cursor one character at a time, plus the window bookkeeping (`compact`, `line`) an array has no
+// equivalent of. The array figure was taken by checking out the pre-cursor `lib/core/xml.zm` and
+// building it, which is the only way to compare two scanners on the same machine on the same day.
+//
 // Run it directly: `./ziman tests/bench/xml_scan.zm`. Both series must stay linear, and the two
 // must stay within a small factor of each other -- they diverging again is the regression this
 // exists to catch.
