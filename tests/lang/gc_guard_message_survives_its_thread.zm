@@ -1,0 +1,57 @@
+use clock
+use os
+
+// A guard's message outlives the thread that made it, which is what F265 was: `guard_new` used to
+// keep the message exactly as it was handed in -- an enum wrapper in the *creating* thread's own
+// gc_heap arena -- and protect it by registering the field's address as a root of that thread's own
+// collections, keyed on its `ziman_thread_heap()` pointer. Two things reclaim such a value anyway.
+// This thread's own Phase 3 sweep is the one the registry covered; `ziman_thread_heap_release`, at
+// the thread's exit, `munmap`s the whole arena and is the one it did not -- and a `GcHeap *` is a
+// malloc'd address, handed straight back to the next thread's own `gc_heap_create`, so that thread
+// inherited the records and marked enums in unmapped memory (a SIGSEGV in `gc_mark_enum`, one
+// request in six of the health-record backend's admin-database suite). The message is a
+// `value_copy_send` copy on Boehm's shared heap now, tied to no thread's lifetime at all.
+//
+// So: a thread makes a guard, drops it, allocates enough to sweep its own arena, and exits. The
+// message must still be the message when the finalizer finally sends it.
+enum Request {
+    Close
+    EndCursor(int)
+}
+
+fn make_and_drop_guard(closes: Channel<Request>) {
+    val _ = guard_new<Request>(closes, Request.EndCursor(7))
+}
+
+fn worker(closes: Channel<Request>, done: Channel<int>) {
+    make_and_drop_guard(closes)
+    var filler = 0
+    for i in 0..200000 {
+        filler = filler + len(concat("a string allocated in this thread's own arena ", "7"))
+    }
+    if filler < 0 {
+        print("unreachable")
+    }
+    send(done, 1)
+}
+
+fn main() {
+    val closes: Channel<Request> = channel_new()
+    val done: Channel<int> = channel_new()
+    spawn worker(closes, done)
+    val _ = receive(done)
+    // The worker returns before it runs its own exit path, so this is the window the registry left
+    // open: the arena holding the message is unmapped here, not merely swept.
+    clock.sleep_millis(200)
+    var got = -2
+    for attempt in 0..20 {
+        os.collect_garbage()
+        if Some(m) = try_receive(closes) {
+            got = switch m {
+                Close { -1 }
+                EndCursor(n) { n }
+            }
+        }
+    }
+    print(!os.collector_enabled() || got == 7)
+}
