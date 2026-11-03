@@ -20,8 +20,73 @@ fn parse_header_line(line: string) -> Result<Header, HttpError> {
 // A request body sent with `Transfer-Encoding: chunked`, decoded, and the bytes read past its end
 // (the start of the next pipelined request).
 struct ChunkedBody {
-    body: [byte]
+    body: Body
     rest: [byte]
+}
+
+// ------------------------------------------------- spilling a body past the threshold
+
+// Where a spilled body goes: a fresh name per body in the system temporary directory, so two
+// requests arriving on two connections cannot collide and nothing has to be swept at startup.
+fn spill_path() -> string {
+    return fs.path_join(fs.temp_dir(), concat("ziman-body-", uuid.format(uuid.uuid_new())))
+}
+
+// How much of a spilled body to hold before writing it out. `fs.append_bytes` opens, writes and
+// closes, so flushing every 4 KiB socket read would be three syscalls per read: a 100 MB upload
+// makes about 1,200 of them this way and 75,000 the other. It is also the most of a spilled body
+// this server holds at once, which is the number the threshold is really about.
+val spill_flush_bytes = 262144
+
+// Appends `data` to the spill file, creating it on the first call -- the path is fresh, so there is
+// never anything to truncate.
+fn spill_append(path: string, data: [byte]) -> Result<int, HttpError> {
+    return switch fs.append_bytes(path, data) {
+        Ok(n) { ok(n) }
+        Err(e) { err(HttpError.Io(error_message(e))) }
+    }
+}
+
+// `Expect: 100-continue`: the client is holding the body back until the server says to send it.
+fn continue_if_expected(sock: Socket, headers: [Header]) -> Result<unit, HttpError> {
+    val expect = header_value(headers, "Expect")
+    if Some(wanted) = expect && equals_ignore_case(wanted, "100-continue", invariant) {
+        try lift<int>(net.write_text(sock, continue_response))
+    }
+    return ok(unit)
+}
+
+// Writes `total` bytes of body to `path`, `start` being however much of it arrived with the head.
+// Holds at most `spill_flush_bytes` at a time, which is what makes a large body a disk question
+// rather than a memory one. The partial file is the caller's to remove on an Err.
+fn spill_sized(
+    sock: Socket,
+    path: string,
+    start: [byte],
+    total: int,
+    limit_ms: int,
+    started: int
+) -> Result<unit, HttpError> {
+    val hold = mutable_array_new<byte>()
+    concat(hold, start)
+    var taken = len(start)
+    while taken < total {
+        if len(hold) >= spill_flush_bytes {
+            try spill_append(path, snapshot(hold))
+            clear(hold)
+        }
+        val want = total - taken
+        // Asked for in socket-sized reads, not `want`: `net.read(sock, n)` is free to answer with n
+        // bytes, so asking for the whole of a 100 MB body is the allocation this exists to avoid.
+        val ask = if want < read_chunk_bytes { want } else { read_chunk_bytes }
+        val more = try read_within(sock, ask, limit_ms, started)
+        concat(hold, more)
+        taken = taken + len(more)
+    }
+    if len(hold) > 0 {
+        try spill_append(path, snapshot(hold))
+    }
+    return ok(unit)
 }
 
 // One read of at most `max` bytes. With a `limit_ms` and a `started` (the monotonic time the request's
@@ -55,10 +120,27 @@ fn fill(sock: Socket, buf: [byte], limit_ms: int, started: int) -> Result<[byte]
 // Decodes a chunked body (RFC 7230 section 4.1): `size-in-hex [;extension] CRLF data CRLF`
 // repeated, a `0` chunk, optional trailer lines (skipped), and a final blank line. `start` holds
 // what was already read past the request head. The decoded body is limited to `cap`.
-fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: int) -> Result<ChunkedBody, HttpError> {
+//
+// **Spilling here is a switch part way, not a decision up front**, which is the difference between
+// this and the `Content-Length` path: a chunked body does not say how large it is, so the only
+// honest answer is to hold it until it passes `spill_at` and write it out from there. The
+// alternative -- spilling every chunked body from its first byte -- would put a short `POST` on the
+// disk for nothing. `path` is where to write once that happens (unused while `spill_at` is 0, which
+// is the default), and the partial file is the caller's to remove on an Err.
+fn read_chunked(
+    sock: Socket,
+    start: [byte],
+    limit_ms: int,
+    started: int,
+    cap: int,
+    spill_at: int,
+    path: string
+) -> Result<ChunkedBody, HttpError> {
     var buf = start
     val body = mutable_array_new<byte>()
     var total = 0
+    var spilled = false
+    var written = 0
     while true {
         var eol = index_of(buf, crlf, 0)
         while eol < 0 {
@@ -98,7 +180,17 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: i
                     trailer_end = index_of(buf, crlf, 0)
                 }
             }
-            return ChunkedBody { body: snapshot(body), rest: slice(buf, 2, len(buf)) }
+            if spilled {
+                if len(body) > 0 {
+                    try spill_append(path, snapshot(body))
+                    written = written + len(body)
+                }
+                return ChunkedBody {
+                    body: Body.Spilled(Spill { path: path, size: written }),
+                    rest: slice(buf, 2, len(buf))
+                }
+            }
+            return ChunkedBody { body: Body.Bytes(snapshot(body)), rest: slice(buf, 2, len(buf)) }
         }
         total = total + n
         if total > cap {
@@ -112,9 +204,34 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: i
             return err(HttpError.BadRequest("a chunk is not followed by CRLF"))
         }
         push(body, slice(buf, 0, n))
+        if spill_at > 0 && total > spill_at {
+            spilled = true
+        }
+        if spilled && len(body) >= spill_flush_bytes {
+            try spill_append(path, snapshot(body))
+            written = written + len(body)
+            clear(body)
+        }
         buf = slice(buf, n + 2, len(buf))
     }
     return err(HttpError.BadRequest("unreachable"))
+}
+
+// Deletes the file behind a spilled body, and does nothing for one held in memory. `serve` calls it
+// at the end of every request; a caller running its own read loop calls it itself, once it is done
+// with the body -- a spilled body whose file is never removed is a file left in `fs.temp_dir()`
+// until the machine is swept.
+//
+// Harmless twice, and harmless on a body that was never spilled, so it can go in a `defer` beside
+// the read without a condition: a `defer` that has to ask whether to run is how a release gets
+// skipped on the path nobody tested.
+pub fn discard_body(req: Request) {
+    switch req.body {
+        Bytes(_) {}
+        Spilled(s) {
+            val _ = fs.remove(s.path)
+        }
+    }
 }
 
 // Reads the next request off the session. `Err(Closed)` when the client
@@ -127,6 +244,9 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     // constructors keeps the 1 MiB cap and `serve` can override it from its options (D22).
     val body_cap = if session.max_body_bytes > 0 { session.max_body_bytes } else { max_body_bytes }
     val limit_ms = session.timeout_ms
+    // 0 means never spill, which is the default: adding this feature changed no behaviour anywhere
+    // until a deployment asked for it (docs/design/byte-streams.md section 13).
+    val spill_at = session.spill_body_bytes
     val head_limit_ms = if session.head_timeout_ms > 0 && (limit_ms <= 0 || session.head_timeout_ms < limit_ms) {
         session.head_timeout_ms
     } else {
@@ -238,11 +358,26 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         return err(HttpError.BadRequest("both Transfer-Encoding and Content-Length are set"))
     }
     if is_chunked {
-        val expect_chunked = header_value(header_list, "Expect")
-        if Some(expect_chunked) = expect_chunked && equals_ignore_case(expect_chunked, "100-continue", invariant) {
-            try lift<int>(net.write_text(sock, continue_response))
+        try continue_if_expected(sock, header_list)
+        val spill_path_chunked = if spill_at > 0 { spill_path() } else { "" }
+        val read = read_chunked(
+            sock,
+            slice(buf, head_end, len(buf)),
+            limit_ms,
+            started,
+            body_cap,
+            spill_at,
+            spill_path_chunked
+        )
+        if Err(failed) = read {
+            // Whatever was written before it failed is nobody's: the request is being refused and
+            // no handler will ever see it.
+            if spill_at > 0 {
+                val _ = fs.remove(spill_path_chunked)
+            }
+            return err(failed)
         }
-        val decoded = try read_chunked(sock, slice(buf, head_end, len(buf)), limit_ms, started, body_cap)
+        val decoded = unwrap(read)
         try restore_timeout(sock, limit_ms, true)
         val chunked_request = Request {
             method: method_parse(method_text),
@@ -262,7 +397,8 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
                 timeout_ms: limit_ms,
                 head_timeout_ms: session.head_timeout_ms,
                 fresh: false,
-                max_body_bytes: session.max_body_bytes
+                max_body_bytes: session.max_body_bytes,
+                spill_body_bytes: session.spill_body_bytes
             }
         }
     }
@@ -285,11 +421,27 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     }
 
     var rest = slice(buf, head_end, len(buf))
-    if content_length > len(rest) {
-        val expect = header_value(header_list, "Expect")
-        if Some(expect) = expect && equals_ignore_case(expect, "100-continue", invariant) {
-            try lift<int>(net.write_text(sock, continue_response))
+    var spilled = Option<Spill>.None
+    if spill_at > 0 && content_length > spill_at {
+        // Past the threshold, and `Content-Length` says so before a byte of the body is read, so
+        // this body is never held whole: it goes to a file as it arrives.
+        if content_length > len(rest) {
+            try continue_if_expected(sock, header_list)
+            lowered = true
         }
+        // A pipelined request's bytes may already be in `rest` behind this body's, and they are not
+        // part of it.
+        val have = if len(rest) > content_length { content_length } else { len(rest) }
+        val path = spill_path()
+        val written = spill_sized(sock, path, slice(rest, 0, have), content_length, limit_ms, started)
+        if Err(failed) = written {
+            val _ = fs.remove(path)
+            return err(failed)
+        }
+        spilled = Option<Spill>.Some(Spill { path: path, size: content_length })
+        rest = slice(rest, have, len(rest))
+    } else if content_length > len(rest) {
+        try continue_if_expected(sock, header_list)
         // `concat` in this loop re-copied everything read so far on every chunk, which is
         // quadratic in the body size: a 1 MiB body arriving in 4 KiB reads is about 128 MiB of
         // copying. A byte builder appends into packed storage, so each chunk is one memcpy and the
@@ -304,8 +456,15 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         rest = snapshot(acc)
     }
     try restore_timeout(sock, limit_ms, lowered || session.fresh)
-    val body = slice(rest, 0, content_length)
-    val leftover = slice(rest, content_length, len(rest))
+    // A spilled body left `rest` holding only what came after it, so there is nothing to cut off.
+    val body = switch spilled {
+        Some(s) { Body.Spilled(s) }
+        None { Body.Bytes(slice(rest, 0, content_length)) }
+    }
+    val leftover = switch spilled {
+        Some(_) { rest }
+        None { slice(rest, content_length, len(rest)) }
+    }
 
     val request = Request {
         method: method_parse(method_text),
@@ -325,7 +484,8 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
             timeout_ms: limit_ms,
             head_timeout_ms: session.head_timeout_ms,
             fresh: false,
-            max_body_bytes: session.max_body_bytes
+            max_body_bytes: session.max_body_bytes,
+            spill_body_bytes: session.spill_body_bytes
         }
     }
 }

@@ -140,6 +140,8 @@ flowchart LR
     fs --> io
     fs --> os
     geom --> math
+    http --> fs
+    http --> io
     http --> locale
     http --> mime
     http --> number
@@ -230,6 +232,7 @@ flowchart LR
     rest --> clock
     rest --> codec
     rest --> http
+    rest --> io
     rest --> metrics
     rest --> mime
     rest --> server
@@ -244,7 +247,9 @@ flowchart LR
     server --> clock
     server --> codec
     server --> compress
+    server --> fs
     server --> http
+    server --> io
     server --> json
     server --> locale
     server --> metrics
@@ -341,11 +346,11 @@ otherwise: everything on a layer depends only on lower layers.
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `expr` | `json`, `regex` | `template` |
 | `font` | `truetype` | `layout`, `pdf`, `raster` |
-| `fs` | `io`, `os` | `csv`, `log`, `migrate`, `process`, `properties`, `sql`, `zone` |
+| `fs` | `io`, `os` | `csv`, `http`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
-| `http` | `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
+| `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
-| `io` | - | `client`, `csv`, `fs`, `xml` |
+| `io` | - | `client`, `csv`, `fs`, `http`, `rest`, `server`, `xml` |
 | `json` | `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `paging`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
@@ -374,10 +379,10 @@ otherwise: everything on a layer depends only on lower layers.
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `process`, `uuid` |
 | `raster` | `font`, `geom`, `image`, `math`, `paint`, `scene`, `shape`, `stroker`, `truetype` | - |
 | `regex` | - | `expr`, `test`, `validate` |
-| `rest` | `clock`, `codec`, `http`, `metrics`, `mime`, `server`, `url`, `uuid` | - |
+| `rest` | `clock`, `codec`, `http`, `io`, `metrics`, `mime`, `server`, `url`, `uuid` | - |
 | `scene` | `geom`, `paint`, `shape` | `layout`, `pdf`, `raster` |
 | `schedule` | `clock`, `locale`, `time` | - |
-| `server` | `clock`, `codec`, `compress`, `http`, `json`, `locale`, `metrics`, `mime`, `net`, `number`, `os`, `uuid` | `rest` |
+| `server` | `clock`, `codec`, `compress`, `fs`, `http`, `io`, `json`, `locale`, `metrics`, `mime`, `net`, `number`, `os`, `uuid` | `rest` |
 | `shape` | `geom`, `math` | `layout`, `pdf`, `raster`, `scene`, `stroker`, `truetype` |
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |

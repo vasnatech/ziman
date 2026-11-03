@@ -14,7 +14,7 @@ fn route(req: http.Request) -> http.Response {
         return server.text_response(200, "ok")
     }
     if req.path == "/echo" {
-        return server.text_response(200, format("body={}", unwrap(bytes_to_string(req.body))))
+        return server.text_response(200, format("body={}", unwrap(http.request_text(req))))
     }
     if req.path == "/value" {
         val v = rest.query_param(req, "v")

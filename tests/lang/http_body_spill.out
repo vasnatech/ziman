@@ -1,0 +1,6 @@
+in memory, size=100 source=100 bytes=100
+in a file that exists, size=40000 source=40000 bytes=40000
+the file is gone once the request has ended: true
+in a file that exists, size=4000 source=4000 bytes=4000
+in memory, size=0 source=0 bytes=0
+over the cap, still refused: 413

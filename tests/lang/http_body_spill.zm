@@ -1,0 +1,146 @@
+// `ServeOptions.spill_body_bytes`: past the threshold a request body is written to a file in
+// `fs.temp_dir()` instead of being held in memory, and the handler reads it the same way either
+// way -- `body_bytes` for all of it, `body_source` for a chunk at a time, `body_size` for how much
+// there is without touching the disk. 0, the default, never spills, so this changes nothing for a
+// server that does not ask for it (docs/design/byte-streams.md section 13, F264 step 1).
+use client
+use clock
+use fs
+use http
+use http.HttpMethod
+use io
+use net
+use server
+
+// Reports where this body is, what each of the three readers says about it, and -- last, so the
+// caller can cut it off before printing -- the file it is in.
+fn handler(r: http.Request) -> http.Response {
+    val source = unwrap(http.body_source(r))
+    val streamed = len(unwrap(io.drain(source, 0 - 1)))
+    val whole = len(unwrap(http.body_bytes(r)))
+    val place = switch r.body {
+        Bytes(_) { "memory" }
+        Spilled(s) { concat("a file that ", if fs.exists(s.path) { "exists" } else { "is missing" }) }
+    }
+    val path = switch r.body {
+        Bytes(_) { "" }
+        Spilled(s) { s.path }
+    }
+    return server.text_response(200, format(
+        "in {}, size={} source={} bytes={} path={}",
+        place,
+        http.body_size(r),
+        streamed,
+        whole,
+        path
+    ))
+}
+
+fn post(port: int, n: int) -> string {
+    val b = mutable_string_new()
+    for i in 0..n {
+        append(b, "x")
+    }
+    return switch client.request(
+        method: HttpMethod.Post,
+        url: format("http://127.0.0.1:{}/", port),
+        body: to_bytes(snapshot(b))
+    ) {
+        Ok(resp) { unwrap(http.response_text(resp)) }
+        Err(e) { concat("client: ", error_message(e)) }
+    }
+}
+
+fn status_of(port: int, n: int) -> int {
+    val b = mutable_string_new()
+    for i in 0..n {
+        append(b, "x")
+    }
+    return switch client.request(
+        method: HttpMethod.Post,
+        url: format("http://127.0.0.1:{}/", port),
+        body: to_bytes(snapshot(b))
+    ) {
+        Ok(resp) { resp.status }
+        Err(_) { 0 - 1 }
+    }
+}
+
+// Everything but the path, which is a fresh uuid per body and so cannot be printed.
+fn without_path(answer: string) -> string {
+    return split(answer, " path=")[0]
+}
+
+fn path_of(answer: string) -> string {
+    val parts = split(answer, " path=")
+    return if len(parts) > 1 { parts[1] } else { "" }
+}
+
+// A spilled body with another request already behind it on the socket: only the body's own bytes
+// go to the file, and the next request is still there to be read. The server's reader trims what it
+// took from the buffer rather than assuming the body was the last thing in it -- a pipelined client
+// is the one that tells the two apart.
+fn pipelined(port: int, n: int) -> [string] {
+    val s = unwrap(net.connect("127.0.0.1", port))
+    unwrap(net.set_timeout(s, 5000))
+    defer net.close(s)
+    val b = mutable_string_new()
+    for i in 0..n {
+        append(b, "z")
+    }
+    val out = mutable_string_new()
+    append(out, format("POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n\r\n{}", n, snapshot(b)))
+    append(out, "GET /after HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    unwrap(net.write_text(s, snapshot(out)))
+    val seen = mutable_array_new<string>()
+    var acc = ""
+    while len(seen) < 2 {
+        val more = net.read_text(s, 4096)
+        if !is_ok(more) {
+            return snapshot(seen)
+        }
+        acc = concat(acc, unwrap(more))
+        clear(seen)
+        for line in split(acc, "\r\n") {
+            if starts_with(line, "in ") {
+                push(seen, without_path(line))
+            }
+        }
+    }
+    return snapshot(seen)
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    spawn server.serve(l, handler, with server.serve_options() {
+        spill_body_bytes: 1024,
+        max_body_bytes: 50000
+    }) on_error fn(message: string) {
+        print(concat("server: ", message))
+    }
+
+    // Under the threshold: nothing changes, including that `body_source` still works.
+    print(without_path(post(port, 100)))
+    // Over it: the same three answers, from a body the server never held whole.
+    val spilled = post(port, 40000)
+    print(without_path(spilled))
+
+    // The file is the server's: created when the threshold was crossed, deleted when the request
+    // ended. A handler that kept the source would be reading a file that is already gone.
+    //
+    // Waiting first, because the deletion happens *after* the response is written -- this client
+    // holds the answer before the server's own `defer` has run, so checking at once would be a race
+    // this fixture would lose at random rather than a property it checks.
+    clock.sleep_millis(200)
+    print(format("the file is gone once the request has ended: {}", !fs.exists(path_of(spilled))))
+
+    for answer in pipelined(port, 4000) {
+        print(answer)
+    }
+
+    // **Spilling does not raise the cap; it changes what the cap bounds**, from memory to disk. A
+    // body over `max_body_bytes` is still refused with 413, and on this path it is refused before
+    // anything is written, `Content-Length` having already said how large it is.
+    print(format("over the cap, still refused: {}", status_of(port, 60000)))
+}

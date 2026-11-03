@@ -3438,6 +3438,16 @@ pub struct Header {
     value: string
 }
 
+pub struct Spill {
+    path: string
+    size: int
+}
+
+pub enum Body {
+    Bytes([byte])
+    Spilled(Spill)
+}
+
 pub struct Request {
     method: HttpMethod
     target: string
@@ -3445,7 +3455,9 @@ pub struct Request {
     query: string
     version: string
     headers: [Header]
-    body: [byte]
+    // Where the bytes are: in memory, or in a file the server spilled them to (`Body`). Not
+    // `[byte]` since 2026-11-03.
+    body: Body
     // The address at the other end of the connection this request arrived on, as text ("192.0.2.7" or
     // "2001:db8::1"), with no port. `None` on a Request that did not come off a socket -- one built by
     // hand in a test, or by `write_error`'s stub -- which is the honest answer rather than a placeholder.
@@ -3472,6 +3484,12 @@ pub struct Response {
 pub fn request(method: HttpMethod, target: string, headers: [Header], body: [byte]) -> Request
 
 pub fn response_text(r: Response) -> Result<string, string>
+
+pub fn body_size(req: Request) -> int
+
+pub fn body_bytes(req: Request) -> Result<[byte], io.IoError>
+
+pub fn body_source(req: Request) -> Result<Iter<Result<[byte], io.IoError>>, io.IoError>
 
 pub fn request_text(req: Request) -> Result<string, string>
 

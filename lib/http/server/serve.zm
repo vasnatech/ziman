@@ -68,6 +68,20 @@ pub struct ServeOptions {
     // refused with 413 before the handler is reached, and the limit applies to what arrives on the
     // wire -- the encoded body, `multipart` boundaries included.
     max_body_bytes: int
+    // Past how many bytes to write a request body to a file in `fs.temp_dir()` instead of holding
+    // it in memory. 0 is never, and is the default, so this changes nothing until a deployment asks
+    // for it.
+    //
+    // **It does not raise `max_body_bytes`; it changes what that number bounds** -- from memory to
+    // disk, which is cheaper and still finite. An upload that should be accepted therefore needs
+    // *two* settings: a disk-sized cap and a threshold below it. A reader who expects the cap to
+    // disappear should be corrected here rather than in a support thread.
+    //
+    // A handler reads such a body with `server.body_bytes(req)` (all of it, read back off disk) or
+    // `server.body_source(req)` (a chunk at a time, which is the point), and `server.body_size(req)`
+    // answers without touching either. **The file is deleted when the request ends**, including when
+    // the handler fails, so a handler must not keep the body or a source over it past its return.
+    spill_body_bytes: int
     // How to render a rejection the server makes before the handler is ever reached -- a 400 for a malformed
     // request line, a 408 when the client stops mid-request, a 413 for too large a body, a 431 for too large a
     // header block, a 501 for a method the parser will not take. `None` uses the library's own JSON shape.
@@ -203,8 +217,15 @@ fn serve_burst(
             // connection and a client that drips its request are not counted as time this server
             // spent. What is left is the work: the handler, and writing the answer.
             val serve_started = clock.monotonic_millis()
+            // A spilled body's file is the server's, and this is where it is deleted: at the end of
+            // this request, by whichever path the request ends by. A `defer` rather than a line
+            // after the write, because the paths out of this block are the write failing, the
+            // response being logged, and the handler failing outright -- and a deferred call runs
+            // even when a spawned thread aborts, which is the one that would otherwise leak a file
+            // per crash (checked, not assumed). It is also why a handler must not keep the source.
+            defer discard_body(exchange.request)
             if meter {
-                metrics.add(received_metric, (len(exchange.request.body) as float))
+                metrics.add(received_metric, (body_size(exchange.request) as float))
             }
             val response = handler(exchange.request)
             if meter {
@@ -453,6 +474,7 @@ pub fn serve_options() -> ServeOptions {
         max_connections: 64,
         log_requests: false,
         max_body_bytes: 0,
+        spill_body_bytes: 0,
         compress_responses: false,
         fault: Option<fn(int, string) -> Response>.None,
         on_request: Option<fn(RequestLog)>.None,
@@ -534,7 +556,8 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
             val _ = receive(slots)
             val fresh_conn = Parked {
                 session: with open_session_with_timeouts(accepted, options.idle_timeout_ms, head_ms) {
-                    max_body_bytes: options.max_body_bytes
+                    max_body_bytes: options.max_body_bytes,
+                    spill_body_bytes: options.spill_body_bytes
                 },
                 client_key: client_key,
                 deadline_ms: clock.monotonic_millis() + options.idle_timeout_ms

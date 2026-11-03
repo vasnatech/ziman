@@ -9,7 +9,7 @@ use net
 use server
 
 fn handler(r: http.Request) -> http.Response {
-    return server.text_response(200, format("got {} bytes", len(r.body)))
+    return server.text_response(200, format("got {} bytes", http.body_size(r)))
 }
 
 fn send_bytes(port: int, n: int) -> int {

@@ -162,8 +162,11 @@ below (`open_session`, `read_request`, `write_response`) when `serve` doesn't fi
   formats, which is how one endpoint answers JSON, YAML, TOML, NDJSON or CSV from a single
   `#[derive(Json)]` pair. The pair lives in `codec` rather than here because a media type and a
   function over a value is serialization; what is HTTP is choosing between several by `Accept`. An endpoint answers 415 with no decoder
-  matching `Content-Type`, 406 with no encoder matching `Accept`. `Request`/`Response.body` is
-  `[byte]` (`request_text`/`response_text` give text, or an `Err` on a NUL). `rest.routes<C>`
+  matching `Content-Type`, 406 with no encoder matching `Accept`. `Response.body` is `[byte]`;
+  `Request.body` is a `Body` -- `Bytes([byte])` or `Spilled(Spill)` for one the server wrote to a
+  file past `ServeOptions.spill_body_bytes` -- read with `http.body_bytes` (all of it),
+  `http.body_source` (a chunk at a time) or `http.body_size` (neither touches the disk);
+  `request_text`/`response_text` give text, or an `Err` on a NUL. `rest.routes<C>`
   compiles a table once (a module-level `val`, not per request), splitting each pattern into
   segments and grouping by method/segment-count so a request only meets endpoints that could
   match; `rest.dispatch<C>(table, ctx, req, fault)` calls the first match, 404, or 405 with

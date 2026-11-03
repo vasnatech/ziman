@@ -2,6 +2,8 @@
 // types, the method enum, status codes by name, header lookup and percent-encoding. `server`
 // builds on it to answer requests, `client` to make them.
 
+use fs
+use io
 use locale
 use mime
 use number.byte_from_hex
@@ -14,6 +16,11 @@ use url
 // media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
 // some of these sit in per-character loops and `locale.root()` is a call.
 val invariant: Locale = locale.root()
+
+// How much of a spilled body `body_source` reads at a time. 64 KiB rather than the server's own
+// 4 KiB socket read: the file is sequential and already on disk, so the only thing a smaller chunk
+// buys here is more syscalls.
+val spill_read_bytes = 65536
 
 // True if `s` is a non-empty run of the characters RFC 7230 allows in a "token": letters, digits and
 // ``!#$%&'*+-.^_`|~``. What a header name or a method must be; a space, a colon, a control character
@@ -98,6 +105,29 @@ pub struct Header {
     value: string
 }
 
+// A request body the server wrote to a file rather than holding in memory, because it passed
+// `ServeOptions.spill_body_bytes`. `path` is the file, in `fs.temp_dir()`; `size` is how many bytes
+// are in it, recorded by the reader so that asking how big a body is costs no syscall.
+//
+// **The file is the server's, not the handler's.** It is created when the threshold is crossed and
+// deleted when the request ends -- including when the handler fails -- so **a handler must not keep
+// the body, or a source over it, past its own return**. A handler that stores one and reads later
+// gets a file that is already gone.
+pub struct Spill {
+    path: string
+    size: int
+}
+
+// Where a request's bytes are. **An enum rather than a nullable second field on `Request`**, so a
+// reader confronts both cases: a `body: [byte]` beside a `spill: Option<..>` would let every
+// existing reader keep compiling and silently see an empty body for a spilled upload, which is the
+// failure this shape makes impossible. Read it with `body_bytes` (both cases, in memory),
+// `body_source` (both cases, a chunk at a time) or `body_size` (neither case touches the disk).
+pub enum Body {
+    Bytes([byte])
+    Spilled(Spill)
+}
+
 // `target` is the raw request target ("/patients/7?x=1"); `path` and
 // `query` are its two halves, still percent-encoded (`route` and
 // `query_param` decode what they hand back). `headers` keep their
@@ -109,7 +139,9 @@ pub struct Request {
     query: string
     version: string
     headers: [Header]
-    body: [byte]
+    // Where the bytes are: in memory, or in a file the server spilled them to (`Body`). Not
+    // `[byte]` since 2026-11-03.
+    body: Body
     // The address at the other end of the connection this request arrived on, as text ("192.0.2.7" or
     // "2001:db8::1"), with no port. `None` on a Request that did not come off a socket -- one built by
     // hand in a test, or by `write_error`'s stub -- which is the honest answer rather than a placeholder.
@@ -151,7 +183,9 @@ pub struct Response {
 // own reader does.
 //
 // A request that needs something else -- a version, a peer address -- takes it from here and says
-// so: `with http.request(..) { peer: Some("192.0.2.7") }`.
+// so: `with http.request(..) { peer: Some("192.0.2.7") }`. `body` is `[byte]` here and becomes
+// `Body.Bytes`: a request built by hand has its bytes in hand, and only the server's own reader
+// ever spills one, so no caller of this had to learn the enum when it arrived.
 pub fn request(method: HttpMethod, target: string, headers: [Header], body: [byte]) -> Request {
     var path = target
     var query = ""
@@ -166,7 +200,7 @@ pub fn request(method: HttpMethod, target: string, headers: [Header], body: [byt
         query: query,
         version: "HTTP/1.1",
         headers: headers,
-        body: body,
+        body: Body.Bytes(body),
         peer: None
     }
 }
@@ -176,9 +210,59 @@ pub fn response_text(r: Response) -> Result<string, string> {
     return bytes_to_string(r.body)
 }
 
-// The body of `req` as text: an Err when it holds a NUL byte.
+// How many bytes the body of `req` holds. Costs nothing either way: a spilled body's reader
+// recorded its size, so this never opens the file.
+pub fn body_size(req: Request) -> int {
+    return switch req.body {
+        Bytes(b) { len(b) }
+        Spilled(s) { s.size }
+    }
+}
+
+// The whole body of `req` in memory: the bytes as they stand, or a spilled body read back off disk.
+// For a reader that wants all of it -- a JSON decoder, a signature check -- where `body_source` is
+// for one that does not. **A spilled body is spilled because it was large**, so this undoes the
+// saving; it is here because a 100 MB upload still has to reach a decoder that only takes bytes,
+// and reading it back is strictly better than having held it the whole time.
+pub fn body_bytes(req: Request) -> Result<[byte], io.IoError> {
+    return switch req.body {
+        Bytes(b) { ok(b) }
+        Spilled(s) {
+            switch fs.read_bytes(s.path) {
+                Ok(bytes) { ok(bytes) }
+                Err(e) { err(fs.io_error(e)) }
+            }
+        }
+    }
+}
+
+// The body of `req` as a source: one chunk at a time, for a reader that does not need all of it at
+// once (`xml.events`, a multipart scanner, `io.lines`). A body in memory answers as one chunk, a
+// spilled one as `fs.chunks` over its file -- so a caller is written once and the threshold decides
+// nothing about it.
+//
+// The source is only valid until the handler returns: the file behind it is the server's (see
+// `Spill`).
+pub fn body_source(req: Request) -> Result<Iter<Result<[byte], io.IoError>>, io.IoError> {
+    return switch req.body {
+        Bytes(b) { ok(io.of_bytes(b)) }
+        Spilled(s) {
+            switch fs.chunks(s.path, spill_read_bytes) {
+                Ok(source) { ok(source) }
+                Err(e) { err(fs.io_error(e)) }
+            }
+        }
+    }
+}
+
+// The body of `req` as text: an Err when it holds a NUL byte (it is binary, not text), or when a
+// spilled body could not be read back.
 pub fn request_text(req: Request) -> Result<string, string> {
-    return bytes_to_string(req.body)
+    val bytes = switch body_bytes(req) {
+        Ok(b) { b }
+        Err(e) { return err(io.io_error_message(e)) }
+    }
+    return bytes_to_string(bytes)
 }
 
 // The value of the header called `name` in `req` (case-insensitive), or None.

@@ -1,0 +1,87 @@
+// The chunked half of `spill_body_bytes`, which cannot work the way the `Content-Length` half does:
+// a chunked body never says how large it is, so the reader holds it until it passes the threshold
+// and writes it out from there. A short chunked POST therefore still never touches the disk, which
+// is the behaviour this checks alongside the switch itself (F264 step 1).
+use http
+use io
+use net
+use number.to_hex
+use server
+
+fn handler(r: http.Request) -> http.Response {
+    val source = unwrap(http.body_source(r))
+    val streamed = len(unwrap(io.drain(source, 0 - 1)))
+    val place = switch r.body {
+        Bytes(_) { "memory" }
+        Spilled(_) { "a file" }
+    }
+    return server.text_response(200, format("in {}, size={} source={}", place, http.body_size(r), streamed))
+}
+
+// A chunked request written by hand: `client` sends a `Content-Length`, so the only way to exercise
+// the other reader is to speak it on the socket.
+fn send_chunked(port: int, chunks: int, each: int) -> string {
+    val s = unwrap(net.connect("127.0.0.1", port))
+    unwrap(net.set_timeout(s, 5000))
+    defer net.close(s)
+    val piece = mutable_string_new()
+    for i in 0..each {
+        append(piece, "y")
+    }
+    val body = snapshot(piece)
+    val out = mutable_string_new()
+    append(out, format("POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n"))
+    for i in 0..chunks {
+        append(out, format("{}\r\n{}\r\n", to_hex(each), body))
+    }
+    append(out, "0\r\n\r\n")
+    unwrap(net.write_text(s, snapshot(out)))
+    var acc = ""
+    while !contains(acc, "\r\n\r\n") {
+        val more = net.read_text(s, 4096)
+        if !is_ok(more) {
+            return acc
+        }
+        acc = concat(acc, unwrap(more))
+    }
+    val parts = split(acc, "\r\n\r\n")
+    return if len(parts) > 1 { parts[1] } else { acc }
+}
+
+fn serve_connection(sock: net.Socket) {
+    defer net.close(sock)
+    unwrap(net.set_timeout(sock, 5000))
+    var session = with server.open_session_with_timeouts(sock, 5000, 5000) { spill_body_bytes: 1024 }
+    val next = server.read_request(session)
+    if !is_ok(next) {
+        val _ = server.write_error(sock, unwrap_err(next))
+        return
+    }
+    val ex = unwrap(next)
+    // This loop is its own server, so the spilled file is its own to delete -- `serve` does this in
+    // a `defer` of its own, and a reader that runs its own loop has to say so.
+    defer server.discard_body(ex.request)
+    val _ = server.write_response(sock, ex.request, handler(ex.request))
+}
+
+fn accept_loop(l: net.Listener) {
+    while true {
+        val c = net.accept(l)
+        if !is_ok(c) {
+            return
+        }
+        spawn serve_connection(unwrap(c))
+    }
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    spawn accept_loop(l) on_error fn(message: string) {
+        print(concat("accept: ", message))
+    }
+    // Four 100-byte chunks: 400 bytes, under the threshold, so it is read the way it always was.
+    print(send_chunked(port, 4, 100))
+    // Twelve 500-byte chunks: the threshold is crossed at the third, and the rest is written out.
+    print(send_chunked(port, 12, 500))
+}

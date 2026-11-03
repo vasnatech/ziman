@@ -31,6 +31,7 @@ use http.Header
 use http.HttpMethod
 use http.Request
 use http.Response
+use http.body_bytes
 use http.content_type
 use http.header
 use http.header_value
@@ -49,6 +50,7 @@ use http.status_not_found
 use http.status_ok
 use http.status_unauthorized
 use http.status_unsupported_media_type
+use io
 use metrics
 use mime
 use server

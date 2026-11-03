@@ -317,7 +317,7 @@ pub fn write_error_with(
         query: "",
         version: http_1_0,
         headers: [],
-        body: [],
+        body: Body.Bytes([]),
         peer: None
     }
     val reply = switch fault {

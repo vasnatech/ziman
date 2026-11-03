@@ -8,7 +8,7 @@ use net
 
 fn route(req: http.Request) -> http.Response {
     if req.path == "/echo" {
-        return server.text_response(200, format("body={}", unwrap(bytes_to_string(req.body))))
+        return server.text_response(200, format("body={}", unwrap(http.request_text(req))))
     }
     if req.path == "/own" {
         return server.with_header(

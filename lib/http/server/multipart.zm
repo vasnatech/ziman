@@ -182,7 +182,7 @@ pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
     // Every boundary but the first is preceded by a CRLF that belongs to the delimiter, not to the part
     // before it. Prepending one lets the first be found the same way instead of as a special case, and
     // costs a copy of a body already bounded by `max_body_bytes`.
-    val body = concat([to_bytes("\r\n"), req.body])
+    val body = concat([to_bytes("\r\n"), try lift_io<[byte]>(body_bytes(req))])
     val delim = to_bytes(concat("\r\n--", boundary))
     val close = to_bytes("--")
     val line_end = to_bytes("\r\n")

@@ -258,8 +258,15 @@ fn endpoint_core<C, U, P, Q, I, O, E>(
             held = Option<I>.Some(nothing)
         }
         if Some(chosen) = decoder {
+            // The body in memory, which is what a `codec.Decoder` takes: a spilled one is read back
+            // off disk here. A route that wants the upload a chunk at a time takes a part's source
+            // instead (F264) rather than a decoder.
+            val raw = body_bytes(req)
+            if Err(e) = raw {
+                return fault(status_internal_server_error, io.io_error_message(e))
+            }
             val decode = chosen.decode
-            val decoded = decode(req.body)
+            val decoded = decode(unwrap(raw))
             if Err(message) = decoded {
                 return fault(status_bad_request, message)
             }

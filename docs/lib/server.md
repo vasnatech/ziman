@@ -150,6 +150,19 @@ pub struct Session {
     // entry point and the North Star backend calls it directly -- a limit the server knows has to
     // reach it somehow, and widening that signature would break every such caller (D21, D22).
     max_body_bytes: int
+    // Past how many bytes a request body is written to a file instead of held in memory, or 0 --
+    // the default, and this codebase's convention for off -- to never spill. `serve` fills it from
+    // `ServeOptions.spill_body_bytes`; the `open_session*` constructors leave it 0, so a caller
+    // reading requests off its own socket holds every body until it says otherwise.
+    //
+    // **This does not remove `max_body_bytes`; it changes what that number bounds**, from memory to
+    // disk. A body over the cap is still refused with 413 -- so an upload that should be accepted
+    // needs both a disk-sized cap and a threshold below it (docs/design/byte-streams.md section 13).
+    //
+    // **The file is the server's.** `serve` deletes it when the request ends, including when the
+    // handler fails; a caller running its own loop calls `discard_body` itself. Either way a
+    // handler must not keep the body, or a source over it, past its own return.
+    spill_body_bytes: int
 }
 ```
 
@@ -201,6 +214,21 @@ Like `open_session_with_timeout`, and the head of each request -- from its first
 between requests of a keep-alive connection. `serve` opens its sessions this way with `ServeOptions.header_timeout_ms`.
 
 ## `read.zm`
+
+### `discard_body`
+
+```
+pub fn discard_body(req: Request)
+```
+
+Deletes the file behind a spilled body, and does nothing for one held in memory. `serve` calls it
+at the end of every request; a caller running its own read loop calls it itself, once it is done
+with the body -- a spilled body whose file is never removed is a file left in `fs.temp_dir()`
+until the machine is swept.
+
+Harmless twice, and harmless on a body that was never spilled, so it can go in a `defer` beside
+the read without a condition: a `defer` that has to ask whether to run is how a release gets
+skipped on the path nobody tested.
 
 ### `read_request`
 
@@ -706,6 +734,20 @@ pub struct ServeOptions {
     // refused with 413 before the handler is reached, and the limit applies to what arrives on the
     // wire -- the encoded body, `multipart` boundaries included.
     max_body_bytes: int
+    // Past how many bytes to write a request body to a file in `fs.temp_dir()` instead of holding
+    // it in memory. 0 is never, and is the default, so this changes nothing until a deployment asks
+    // for it.
+    //
+    // **It does not raise `max_body_bytes`; it changes what that number bounds** -- from memory to
+    // disk, which is cheaper and still finite. An upload that should be accepted therefore needs
+    // *two* settings: a disk-sized cap and a threshold below it. A reader who expects the cap to
+    // disappear should be corrected here rather than in a support thread.
+    //
+    // A handler reads such a body with `server.body_bytes(req)` (all of it, read back off disk) or
+    // `server.body_source(req)` (a chunk at a time, which is the point), and `server.body_size(req)`
+    // answers without touching either. **The file is deleted when the request ends**, including when
+    // the handler fails, so a handler must not keep the body or a source over it past its return.
+    spill_body_bytes: int
     // How to render a rejection the server makes before the handler is ever reached -- a 400 for a malformed
     // request line, a 408 when the client stops mid-request, a 413 for too large a body, a 431 for too large a
     // header block, a 501 for a method the parser will not take. `None` uses the library's own JSON shape.

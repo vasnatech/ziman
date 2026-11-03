@@ -257,6 +257,39 @@ pub struct Header {
 
 One header line. `name` keeps the case it had; compare names with `equals_ignore_case`.
 
+### `Spill`
+
+```
+pub struct Spill {
+    path: string
+    size: int
+}
+```
+
+A request body the server wrote to a file rather than holding in memory, because it passed
+`ServeOptions.spill_body_bytes`. `path` is the file, in `fs.temp_dir()`; `size` is how many bytes
+are in it, recorded by the reader so that asking how big a body is costs no syscall.
+
+**The file is the server's, not the handler's.** It is created when the threshold is crossed and
+deleted when the request ends -- including when the handler fails -- so **a handler must not keep
+the body, or a source over it, past its own return**. A handler that stores one and reads later
+gets a file that is already gone.
+
+### `Body`
+
+```
+pub enum Body {
+    Bytes([byte])
+    Spilled(Spill)
+}
+```
+
+Where a request's bytes are. **An enum rather than a nullable second field on `Request`**, so a
+reader confronts both cases: a `body: [byte]` beside a `spill: Option<..>` would let every
+existing reader keep compiling and silently see an empty body for a spilled upload, which is the
+failure this shape makes impossible. Read it with `body_bytes` (both cases, in memory),
+`body_source` (both cases, a chunk at a time) or `body_size` (neither case touches the disk).
+
 ### `Request`
 
 ```
@@ -267,7 +300,9 @@ pub struct Request {
     query: string
     version: string
     headers: [Header]
-    body: [byte]
+    // Where the bytes are: in memory, or in a file the server spilled them to (`Body`). Not
+    // `[byte]` since 2026-11-03.
+    body: Body
     // The address at the other end of the connection this request arrived on, as text ("192.0.2.7" or
     // "2001:db8::1"), with no port. `None` on a Request that did not come off a socket -- one built by
     // hand in a test, or by `write_error`'s stub -- which is the honest answer rather than a placeholder.
@@ -326,7 +361,9 @@ though the query were not there. Here they cannot disagree, and the split is the
 own reader does.
 
 A request that needs something else -- a version, a peer address -- takes it from here and says
-so: `with http.request(..) { peer: Some("192.0.2.7") }`.
+so: `with http.request(..) { peer: Some("192.0.2.7") }`. `body` is `[byte]` here and becomes
+`Body.Bytes`: a request built by hand has its bytes in hand, and only the server's own reader
+ever spills one, so no caller of this had to learn the enum when it arrived.
 
 ### `response_text`
 
@@ -336,13 +373,49 @@ pub fn response_text(r: Response) -> Result<string, string>
 
 The body of `r` as text: an Err when it holds a NUL byte (it is binary, not text).
 
+### `body_size`
+
+```
+pub fn body_size(req: Request) -> int
+```
+
+How many bytes the body of `req` holds. Costs nothing either way: a spilled body's reader
+recorded its size, so this never opens the file.
+
+### `body_bytes`
+
+```
+pub fn body_bytes(req: Request) -> Result<[byte], io.IoError>
+```
+
+The whole body of `req` in memory: the bytes as they stand, or a spilled body read back off disk.
+For a reader that wants all of it -- a JSON decoder, a signature check -- where `body_source` is
+for one that does not. **A spilled body is spilled because it was large**, so this undoes the
+saving; it is here because a 100 MB upload still has to reach a decoder that only takes bytes,
+and reading it back is strictly better than having held it the whole time.
+
+### `body_source`
+
+```
+pub fn body_source(req: Request) -> Result<Iter<Result<[byte], io.IoError>>, io.IoError>
+```
+
+The body of `req` as a source: one chunk at a time, for a reader that does not need all of it at
+once (`xml.events`, a multipart scanner, `io.lines`). A body in memory answers as one chunk, a
+spilled one as `fs.chunks` over its file -- so a caller is written once and the threshold decides
+nothing about it.
+
+The source is only valid until the handler returns: the file behind it is the server's (see
+`Spill`).
+
 ### `request_text`
 
 ```
 pub fn request_text(req: Request) -> Result<string, string>
 ```
 
-The body of `req` as text: an Err when it holds a NUL byte.
+The body of `req` as text: an Err when it holds a NUL byte (it is binary, not text), or when a
+spilled body could not be read back.
 
 ### `header`
 

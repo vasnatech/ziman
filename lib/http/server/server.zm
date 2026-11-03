@@ -62,10 +62,16 @@ val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
 use clock
 use codec
 use compress
+use fs
+use http.Body
 use http.Header
 use http.HttpMethod
 use http.Request
 use http.Response
+use http.Spill
+use http.body_bytes
+use http.body_size
+use http.body_source
 use http.content_type
 use http.header
 use http.header_value
@@ -99,6 +105,7 @@ use http.status_too_many_requests
 use http.status_unauthorized
 use http.status_unprocessable_entity
 use http.status_unsupported_media_type
+use io
 use json
 use json.Json
 use json.parse
@@ -155,6 +162,19 @@ pub struct Session {
     // entry point and the North Star backend calls it directly -- a limit the server knows has to
     // reach it somehow, and widening that signature would break every such caller (D21, D22).
     max_body_bytes: int
+    // Past how many bytes a request body is written to a file instead of held in memory, or 0 --
+    // the default, and this codebase's convention for off -- to never spill. `serve` fills it from
+    // `ServeOptions.spill_body_bytes`; the `open_session*` constructors leave it 0, so a caller
+    // reading requests off its own socket holds every body until it says otherwise.
+    //
+    // **This does not remove `max_body_bytes`; it changes what that number bounds**, from memory to
+    // disk. A body over the cap is still refused with 413 -- so an upload that should be accepted
+    // needs both a disk-sized cap and a threshold below it (docs/design/byte-streams.md section 13).
+    //
+    // **The file is the server's.** `serve` deletes it when the request ends, including when the
+    // handler fails; a caller running its own loop calls `discard_body` itself. Either way a
+    // handler must not keep the body, or a source over it, past its own return.
+    spill_body_bytes: int
 }
 
 // One request read from a connection, with the session to read the next one from.
@@ -168,6 +188,17 @@ val max_body_bytes = 1048576
 val max_chunk_line_bytes = 1024
 
 // ------------------------------------------------------------ helpers
+
+// A body read that failed as the server's own error: a spilled body whose file has gone, or a read
+// that failed part way. `HttpError.Io`, like a socket failure, because that is what it is -- the
+// request itself was fine and the server lost its own copy of it.
+fn lift_io<T>(r: Result<T, io.IoError>) -> Result<T, HttpError> {
+    if Err(e2) = r {
+        val e = e2
+        return err(HttpError.Io(io.io_error_message(e)))
+    }
+    return unwrap(r)
+}
 
 fn lift<T>(r: Result<T, NetError>) -> Result<T, HttpError> {
     if Err(e2) = r {
@@ -202,7 +233,15 @@ fn find_head_end(buf: [byte]) -> int {
 // A new connection's read state: the socket and nothing buffered yet. Reads are bounded only by
 // the socket's own timeout, one read at a time.
 pub fn open_session(sock: Socket) -> Session {
-    return Session { sock: sock, buffer: [], timeout_ms: 0, head_timeout_ms: 0, fresh: false, max_body_bytes: 0 }
+    return Session {
+        sock: sock,
+        buffer: [],
+        timeout_ms: 0,
+        head_timeout_ms: 0,
+        fresh: false,
+        max_body_bytes: 0,
+        spill_body_bytes: 0
+    }
 }
 
 // Like `open_session`, and the whole of each request (head and body, from its first byte) must
@@ -217,7 +256,8 @@ pub fn open_session_with_timeout(sock: Socket, timeout_ms: int) -> Session {
         timeout_ms: timeout_ms,
         head_timeout_ms: 0,
         fresh: false,
-        max_body_bytes: 0
+        max_body_bytes: 0,
+        spill_body_bytes: 0
     }
 }
 
@@ -232,6 +272,7 @@ pub fn open_session_with_timeouts(sock: Socket, timeout_ms: int, head_timeout_ms
         timeout_ms: timeout_ms,
         head_timeout_ms: head_timeout_ms,
         fresh: true,
-        max_body_bytes: 0
+        max_body_bytes: 0,
+        spill_body_bytes: 0
     }
 }
