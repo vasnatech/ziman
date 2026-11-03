@@ -411,6 +411,33 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   questions 2 (writing into another module), 4 (materialising generated declarations) and 5
   (checking the name contract) are all easier to answer once the generator is Ziman.
 
+- **Byte streams: name the pull shape that already exists three times, and give it decorators.
+  Designed first, in `docs/design/byte-streams.md`** -- not started.
+  Raised 2026-11-02, out of asking what "streaming XML" would actually take and finding that the
+  answer was not mostly about XML. `Iter` is already a pull sequence that carries its own close, and
+  three modules already produce the shape -- `fs.chunks`, `fs.lines` and `client.stream` -- with
+  **three different error types for the same kind of failure** (`string`, `string`, `ClientError`).
+  What is missing is a name, one error, and anything that composes: nothing buffers a source, caps
+  one, decompresses one, decodes one as text, or drains one back into `[byte]`, and no consumer in
+  the library takes one (`xml.parse`, `json.parse` and `compress.inflate_raw` each take a whole
+  `[byte]`).
+
+  **Two caps in the North Star are this gap rather than decisions anyone made.** An Apple Health
+  import must fit the request body cap and then fit again as an `xml.Document`, where the Spring
+  backend reads the same file with a pull parser and has no limit -- so a multi-year export answers
+  413. And a FHIR bulk import expands every entry of its zip in memory before the first NDJSON line
+  is read. The decided parts of the design are the shape (a convention over `Iter`, not a new
+  struct) and the error (**one `io.IoError`**, five variants named after the answer a server gives:
+  408, drop, 413, 400, 500) because both land in every signature.
+
+  **The half that is easy to miss is the server, not the parser**: `server` reads a request body in
+  one pass into a `[byte]` and its own comment says it "streams nothing", so `max_body_bytes` is the
+  wall a user hits however good the parser is. The doc's §8 argues for spilling a large body to a
+  temporary file first -- which removes the cap without changing `Request`'s shape for the 200-odd
+  endpoints that want a small one -- and treats a socket-backed body as where it should end up.
+  Deliberately **not** symmetric: `OutputStream`'s counterpart waits for a caller, because inputs
+  are unbounded and outputs here are generated, and `codec.Encoder` is `T -> [byte]` on purpose.
+
 - **Derived queries: a repository function's name is its query. Shipped 2026-10-28 (F217);
   designed in full first, in `docs/design/derived-queries.md`.**
   Raised 2026-10-27, after converting all 26 repositories of the sample backend to `eql`. The
