@@ -158,11 +158,41 @@ Nothing here is included for symmetry; each line names what asks for it.
 |---|---|
 | `io.drain(source, max) -> Result<[byte], IoError>` | **the migration path.** Turns a source back into the `[byte]` every existing codec, parser and `crypto` function takes, so streams can arrive without rewriting any of them. The first consumer of every new source. |
 | `io.buffered(source, size)` | `xml.events` asks for a few bytes at a time; a 4-byte read must not become a 4-byte syscall. |
-| `io.limited(source, max)` | the ceiling that is currently a `max_size` parameter on nine `compress` readers. As a layer it guards a source the decompressor never sees -- which is where a zip bomb should be stopped. |
+| `io.limited(source, max)` | **the one ceiling.** Replaces the `max_size` parameter on `compress`'s readers (§6.1), so a limit is one concept rather than a convention repeated per function. |
 | `io.text(source) -> Iter<Result<string, IoError>>` | UTF-8 across chunk boundaries: the one thing `Reader` is for. |
 | `io.lines(source)` | `fs.lines` off the filesystem. The FHIR bulk reader wants exactly this over a zip entry. |
 | `compress.inflating(source)` / `compress.gunzipping(source)` | the decorator that makes a zip of NDJSON readable without expanding it. |
 | `xml.events(source) -> Iter<Result<Event, IoError>>` | the Apple Health import, and §8. |
+
+### 6.1 `io.limited` replaces `compress`'s ceilings, and the order is the whole point
+
+**Decided: replace them.** `compress`'s header states the rule those parameters exist for --
+"decompressing untrusted data needs a size limit, a few kilobytes can expand to gigabytes" -- and
+nine functions each carrying their own `max_size` is that one rule spelled nine times. A layer says
+it once.
+
+**But a ceiling belongs on the output, and as a layer it can be put on the wrong side.** The
+parameter could not be: `max_size` on `inflate_raw` means "the most bytes it will produce". As a
+layer:
+
+```ziman
+io.limited(compress.inflating(source), zip_max_entry_bytes)   // right: caps what comes out
+compress.inflating(io.limited(source, zip_max_entry_bytes))   // wrong: caps what goes in
+```
+
+A zip bomb is small going in and enormous coming out, so the second line reads like a guard and is
+none -- it caps the compressed bytes, which were never the problem. This is the cost of the
+decision and it is accepted with two mitigations: `compress.inflating`'s own documentation leads
+with the correct composition, and a fixture feeds a bomb through the right order and requires
+`TooLarge`, so the guard is pinned by a test rather than by a reader's memory.
+
+**For a whole-value reader the ceiling becomes `drain`'s**, which is why nothing is actually lost:
+`io.drain(source, max)` already takes one (§6), so `gunzip(data, max)` stays a call with a limit in
+it -- the limit is just `drain`'s now instead of a parameter `compress` invented. **The ceiling never
+disappears from a signature that decompresses untrusted bytes**, and it should not: a
+`decompress(data)` with no limit anywhere in sight is the DoS the module's header warns about, and
+"wrap it in `limited` yourself" is not a thing an API should rely on a caller remembering when there
+is no stream in view to wrap.
 
 **`xml.parse` should be rewritten over `xml.events`**, not kept beside it: a tree builder that folds
 events into a `Document` is a dozen lines, and two parsers for one grammar is how the two drift. The
@@ -244,9 +274,11 @@ Steps 1-3 are a library with fixtures and no callers waiting; step 4 is where th
    already returns -- the same combinator §6 needs anyway -- and not a change to how the bytes are
    produced. `client.stream` is the one that is genuinely a signature change, since its chunks carry
    a `ClientError` that some caller may be matching on today.
-2. **Does `limited` replace `compress`'s `max_size` parameters, or sit beside them?** Replacing them
-   is cleaner and makes nine signatures shorter; it also means a caller who forgets the layer has no
-   ceiling, where today the parameter cannot be forgotten.
+2. ~~**Does `limited` replace `compress`'s `max_size` parameters, or sit beside them?**~~
+   **Decided: replace them** -- one ceiling, not nine. §6.1 has the reasoning, the ordering hazard
+   it introduces (a limit on the input side reads like a guard and is none), and the boundary: a
+   whole-value reader of untrusted bytes keeps a limit in its signature, because that limit is
+   `drain`'s and there is no stream in view for a caller to wrap.
 3. **`io.text` and `fs.lines`: one implementation or two?** Whatever `fs.lines` does about a
    multi-byte sequence split across a read should move into `io` and be called from there.
 4. **Is the threshold in §8.1 a setting?** `server.spill-body-bytes` beside `max-body-bytes`, or a

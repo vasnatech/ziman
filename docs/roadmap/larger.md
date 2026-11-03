@@ -428,7 +428,10 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   413. And a FHIR bulk import expands every entry of its zip in memory before the first NDJSON line
   is read. The decided parts of the design are the shape (a convention over `Iter`, not a new
   struct) and the error (**one `io.IoError`**, five variants named after the answer a server gives:
-  408, drop, 413, 400, 500) because both land in every signature.
+  408, drop, 413, 400, 500) because both land in every signature -- plus that **`io.limited`
+  replaces `compress`'s nine `max_size` parameters**, one ceiling rather than one rule spelled nine
+  times, at the cost of an ordering hazard §6.1 writes down: a limit on a decompressor's *input*
+  reads like a guard and is none, because a zip bomb is small going in.
 
   **The half that is easy to miss is the server, not the parser**: `server` reads a request body in
   one pass into a `[byte]` and its own comment says it "streams nothing", so `max_body_bytes` is the
