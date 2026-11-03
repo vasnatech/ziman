@@ -13,16 +13,7 @@ use http
 use random
 use server
 fn req_of(headers: [http.Header]) -> http.Request {
-    return http.Request {
-        method: http.HttpMethod.Get,
-        target: "/x",
-        path: "/x",
-        query: "",
-        version: "HTTP/1.1",
-        headers: headers,
-        body: [],
-        peer: None
-    }
+    return http.request(http.HttpMethod.Get, "/x", headers, [])
 }
 
 fn accepting(encoding: string) -> http.Request {

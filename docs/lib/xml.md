@@ -567,6 +567,35 @@ pub fn parse(text: string, limits: XmlLimits) -> Result<Document, string>
 arriving from somewhere you do not control has a size you are willing to spend memory on, and
 it is smaller than 16 MiB.
 
+### `elements`
+
+```
+pub fn elements(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Iter<Result<Element, string>>
+```
+
+Each child of the root element, complete, one at a time.
+
+**The shape a large document actually has.** An Apple Health export, a FHIR XML bundle, any
+record-per-element dump: one root wrapping hundreds of thousands of children, each small. `parse`
+holds all of them; `events` holds none of them but hands back pieces a caller has to reassemble;
+this is the middle, and it is what such an import wants -- the existing element functions
+(`attr`, `children_named`, `text_of`) work on what it yields, so a reader written against `parse`
+moves over by changing its loop and nothing else.
+
+Memory is one child element, plus whatever the caller keeps. The root's own attributes are not
+reported: a caller that needs them wants `events`.
+
+Anything outside the root -- the declaration, comments, instructions -- is skipped, as is text
+directly under the root (whitespace between children, in a document shaped like this).
+
+```
+pub fn elements(source: Iter<Result<[byte], io.IoError>>) -> Iter<Result<Element, string>>
+```
+
+`elements` with the default limits.
+
+### `parse`
+
 ```
 pub fn parse(data: [byte]) -> Result<Document, string>
 ```

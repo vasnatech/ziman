@@ -146,29 +146,11 @@ fn echo_binary(ctx: Ctx, data: [byte]) -> Result<[byte], string> {
 }
 
 fn request_bytes(method: string, path: string, headers: [http.Header], body: [byte]) -> http.Request {
-    return http.Request {
-        method: http.method_parse(method),
-        target: path,
-        path: path,
-        query: "",
-        version: "HTTP/1.1",
-        headers: headers,
-        body: body,
-        peer: None
-    }
+    return http.request(http.method_parse(method), path, headers, body)
 }
 
 fn request(method: string, path: string, headers: [http.Header], body: string) -> http.Request {
-    return http.Request {
-        method: http.method_parse(method),
-        target: path,
-        path: path,
-        query: "",
-        version: "HTTP/1.1",
-        headers: headers,
-        body: to_bytes(body),
-        peer: None
-    }
+    return http.request(http.method_parse(method), path, headers, to_bytes(body))
 }
 
 // A body as text, with newlines shown as `|`; one that is not text (a NUL byte) as its bytes.

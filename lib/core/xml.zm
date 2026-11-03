@@ -1527,6 +1527,103 @@ pub fn parse(text: string, limits: XmlLimits) -> Result<Document, string> {
     return folded(events(io.of_bytes(to_bytes(text)), limits))
 }
 
+// Each child of the root element, complete, one at a time.
+//
+// **The shape a large document actually has.** An Apple Health export, a FHIR XML bundle, any
+// record-per-element dump: one root wrapping hundreds of thousands of children, each small. `parse`
+// holds all of them; `events` holds none of them but hands back pieces a caller has to reassemble;
+// this is the middle, and it is what such an import wants -- the existing element functions
+// (`attr`, `children_named`, `text_of`) work on what it yields, so a reader written against `parse`
+// moves over by changing its loop and nothing else.
+//
+// Memory is one child element, plus whatever the caller keeps. The root's own attributes are not
+// reported: a caller that needs them wants `events`.
+//
+// Anything outside the root -- the declaration, comments, instructions -- is skipped, as is text
+// directly under the root (whitespace between children, in a document shaped like this).
+pub fn elements(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Iter<Result<Element, string>> {
+    val stream = events(source, limits)
+    val open = mutable_new<[Building]>([])
+    val stopped = mutable_new(false)
+    return iter_from(
+        fn() -> Option<Result<Element, string>> {
+            if get(stopped) {
+                return None
+            }
+            while true {
+                val item = iter_next(stream)
+                if None = item {
+                    set(stopped, true)
+                    return None
+                }
+                val got = unwrap(item)
+                if Err(why) = got {
+                    set(stopped, true)
+                    return Some(err(why))
+                }
+                switch unwrap(got) {
+                    Start(tag) {
+                        set(open, push(get(open), Building {
+                            name: tag.name,
+                            attributes: tag.attributes,
+                            children: []
+                        }))
+                    }
+                    End(_) {
+                        val held = get(open)
+                        val last = prelude.len(held) - 1
+                        val top = held[last]
+                        val rest = slice(held, 0, last)
+                        val built = Element {
+                            name: top.name,
+                            attributes: top.attributes,
+                            children: top.children
+                        }
+                        // Depth 1 is the root closing: nothing is owed after it.
+                        if prelude.len(rest) == 1 {
+                            set(open, rest)
+                            return Some(ok(built))
+                        }
+                        if prelude.len(rest) == 0 {
+                            set(open, rest)
+                        } else {
+                            set(open, with_child(rest, Node.Element(built)))
+                        }
+                    }
+                    Text(s) {
+                        if prelude.len(get(open)) > 1 {
+                            set(open, with_child(get(open), Node.Text(s)))
+                        }
+                    }
+                    CData(s) {
+                        if prelude.len(get(open)) > 1 {
+                            set(open, with_child(get(open), Node.CData(s)))
+                        }
+                    }
+                    Comment(s) {
+                        if prelude.len(get(open)) > 1 {
+                            set(open, with_child(get(open), Node.Comment(s)))
+                        }
+                    }
+                    ProcessingInstruction(pi) {
+                        if prelude.len(get(open)) > 1 {
+                            set(open, with_child(get(open), Node.ProcessingInstruction(pi)))
+                        }
+                    }
+                    Declaration(_) {}
+                }
+            }
+            return None
+        },
+        fn() { iter_close(stream) }
+    )
+}
+
+// `elements` with the default limits.
+pub fn elements(source: Iter<Result<[byte], io.IoError>>) -> Iter<Result<Element, string>> {
+    return elements(source, xml_limits())
+}
+
 // An element whose children are still arriving.
 struct Building {
     name: Name

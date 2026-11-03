@@ -76,22 +76,15 @@ val table = rest.routes<Ctx>([
     endpoint("/injected", injected)
 ])
 
-fn request(target: string, path: string, query: string) -> http.Request {
-    return http.Request {
-        method: http.HttpMethod.Get,
-        target: target,
-        path: path,
-        query: query,
-        version: "HTTP/1.1",
-        headers: [],
-        body: [],
-        peer: None
-    }
+// `http.request` splits the target, so this takes one argument where it took three that had to
+// agree with each other.
+fn request(target: string) -> http.Request {
+    return http.request(http.HttpMethod.Get, target, [], [])
 }
 
 fn show(label: string, path: string, query: string) {
     val target = if query == "" { path } else { concat(path, "?", query) }
-    val res = rest.dispatch<Ctx>(table, Ctx { settings_page: "https://example.test/settings" }, request(target, path, query), fault)
+    val res = rest.dispatch<Ctx>(table, Ctx { settings_page: "https://example.test/settings" }, request(target), fault)
     val location = switch http.header_value(res.headers, "Location") {
         Some(value) { value }
         None { "(none)" }

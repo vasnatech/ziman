@@ -20,16 +20,7 @@ fn main() {
     print(http.method_name(http.method_parse("PATCH")))
     print(http.method_parse("get") == HttpMethod.Other("get"))
 
-    val req = http.Request {
-        method: HttpMethod.Get,
-        target: "/a?x=1",
-        path: "/a",
-        query: "x=1",
-        version: "HTTP/1.1",
-        headers: [Header { name: "Content-Type", value: "text/plain" }],
-        body: [],
-        peer: None
-    }
+    val req = http.request(HttpMethod.Get, "/a?x=1", [Header { name: "Content-Type", value: "text/plain" }], [])
     print(http.header(req, "content-type"))
     print(status_not_found)
 
@@ -312,6 +303,30 @@ pub struct Response {
 
 What a handler returns: a status code, headers and a body of bytes. `write_response` adds
 `Content-Length`, `Connection`, and (unless set) `Date` and `Server`.
+
+### `request`
+
+```
+pub fn request(method: HttpMethod, target: string, headers: [Header], body: [byte]) -> Request
+```
+
+A request, with the fields that follow from the others worked out: `path` and `query` split off
+the target, HTTP/1.1, and no peer -- which is the honest answer for a request that did not come
+off a socket.
+
+**This exists so that a field added to `Request` is not a change to every caller.** A struct
+literal must name every field and Ziman has no field defaults, so `Request` was hand-built in
+forty-odd places -- almost all of them tests -- and each of them would have had to be edited to
+add one field, whatever that field was. Add a field now and this function changes; the callers
+below it do not.
+
+**It also removes a way to be wrong.** `target`, `path` and `query` have to agree, and a literal
+that sets `target: "/x?y=1"` with `query: ""` is accepted by the compiler and then behaves as
+though the query were not there. Here they cannot disagree, and the split is the one the server's
+own reader does.
+
+A request that needs something else -- a version, a peer address -- takes it from here and says
+so: `with http.request(..) { peer: Some("192.0.2.7") }`.
 
 ### `response_text`
 

@@ -17,16 +17,7 @@ fn verdict(value: string) -> string {
 }
 
 fn request_with(headers: [http.Header]) -> http.Request {
-    return http.Request {
-        method: http.HttpMethod.Get,
-        target: "/",
-        path: "/",
-        query: "",
-        version: "HTTP/1.1",
-        headers: headers,
-        body: [],
-        peer: None
-    }
+    return http.request(http.HttpMethod.Get, "/", headers, [])
 }
 
 fn main() {

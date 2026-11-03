@@ -47,16 +47,14 @@ fn main() {
 
     // forwarded_for: `trusted_hops` counts proxies *you own*, from the right, because each one appends
     // what it saw and only the rightmost entries were written by machines you control.
-    val req = http.Request {
-        method: HttpMethod.Get,
-        target: "/",
-        path: "/",
-        query: "",
-        version: "HTTP/1.1",
-        headers: [http.Header { name: "X-Forwarded-For", value: "203.0.113.9, 198.51.100.4" }],
-        body: [],
-        peer: Some("10.0.0.2")
-    }
+    // `with` over `http.request`, because the peer is the whole subject here and everything else is
+    // the default -- and because a field added to `Request` then costs this file nothing.
+    val req = with http.request(
+        HttpMethod.Get,
+        "/",
+        [http.Header { name: "X-Forwarded-For", value: "203.0.113.9, 198.51.100.4" }],
+        []
+    ) { peer: Some("10.0.0.2") }
     printf("hops 0 -- nothing in front:   {}\n", get_or<string>(server.forwarded_for(req, 0), "-"))
     printf("hops 1 -- one proxy of ours:  {}\n", get_or<string>(server.forwarded_for(req, 1), "-"))
     printf("hops 2 -- two of ours:        {}\n", get_or<string>(server.forwarded_for(req, 2), "-"))
@@ -65,15 +63,6 @@ fn main() {
     printf("hops 5 -- more than exist:    {}\n", get_or<string>(server.forwarded_for(req, 5), "-"))
 
     // No header at all, with a hop claimed: same reasoning, fall back to the socket.
-    val bare = http.Request {
-        method: HttpMethod.Get,
-        target: "/",
-        path: "/",
-        query: "",
-        version: "HTTP/1.1",
-        headers: [],
-        body: [],
-        peer: Some("10.0.0.3")
-    }
+    val bare = with http.request(HttpMethod.Get, "/", [], []) { peer: Some("10.0.0.3") }
     printf("no header, hops 1:            {}\n", get_or<string>(server.forwarded_for(bare, 1), "-"))
 }

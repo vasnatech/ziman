@@ -13,16 +13,7 @@ use http
 use server
 use server.multipart_max_parts
 fn req_of(media: string, body: [byte]) -> http.Request {
-    return http.Request {
-        method: http.HttpMethod.Post,
-        target: "/upload",
-        path: "/upload",
-        query: "",
-        version: "HTTP/1.1",
-        headers: [http.Header { name: "Content-Type", value: media }],
-        body: body,
-        peer: None
-    }
+    return http.request(http.HttpMethod.Post, "/upload", [http.Header { name: "Content-Type", value: media }], body)
 }
 
 val boundary = "--zimanBoundary7"
@@ -53,10 +44,16 @@ fn describe(p: server.Part) -> string {
         Ok(s) { concat("\"", replace(replace(s, "\r", "\\r"), "\n", "\\n"), "\"") }
         Err(_) { concat(str(len(p.body)), " bytes, not text") }
     }
-    return concat("name=", p.name,
-                  " filename=", switch p.filename { Some(f) { f } None { "-" } },
-                  " type=", switch p.content_type { Some(t) { t } None { "-" } },
-                  " body=", text)
+    return concat(
+        "name=",
+        p.name,
+        " filename=",
+        switch p.filename { Some(f) { f } None { "-" } },
+        " type=",
+        switch p.content_type { Some(t) { t } None { "-" } },
+        " body=",
+        text
+    )
 }
 
 // The three answers `part_text` distinguishes: text, bytes that are not text, and no such field.
@@ -83,15 +80,21 @@ fn main() {
     // A text field and an upload, which is what a form with a file input sends.
     show("a field and a file", req_of(content_type, body_of([
         text_part("Content-Disposition: form-data; name=\"title\"", "Blood test"),
-        text_part(concat("Content-Disposition: form-data; name=\"report\"; filename=\"r.txt\"\r\n",
-                         "Content-Type: text/plain"), "line one\r\nline two")
+        text_part(concat(
+            "Content-Disposition: form-data; name=\"report\"; filename=\"r.txt\"\r\n",
+            "Content-Type: text/plain"
+        ), "line one\r\nline two")
     ])))
 
     // Bytes that are not text, and an empty part: both have to come through as they went in.
     show("binary and empty", req_of(content_type, body_of([
-        part_bytes(concat("Content-Disposition: form-data; name=\"blob\"; filename=\"b.bin\"\r\n",
-                          "Content-Type: application/octet-stream"),
-                   [1 as byte, 0 as byte, 255 as byte, 2 as byte]),
+        part_bytes(
+            concat(
+                "Content-Disposition: form-data; name=\"blob\"; filename=\"b.bin\"\r\n",
+                "Content-Type: application/octet-stream"
+            ),
+            [1 as byte, 0 as byte, 255 as byte, 2 as byte]
+        ),
         text_part("Content-Disposition: form-data; name=\"note\"", "")
     ])))
 
@@ -133,8 +136,10 @@ fn main() {
     val json = req_of("application/json", to_bytes("{}"))
     val no_boundary = req_of("multipart/form-data", to_bytes("x"))
     printf("boundary of json: {}\n", switch server.multipart_boundary(json) { Some(b) { b } None { "none" } })
-    printf("boundary when the Content-Type omits it: {}\n",
-           switch server.multipart_boundary(no_boundary) { Some(b) { b } None { "none" } })
+    printf(
+        "boundary when the Content-Type omits it: {}\n",
+        switch server.multipart_boundary(no_boundary) { Some(b) { b } None { "none" } }
+    )
     show("json body", json)
 
     // The part cap, which keeps a body of boundary lines from becoming one value per 40 bytes.

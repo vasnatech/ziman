@@ -17,6 +17,11 @@ ERR line 1: attribute 'x' appears twice
 <a | <b | text 'partial' | ERR the stream closed: the peer hung up
 -- the byte ceiling is a layer --
 ERR the stream is too large: more than 8 bytes
+-- elements: each child of the root, complete --
+a id=1 v=7
+a id=2 v=8
+got a
+ERR line 1: </c> closes <b>
 -- the window stays bounded --
 26309 characters in 512-byte chunks, 3202 events, window never above 510
 the same document in one chunk: window reached 26309

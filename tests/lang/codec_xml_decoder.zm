@@ -50,29 +50,16 @@ fn handle_list(ctx: Ctx) -> Result<[Order], string> {
 }
 
 fn posted(content_type: string, body: string) -> http.Request {
-    return http.Request {
-        method: http.method_parse("POST"),
-        target: "/orders",
-        path: "/orders",
-        query: "",
-        version: "HTTP/1.1",
-        headers: [http.Header { name: "Content-Type", value: content_type }],
-        body: to_bytes(body),
-        peer: None
-    }
+    return http.request(
+        http.method_parse("POST"),
+        "/orders",
+        [http.Header { name: "Content-Type", value: content_type }],
+        to_bytes(body)
+    )
 }
 
 fn getted(target: string) -> http.Request {
-    return http.Request {
-        method: http.method_parse("GET"),
-        target: target,
-        path: target,
-        query: "",
-        version: "HTTP/1.1",
-        headers: [],
-        body: to_bytes(""),
-        peer: None
-    }
+    return http.request(http.method_parse("GET"), target, [], to_bytes(""))
 }
 
 fn main() {

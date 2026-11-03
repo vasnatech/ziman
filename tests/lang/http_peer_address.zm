@@ -27,16 +27,7 @@ val table = rest.routes<int>([
 
 fn main() {
     // A Request nobody received has no peer.
-    val built = http.Request {
-        method: HttpMethod.Get,
-        target: "/who",
-        path: "/who",
-        query: "",
-        version: "HTTP/1.1",
-        headers: [],
-        body: [],
-        peer: None
-    }
+    val built = http.request(HttpMethod.Get, "/who", [], [])
     printf("a hand-built request: {}\n", if Option.is_None(built.peer) { "no peer" } else { "a peer" })
 
     val l = unwrap(net.listen("127.0.0.1", 0))

@@ -14,16 +14,7 @@ fn fault(status: int, message: string) -> http.Response {
     return server.response(status, to_bytes(message))
 }
 fn req_of(method: http.HttpMethod, headers: [http.Header]) -> http.Request {
-    return http.Request {
-        method: method,
-        target: "/x",
-        path: "/x",
-        query: "",
-        version: "HTTP/1.1",
-        headers: headers,
-        body: [],
-        peer: None
-    }
+    return http.request(method, "/x", headers, [])
 }
 fn show(label: string, r: http.Response) {
     val out = mutable_array_new<string>()

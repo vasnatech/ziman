@@ -39,16 +39,7 @@ fn endpoint(method: string, pattern: string, text: string) -> rest.Endpoint<Ctx>
 }
 
 fn getted(path: string) -> http.Request {
-    return http.Request {
-        method: http.method_parse("GET"),
-        target: path,
-        path: path,
-        query: "",
-        version: "HTTP/1.1",
-        headers: [],
-        body: to_bytes(""),
-        peer: None
-    }
+    return http.request(http.method_parse("GET"), path, [], to_bytes(""))
 }
 
 fn main() {

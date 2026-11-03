@@ -2529,6 +2529,10 @@ pub fn parse(text: string) -> Result<Document, string>
 
 pub fn parse(text: string, limits: XmlLimits) -> Result<Document, string>
 
+pub fn elements(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Iter<Result<Element, string>>
+
+pub fn elements(source: Iter<Result<[byte], io.IoError>>) -> Iter<Result<Element, string>>
+
 pub fn parse(data: [byte]) -> Result<Document, string>
 
 pub fn parse(data: [byte], limits: XmlLimits) -> Result<Document, string>
@@ -3464,6 +3468,8 @@ pub struct Response {
     headers: [Header]
     body: [byte]
 }
+
+pub fn request(method: HttpMethod, target: string, headers: [Header], body: [byte]) -> Request
 
 pub fn response_text(r: Response) -> Result<string, string>
 

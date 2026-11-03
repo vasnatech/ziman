@@ -46,17 +46,7 @@ fn show(text: string) -> string {
 }
 
 fn request(target: string, headers: [http.Header]) -> http.Request {
-    val parts = split(target, "?")
-    return http.Request {
-        method: http.HttpMethod.Get,
-        target: target,
-        path: parts[0],
-        query: if len(parts) > 1 { parts[1] } else { "" },
-        version: "HTTP/1.1",
-        headers: headers,
-        body: [],
-        peer: None
-    }
+    return http.request(http.HttpMethod.Get, target, headers, [])
 }
 
 fn main() {

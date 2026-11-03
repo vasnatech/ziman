@@ -9,16 +9,7 @@ fn main() {
     print(http.method_name(http.method_parse("PATCH")))
     print(http.method_parse("get") == HttpMethod.Other("get"))
 
-    val req = http.Request {
-        method: HttpMethod.Get,
-        target: "/a?x=1",
-        path: "/a",
-        query: "x=1",
-        version: "HTTP/1.1",
-        headers: [Header { name: "Content-Type", value: "text/plain" }],
-        body: [],
-        peer: None
-    }
+    val req = http.request(HttpMethod.Get, "/a?x=1", [Header { name: "Content-Type", value: "text/plain" }], [])
     print(http.header(req, "content-type"))
     print(status_not_found)
 

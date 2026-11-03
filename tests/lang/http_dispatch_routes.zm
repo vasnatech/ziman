@@ -48,16 +48,7 @@ fn two(ctx: Ctx, req: http.Request, params: rest.Params) -> http.Response {
 }
 
 fn request(method: HttpMethod, path: string) -> http.Request {
-    return http.Request {
-        method: method,
-        target: path,
-        path: path,
-        query: "",
-        version: "HTTP/1.1",
-        headers: [],
-        body: [],
-        peer: None
-    }
+    return http.request(method, path, [], [])
 }
 
 fn show(table: rest.Routes<Ctx>, method: HttpMethod, path: string) {

@@ -3,16 +3,12 @@
 // stays where it is -- it models what a user agent keeps between requests, which a server has no use for.
 use http
 fn main() {
-    val req = http.Request {
-        method: http.HttpMethod.Get,
-        target: "/",
-        path: "/",
-        query: "",
-        version: "HTTP/1.1",
-        headers: [http.Header { name: "Cookie", value: "sid=abc123; theme=dark; broken; empty=" }],
-        body: [],
-        peer: None
-    }
+    val req = http.request(
+        http.HttpMethod.Get,
+        "/",
+        [http.Header { name: "Cookie", value: "sid=abc123; theme=dark; broken; empty=" }],
+        []
+    )
     for p in http.request_cookies(req) { printf("{} = [{}]\n", p.name, p.value) }
     printf("sid: {}\n", http.request_cookie(req, "sid"))
     printf("absent: {}\n", http.request_cookie(req, "nope"))

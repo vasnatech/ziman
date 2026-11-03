@@ -89,6 +89,23 @@ fn main() {
     }
     print(join(separator: " | ", pieces: snapshot(out)))
 
+    print("-- elements: each child of the root, complete --")
+    val doc = "<records><a id=\"1\"><v>7</v></a><!--skip--><a id=\"2\"><v>8</v></a></records>"
+    for item in xml.elements(io.of_bytes(to_bytes(doc))) {
+        print(switch item {
+            Ok(e) { format("{} id={} v={}", e.name.local, xml.attr_or(e, "id", "?"), xml.text_of(e)) }
+            Err(why) { concat("ERR ", why) }
+        })
+    }
+    // A malformed document fails partway, after the children before the fault have been handed over
+    // -- which is what streaming means and is why the import that uses this runs in a transaction.
+    for item in xml.elements(io.of_bytes(to_bytes("<records><a/><b></c></records>"))) {
+        print(switch item {
+            Ok(e) { concat("got ", e.name.local) }
+            Err(why) { concat("ERR ", why) }
+        })
+    }
+
     print("-- the window stays bounded --")
     //
     // **Over a chunked source, which is what a stream is.** `of_bytes` hands over the whole

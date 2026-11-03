@@ -164,7 +164,11 @@ fn form_body(parts: [string]) -> [byte] {
 
 fn file_part(field: string, filename: string, body: string) -> string {
     return concat(
-        "Content-Disposition: form-data; name=\"", field, "\"; filename=\"", filename, "\"\r\n",
+        "Content-Disposition: form-data; name=\"",
+        field,
+        "\"; filename=\"",
+        filename,
+        "\"\r\n",
         "Content-Type: application/octet-stream\r\n\r\n",
         body
     )
@@ -181,16 +185,7 @@ fn request(path: string, media: string, body: [byte], authorised: bool) -> http.
     if authorised {
         push(headers, http.Header { name: "Authorization", value: "Bearer t" })
     }
-    return http.Request {
-        method: http.HttpMethod.Post,
-        target: path,
-        path: path,
-        query: "",
-        version: "HTTP/1.1",
-        headers: snapshot(headers),
-        body: body,
-        peer: None
-    }
+    return http.request(http.HttpMethod.Post, path, snapshot(headers), body)
 }
 
 fn multipart_request(path: string, parts: [string], authorised: bool) -> http.Request {
