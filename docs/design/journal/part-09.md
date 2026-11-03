@@ -1355,3 +1355,65 @@ backtrace said before any of it was tested.
 **Verified**: 20 consecutive runs of `admin_database_test.py` against a throwaway `postgres:17`, all
 green, against a rate of about 1 in 6 before (at that rate, 20 clean runs is a 2.6% event). Then
 `make check-fast` and the backend's own `run-all.sh --both`.
+
+## 2026-11-03 — the upload that is never held, and the copy that never happens
+
+F264 is built: a request body past `ServeOptions.spill_body_bytes` is written to a file as it
+arrives, `multipart` scans that file without reading it back, and each part is a *range* of it. The
+North Star's Apple Health import now takes an `Iter<Result<[byte], io.IoError>>` and hands it
+straight to `xml.elements`, so nothing between the socket and the parser holds the document.
+
+**The enum was the load-bearing decision, and it is a decision about compile errors.** The design
+document said the handler would be "given `fs.chunks` over it" and never said how the handler learns
+which kind of body it has. The available shapes were a nullable second field (`body: [byte]` plus
+`spill: Option<Spill>`) or one enum. The field keeps every existing reader compiling and hands it an
+*empty body* for a spilled upload — a wrong answer with no error anywhere. `http.Body` of
+`Bytes([byte]) | Spilled(Spill)` cannot do that: the five readers in the library became five type
+errors, each a line to fix, and the compiler produced the list. Everything else here follows from
+having been made to look at every reader once.
+
+**Then `Part` grew the same field, and the accessors moved.** They took a `Request` for exactly one
+commit. A part of a multipart body has the same question -- in memory, or in a file? -- so
+`body_bytes`/`body_source`/`body_size` take the `Body` itself now and
+`http.body_source(req.body)`/`http.body_source(part.body)` are one call. One set of readers over the
+type beats two over its holders, and the second holder is what made that obvious.
+
+**A part is a window onto the body's file, not a copy of it.** The plan, read literally, had the
+multipart layer write each part out again — a second copy of a 100 MB upload for no reason.
+`Spill` carries an `offset`, so a part is `Spilled { path: <the body's own file>, offset, size }`,
+and the only thing the scan produces per part is two integers. `io.taking` and `io.skipping` make
+such a range readable; `taking` is deliberately not `limited`, because cutting a source to a length
+the caller knows and refusing one that is too large are different jobs with different answers (no
+error, and `TooLarge`).
+
+**`io.Cursor` was the wrong tool, and F264 had named it as the right one.** The entry said the part
+boundaries were "exactly the kind of scanning `io.Cursor` is for". The cursor is a *character*
+window: it decodes, its `span` answers a string, its positions count characters. A multipart body is
+bytes — a part is a JPEG as often as text, and a boundary is matched byte for byte, which is why
+`mime.parse` leaves a boundary's case alone — so decoding it would have been wrong before it was
+slow. The scanner is sixty lines private to `multipart`: a window of one chunk plus a delimiter,
+`scan_find_discarding` to pass a part's body without holding it, `scan_find_keeping` to read a header
+block under a bound. Same shape as the cursor, different alphabet. It moves into `io` if a second
+byte-level caller turns up, and not before.
+
+**The chunked path cannot work like the sized one.** `Content-Length` says how large a body is
+before any of it arrives, so that path decides up front and never holds the body at all. A chunked
+body says nothing, so the only honest answer is to hold it until it passes the threshold and write
+it out from there — the alternative, spilling from the first byte, would put every short chunked
+POST on the disk. Two readers, two shapes, one threshold.
+
+**What it bought, and what it did not.** The 14.7 MB export still peaks at 897 MB, unchanged by all
+of this, because the document was never the dominant term — the records written in one transaction
+are. What moved is the *ceiling*: `server.max-body-bytes` is now a limit on disk rather than on
+memory, and the fix for a 200 MB export is two settings rather than one, exactly as §13 predicted.
+The backend sets the threshold to 1 MiB and leaves the cap at the 16 MiB the attachment endpoint
+chose, because raising it lets every caller write that much to disk — a judgement about a machine,
+not about an API, and so not the library's to make.
+
+**Step 3 of the task is deliberately not built.** It asked for a `rest` family that hands a part's
+source to the handler and a `#[part]` that binds one. `Part.body` being a `Body` already is that
+binding: the controller reads `val export = try uploaded_source(file)` and passes it on. Binding an
+`Iter` directly would save two lines and cost a lifetime contract hidden in a parameter type — the
+source is valid only until the handler returns, the file being deleted then — plus a rule about which
+part gets streamed when several are bound. Filed as judged-unnecessary with that reasoning, rather
+than silently dropped.

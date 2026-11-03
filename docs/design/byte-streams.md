@@ -404,3 +404,49 @@ memory by the server, and `server.body_source` exists for whatever streams next.
 
 **`io.Sink` is still unbuilt and still has no caller** (§7), which is the prediction that held: the
 export path never needed one.
+
+## 17. What building the chain changed, and what it did not buy
+
+§16 named the missing layer and F264 carried the order; both are built as of 2026-11-03. Five things
+the writing got wrong or left out, and one number that did not move.
+
+1. **`Request.body` is an enum, and that was the load-bearing choice.** §8.1 said "the handler is
+   given `fs.chunks` over it" without saying how the handler learns which it has. A `body: [byte]`
+   beside a `spill: Option<..>` would have let every existing reader keep compiling and silently see
+   an empty body for a spilled upload. `http.Body` of `Bytes([byte]) | Spilled(Spill)` made the
+   compiler list the readers instead -- five in the library, all of them a line each.
+
+2. **The accessors belong to the `Body`, not to the `Request`.** They took the request for exactly
+   one commit, until `Part` grew the same field; `http.body_source(req.body)` and
+   `http.body_source(part.body)` are the same call now, which is one set of readers over the type
+   rather than two over its holders.
+
+3. **A part is a range of the body's own file.** The obvious reading of §8 -- and of F264's own
+   wording -- is that the multipart layer writes each part out. It does not need to: `Spill` carries
+   an `offset`, the reader writes the upload once, and each part is a window onto it. Nothing copies
+   a 100 MB file at any point on the path.
+
+4. **The multipart scan is byte-level and is deliberately not `io.Cursor`.** F264 said the
+   boundaries were "exactly the kind of scanning `io.Cursor` is for", and that was wrong: the cursor
+   decodes, its spans are strings and its positions count characters, while a multipart body is
+   bytes and a boundary is matched byte for byte. The scanner is private to `multipart` -- a window
+   of one chunk plus a delimiter, discarding what it passes over -- and the two have the same shape
+   with different alphabets.
+
+5. **`io` gained `taking` and `skipping`**, which §6 did not foresee because nothing wanted a *range*
+   of a source until a part did. `taking` is not `limited` and the difference is the error:
+   `limited` refuses a source larger than its ceiling because its caller is guarding against a bomb,
+   while `taking` cuts a source to a length its caller already knows and reports nothing. `skipping`
+   reads what it skips -- there is no seek on a source (§10) -- so a range near the start of a body is
+   cheap and one near its end is not, which is the honest reason to read the part you want first.
+
+**And the number did not move.** The North Star's 14.7 MB Apple Health export still peaks at the
+same 897 MB it did after §16's parser work, because the document was never the dominant term there:
+the records written in one transaction are. What the chain bought is not a smaller peak for that
+export but a **ceiling that is no longer memory** -- `server.max-body-bytes` bounds an upload, and
+raising it now costs disk. The backend therefore sets `server.spill-body-bytes` to 1 MiB and leaves
+its cap at the 16 MiB the attachment endpoint chose, since raising it lets every caller write that
+much to disk. That is a judgement about a machine rather than about this API, and it is the shape
+§13 predicted: the fix is two settings, and only one of them is the library's.
+
+**`io.Sink` is still unbuilt and still has no caller** (§7), two entries running.
