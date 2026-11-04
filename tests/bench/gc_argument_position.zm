@@ -1,0 +1,100 @@
+// **A call evaluated in argument position runs with the collector switched off for its whole
+// duration.** This bench does the same work twice and differs only in where the result is bound.
+//
+// `gc_unsafe_enter`/`gc_unsafe_leave` (src/interpreter.c) exists because a `Value` held only by C
+// -- in a local, or in a buffer C is part-way through filling -- is not a root for the per-thread
+// heap's precise mark phase, which has no conservative scan of the C stack. `maybe_collect` skips
+// **entirely** whenever that depth is nonzero. Four sites build such a buffer (an EXPR_CALL's
+// argument array, an array literal, a struct literal, a `with`), and `call_closure_value` guards an
+// entire call because the caller's own `args` array is still live across it.
+//
+// The guard is therefore held while the *later* elements are evaluated, and across a whole closure
+// call -- so anything those evaluations do, however long they take, is uncollectable. Measured here
+// on 2026-11-04:
+//
+//     hoisted into a val first        plateaus at ~42 MB
+//     evaluated as an argument        42 -> 54 -> 70 -> 92 -> 118 MB, still climbing
+//
+// **What it cost in a real application.** The North Star backend's Apple Health import reaches its
+// handler through several nested closure calls, so the whole import is one uncollectable region:
+// 20,000 records cost 2,054 MB and 54.6 s there, against 72 MB and 9.3 s for the identical
+// per-record work -- same parse, same duplicate check, same derived insert -- run from a `main`.
+// 26 **million** due collections were skipped in one 5,000-record import, the thread's heap
+// reaching 215 MB with the live set never above 2.4 MB. That arena is pushed to Boehm as a
+// conservative root on every collection (`ziman_arena_push_scanned_roots`), so Boehm's own heap is
+// pinned at "97% in use" and its mark time climbs with it -- which is where the superlinear time
+// comes from, not from the work.
+//
+// **This gate fails until F267 is fixed**, which is the point of it: it is the regression test for
+// that task, and benches are run directly rather than by `make check`. Run it with
+// `./ziman tests/bench/gc_argument_position.zm`.
+use math
+use os
+
+fn resident() -> int {
+    return switch os.process_memory() {
+        Ok(n) { n / 1024 }
+        Err(_) { 0 - 1 }
+    }
+}
+
+// Allocates steadily and retains nothing: every string and array made here is dead by the next
+// turn of the loop, so a collector that is allowed to run keeps this flat.
+fn churn(rounds: int) -> int {
+    var total = 0
+    for i in 0..rounds {
+        val made = concat("row-", str(i), "-", str(i * 7))
+        val items = [made, made, made]
+        total = total + len(items[0])
+    }
+    return total
+}
+
+// Deliberately does nothing with its argument: what is being measured is the argument's own
+// evaluation, not anything this does after it.
+fn identity(x: int) -> int {
+    return x
+}
+
+fn main() {
+    val rounds = 200000
+    // A **full** warm-up, so neither figure below includes the one-off cost of growing the heap
+    // to the steady state this work needs. A tenth of it is not enough: the heap is still growing
+    // on the first full round, which showed up as the hoisted half growing 23 MB and the ratio
+    // reading 1x for a defect that is a factor of tens.
+    churn(rounds)
+    os.collect_garbage()
+    val before_hoisted = resident()
+    val hoisted = churn(rounds)
+    val after_hoisted = resident()
+    printf(
+        "hoisted into a val:       {} -> {} KB (grew {})\n",
+        before_hoisted,
+        after_hoisted,
+        after_hoisted - before_hoisted
+    )
+    os.collect_garbage()
+    val before_argument = resident()
+    val as_argument = identity(churn(rounds))
+    val after_argument = resident()
+    printf(
+        "evaluated as an argument: {} -> {} KB (grew {})\n",
+        before_argument,
+        after_argument,
+        after_argument - before_argument
+    )
+    if hoisted != as_argument {
+        print("FAIL: the two halves did not do the same work")
+        os.exit(1)
+    }
+    val hoisted_growth = math.max(after_hoisted - before_hoisted, 1)
+    val argument_growth = math.max(after_argument - before_argument, 1)
+    printf("the argument form grew {}x what the hoisted form did\n", argument_growth / hoisted_growth)
+    // Three rather than one: the hoisted form's own growth is small enough that ordinary noise in
+    // it moves the ratio, and what this exists to catch is a factor of tens.
+    if argument_growth > hoisted_growth * 3 {
+        print("FAIL: argument position still disables the collector (F267)")
+        os.exit(1)
+    }
+    print("ok   a call in argument position is collected like any other")
+}
