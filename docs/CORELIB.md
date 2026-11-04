@@ -3363,12 +3363,31 @@ pub struct AlterStmt {
     action: AlterAction
 }
 
+pub enum IndexOrder {
+    Unwritten
+    Ascending
+    Descending
+}
+
+pub struct IndexColumn {
+    // **An expression, not a name.** `CREATE INDEX i ON t (lower(email))` indexes an expression,
+    // and a bare column is simply the smallest one -- it parses to `Expr.Col` and writes back as
+    // the name it came from, so the common case costs nothing to read or to print.
+    target: Expr
+    // The collation named with `COLLATE`, or empty where none was.
+    collation: string
+    order: IndexOrder
+}
+
 pub struct CreateIndexStmt {
     name: string
     table: string
-    columns: [string]
+    columns: [IndexColumn]
     unique: bool
     if_not_exists: bool
+    // A partial index's own `WHERE`: `CREATE INDEX i ON t (a) WHERE b IS NOT NULL`. `None` where
+    // none was written, which is every index that covers the whole table.
+    predicate: Option<Expr>
 }
 
 pub struct DropStmt {
