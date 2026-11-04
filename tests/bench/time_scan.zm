@@ -1,0 +1,91 @@
+// **What a formatted timestamp costs to read and to write**, which is where the North Star's
+// Apple Health import spends about 8% of itself (`time::parse_fields_prefix` 4.6%,
+// `time::format_fields` 3.6% of a 20,000-record profile) -- one parse and one format per record.
+//
+// The pattern is Apple Health's own, `yyyy-MM-dd HH:mm:ss Z`, which is thirteen parts: six numeric
+// fields, six literals and a basic-form offset. Both directions walk `fmt.parts` and do a little
+// interpreted work per part, so the cost is the part count rather than the string length.
+//
+// **What a `switch`'s arm order costs, measured here 2026-11-04.** A `switch` is desugared to an
+// if-chain and each arm tested is a `strcmp` of the variant name, so a fourteen-arm switch run
+// once per part pays for every arm it passes over. `Literal` is six of these thirteen parts and
+// was the *last* arm in both functions:
+//
+//     a parse    25 us -> 20 us (Literal first) -> 18 us (locale-name arms last)
+//     a format   20 us -> 16 us                 -> 14 us
+//
+// **28% and 30%, from moving arms and changing nothing else.** The honest caveat belongs here too:
+// the North Star's import, where these two were 4.6% and 3.6% of a profile, did **not** measurably
+// move -- 23.2 s against 22.6/23.1 s before, inside this machine's own 20% spread. 30% of 8% is
+// 2.5%. The win is real and it is small where it was found; it is worth having for a workload that
+// is mostly dates, and the general fix is **F268**, which makes arm order stop mattering at all.
+//
+// Run it directly: `./ziman tests/bench/time_scan.zm`. The two must stay within a small factor of
+// each other and of the ISO forms beside them -- a jump in either is the regression this catches.
+use clock
+use math
+use os
+use time
+
+val apple = time.datetime_format_of("yyyy-MM-dd HH:mm:ss Z")
+
+fn parse_ms(texts: [string], n: int) -> int {
+    val started = clock.monotonic_millis()
+    var ok_count = 0
+    for i in 0..n {
+        switch time.parse_instant(texts[i % len(texts)], apple) {
+            Ok(v) { ok_count = ok_count + 1 }
+            Err(e) { printf("  PARSE FAILED: {}\n", e) return 0 - 1 }
+        }
+    }
+    if ok_count != n {
+        print("  FAIL: not every parse succeeded")
+    }
+    return clock.monotonic_millis() - started
+}
+
+fn format_ms(instants: [time.Instant], n: int) -> int {
+    val started = clock.monotonic_millis()
+    for i in 0..n {
+        val text = time.format(instants[i % len(instants)], time.zoneoffset_utc(), apple)
+        if len(text) == 0 {
+            print("  FAIL: empty")
+        }
+    }
+    return clock.monotonic_millis() - started
+}
+
+fn main() {
+    val n = 200000
+    // Twenty distinct values, so neither direction can be answered from one cached result and the
+    // numbers are not a single input measured many times.
+    val texts = mutable_array_new<string>()
+    val instants = mutable_array_new<time.Instant>()
+    for i in 0..20 {
+        val at = time.instant_of(1700000000 + i * 3607, 0)
+        push(instants, at)
+        push(texts, time.format(at, time.zoneoffset_utc(), apple))
+    }
+    val t = snapshot(texts)
+    val v = snapshot(instants)
+    printf("sample: '{}'\n", t[0])
+    val pm = parse_ms(t, n)
+    val fm = format_ms(v, n)
+    printf("{} parses in {} ms ({} us each)\n", n, pm, pm * 1000 / math.max(n, 1))
+    printf("{} formats in {} ms ({} us each)\n", n, fm, fm * 1000 / math.max(n, 1))
+    var bad = false
+    // Generous ceilings: what these catch is a change of cost class, not a slow machine. Measured
+    // 2026-11-04 at 18 us a parse and 14 us a format, down from 25 and 20.
+    if pm > n / 10 {
+        printf("FAIL: a parse costs more than 100 us\n")
+        bad = true
+    }
+    if fm > n / 10 {
+        printf("FAIL: a format costs more than 100 us\n")
+        bad = true
+    }
+    if bad {
+        os.exit(1)
+    }
+    print("ok   both directions are within their ceilings")
+}

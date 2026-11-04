@@ -595,12 +595,16 @@ fn format_fields(
     val out = mutable_string_new()
     for part in fmt.parts {
         append(out, switch part {
+            // **Ordered by how often an arm fires, not by the enum's own order**, because a
+            // `switch` is an if-chain and each arm tested costs a `strcmp` of the variant name
+            // (interpreter.c's own member dispatch). `Literal` is over half the parts of every
+            // real pattern -- six of the thirteen in `yyyy-MM-dd HH:mm:ss Z` -- and was last of
+            // fourteen, so it paid thirteen failed comparisons each time. Moving it first alone
+            // took a format from 20 to 16 us. See F268: the dispatch is what should be fixed, and
+            // then this order stops mattering.
+            Literal(s) { s }
             Year { format_year(year) }
             Month { pad_left(month, 2) }
-            MonthName { locale.month_name(l, month, false) }
-            MonthFullName { locale.month_name(l, month, true) }
-            DayName { locale.day_name(l, day_of_week_of(year, month, day), false) }
-            DayFullName { locale.day_name(l, day_of_week_of(year, month, day), true) }
             Day { pad_left(day, 2) }
             Hour { pad_left(hour, 2) }
             Minute { pad_left(minute, 2) }
@@ -612,7 +616,12 @@ fn format_fields(
             // zero and `+HH:MM` otherwise -- so the two spellings have one implementation each and
             // neither is duplicated here.
             OffsetExtended { format(offset) }
-            Literal(s) { s }
+            // Last because a pattern that spells a month or a day out is the rare one, and every
+            // arm ahead of these is tested before them.
+            MonthName { locale.month_name(l, month, false) }
+            MonthFullName { locale.month_name(l, month, true) }
+            DayName { locale.day_name(l, day_of_week_of(year, month, day), false) }
+            DayFullName { locale.day_name(l, day_of_week_of(year, month, day), true) }
         })
     }
     return snapshot(out)
@@ -737,6 +746,22 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
     var si = 0
     for part in fmt.parts {
         switch part {
+            // **Ordered by how often an arm fires, not by the enum's own order**, for the reason
+            // `format_fields` records: a `switch` is an if-chain and each arm tested costs a
+            // `strcmp` of the variant name. `yyyy-MM-dd HH:mm:ss Z` is thirteen parts, six of them
+            // literals, and with the enum's own order those six were the fourteenth arm each time
+            // -- 133 comparisons a parse against 41 in this order. F268 is the dispatch fix that
+            // makes the order irrelevant; until then the order is the measurement.
+            Literal(lit) {
+                // `si` is a character position -- `is_char_at` below reads one and the final check
+                // compares it against `len(s)` -- so the literal advances it by characters. Bytes
+                // until 2026-10-23, which desynchronised the scan on any non-ASCII separator.
+                val llen = len(lit)
+                if !is_char_at(s, si, lit) {
+                    return err(prelude.format("'{}' does not match expected literal '{}' at position {}", s, lit, si))
+                }
+                si = si + llen
+            }
             Year {
                 val r = switch parse_year(s, si) {
                     Ok(v) { v }
@@ -752,42 +777,6 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
                 }
                 month = r
                 si = si + 2
-            }
-            MonthName {
-                val r = switch month_number_of(s, si, l, false) {
-                    Ok(v) { v }
-                    Err(e) { return err(prelude.format("invalid month name in '{}': {}", s, e)) }
-                }
-                month = r[0]
-                si = r[1]
-            }
-            MonthFullName {
-                val r = switch month_number_of(s, si, l, true) {
-                    Ok(v) { v }
-                    Err(e) { return err(prelude.format("invalid month name in '{}': {}", s, e)) }
-                }
-                month = r[0]
-                si = r[1]
-            }
-            // A weekday is checked and then thrown away: it is redundant with the date beside it,
-            // and `1 January 2026` says which day it was whatever name precedes it. What the parse
-            // needs is how many characters to step over -- and that a wrong name is still an error,
-            // so a pattern round-trips rather than silently accepting anything here.
-            DayName {
-                val r = switch day_name_at(s, si, l, false) {
-                    Ok(v) { v }
-                    Err(e) { return err(prelude.format("invalid day name in '{}': {}", s, e)) }
-                }
-                weekday = r[0]
-                si = si + r[1]
-            }
-            DayFullName {
-                val r = switch day_name_at(s, si, l, true) {
-                    Ok(v) { v }
-                    Err(e) { return err(prelude.format("invalid day name in '{}': {}", s, e)) }
-                }
-                weekday = r[0]
-                si = si + r[1]
             }
             Day {
                 val r = switch parse_fixed_width_int(s, si, 2) {
@@ -846,15 +835,42 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
                 offset = Option<ZoneOffset>.Some(r.offset)
                 si = si + r.length
             }
-            Literal(lit) {
-                // `si` is a character position -- `is_char_at` below reads one and the final check
-                // compares it against `len(s)` -- so the literal advances it by characters. Bytes
-                // until 2026-10-23, which desynchronised the scan on any non-ASCII separator.
-                val llen = len(lit)
-                if !is_char_at(s, si, lit) {
-                    return err(prelude.format("'{}' does not match expected literal '{}' at position {}", s, lit, si))
+            // Last, because a pattern that spells a month or a day out is the rare one.
+            MonthName {
+                val r = switch month_number_of(s, si, l, false) {
+                    Ok(v) { v }
+                    Err(e) { return err(prelude.format("invalid month name in '{}': {}", s, e)) }
                 }
-                si = si + llen
+                month = r[0]
+                si = r[1]
+            }
+            MonthFullName {
+                val r = switch month_number_of(s, si, l, true) {
+                    Ok(v) { v }
+                    Err(e) { return err(prelude.format("invalid month name in '{}': {}", s, e)) }
+                }
+                month = r[0]
+                si = r[1]
+            }
+            // A weekday is checked and then thrown away: it is redundant with the date beside it,
+            // and `1 January 2026` says which day it was whatever name precedes it. What the parse
+            // needs is how many characters to step over -- and that a wrong name is still an error,
+            // so a pattern round-trips rather than silently accepting anything here.
+            DayName {
+                val r = switch day_name_at(s, si, l, false) {
+                    Ok(v) { v }
+                    Err(e) { return err(prelude.format("invalid day name in '{}': {}", s, e)) }
+                }
+                weekday = r[0]
+                si = si + r[1]
+            }
+            DayFullName {
+                val r = switch day_name_at(s, si, l, true) {
+                    Ok(v) { v }
+                    Err(e) { return err(prelude.format("invalid day name in '{}': {}", s, e)) }
+                }
+                weekday = r[0]
+                si = si + r[1]
             }
         }
     }
