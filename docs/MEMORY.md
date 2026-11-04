@@ -1950,3 +1950,94 @@ the 30-second timeout rather than of any work. See F139 for what to settle and i
 the right signal to follow and it pointed out of this document: what limits the backend past c=64
 is the harness, the core count, and a connection-lifecycle contract -- in that order of size. The
 collector is not in the list.
+
+## The guard was the wrong shape: F267, 2026-11-04
+
+The six guarded regions above are correct and far too blunt, and the cost was not visible until
+something long-running went through one. **`maybe_collect` skips entirely while the depth is
+nonzero**, and the depth is held while a buffer's *later* elements are evaluated and across the
+whole body of a closure call. An argument expression is arbitrary Ziman code. So:
+
+    the same function, the same argument, bound two ways (tests/bench/gc_argument_position.zm)
+    hoisted into a val        grew     40 KB
+    evaluated as an argument  grew 26,456 KB      661x
+
+The North Star's Apple Health import reaches its handler through several nested closure calls, so a
+whole request was one uncollectable region: **26 million due collections skipped** in one
+5,000-record import, the thread's heap reaching 215 MB around a live set that never passed 2.4 MB.
+`ziman_arena_push_scanned_roots` then pushes every byte that arena ever handed out as a
+conservative Boehm root, so Boehm was pinned with it -- `In-use heap: 97%` of 336 MB, its mark time
+climbing 88 to 97 ms over one import. **That was the superlinearity**, not the work: 20,000 records
+cost 54.6 s and 2,054 MB in the server against 9.3 s and 72 MB for the identical per-record work
+from a `main`.
+
+`src/gc_pending.{h,c}` registers the part-built buffer instead, as `t_active_iters` already was.
+Nodes live **on the C stack** -- no allocation, correct nesting through recursion -- and `count` is
+read **live** by the mark phase, so a collection partway through an argument loop marks exactly the
+initialised prefix. Nothing was needed for Boehm: its scan is conservative and these buffers are
+stack arrays or `GC_MALLOC`'d, so it already found them through the C local. Measured on an idle
+machine, each size against a fresh server and database:
+
+    records   before                after
+      2,500   2.4 s /   393 MB      7.7 s / 200 MB
+      5,000   5.5 s /   650 MB     14.4 s / 198 MB
+     10,000  14.0 s / 1,037 MB     22.0 s / 202 MB
+     20,000  54.6 s / 1,902 MB     38.5 s / 208 MB
+
+Memory is **flat in the record count** rather than linear, and 8x the records costs **5.0x** the
+time where it cost 23x.
+
+**And a cost worth naming rather than burying: a small import is about 3x slower** (2,500 records,
+2.4 to 7.7 s), because a request now collects at all where before it ran without a single
+collection. The crossover is around 10,000 records. Whether `ZIMAN_GC_TRIGGER_DIVISOR` wants
+retuning for this shape is a separate, measurable question and is **not** settled here -- note that
+the earlier measurement of that constant (2 to 16, which moved 54.6 s / 2,054 MB only to 35.1 s /
+1,902 MB) says nothing about it, because `maybe_collect` never reached the threshold test at all
+back then.
+
+**Three things this turned up that the plan did not predict.**
+
+- **Unwinding is the hard part of a stack-linked chain.** A `longjmp` past a node leaves the chain
+  naming a frame that has returned, and the next push links the dead node in -- after which the
+  mark phase walks whatever has since been written over it. A stale *counter*, which is what the
+  old guard left behind, was harmless; a stale *pointer* is not. It showed up as `meta_boundary`
+  **hanging** rather than failing. Fixed once, in `error.c`: `ziman_recovery_set_unwind` installs
+  what to save, and both the recovery stack and a `ThreadBoundary` restore it before their jump, so
+  none of the dozen recovery sites has to remember.
+- **`map` was only accidentally safe.** `native_array_map` builds its output across calls into
+  Ziman with nothing protecting it, and survived purely because `call_closure_value` forbade
+  collection outright; `native_array_flat_map` is the same shape. A stress sweep said so within
+  minutes -- `array_helpers_need_no_import` answered `[3, 3]` where `[1, 3]` was expected. The same
+  reasoning applies to a native's own `args`, which is what holds the **source** array while `map`
+  walks it, so `EXPR_CALL` now keeps its arguments registered across the whole dispatch rather than
+  only while they are evaluated. (The paragraph above says a native's `args` is never bound into an
+  `Env`; this is what makes that explicit rather than incidental.)
+- **`--gc-stress` had been giving false confidence**, which is the finding with the longest reach.
+  Wherever a guard was held the flag collected *nothing*, so a fixture whose work is almost all
+  inside `print(json.format(unwrap(csv.parse(..))))` passed the sweep in seconds by barely
+  collecting at all. A large part of what the sweep appeared to check, it did not.
+
+**The sweep recipe, with its measured cost.** Now that every safe point really collects, N=1 is no
+longer a whole-suite proposition: `csv_extended` builds and parses a 20,000-row CSV and marks that
+growing tree once per statement, taking **over 50 minutes** (27 of 28 lines, still going). Hence
+`--gc-stress=N`, which collects every Nth safe point; a tick that does not fire falls through to
+the ordinary growth threshold, so a run under the flag never collects *less* than one without it.
+
+    printf '#!/bin/sh\nexec %s/ziman --gc-stress=64 "$@"\n' "$PWD" > /tmp/zs && chmod +x /tmp/zs
+    BIN=/tmp/zs TIMEOUT=900 ./tests/run_tests.sh
+
+At N=64 the whole suite passes. Two fixtures dominate the wall clock and are slow **only** under
+the flag -- `csv_extended` at 1m12s and `stack_depth_trace_bounded` at 10m12s, the latter because
+arguments now stay registered across dispatch, so a collection in deep recursion walks one chain
+node per live frame as well as the env chain. Both are unchanged in an ordinary run
+(`stack_depth_trace_bounded`: 3.67/3.74 s before the change against 4.16/3.58 s after, measured on
+a worktree build of the parent commit). `TIMEOUT` has to allow for the ten minutes; the suite's
+per-fixture `.timeout` sibling is the wrong instrument here, since it would loosen the deadlock
+guard for a fixture that takes 3.7 s in every ordinary run. `meta_boundary` does carry one, because
+its own `.args` ask for `--gc-stress` and it is therefore slow in every build.
+
+**And one methodological note, because it cost an hour.** A single `ps` sample of `csv_extended`
+showed `futex_do_wait` with 10 minutes of CPU against nearly nine hours elapsed, and was reported
+as a deadlock. It was not: the thread was parked mid-collection and the process had been signalled
+by the harness that stopped its sweep. Run cleanly it holds 100% CPU and produces correct output,
+identically with one marker thread or two. A stopped process sampled once is not a diagnosis.
