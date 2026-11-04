@@ -1,0 +1,69 @@
+// A value written bare where an `Option` or a `Result` is wanted is wrapped for you, and it is
+// wrapped **one layer**. `result_bare_value_autowrap` pins that for `Result` and
+// `bare_option_nested_and_generic` pins explicit `Some`/`None` in nested positions; this is the
+// bare form for `Option`, and the one case where the two rules meet.
+//
+// Where it applies: a struct literal's field, a `return`, a call argument, an assignment to an
+// annotated `var`.
+//
+// **Where the two rules meet.** A bare value is wrapped when exactly one arm can take it, and
+// refused when both can -- `Result<string, string>` says so itself ("a bare string is ambiguous...
+// write ok(...) or err(...)"). Now consider `Result<Option<string>, string>` and a bare string: the
+// `Ok` arm would need *two* layers, which is not a match, so the `Err` arm is the only one and the
+// value is wrapped as a failure. Both rules are behaving exactly as written and the result still
+// surprises, because a reader sees a string that could be the answer. So the two-layer case is
+// spelled out -- `ok(Some(x))` -- and that is what this fixture exists to say.
+//
+// `bare_value_two_layers_refused` is the other half: where no single arm matches at all, it is
+// refused rather than guessed at.
+struct Found {
+    at: Option<int>
+    why: Option<string>
+}
+
+fn at_least(n: int) -> Option<int> {
+    if n > 0 {
+        return n
+    }
+    return None
+}
+
+// `Result<T, E>` takes a bare `T` the same way -- one layer.
+fn halved(n: int) -> Result<int, string> {
+    if n % 2 != 0 {
+        return err("odd")
+    }
+    return n / 2
+}
+
+// The one to look at twice: `string` is this function's error type *and* its payload's payload.
+fn answer(ok_please: bool) -> Result<Option<string>, string> {
+    if ok_please {
+        // Two layers, so written out. `return "yes"` here would be `Err("yes")`.
+        return ok(Some("yes"))
+    }
+    return "oh"
+}
+
+fn describe(what: Option<string>) -> string {
+    return get_or(what, "-")
+}
+
+fn main() {
+    // a field
+    val f = Found { at: 7, why: None }
+    printf("field:        {} {}\n", str(get_or(f.at, 0)), describe(f.why))
+    // a return
+    printf("return:       {} {}\n", str(get_or(at_least(3), 0)), str(get_or(at_least(0), 0)))
+    // a call argument
+    printf("argument:     {} {}\n", describe("here"), describe(None))
+    // an annotated var
+    var held: Option<int> = None
+    held = 42
+    printf("var:          {}\n", str(get_or(held, 0)))
+    // one layer into a Result
+    printf("into Result:  {} {}\n", str(unwrap(halved(10))), unwrap_err(halved(7)))
+    // and the surprise, which is the reason for this fixture
+    printf("two layers:   {}\n", describe(unwrap(answer(true))))
+    printf("bare string:  Err({})\n", unwrap_err(answer(false)))
+}

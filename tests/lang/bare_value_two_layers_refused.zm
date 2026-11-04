@@ -1,0 +1,20 @@
+// The other side of `bare_value_coerces_one_layer.zm`: a bare value is wrapped one layer, so where
+// two are needed and no single-layer reading exists, it is refused rather than guessed at. Here the
+// function answers `Result<Option<Found>, string>` and a bare `Found` matches neither `Ok(Found)`
+// nor `Err(string)` -- the message names what was returned and what was declared, and `ok(Some(f))`
+// is what to write.
+//
+// Worth pinning beside the other one because the *same* shape with a `string` payload does compile,
+// as `Err`: there the single-layer reading exists and is taken. The refusal is what makes that
+// behaviour a rule rather than an accident.
+struct Found {
+    at: int
+}
+
+fn lookup(n: int) -> Result<Option<Found>, string> {
+    return Found { at: n }
+}
+
+fn main() {
+    print(str(unwrap_Some(unwrap(lookup(3))).at))
+}

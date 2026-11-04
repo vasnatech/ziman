@@ -1,0 +1,22 @@
+-- a job that finishes --
+run: SUCCEEDED items=4 resume='3' finished=true message=-
+rows 4
+-- a job that fails part way keeps its marker --
+run: FAILED items=7 resume='6' finished=true message=the source gave up at 7
+rows 11
+-- and the next run resumes from it rather than starting again --
+run: SUCCEEDED items=2 resume='8' finished=true message=-
+rows 13
+-- status reads a run back, and an unknown id is None --
+status: SUCCEEDED items=2 resume='8' finished=true message=-
+an unknown id: false
+-- recent runs, newest first --
+  SUCCEEDED items=2
+  FAILED items=7
+  SUCCEEDED items=4
+-- a job with nothing to do records a finished run and does not run --
+run: SUCCEEDED items=0 resume='' finished=true message=-
+-- a run nothing finished is stale, after long enough --
+with every run finished: 0
+a dead worker's row, older than an hour: 1
+and it is not stale if nothing is old enough yet: 0

@@ -193,16 +193,14 @@ val max_chunk_line_bytes = 1024
 // that failed part way. `HttpError.Io`, like a socket failure, because that is what it is -- the
 // request itself was fine and the server lost its own copy of it.
 fn lift_io<T>(r: Result<T, io.IoError>) -> Result<T, HttpError> {
-    if Err(e2) = r {
-        val e = e2
+    if Err(e) = r {
         return err(HttpError.Io(io.io_error_message(e)))
     }
     return unwrap(r)
 }
 
 fn lift<T>(r: Result<T, NetError>) -> Result<T, HttpError> {
-    if Err(e2) = r {
-        val e = e2
+    if Err(e) = r {
         if NetError.is_Timeout(e) {
             return err(HttpError.Timeout)
         }

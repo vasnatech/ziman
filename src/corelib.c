@@ -32,6 +32,7 @@
 #include "uuid_source.h"
 #include "clock_source.h"
 #include "time_source.h"
+#include "batch_source.h"
 #include "schedule_source.h"
 #include "json_source.h"
 #include "codec_source.h"
@@ -144,6 +145,7 @@ static const CoreModule CORE_MODULES[] = {
     {"uuid", UUID_SOURCE, UUID_SOURCE_PATH},
     {"clock", CLOCK_SOURCE, CLOCK_SOURCE_PATH},
     {"time", TIME_SOURCE, TIME_SOURCE_PATH},
+    {"batch", BATCH_SOURCE, BATCH_SOURCE_PATH},
     {"schedule", SCHEDULE_SOURCE, SCHEDULE_SOURCE_PATH},
     {"json", JSON_SOURCE, JSON_SOURCE_PATH},
     {"codec", CODEC_SOURCE, CODEC_SOURCE_PATH},

@@ -97,6 +97,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`memdb`](memdb.md) | A small SQL engine in pure Ziman, holding its tables in memory, for tests. |
 | [`sql`](sql.md) | SQL as a value: a statement tree, a parser that reads one, and a formatter that writes it back. |
 | [`eql`](eql.md) | An **entity query language**: JPQL's shape, over a Ziman struct instead of a Java class. |
+| [`batch`](batch.md) | A job repository: a record of what ran, how it went and where it got to, so work that outlives the request that started it can be polled, resumed and told apart from work that died. |
 
 ## Testing
 

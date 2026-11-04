@@ -1,0 +1,138 @@
+// `batch`: a job repository -- what ran, how it went, where it got to. The four things that make it
+// worth having, each with the failure it prevents:
+//
+//   * a run is recorded before the work starts, so a status endpoint can answer while it runs;
+//   * a job's own marker survives a failure, which is what makes the next attempt a *resumption*
+//     rather than a restart;
+//   * the marker is written on the connection the job passes, so it lands in the job's own
+//     transaction and a crash cannot split the work from the record of it;
+//   * `done` asks the world whether there is anything to do, rather than asking this table.
+use batch
+use datasource
+use db
+use db.DbError
+use db.SqlValue
+use db.db_error_message
+use sqlite
+use uuid
+use uuid.uuid_new
+
+val table = "job_run"
+
+// A job that writes `upto` rows, reporting after each, and optionally dies part way.
+fn writer(conn: datasource.Connection, upto: int, die_at: int) -> batch.Job {
+    return batch.job("codes", fn(resume: string, note: batch.Note) -> Result<int, string> {
+        val write = note.write
+        val from = if resume == "" { 0 } else { unwrap(parse_int(resume)) + 1 }
+        var written = 0
+        for i in from..upto {
+            if i == die_at {
+                return err(concat("the source gave up at ", str(i)))
+            }
+            if Err(e) = datasource.execute(
+                conn,
+                "INSERT INTO code (n) VALUES (?)",
+                SqlValue.Int(i)
+            ) {
+                return err(db_error_message(e))
+            }
+            written = written + 1
+            // The marker: how many, and where to pick up. Same connection as the insert.
+            try write(conn, written, str(i))
+        }
+        return written
+    })
+}
+
+fn rows(conn: datasource.Connection) -> int {
+    val found = unwrap(datasource.query(conn, "SELECT count(*) AS c FROM code"))
+    return unwrap(db.sql_as_int(unwrap(db.row_get(found[0], "c"))))
+}
+
+fn show(label: string, r: batch.Run) {
+    printf(
+        "{}: {} items={} resume='{}' finished={} message={}\n",
+        label,
+        r.status,
+        str(r.items),
+        r.resume,
+        str(is_Some(r.finished_at)),
+        switch r.message {
+            Some(m) { m }
+            None { "-" }
+        }
+    )
+}
+
+fn main() {
+    val reg = datasource.registry([sqlite.driver()])
+    val conn = unwrap(datasource.open(reg, "sqlite::memory:"))
+    val _ = unwrap(datasource.execute(conn, "CREATE TABLE code (n INTEGER)"))
+    // The library's own table, from its own DDL with the engine's types substituted.
+    val _ = unwrap(datasource.execute(
+        conn,
+        replace(replace(batch.schema(table), "{uuid}", "TEXT"), "{timestamp}", "TEXT")
+    ))
+
+    print("-- a job that finishes --")
+    val first = unwrap(batch.run_now(conn, table, writer(conn, 4, 0 - 1), ""))
+    show("run", first)
+    printf("rows {}\n", str(rows(conn)))
+
+    print("-- a job that fails part way keeps its marker --")
+    val broken = unwrap(batch.run_now(conn, table, writer(conn, 9, 7), ""))
+    show("run", broken)
+    printf("rows {}\n", str(rows(conn)))
+
+    print("-- and the next run resumes from it rather than starting again --")
+    val resumed = unwrap(batch.run_now(conn, table, writer(conn, 9, 0 - 1), broken.resume))
+    show("run", resumed)
+    printf("rows {}\n", str(rows(conn)))
+
+    print("-- status reads a run back, and an unknown id is None --")
+    val read = unwrap(batch.status(conn, table, resumed.id))
+    switch read {
+        Some(r) { show("status", r) }
+        None { print("status: missing") }
+    }
+    printf("an unknown id: {}\n", str(is_Some(unwrap(batch.status(conn, table, uuid_new())))))
+
+    print("-- recent runs, newest first --")
+    for r in unwrap(batch.recent(conn, table, "codes", 10)) {
+        printf("  {} items={}\n", r.status, str(r.items))
+    }
+
+    print("-- a job with nothing to do records a finished run and does not run --")
+    val skipped = unwrap(batch.run_now(
+        conn,
+        table,
+        batch.job_unless(
+            "codes",
+            fn(resume: string, note: batch.Note) -> Result<int, string> {
+                return err("this must not run")
+            },
+            fn() -> Result<bool, string> {
+                return true
+            }
+        ),
+        ""
+    ))
+    show("run", skipped)
+
+    print("-- a run nothing finished is stale, after long enough --")
+    // Every run above finished, so there is nothing stale yet -- which would make the next two
+    // lines agree with a broken `stale` as readily as a working one. A row left `RUNNING` by hand
+    // is what a worker whose process died leaves behind, so that is what this inserts.
+    printf("with every run finished: {}\n", str(len(unwrap(batch.stale(conn, table, 0)))))
+    val _ = unwrap(datasource.execute(
+        conn,
+        "INSERT INTO job_run (id, job, status, started_at, items, resume) VALUES (?, 'codes', 'RUNNING', ?, 3, '2')",
+        uuid.uuid_to_sql(uuid_new()),
+        SqlValue.Text("2020-01-01T00:00:00Z")
+    ))
+    printf("a dead worker's row, older than an hour: {}\n", str(len(unwrap(batch.stale(conn, table, 3600)))))
+    printf(
+        "and it is not stale if nothing is old enough yet: {}\n",
+        str(len(unwrap(batch.stale(conn, table, 999999999))))
+    )
+}

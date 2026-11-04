@@ -111,8 +111,7 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
     var rest: [byte] = []
     if len(block) == 0 {
         val got = net.read(s, read_chunk_bytes)
-        if Err(e2) = got {
-            val e = e2
+        if Err(e) = got {
             send(cell, finished)
             if st.mode == 2 && NetError.is_Closed(e) {
                 return body_end()

@@ -164,8 +164,7 @@ fn read_to_close(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
             return err(ClientError.TooLarge)
         }
         val chunk = net.read(sock, read_chunk_bytes)
-        if Err(e2) = chunk {
-            val e = e2
+        if Err(e) = chunk {
             if NetError.is_Closed(e) {
                 return ok(Body { bytes: snapshot(body), clean: false })
             }

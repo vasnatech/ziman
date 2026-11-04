@@ -54,6 +54,7 @@ flowchart LR
         yaml["yaml"]
     end
     subgraph group_db["databases"]
+        batch["db.batch"]
         datasource["db.datasource"]
         db["db"]
         derive_entity["db.derive_entity"]
@@ -76,6 +77,10 @@ flowchart LR
         time["time"]
         zone["time.zone"]
     end
+    batch --> datasource
+    batch --> db
+    batch --> time
+    batch --> uuid
     client --> clock
     client --> compress
     client --> encoding
@@ -314,7 +319,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `template`, `time`, `uuid` |
-| 5 | `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
+| 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
 | 6 | `codec`, `derive_repository` |
 | 7 | `paging`, `server` |
 | 8 | `rest` |
@@ -323,6 +328,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Module | Uses | Used by |
 |---|---|---|
+| `batch` | `datasource`, `db`, `time`, `uuid` | - |
 | `bits` | - | `image` |
 | `client` | `clock`, `compress`, `encoding`, `http`, `io`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
@@ -330,8 +336,8 @@ otherwise: everything on a layer depends only on lower layers.
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `io`, `json`, `number` | `codec` |
-| `datasource` | `clock`, `db` | `eql`, `migrate` |
-| `db` | `net`, `number`, `url` | `datasource`, `eql`, `memdb`, `migrate`, `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
+| `datasource` | `clock`, `db` | `batch`, `eql`, `migrate` |
+| `db` | `net`, `number`, `url` | `batch`, `datasource`, `eql`, `memdb`, `migrate`, `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
 | `derive_entity` | `meta`, `template` | - |
 | `derive_json` | `meta`, `template` | - |
 | `derive_ord` | `meta`, `template` | - |
@@ -390,11 +396,11 @@ otherwise: everything on a layer depends only on lower layers.
 | `template` | `expr`, `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `test` | `regex` | - |
 | `thread` | - | - |
-| `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `eql`, `migrate`, `schedule`, `toml` |
+| `time` | `clock`, `db`, `json`, `locale`, `zone` | `batch`, `client`, `eql`, `migrate`, `schedule`, `toml` |
 | `toml` | `json`, `locale`, `number`, `time` | `codec` |
 | `truetype` | `geom`, `shape` | `font`, `pdf`, `raster` |
 | `url` | `locale`, `number` | `db`, `http`, `rest` |
-| `uuid` | `clock`, `db`, `json`, `number`, `random` | `eql`, `rest`, `server` |
+| `uuid` | `clock`, `db`, `json`, `number`, `random` | `batch`, `eql`, `rest`, `server` |
 | `validate` | `regex` | - |
 | `xml` | `io`, `locale` | `codec` |
 | `yaml` | `json`, `locale`, `number` | `codec` |

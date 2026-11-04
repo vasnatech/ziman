@@ -1,0 +1,4 @@
+ziman: type error at 15:12 in tests/lang/bare_value_two_layers_refused.zm: returned Found but function is declared to return Result<Option<Found>, string>
+   |
+15 |     return Found { at: n }
+   |            ^

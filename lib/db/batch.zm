@@ -1,0 +1,533 @@
+// batch.zm -- a job repository: a record of what ran, how it went and where it got to, so work that
+// outlives the request that started it can be polled, resumed and told apart from work that died.
+//
+// **This is a quarter of Spring Batch, and deliberately the quarter nobody talks about.** Of its
+// four parts -- a job and launcher, an item reader, a chunk writer, and a `JobRepository` -- this
+// language already had the first three: `schedule` and `spawn` launch, `Iter` reads (`xml.events`,
+// `compress.zip_entries`, `fs.chunks`, `datasource.rows` all answer one), and a chunk writer is an
+// ordinary function over `datasource.with_transaction`. What was missing was the bookkeeping, which
+// is what a status endpoint reads and what a restart needs.
+//
+// **There is no chunk pipeline here, and that is measured rather than a simplification.**
+// The case for one is that a long import must commit every N items to bound memory -- Spring
+// Batch's `commit-interval`. On 20,000 rows into a real schema through a real repository, on
+// SQLite: autocommit 5,334 ms and 67 MB, one transaction per 1,000 rows 5,065 ms and 68 MB, one
+// transaction for all 20,000 **4,990 ms and 68 MB**. Transaction size changes neither the clock nor
+// the memory, and the single large transaction is marginally the fastest. A job here writes however
+// it likes. See docs/design/batch.md §2, which also records the import whose per-record cost was
+// mistaken for this one.
+//
+// What a caller writes:
+//
+//     val job = batch.job("icd10", fn(resume: string, note: batch.Note) -> Result<int, string> {
+//         var written = 0
+//         for item in try open_catalogue(resume) {         // opened here: see `Job.run`
+//             val code = try item
+//             written = written + try store_one(conn, code)
+//             try note(conn, written, code.code)           // the marker, in the same transaction
+//         }
+//         return written
+//     })
+//     val run = try batch.launch(pool, "medical_code_import", job, "")
+//     // ... later, from a status endpoint
+//     val now = try batch.status(conn, "medical_code_import", run.id)
+//
+// **The table is this module's, the migration is yours.** `batch.schema(table)` answers the DDL for
+// a migration of the application's own, because `lib/` does not own anybody's schema -- but the
+// columns are fixed, so every application that adds that migration gets the same job repository
+// rather than inventing one.
+use datasource
+use db
+use db.DbError
+use db.SqlValue
+use db.db_error_message
+use db.row_get
+use db.sql_as_int
+use db.sql_as_text
+use time
+use time.Instant
+use time.instant_now
+use uuid
+use uuid.Uuid
+use uuid.uuid_new
+
+// A run's states. `RUNNING` is the only one a worker leaves behind when its process dies, which
+// is what `stale` is for.
+pub val status_running = "RUNNING"
+pub val status_succeeded = "SUCCEEDED"
+pub val status_failed = "FAILED"
+
+// One run of a named job: what a status endpoint answers, and what a resumption reads.
+//
+// `resume` is **the job's own opaque position** and this module never interprets it: a page number,
+// a URL, a byte offset and a code are all the same string here. That is Singer's `STATE` message
+// reduced to its one load-bearing property -- the runner persists what the reader says and hands it
+// back next time, and knows nothing about it.
+pub struct Run {
+    id: Uuid
+    job: string
+    status: string
+    started_at: Instant
+    finished_at: Option<Instant>
+    // How many items the job reported writing. Its own count, in its own units.
+    items: int
+    resume: string
+    // Why it failed, when it did. Never set on a run that succeeded.
+    message: Option<string>
+}
+
+// What a job calls when it reaches a point it could resume from: how many items it has written so
+// far, and the token to start from next time.
+//
+// **It takes the connection on purpose, and it is the one rule this module enforces.** The marker
+// has to be written in whatever transaction the job is already in, or a crash between the work and
+// the marker leaves a run that cannot say what happened -- the work committed and the marker lost,
+// or the marker committed and the work rolled back. Passing `tx` inside
+// `datasource.with_transaction` makes the two atomic; passing the plain connection outside one is
+// correct too, for a job that does not use a transaction at all. What is never correct is a marker
+// written on a *different* connection from the work, which is why this is not a closure over one.
+// (Flink calls this a checkpoint; mainframe batch called it a checkpoint record forty years
+// earlier.)
+pub struct Note {
+    write: fn(datasource.Connection, int, string) -> Result<unit, string>
+}
+
+// A job: a name, the work, and optionally a question about whether there is any.
+//
+// `run` is given the previous run's `resume` token (`""` the first time) and answers how many items
+// it wrote. **It opens whatever it reads**, which is not a style preference: an `Iter` belongs to
+// the thread that made it and cannot cross a `spawn`, so a job that runs in the background cannot
+// be handed a reader. Opening it inside `run` is also exactly what resuming means, which is the
+// happy half of that constraint.
+//
+// `done` is Luigi's idea: a task is complete if its *output* is, so the question "is there anything
+// to do" is asked of the world rather than of this table. A `Some` answering true means `launch`
+// records a `SUCCEEDED` run of zero items without starting a worker. It is better than deciding
+// from a previous run's status, because a record of progress can disagree with the progress and
+// observable state cannot.
+pub struct Job {
+    name: string
+    run: fn(string, Note) -> Result<int, string>
+    done: Option<fn() -> Result<bool, string>>
+}
+
+// A job with no completion check, which is most of them.
+pub fn job(name: string, run: fn(string, Note) -> Result<int, string>) -> Job {
+    return Job { name: name, run: run, done: None }
+}
+
+// A job that first asks whether there is anything to do.
+pub fn job_unless(
+    name: string,
+    run: fn(string, Note) -> Result<int, string>,
+    done: fn() -> Result<bool, string>
+) -> Job {
+    return Job { name: name, run: run, done: done }
+}
+
+// The table every function here reads and writes, for a migration of the application's own. The
+// column types are the ones `migrate`'s own tokens resolve per engine, so the same string works on
+// SQLite, Postgres and MySQL.
+//
+// **The columns are fixed deliberately.** An application that adds this migration gets the same job
+// repository as every other one, which is the whole point of the table living in a library rather
+// than in each application's head.
+pub fn schema(table: string) -> string {
+    return prelude.format(
+        """
+        CREATE TABLE IF NOT EXISTS {} (
+          id {{uuid}} PRIMARY KEY,
+          job TEXT NOT NULL,
+          status TEXT NOT NULL,
+          started_at {{timestamp}} NOT NULL,
+          finished_at {{timestamp}},
+          items INTEGER NOT NULL DEFAULT 0,
+          resume TEXT NOT NULL DEFAULT '',
+          message TEXT
+        )
+        """,
+        table
+    )
+}
+
+// ---------------------------------------------------------------- reading the record
+
+fn run_of(row: db.Row) -> Result<Run, string> {
+    val id = try lift<Uuid>(uuid.uuid_from_sql(try lift<SqlValue>(row_get(row, "id"))))
+    val finished = try lift<SqlValue>(row_get(row, "finished_at"))
+    val message = try lift<SqlValue>(row_get(row, "message"))
+    // Hoisted rather than written inline: an arm of an `if` used as an expression may not `try`.
+    var ended: Option<Instant> = None
+    if !SqlValue.is_Null(finished) {
+        ended = try lift<Instant>(time.to_instant(finished))
+    }
+    var said: Option<string> = None
+    if !SqlValue.is_Null(message) {
+        said = try lift<string>(sql_as_text(message))
+    }
+    return Run {
+        id: id,
+        job: try lift<string>(sql_as_text(try lift<SqlValue>(row_get(row, "job")))),
+        status: try lift<string>(sql_as_text(try lift<SqlValue>(row_get(row, "status")))),
+        started_at: try lift<Instant>(time.to_instant(try lift<SqlValue>(row_get(row, "started_at")))),
+        finished_at: ended,
+        items: try lift<int>(sql_as_int(try lift<SqlValue>(row_get(row, "items")))),
+        resume: try lift<string>(sql_as_text(try lift<SqlValue>(row_get(row, "resume")))),
+        message: said
+    }
+}
+
+// Every database failure this module answers reads as text, because a caller of a job repository
+// has nowhere better to put a `DbError` than into the run's own `message` column.
+fn lift<T>(r: Result<T, DbError>) -> Result<T, string> {
+    if Err(e) = r {
+        return err(db_error_message(e))
+    }
+    return unwrap(r)
+}
+
+// One run by id, or None when no such run was recorded. What a status endpoint answers.
+pub fn status(conn: datasource.Connection, table: string, id: Uuid) -> Result<Option<Run>, string> {
+    val found = try lift<Option<db.Row>>(datasource.query_one(
+        conn,
+        prelude.format("SELECT * FROM {} WHERE id = ?", table),
+        uuid.uuid_to_sql(id)
+    ))
+    switch found {
+        Some(row) { return Some(try run_of(row)) }
+        None { return None }
+    }
+}
+
+// The most recent runs of one job, newest first: what an administrator's "has this ever worked"
+// question actually asks.
+pub fn recent(
+    conn: datasource.Connection,
+    table: string,
+    job_name: string,
+    limit: int
+) -> Result<[Run], string> {
+    val rows = try lift<[db.Row]>(datasource.query(
+        conn,
+        prelude.format(
+            """
+            SELECT * FROM {}
+             WHERE job = ?
+             ORDER BY started_at DESC, id DESC
+             LIMIT ?
+            """,
+            table
+        ),
+        SqlValue.Text(job_name),
+        SqlValue.Int(if limit < 1 { 1 } else { limit })
+    ))
+    val out = mutable_array_new<Run>()
+    for row in rows {
+        push(out, try run_of(row))
+    }
+    return snapshot(out)
+}
+
+// A run left `RUNNING` by a process that is no longer running, which nothing will ever finish.
+//
+// **This is a guess, and the shape of the guess is the honest part.** A worker that dies takes its
+// row's future with it, so something has to decide that a run which started long enough ago and
+// never finished is not coming back. `older_than_seconds` is that decision, and it belongs to the
+// caller because only the caller knows how long its longest job legitimately takes. A heartbeat
+// column would be a fact rather than a guess; it is not here because it is more machinery than one
+// caller has yet justified (docs/design/batch.md §9.3).
+pub fn stale(
+    conn: datasource.Connection,
+    table: string,
+    older_than_seconds: int
+) -> Result<[Run], string> {
+    val cutoff = time.subtract(instant_now(), time.duration_of_seconds(older_than_seconds, 0))
+    val rows = try lift<[db.Row]>(datasource.query(
+        conn,
+        prelude.format(
+            """
+            SELECT * FROM {}
+             WHERE status = ? AND started_at < ?
+             ORDER BY started_at
+            """,
+            table
+        ),
+        SqlValue.Text(status_running),
+        time.to_sql(cutoff)
+    ))
+    val out = mutable_array_new<Run>()
+    for row in rows {
+        push(out, try run_of(row))
+    }
+    return snapshot(out)
+}
+
+// ---------------------------------------------------------------- running one
+
+fn insert_run(conn: datasource.Connection, table: string, r: Run) -> Result<unit, string> {
+    val _ = try lift<int>(datasource.execute(
+        conn,
+        prelude.format(
+            """
+            INSERT INTO {} (id, job, status, started_at, items, resume)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            table
+        ),
+        uuid.uuid_to_sql(r.id),
+        SqlValue.Text(r.job),
+        SqlValue.Text(r.status),
+        time.to_sql(r.started_at),
+        SqlValue.Int(r.items),
+        SqlValue.Text(r.resume)
+    ))
+    return ok(unit)
+}
+
+// Closes a run out. **It does not touch `resume`**, and that is the point of it taking no such
+// argument: the marker is the job's own column, written only by its `Note`, so a run that ends --
+// well or badly -- leaves the last position the job actually reached. The first version of this
+// passed the *input* token through and so erased the markers of every successful run, which the
+// fixture caught by reading the row back.
+fn finish_run(
+    conn: datasource.Connection,
+    table: string,
+    id: Uuid,
+    state: string,
+    items: int,
+    message: Option<string>
+) -> Result<unit, string> {
+    val said = switch message {
+        Some(text) { SqlValue.Text(text) }
+        None { SqlValue.Null }
+    }
+    val _ = try lift<int>(datasource.execute(
+        conn,
+        prelude.format(
+            """
+            UPDATE {}
+               SET status = ?, finished_at = ?, items = ?, message = ?
+             WHERE id = ?
+            """,
+            table
+        ),
+        SqlValue.Text(state),
+        time.to_sql(instant_now()),
+        SqlValue.Int(items),
+        said,
+        uuid.uuid_to_sql(id)
+    ))
+    return ok(unit)
+}
+
+// The `Note` a job is handed: writes the marker on whichever connection the job passes, which is
+// the whole of the checkpoint rule (see `Note`).
+fn note_for(table: string, id: Uuid) -> Note {
+    val into = table
+    val run_id = id
+    return Note {
+        write: fn(conn: datasource.Connection, items: int, resume: string) -> Result<unit, string> {
+            val _ = try lift<int>(datasource.execute(
+                conn,
+                prelude.format("UPDATE {} SET items = ?, resume = ? WHERE id = ?", into),
+                SqlValue.Int(items),
+                SqlValue.Text(resume),
+                uuid.uuid_to_sql(run_id)
+            ))
+            return ok(unit)
+        }
+    }
+}
+
+// Runs `j` to completion **on this thread**, recording the run as it goes, and answers the finished
+// record. A failing job is a `SUCCEEDED`/`FAILED` row and an `Ok` here: the job failed, this
+// function did not. An `Err` means the *bookkeeping* failed, which is the one thing a caller cannot
+// be told by a row.
+//
+// **It exists so that a batch job can be tested without a thread.** A library whose first version
+// could only run work in the background would be a library nothing could assert about -- and it is
+// also what `schedule` wants, a scheduled job being
+// `schedule.job(name, daily, fn() { batch.run_now(..) })`.
+pub fn run_now(
+    conn: datasource.Connection,
+    table: string,
+    j: Job,
+    resume: string
+) -> Result<Run, string> {
+    val started = instant_now()
+    val id = uuid_new()
+    // Asked before anything is recorded: a job with nothing to do leaves a finished run rather than
+    // a started one (see `Job.done`).
+    if Some(check) = j.done {
+        if try check() {
+            val nothing = Run {
+                id: id,
+                job: j.name,
+                status: status_succeeded,
+                started_at: started,
+                finished_at: started,
+                items: 0,
+                resume: resume,
+                message: None
+            }
+            try insert_run(conn, table, nothing)
+            try finish_run(conn, table, id, status_succeeded, 0, None)
+            return nothing
+        }
+    }
+    val begun = Run {
+        id: id,
+        job: j.name,
+        status: status_running,
+        started_at: started,
+        finished_at: None,
+        items: 0,
+        resume: resume,
+        message: None
+    }
+    try insert_run(conn, table, begun)
+    val work = j.run
+    switch work(resume, note_for(table, id)) {
+        Ok(items) {
+            // The job's own last marker is already in the row; this only closes it out, and reads
+            // the row back rather than guessing what the job reported.
+            try finish_run(conn, table, id, status_succeeded, items, None)
+            val after = try status(conn, table, id)
+            switch after {
+                Some(r) { return r }
+                None { return err("the run disappeared while it was running") }
+            }
+        }
+        Err(why) {
+            // **The marker is left where the job put it**, which is what makes the next launch a
+            // resumption rather than a restart.
+            val reached = switch try status(conn, table, id) {
+                Some(r) { r.resume }
+                None { resume }
+            }
+            val counted = switch try status(conn, table, id) {
+                Some(r) { r.items }
+                None { 0 }
+            }
+            try finish_run(conn, table, id, status_failed, counted, why)
+            val after = try status(conn, table, id)
+            switch after {
+                Some(r) { return r }
+                None { return err("the run disappeared while it was failing") }
+            }
+        }
+    }
+}
+
+// Starts `j` on a thread of its own and answers the run as it stands at that moment -- `RUNNING`,
+// or `SUCCEEDED` with nothing done when `Job.done` said there was nothing to do. An endpoint
+// returns that record and the caller polls `status`.
+//
+// **The worker takes a connection of its own and gives it back.** `pool` is the application's
+// pooled handle; the request that called this returns its own connection the moment it answers, so
+// a job still running on it would be writing through a connection somebody else has. `acquire`
+// inside the worker is the whole fix, and the `defer` beside it is what makes the pool survive a
+// job that fails.
+//
+// **A failing job is not a failing `launch`.** Once the row exists, every outcome is recorded in
+// it; the `Err` here is for the bookkeeping failing before the worker starts, which is the only
+// failure a caller can still be told about directly.
+pub fn launch(
+    pool: datasource.Connection,
+    table: string,
+    j: Job,
+    resume: string
+) -> Result<Run, string> {
+    if Some(check) = j.done {
+        if try check() {
+            return run_now(pool, table, j, resume)
+        }
+    }
+    val started = instant_now()
+    val id = uuid_new()
+    val begun = Run {
+        id: id,
+        job: j.name,
+        status: status_running,
+        started_at: started,
+        finished_at: None,
+        items: 0,
+        resume: resume,
+        message: None
+    }
+    try insert_run(pool, table, begun)
+    spawn work_on_thread(pool, table, j, resume, id) on_error fn(message: string) {
+        // The thread aborted rather than returning an Err -- a runtime error in the job. The row
+        // would otherwise stay `RUNNING` for ever, which is the one outcome a status endpoint
+        // cannot interpret.
+        val own = datasource.acquire(pool)
+        if Ok(conn) = own {
+            val _ = finish_run(conn, table, id, status_failed, 0, message)
+            datasource.release(pool, conn)
+        }
+    }
+    return begun
+}
+
+// The body of a launched job: its own connection, its own `Note`, and the row closed out whichever
+// way the work ends.
+fn work_on_thread(
+    pool: datasource.Connection,
+    table: string,
+    j: Job,
+    resume: string,
+    id: Uuid
+) {
+    val own = datasource.acquire(pool)
+    if Err(e) = own {
+        // No connection, so the only place left to say so is the row -- through the pool handle,
+        // which is what failed to lend a connection rather than what is broken.
+        val _ = finish_run(
+            pool,
+            table,
+            id,
+            status_failed,
+            0,
+            concat("no connection for the job: ", db_error_message(e))
+        )
+        return
+    }
+    val conn = unwrap(own)
+    defer datasource.release(pool, conn)
+    val work = j.run
+    switch work(resume, note_for(table, id)) {
+        Ok(items) {
+            val _ = finish_run(conn, table, id, status_succeeded, items, None)
+        }
+        Err(why) {
+            val reached = switch status(conn, table, id) {
+                Ok(found) {
+                    switch found {
+                        Some(r) { r }
+                        None { Run {
+                            id: id,
+                            job: j.name,
+                            status: status_failed,
+                            started_at: instant_now(),
+                            finished_at: None,
+                            items: 0,
+                            resume: resume,
+                            message: None
+                        } }
+                    }
+                }
+                Err(_) { Run {
+                    id: id,
+                    job: j.name,
+                    status: status_failed,
+                    started_at: instant_now(),
+                    finished_at: None,
+                    items: 0,
+                    resume: resume,
+                    message: None
+                } }
+            }
+            val _ = finish_run(conn, table, id, status_failed, reached.items, why)
+        }
+    }
+}

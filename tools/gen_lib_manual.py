@@ -33,7 +33,10 @@ GROUPS = [
     # resource API rather than by reaching for a socket. Split out of `server` on 2026-11-01; see
     # lib/http/rest/rest.zm for the two misplaced functions that made the case.
     ("REST", "http", ["rest"]),
-    ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql", "memdb", "sql", "eql"]),
+    # `batch` is a job repository over `datasource` -- a table of runs, their status and where each
+    # got to -- so it reads with the database family rather than with Time. `schedule` decides *when*
+    # something runs and this records *what happened*; the two compose and neither contains the other.
+    ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql", "memdb", "sql", "eql", "batch"]),
     ("Testing", "core", ["test"]),
     # Its own group rather than a line under Data, because the rules and the generator are one
     # feature: you meet `validate` either by writing `#[derive(Validate)]` on a request struct or
