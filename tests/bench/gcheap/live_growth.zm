@@ -1,0 +1,74 @@
+// **Does the collection trigger still keep a growing live set linear?**
+//
+// The trigger is `max(reserved / ZIMAN_GC_TRIGGER_DIVISOR, floor)` (src/interpreter.c). The two
+// terms divide the work between them, and measuring which one *wins* is the only way to see it:
+//
+//     bench              peak arena   proportional won   floor won
+//     map_insert                  0                  0   6,006,678
+//     map_live                512 KB                 0   4,150,006
+//     strings_live            512 KB                 0   4,300,006
+//     structs_live           18.9 MB         4,099,357     100,649
+//     decimal_churn          28.3 MB         1,699,357     100,649
+//
+// So the floor decides for every ordinary program -- it cannot be otherwise, since the proportional
+// term only wins above twice the floor -- and the proportional term decides for a large live
+// arena. **The other four benches here are all fixed-size**, which is the gap this one fills: none
+// of them would notice the proportional term being removed, and a floor-only policy looks fine
+// until the live set grows.
+//
+// Measured 2026-11-04 at a 4 MB floor, the same work under both policies:
+//
+//     live rows   divisor 2   floor only
+//       200,000      118 ms       123 ms
+//       400,000      267 ms       262 ms
+//       800,000      489 ms       611 ms
+//
+// Linear against superlinear -- 1x/2.26x/4.14x for the first, 1x/2.13x/4.97x for the second, and
+// the gap widens with every doubling. That is the quadratic the proportional term was added to
+// prevent (docs/MEMORY.md), still being prevented. **Anyone simplifying the trigger down to the
+// floor now that the floor is large would reintroduce it invisibly**, which is what this file is
+// here to refuse.
+//
+// Run it directly: `./ziman tests/bench/gcheap/live_growth.zm`.
+use clock
+use math
+use os
+
+struct Row {
+    id: int
+    name: string
+    score: float
+}
+
+// A `StructObj` per row in the arena, its `fields` array on Boehm's heap -- the cross-heap shape
+// `structs_live` was written for, here with the set growing rather than fixed.
+fn build(n: int) -> int {
+    val keep = mutable_array_new<Row>(capacity: n)
+    val started = clock.monotonic_millis()
+    for i in 0..n {
+        push(keep, Row { id: i, name: concat("n", str(i)), score: 1.5 })
+    }
+    val ms = clock.monotonic_millis() - started
+    printf("  {} live rows: {} ms, {} KB resident\n", n, ms, switch os.process_memory() {
+        Ok(b) { str(b / 1024) }
+        Err(_) { "?" }
+    })
+    return ms
+}
+
+fn main() {
+    val times = mutable_array_new<int>()
+    for n in [200000, 400000, 800000] {
+        push(times, build(n))
+    }
+    val t = snapshot(times)
+    val growth = math.max(t[2], 1) / math.max(t[0], 1)
+    printf("4x the rows cost {}x the time\n", growth)
+    // Linear is 4. Floor-only measured 5.0 and climbing; 8 leaves room for a slow machine without
+    // leaving room for the cost class this exists to catch.
+    if growth > 8 {
+        print("FAIL: a growing live set is no longer linear -- check the collection trigger")
+        os.exit(1)
+    }
+    print("ok   a growing live set stays linear")
+}

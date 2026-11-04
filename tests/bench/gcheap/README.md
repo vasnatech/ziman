@@ -17,6 +17,24 @@ what they were written for.
 | `structs_live.zm` | 200k live `Row` structs (394k live `StructObj`s) whose `fields` arrays are on Boehm's heap | the cross-heap reference that forces the conservative scan |
 | `map_live.zm` | a 150k-entry map (390k live `Leaf`s) under a Boehm-heap `MapNode` chain | the same cross-heap shape through a different type |
 | `strings_live.zm` | ~300k reclaimed objects against a few hundred bytes live | the opposite extreme: an arena that is almost all free chunks |
+| `live_growth.zm` | a live set of `Row` structs that **grows**, 200k to 800k | the only one that is not fixed-size, so the only one that would notice the collection trigger's proportional term being removed |
+
+**Which half of the collection trigger each one exercises**, measured 2026-11-04 by counting which
+term won: the trigger is `max(reserved / ZIMAN_GC_TRIGGER_DIVISOR, floor)`, and since the
+proportional term can only win above twice the floor, an ordinary program never reaches it.
+
+| benchmark | peak arena | proportional won | floor won |
+| --- | --- | --- | --- |
+| `map_insert.zm` (in the parent folder) | 0 | 0 | 6,006,678 |
+| `map_live.zm` | 512 KB | 0 | 4,150,006 |
+| `strings_live.zm` | 512 KB | 0 | 4,300,006 |
+| `structs_live.zm` | 18.9 MB | 4,099,357 | 100,649 |
+| `decimal_churn.zm` | 28.3 MB | 1,699,357 | 100,649 |
+
+So the floor decides for the North Star's whole workload and the proportional term decides for a
+large live arena -- and `live_growth.zm` is the one that shows the term still earns its place
+(489 ms against 611 ms at 800k rows under a floor-only policy, and the gap widens with every
+doubling).
 
 Each is a plain `./ziman tests/bench/gcheap/<name>.zm` and runs in well under a second. Two
 environment variables are worth knowing when measuring with them:

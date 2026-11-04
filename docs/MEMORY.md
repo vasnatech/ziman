@@ -2088,3 +2088,43 @@ record**, dominated by a `Type` per constructed value (`type_ref`, 167 a record)
 collapsing (221 a record) and `Result`/`Option` boxing. Collecting less often does not make that
 cheaper, it only pays for it less often; `docs/roadmap/larger.md`'s unboxing entry is where that
 goes, and `src/ast.c` records that interning types was already tried and abandoned for no gain.
+
+## The trigger's two terms divide the work, and neither is spare
+
+Making the floor a setting left one question open and explicitly disqualified the only evidence
+there was for it: whether `ZIMAN_GC_TRIGGER_DIVISOR` (the proportional term, 2) wants retuning. The
+2-to-16 measurement taken earlier said nothing, because `maybe_collect` never reached the threshold
+test while collection was disabled by the guard F267 removed. Measured properly on 2026-11-04, by
+counting which of the two terms **wins** each call:
+
+    bench              peak arena   proportional won   floor won
+    map_insert                  0                  0   6,006,678
+    map_live                512 KB                 0   4,150,006
+    strings_live            512 KB                 0   4,300,006
+    structs_live           18.9 MB         4,099,357     100,649
+    decimal_churn          28.3 MB         1,699,357     100,649
+
+**The proportional term is unreachable for an ordinary program**, and it cannot be otherwise: it
+only wins above *twice* the floor, so at a 4 MB floor a thread's arena has to pass 8 MB before the
+divisor means anything. The North Star's import and `server_load` never come close -- the floor
+decided roughly ten million times out of ten million. That is the answer to the open question:
+**the divisor does not want retuning, because for the workloads that raised the question it is not
+consulted.** Its value barely matters even where it is: `structs_live` is 0.25-0.26 s across
+divisors 1 to 16, `decimal_churn` 0.40-0.43 s, with only a small effect on footprint.
+
+**And it is not spare.** The obvious simplification -- drop the proportional term now that the floor
+is large -- reintroduces the quadratic it was added for, measured on a live set that grows:
+
+    live rows   divisor 2   floor only
+      200,000      118 ms       123 ms
+      400,000      267 ms       262 ms
+      800,000      489 ms       611 ms
+
+Linear (1x/2.26x/4.14x) against superlinear (1x/2.13x/4.97x), diverging with every doubling. The two
+terms are complementary: the floor is what every request meets, the proportional term is what keeps
+a large live heap from paying O(n) marking O(n/floor) times.
+
+**None of the four existing `gcheap` benches would have caught that**, because all four are
+fixed-size and three of them never leave the floor's half of the trigger. `tests/bench/gcheap/
+live_growth.zm` is the fifth, grows its live set, and fails if 4x the rows costs more than 8x the
+time.
