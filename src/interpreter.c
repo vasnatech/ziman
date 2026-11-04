@@ -194,7 +194,15 @@ static Value *collapse_variadic_args(FunctionDecl *fn, Value *args, int argc, in
         for (int i = 0; i < tail_count; i++) {
             items[i] = args[fixed_count + i];
         }
-        tail = value_array(type_ref(type_array(fn->params.items[fixed_count].type)), array_obj_new(items, tail_count));
+        /* The tail's own `[T]`, from the declaration rather than rebuilt per call -- see
+         * `FunctionDecl.variadic_tail_type` for the measurement and for why this is not the intern
+         * table that was tried and abandoned. */
+        const Type *tail_type = __atomic_load_n(&fn->variadic_tail_type, __ATOMIC_RELAXED);
+        if (tail_type == NULL) {
+            tail_type = type_ref(type_array(fn->params.items[fixed_count].type));
+            __atomic_store_n(&fn->variadic_tail_type, tail_type, __ATOMIC_RELAXED);
+        }
+        tail = value_array(tail_type, array_obj_new(items, tail_count));
     }
     Value *collapsed = ziman_xmalloc((size_t)fn->params.count * sizeof(Value));
     for (int i = 0; i < fixed_count; i++) {

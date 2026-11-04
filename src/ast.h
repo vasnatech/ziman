@@ -833,6 +833,24 @@ typedef struct {
      * same captured context through correctly -- constructed fresh per call, never stored, so
      * there is no self-referential value to bootstrap before it exists. */
     int self_ncaptured;
+    /* The `[T]` type of this function's variadic tail, built once and reused.
+     *
+     * `collapse_variadic_args` (interpreter.c) used to call `type_ref(type_array(param.type))` on
+     * **every variadic call**, which is two heap allocations to rebuild something that is fixed by
+     * the declaration: the variadic element type cannot differ between two calls to the same
+     * function. On the North Star's Apple Health import that was 236 of the 1,225 allocations per
+     * imported record, because the import makes about 122 variadic calls per record
+     * (`concat`, `append`, `datasource.execute`'s own `variadic SqlValue`).
+     *
+     * **This is not the intern table `type_ref`'s own comment reports as tried and abandoned.**
+     * That asked, at runtime and through a hash probe, "have I built this type before?", and the
+     * probe cost about what the allocation did. This asks nothing: the answer belongs to the
+     * declaration and is computed at most once for it.
+     *
+     * Filled lazily, under a relaxed atomic, exactly as `Expr.call_builtin` is: several request
+     * threads may reach the same declaration at once, both would compute the identical pointer
+     * value, and a `Type` is immutable once built. NULL until first use. */
+    const struct Type *variadic_tail_type;
 } FunctionDecl;
 
 /* Whether a declaration has statements to walk. **Ask this, not `!is_native`.**
