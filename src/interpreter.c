@@ -1209,14 +1209,69 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
  * enum's own variants, or an is_<variant>/unwrap_<variant> consumption
  * call otherwise. All shapes and argument counts were already validated
  * by check_enum_access in typecheck.c; this only needs to actually do it. */
-static Value eval_enum_access(Module *module, Env *env, Expr *e) {
+#define EA_UNRESOLVED 0
+#define EA_CONSTRUCT 1
+#define EA_IS 2
+#define EA_UNWRAP 3
+
+/* Works out, once, which of the three shapes this node is and what it names -- see
+ * `Expr.enum_access`'s own comment for what this used to repeat on every evaluation and what that
+ * cost a `switch`. Everything here was already validated by `check_enum_access`, so a shape that
+ * does not resolve is an internal error rather than a user's mistake. */
+static void resolve_enum_access(Module *module, Expr *e) {
     const char *enum_name = e->as.enum_access.enum_name;
     const char *member = e->as.enum_access.member_name;
     EnumDecl *decl = find_enum(module, enum_name);
+    int kind = EA_UNRESOLVED, variant = -1;
+    const char *wanted = NULL;
+    for (int i = 0; decl != NULL && i < decl->variants.count; i++) {
+        if (strcmp(decl->variants.items[i].name, member) == 0) {
+            kind = EA_CONSTRUCT;
+            variant = i;
+            break;
+        }
+    }
+    if (kind == EA_UNRESOLVED) {
+        static const char *IS_PREFIX = "is_";
+        static const char *UNWRAP_PREFIX = "unwrap_";
+        const char *tail = NULL;
+        if (strncmp(member, IS_PREFIX, strlen(IS_PREFIX)) == 0) {
+            kind = EA_IS;
+            tail = member + strlen(IS_PREFIX);
+        } else {
+            kind = EA_UNWRAP;
+            tail = member + strlen(UNWRAP_PREFIX);
+        }
+        /* The **declaration's** own name pointer where there is one, so the runtime test can be a
+         * pointer comparison: a value built by the construction branch above carries exactly this
+         * pointer. The `member`-relative string stays as the fallback, which is what a value built
+         * in C from a literal name (`enum_obj_new("Option", "Some", ..)`) still needs. */
+        wanted = tail;
+        for (int i = 0; decl != NULL && i < decl->variants.count; i++) {
+            if (strcmp(decl->variants.items[i].name, tail) == 0) {
+                wanted = decl->variants.items[i].name;
+                break;
+            }
+        }
+    }
+    e->as.enum_access.ea_decl = decl;
+    e->as.enum_access.ea_variant = variant;
+    e->as.enum_access.ea_wanted = wanted;
+    /* Last, and with a release store: a thread that sees a resolved kind must see the three fields
+     * above it. */
+    __atomic_store_n(&e->as.enum_access.ea_kind, kind, __ATOMIC_RELEASE);
+}
 
-    for (int i = 0; i < decl->variants.count; i++) {
-        EnumVariant *v = &decl->variants.items[i];
-        if (strcmp(v->name, member) != 0) continue;
+static Value eval_enum_access(Module *module, Env *env, Expr *e) {
+    int kind = __atomic_load_n(&e->as.enum_access.ea_kind, __ATOMIC_ACQUIRE);
+    if (kind == EA_UNRESOLVED) {
+        resolve_enum_access(module, e);
+        kind = e->as.enum_access.ea_kind;
+    }
+    const EnumDecl *decl = e->as.enum_access.ea_decl;
+
+    if (kind == EA_CONSTRUCT) {
+        const EnumVariant *v = &decl->variants.items[e->as.enum_access.ea_variant];
         Value payload = v->has_payload ? eval_expr(module, env, e->as.enum_access.args.items[0]) : value_int(0);
         EnumObj *obj = enum_obj_new(decl->name, v->name, v->has_payload, payload);
         return value_enum(&e->resolved_type, obj);
@@ -1224,19 +1279,20 @@ static Value eval_enum_access(Module *module, Env *env, Expr *e) {
 
     Value arg = eval_expr(module, env, e->as.enum_access.args.items[0]);
     EnumObj *obj = arg.as.en;
-    static const char *IS_PREFIX = "is_";
-    static const char *UNWRAP_PREFIX = "unwrap_";
-    if (strncmp(member, IS_PREFIX, strlen(IS_PREFIX)) == 0) {
-        return value_bool(strcmp(obj->variant_name, member + strlen(IS_PREFIX)) == 0);
+    const char *wanted = e->as.enum_access.ea_wanted;
+    /* The pointer first: a value this interpreter constructed carries the declaration's own name
+     * pointer, so the common case answers without reading either string. */
+    int same = obj->variant_name == wanted || strcmp(obj->variant_name, wanted) == 0;
+    if (kind == EA_IS) {
+        return value_bool(same);
     }
     /* unwrap_<variant> -- typecheck already proved the named variant has a
      * payload, but `obj` might currently hold a *different* variant of the
      * same enum at runtime; same fatal-by-default contract as Result's
      * unwrap/unwrap_err. */
-    const char *wanted = member + strlen(UNWRAP_PREFIX);
-    if (strcmp(obj->variant_name, wanted) != 0) {
+    if (!same) {
         ziman_error("runtime", e->line, e->col, "called '%s.unwrap_%s' on a '%s.%s' value",
-                    enum_name, wanted, enum_name, obj->variant_name);
+                    e->as.enum_access.enum_name, wanted, e->as.enum_access.enum_name, obj->variant_name);
     }
     return obj->payload;
 }

@@ -6,22 +6,29 @@
 // fields, six literals and a basic-form offset. Both directions walk `fmt.parts` and do a little
 // interpreted work per part, so the cost is the part count rather than the string length.
 //
-// **What a `switch`'s arm order costs, measured here 2026-11-04.** A `switch` is desugared to an
-// if-chain and each arm tested is a `strcmp` of the variant name, so a fourteen-arm switch run
-// once per part pays for every arm it passes over. `Literal` is six of these thirteen parts and
-// was the *last* arm in both functions:
+// **What a `switch` cost per arm, and what fixing it was worth (F268, 2026-11-04).** A `switch` is
+// lowered to a chain of `if EnumName.is_V($sw)` tests, and `eval_enum_access` used to redo, on
+// every one of those tests, work that belongs to the node: `find_enum` is a linear scan with a
+// `strcmp` over every enum the module declares, and the constructor test then compares
+// `member_name` against every variant before the `is_`/`unwrap_` prefixes are looked at. A
+// fourteen-arm switch paid all of it per arm it passed over.
 //
-//     a parse    25 us -> 20 us (Literal first) -> 18 us (locale-name arms last)
-//     a format   20 us -> 16 us                 -> 14 us
+//     a parse    25 us -> 18 us (arms reordered) -> 16-17 us (the node resolves once)
+//     a format   20 us -> 14 us                  -> 11-12 us
 //
-// **28% and 30%, from moving arms and changing nothing else.** The honest caveat belongs here too:
-// the North Star's import, where these two were 4.6% and 3.6% of a profile, did **not** measurably
-// move -- 23.2 s against 22.6/23.1 s before, inside this machine's own 20% spread. 30% of 8% is
-// 2.5%. The win is real and it is small where it was found; it is worth having for a workload that
-// is mostly dates, and the general fix is **F268**, which makes arm order stop mattering at all.
+// **A third off a parse and over 40% off a format**, on three passes with the machine otherwise
+// idle. The arm reorder came first and was the evidence: moving `Literal`, which is six of this
+// pattern's thirteen parts, from fourteenth place to first was worth 18% of a format by itself.
+// That reorder is **gone again** -- with the node resolving once, arm order is worth 6-8% rather
+// than 28-30%, and a library should not carry a fragile ordering to suit the interpreter's
+// dispatch. The figures above are with the arms back in declaration order.
 //
-// Run it directly: `./ziman tests/bench/time_scan.zm`. The two must stay within a small factor of
-// each other and of the ISO forms beside them -- a jump in either is the regression this catches.
+// **And it does not measurably move either real workload**, which belongs here next to the win.
+// The North Star's import, where these two functions are 4.6% and 3.6% of a profile: 21.8-23.0 s
+// over three passes at 20,000 records, against 22.6-23.4 s before -- overlapping, because 40% of
+// 8% is 3% and this machine's spread is larger than that. `tests/bench/server_load.sh` likewise.
+// What the change is worth is spread thinly across every `switch` in every program, which is where
+// the `Option` and `Result` matches live, and no single workload will show it.
 use clock
 use math
 use os
@@ -75,7 +82,7 @@ fn main() {
     printf("{} formats in {} ms ({} us each)\n", n, fm, fm * 1000 / math.max(n, 1))
     var bad = false
     // Generous ceilings: what these catch is a change of cost class, not a slow machine. Measured
-    // 2026-11-04 at 18 us a parse and 14 us a format, down from 25 and 20.
+    // 2026-11-04 at 16-17 us a parse and 11-12 us a format, down from 25 and 20.
     if pm > n / 10 {
         printf("FAIL: a parse costs more than 100 us\n")
         bad = true

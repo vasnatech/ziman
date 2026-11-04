@@ -199,6 +199,9 @@ typedef enum {
 } ExprKind;
 
 typedef struct Expr Expr;
+/* Named and forward-declared so `Expr.enum_access` can cache the declaration it resolves to
+ * (see its own comment); the struct itself is declared further down with the other decls. */
+typedef struct EnumDecl EnumDecl;
 
 typedef struct {
     Expr **items;
@@ -380,7 +383,32 @@ struct Expr {
          * never needs them written out -- the type checker reads the
          * concrete type straight off the argument's own already-known
          * type instead (see check_enum_access in typecheck.c). */
-        struct { char *enum_name; char *member_name; ExprList args; int has_parens; TypeList type_args; } enum_access;
+        /* `ea_kind`/`ea_decl`/`ea_variant`/`ea_wanted`: what this access resolves to, worked out on
+         * first evaluation and reused.
+         *
+         * `eval_enum_access` used to redo all of it on **every** evaluation: `find_enum` is a
+         * linear scan with a `strcmp` over every enum the module has, and the constructor test
+         * then `strcmp`s `member_name` against every variant of that enum before the `is_`/
+         * `unwrap_` prefixes are even looked at. A `switch` is lowered to a chain of
+         * `if EnumName.is_V($sw)` tests (check_switch, typecheck.c), so a fourteen-arm switch paid
+         * all of that per arm it passed over -- which is why moving one arm of `time`'s own switch
+         * was worth 18% of a format (F268, and tests/bench/time_scan.zm).
+         *
+         * `ea_kind` is written **last**, with a release store, and read first with an acquire load:
+         * the other three must be visible to any thread that sees a resolved kind. Several request
+         * threads may reach one node at once; each computes the identical answer, so a race only
+         * costs the work twice. 0 means "not yet resolved". */
+        struct {
+            char *enum_name;
+            char *member_name;
+            ExprList args;
+            int has_parens;
+            TypeList type_args;
+            int ea_kind;                /* 0 unresolved, 1 construct, 2 is_, 3 unwrap_ */
+            const EnumDecl *ea_decl;
+            int ea_variant;             /* the variant's index, for a construction */
+            const char *ea_wanted;      /* the decl's own name pointer for an is_/unwrap_ variant */
+        } enum_access;
         /* `try inner` -- Option<T>/Result<T, E> unwrap-or-propagate (see docs/design/journal/'s "try" entries). `inner`'s own type decides which of the two it is at
          * type-check time; the interpreter re-derives that from the runtime value (an Option's EnumObj vs. a Result's ResultObj). `propagated_type` is
          * check_try_unwrap's one real output beyond `inner`'s own checking: the enclosing function's full, concrete Option<T2>/Result<T2, E> return type, filled in
@@ -999,7 +1027,7 @@ typedef struct {
  * enum's own name (`Shape.Circle(5.0)`, `Shape.is_circle(s)`), never bare
  * -- so unlike struct fields, two different enums may freely reuse the
  * same variant name with no ambiguity. */
-typedef struct {
+typedef struct EnumDecl {
     char *name;
     EnumVariantList variants;
     TypeParamList type_params; /* empty for an ordinary, non-generic enum */
