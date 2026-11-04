@@ -134,6 +134,17 @@ val samples: [string] = [
     "CREATE TABLE t (a VARCHAR(255), b NUMERIC(10, 2), c DOUBLE PRECISION)",
     "CREATE INDEX idx_t_a ON t (a)",
     "CREATE UNIQUE INDEX idx_t_ab ON t (a, b)",
+    // F266's four shapes, which this module read as `expected ',', found 'DESC'` until 2026-11-04.
+    // A direction that was written is written back, and one that was not stays absent -- the two
+    // are the same index to an engine and a different line to a reader.
+    "CREATE INDEX idx_t_desc ON t (job, started_at DESC)",
+    "CREATE INDEX idx_t_asc ON t (a ASC, b)",
+    // An index over an expression rather than a column, which is why an entry holds an `Expr`.
+    "CREATE INDEX idx_t_expr ON t (lower(email))",
+    "CREATE INDEX idx_t_collate ON t (name COLLATE nocase DESC)",
+    // A partial index: the predicate belongs to the statement, not to a column.
+    "CREATE INDEX idx_t_partial ON t (a) WHERE b IS NOT NULL",
+    "CREATE UNIQUE INDEX idx_t_all ON t (lower(a) COLLATE nocase DESC, b ASC) WHERE a IS NOT NULL",
     "ALTER TABLE t ADD COLUMN extra TEXT DEFAULT 'x'",
     "ALTER TABLE t ADD CONSTRAINT k UNIQUE (a)",
     "ALTER TABLE t ADD CONSTRAINT k2 PRIMARY KEY (a, b)",
@@ -276,8 +287,11 @@ fn main() {
             if files < 30 {
                 print(format("  only {} .sql files: this is not the application's migration folder", files))
             } else {
-                print(format("  every migration read, {} that do not round-trip, {} statements in all",
-                    broken, if statements > 0 { "many" } else { "no" }))
+                print(format(
+                    "  every migration read, {} that do not round-trip, {} statements in all",
+                    broken,
+                    if statements > 0 { "many" } else { "no" }
+                ))
             }
         }
         Err(_) { print("  (no sample application checkout here; the corpus above still carries the property)") }

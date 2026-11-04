@@ -666,15 +666,52 @@ pub struct AlterStmt {
 }
 ```
 
+### `IndexOrder`
+
+```
+pub enum IndexOrder {
+    Unwritten
+    Ascending
+    Descending
+}
+```
+
+Whether a direction was written on an index's column, and which.
+
+**`Unwritten` is kept apart from `Ascending` on purpose.** An engine reads `(a)` and `(a ASC)`
+identically, so this distinction buys nothing at run time -- but this module is a formatter, and
+rewriting what somebody wrote as something merely equivalent is a change it has no reason to
+make. The round trip only asks that the text settle after one pass, which either choice
+satisfies; echoing the author is the one that keeps a diff honest.
+
+### `IndexColumn`
+
+```
+pub struct IndexColumn {
+    // **An expression, not a name.** `CREATE INDEX i ON t (lower(email))` indexes an expression,
+    // and a bare column is simply the smallest one -- it parses to `Expr.Col` and writes back as
+    // the name it came from, so the common case costs nothing to read or to print.
+    target: Expr
+    // The collation named with `COLLATE`, or empty where none was.
+    collation: string
+    order: IndexOrder
+}
+```
+
+One entry of an index's column list: `<expr> [COLLATE name] [ASC|DESC]`.
+
 ### `CreateIndexStmt`
 
 ```
 pub struct CreateIndexStmt {
     name: string
     table: string
-    columns: [string]
+    columns: [IndexColumn]
     unique: bool
     if_not_exists: bool
+    // A partial index's own `WHERE`: `CREATE INDEX i ON t (a) WHERE b IS NOT NULL`. `None` where
+    // none was written, which is every index that covers the whole table.
+    predicate: Option<Expr>
 }
 ```
 
@@ -771,9 +808,6 @@ both SQLite and PostgreSQL read back -- `X'..'` is the standard's spelling.
 ```
 pub fn format_expr(e: Expr) -> string
 ```
-
-`e` as SQL. Brackets appear where precedence needs them and nowhere else, so the text reads the
-way it was written rather than as a fully parenthesised tree.
 
 ### `format_constraint`
 

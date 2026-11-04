@@ -617,12 +617,39 @@ pub struct AlterStmt {
     action: AlterAction
 }
 
+// Whether a direction was written on an index's column, and which.
+//
+// **`Unwritten` is kept apart from `Ascending` on purpose.** An engine reads `(a)` and `(a ASC)`
+// identically, so this distinction buys nothing at run time -- but this module is a formatter, and
+// rewriting what somebody wrote as something merely equivalent is a change it has no reason to
+// make. The round trip only asks that the text settle after one pass, which either choice
+// satisfies; echoing the author is the one that keeps a diff honest.
+pub enum IndexOrder {
+    Unwritten
+    Ascending
+    Descending
+}
+
+// One entry of an index's column list: `<expr> [COLLATE name] [ASC|DESC]`.
+pub struct IndexColumn {
+    // **An expression, not a name.** `CREATE INDEX i ON t (lower(email))` indexes an expression,
+    // and a bare column is simply the smallest one -- it parses to `Expr.Col` and writes back as
+    // the name it came from, so the common case costs nothing to read or to print.
+    target: Expr
+    // The collation named with `COLLATE`, or empty where none was.
+    collation: string
+    order: IndexOrder
+}
+
 pub struct CreateIndexStmt {
     name: string
     table: string
-    columns: [string]
+    columns: [IndexColumn]
     unique: bool
     if_not_exists: bool
+    // A partial index's own `WHERE`: `CREATE INDEX i ON t (a) WHERE b IS NOT NULL`. `None` where
+    // none was written, which is every index that covers the whole table.
+    predicate: Option<Expr>
 }
 
 pub struct DropStmt {
@@ -1417,6 +1444,25 @@ fn take_table_constraint(c: Cursor) -> string {
     return span_since(c, from)
 }
 
+// `<expr> [COLLATE name] [ASC|DESC]`, in that order, which is the order SQL writes them.
+//
+// An index has no parameters in it, so the expression parser's own `?` counter is a fresh one
+// nothing reads afterwards.
+fn parse_index_column(c: Cursor) -> Result<IndexColumn, DbError> {
+    val target = try parse_expr(c, mutable_new(0))
+    var collation = ""
+    if accept(c, "COLLATE") {
+        collation = try expect_name(c)
+    }
+    var order = IndexOrder.Unwritten
+    if accept(c, "DESC") {
+        order = IndexOrder.Descending
+    } else if accept(c, "ASC") {
+        order = IndexOrder.Ascending
+    }
+    return ok(IndexColumn { target: target, collation: collation, order: order })
+}
+
 fn parse_create(c: Cursor) -> Result<Statement, DbError> {
     val unique = accept(c, "UNIQUE")
     if unique || sees(c, "INDEX") {
@@ -1434,22 +1480,28 @@ fn parse_create(c: Cursor) -> Result<Statement, DbError> {
         try expect_word(c, "ON")
         val table = try expect_name(c)
         try expect_punct(c, "(")
-        val columns = mutable_array_new<string>()
+        val columns = mutable_array_new<IndexColumn>()
         var first = true
         while !sees_punct(c, ")") {
             if !first {
                 try expect_punct(c, ",")
             }
             first = false
-            push(columns, try expect_name(c))
+            push(columns, try parse_index_column(c))
         }
         try expect_punct(c, ")")
+        // A partial index. Read after the column list, where SQL puts it.
+        var predicate = Option<Expr>.None
+        if accept(c, "WHERE") {
+            predicate = Option<Expr>.Some(try parse_expr(c, mutable_new(0)))
+        }
         return ok(Statement.CreateIndex(CreateIndexStmt {
             name: name,
             table: table,
             columns: snapshot(columns),
             unique: unique,
-            if_not_exists: if_not_exists
+            if_not_exists: if_not_exists,
+            predicate: predicate
         }))
     }
     try expect_word(c, "TABLE")
@@ -2110,6 +2162,22 @@ fn strength(e: Expr) -> int {
 
 // `e` as SQL. Brackets appear where precedence needs them and nowhere else, so the text reads the
 // way it was written rather than as a fully parenthesised tree.
+// One entry of an index's column list, written back as it was read -- including whether a
+// direction was there at all, for the reason `IndexOrder` records.
+fn format_index_column(ic: IndexColumn) -> string {
+    val out = mutable_string_new()
+    append(out, format_expr(ic.target))
+    if prelude.len(ic.collation) > 0 {
+        append(out, " COLLATE ", ic.collation)
+    }
+    append(out, switch ic.order {
+        Unwritten { "" }
+        Ascending { " ASC" }
+        Descending { " DESC" }
+    })
+    return snapshot(out)
+}
+
 pub fn format_expr(e: Expr) -> string {
     return switch e {
         Lit(v) { format_value(v) }
@@ -2471,7 +2539,14 @@ pub fn format(s: Statement) -> string {
             if q.if_not_exists {
                 append(out, "IF NOT EXISTS ")
             }
-            append(out, q.name, " ON ", q.table, " (", join(separator: ", ", pieces: q.columns), ")")
+            val pieces = mutable_array_new<string>()
+            for ic in q.columns {
+                push(pieces, format_index_column(ic))
+            }
+            append(out, q.name, " ON ", q.table, " (", join(separator: ", ", pieces: snapshot(pieces)), ")")
+            if Some(predicate) = q.predicate {
+                append(out, " WHERE ", format_expr(predicate))
+            }
             snapshot(out)
         }
         Alter(q) {
