@@ -1,0 +1,8 @@
+run: SUCCEEDED items=6 resume='5'
+finished: true
+status: SUCCEEDED items=6 resume='5' same id: true
+recent: 1
+an unknown id: false
+stale: 0
+failed: FAILED items=2 resume='two' message=the source gave up
+rows: 6

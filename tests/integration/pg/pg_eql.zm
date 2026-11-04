@@ -180,10 +180,15 @@ fn main() {
     // The refusals. Each is a mistake that, written as SQL by hand, would reach this server.
     print("-- refusals")
     val none: [eql.Binding] = []
+    // Annotated because `bind_list` has four declarations and an empty literal carries no element
+    // type to choose between them -- the error says so and says to do this. It is the empty
+    // *collection* that is being refused below, so which element type it would have had is
+    // immaterial.
+    val no_cities: [string] = []
     for refused in [
         sent(of_city, none),
         sent(in_cities, [eql.bind("cities", SqlValue.Text("Rome"))]),
-        sent(in_cities, [eql.bind_list("cities", [])]),
+        sent(in_cities, [eql.bind_list("cities", no_cities)]),
         // A projection read as an entity: the error names the column the entity wanted.
         switch eql.list<Patient>(
             conn,

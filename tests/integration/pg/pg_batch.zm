@@ -1,0 +1,89 @@
+// `batch` against Postgres, because the placeholder a parameter binds to is the engine's: `?` for
+// SQLite and MySQL, `$1`, `$2` for Postgres, and nothing translates between them. The module wrote
+// `?` when it was first built and so worked on two engines of three -- the failure surfaced in the
+// North Star's Postgres suite, two repositories away from the code. This is the same check where
+// the code is.
+//
+// `batch_runs` in tests/lang covers the behaviour on SQLite; this covers that the SQL is accepted
+// here at all, and that a run reads back with every column intact after a round trip through a
+// different engine's types.
+use batch
+use datasource
+use db
+use db.DbError
+use db.SqlValue
+use db.db_error_message
+use fs
+use pg
+use time.to_sql
+use uuid.uuid_new
+
+val drivers = datasource.registry([pg.driver()])
+val table = "job_run"
+
+fn writer(conn: datasource.Connection) -> batch.Job {
+    return batch.job("codes", fn(resume: string, note: batch.Note) -> Result<int, string> {
+        val write = note.write
+        var written = 0
+        for i in 0..6 {
+            if Err(e) = datasource.execute(conn, "INSERT INTO code (n) VALUES ($1)", SqlValue.Int(i)) {
+                return err(db_error_message(e))
+            }
+            written = written + 1
+            try write(conn, written, str(i))
+        }
+        return written
+    })
+}
+
+fn main() {
+    val conn = unwrap(datasource.open(drivers, trim(unwrap(fs.read_text("tests/integration/pg/.url")))))
+    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS code"))
+    unwrap(datasource.execute(conn, concat("DROP TABLE IF EXISTS ", table)))
+    unwrap(datasource.execute(conn, "CREATE TABLE code (n INTEGER)"))
+    // The library's own DDL, with `migrate`'s one type token spelled for this engine.
+    unwrap(datasource.execute(conn, replace(batch.schema(table), "{uuid}", "uuid")))
+
+    val run = unwrap(batch.run_now(conn, table, writer(conn), ""))
+    printf("run: {} items={} resume='{}'\n", run.status, str(run.items), run.resume)
+    printf("finished: {}\n", str(is_Some(run.finished_at)))
+
+    // Read back through the same SQL a status endpoint uses.
+    val read = unwrap(batch.status(conn, table, run.id))
+    switch read {
+        Some(r) {
+            printf(
+                "status: {} items={} resume='{}' same id: {}\n",
+                r.status,
+                str(r.items),
+                r.resume,
+                str(r.id == run.id)
+            )
+        }
+        None { print("status: missing") }
+    }
+    printf("recent: {}\n", str(len(unwrap(batch.recent(conn, table, "codes", 5)))))
+    printf("an unknown id: {}\n", str(is_Some(unwrap(batch.status(conn, table, uuid_new())))))
+    printf("stale: {}\n", str(len(unwrap(batch.stale(conn, table, 0)))))
+
+    // A failing job still records, and its marker survives the round trip.
+    val broken = unwrap(batch.run_now(
+        conn,
+        table,
+        batch.job("broken", fn(resume: string, note: batch.Note) -> Result<int, string> {
+            val write = note.write
+            try write(conn, 2, "two")
+            return err("the source gave up")
+        }),
+        ""
+    ))
+    printf(
+        "failed: {} items={} resume='{}' message={}\n",
+        broken.status,
+        str(broken.items),
+        broken.resume,
+        switch broken.message { Some(m) { m } None { "-" } }
+    )
+    val rows = unwrap(datasource.query(conn, "SELECT count(*) AS c FROM code"))
+    printf("rows: {}\n", str(unwrap(db.sql_as_int(unwrap(db.row_get(rows[0], "c"))))))
+}

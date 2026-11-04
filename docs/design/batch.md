@@ -1,8 +1,9 @@
 # A batch library, and the chunking it does not need
 
-Status: **designed, not built, 2026-11-04.** Nothing below exists in `lib/`. The measurements in §2
-refuted the reason this was proposed -- chunked commits -- so what §4 describes is a quarter of
-Spring Batch and a different quarter than expected.
+Status: **built 2026-11-04**, as `lib/db/batch.zm`, with the North Star's medical-code import as its
+first caller. The measurements in §2 refuted the reason this was proposed -- chunked commits -- so
+what shipped is a quarter of Spring Batch and a different quarter than expected. §11 records what
+building it changed.
 
 Asked for because the North Star backend cannot answer three of Spring's endpoints
 (`POST /api/admin/medical-codes/import/{system}`, `GET .../import/status/{id}`, and the export
@@ -234,3 +235,40 @@ connection the job hands it, so a job that is inside `with_transaction` reports 
 **And the thing this document exists to prevent**: building the chunk pipeline because Spring Batch
 has one. Section 2 is four measurements saying it would be ceremony. The part worth having is the
 part Spring users never mention, which is the part that remembers what happened.
+
+## 11. What building it changed
+
+Shipped as `lib/db/batch.zm` -- not `lib/core/` -- because it owns a table, as `migrate` owns
+migrations, and `gen_lib_manual.py`'s groups made that call before I did. Five things the design got
+wrong or left out.
+
+1. **`Note` had to take the connection, and that is now the one rule the module enforces.** §7 said
+   the marker must be written in the job's own transaction; §4's sketch had the library build the
+   `report` closure, which would have closed over a *different* connection and broken exactly the
+   rule §7 states. `Note.write(conn, items, resume)` is how a job passes its `tx` in.
+2. **`finish_run` must not touch `resume`.** The first version passed the launch's input token
+   through on completion, which erased the marker of every successful run -- so a "resumption" was
+   a restart. The fixture caught it by reading the row back, which is also why it reads the row back.
+3. **`schema` cannot use a timestamp token, because there is no such token.** `migrate`'s only type
+   token is `{{uuid}}`; an `Instant` crosses `datasource` as ISO text on every engine. The first
+   version answered `{{timestamp}}` and the migration refused to load, naming the unknown token --
+   the right error, immediately.
+4. **`Option<fn() -> Result<bool, string>>` is expressible after all**, so `Job.done` is the field
+   §6 wanted. The roadmap's note about function types as type arguments is narrower than it reads:
+   it is about `Channel`, and an `Option` of a function works in a field and across a `spawn`.
+5. **The store-as-four-closures in §4 is gone.** The library owns the table's columns and answers
+   its DDL for a migration of the application's own, which is fewer moving parts for a caller and
+   makes every application that adds the migration get the same job repository. `lib/` still does
+   not run anybody's migrations.
+
+**The first caller, and what it proves.** `service/medical_code_import.zm` fetches ICD-10-CM from
+the NLM's clinical-tables API -- paginated, no credential -- and writes each page with the offset as
+its marker, in one transaction per page. A refused offset is retried from an earlier one with the
+duplicates dropped, which is a real quirk of that service the Spring client documents. 19 checks in
+`medical_code_import_test.py` against a stub catalogue in the test file, including that a failed run
+resumes rather than re-fetching and that the migration is still the DDL the library answers.
+
+**ICD-10 and ICD-11 are refused by name**, their readers being a ClaML XML in a zip and a zip of
+linearisation files. The endpoint exists and works; what it cannot fetch it says it cannot fetch,
+which is the §9.1 bar met once rather than twice -- the second adoption is still owed, and
+`service/apple_health.zm` is the candidate once its own per-record cost (§2) is understood.

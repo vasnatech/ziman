@@ -160,9 +160,13 @@ A job that first asks whether there is anything to do.
 pub fn schema(table: string) -> string
 ```
 
-The table every function here reads and writes, for a migration of the application's own. The
-column types are the ones `migrate`'s own tokens resolve per engine, so the same string works on
-SQLite, Postgres and MySQL.
+The table every function here reads and writes, for a migration of the application's own.
+
+`{{uuid}}` is `migrate`'s own token, so the same string works on SQLite, Postgres and MySQL. The
+two instants are `TEXT` rather than a token because there is no timestamp token to use: an
+`Instant` crosses `datasource` as the ISO text `time.to_sql` writes, on every engine, which is
+what `time.to_instant` reads back. (The first version of this answered `{{timestamp}}` and the
+migration failed to load -- "unknown token" -- which is the right error and found it at once.)
 
 **The columns are fixed deliberately.** An application that adds this migration gets the same job
 repository as every other one, which is the whole point of the table living in a library rather

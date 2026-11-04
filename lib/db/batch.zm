@@ -125,9 +125,13 @@ pub fn job_unless(
     return Job { name: name, run: run, done: done }
 }
 
-// The table every function here reads and writes, for a migration of the application's own. The
-// column types are the ones `migrate`'s own tokens resolve per engine, so the same string works on
-// SQLite, Postgres and MySQL.
+// The table every function here reads and writes, for a migration of the application's own.
+//
+// `{{uuid}}` is `migrate`'s own token, so the same string works on SQLite, Postgres and MySQL. The
+// two instants are `TEXT` rather than a token because there is no timestamp token to use: an
+// `Instant` crosses `datasource` as the ISO text `time.to_sql` writes, on every engine, which is
+// what `time.to_instant` reads back. (The first version of this answered `{{timestamp}}` and the
+// migration failed to load -- "unknown token" -- which is the right error and found it at once.)
 //
 // **The columns are fixed deliberately.** An application that adds this migration gets the same job
 // repository as every other one, which is the whole point of the table living in a library rather
@@ -139,8 +143,8 @@ pub fn schema(table: string) -> string {
           id {{uuid}} PRIMARY KEY,
           job TEXT NOT NULL,
           status TEXT NOT NULL,
-          started_at {{timestamp}} NOT NULL,
-          finished_at {{timestamp}},
+          started_at TEXT NOT NULL,
+          finished_at TEXT,
           items INTEGER NOT NULL DEFAULT 0,
           resume TEXT NOT NULL DEFAULT '',
           message TEXT
@@ -148,6 +152,20 @@ pub fn schema(table: string) -> string {
         """,
         table
     )
+}
+
+// ---------------------------------------------------------------- the engine's own placeholder
+//
+// **`datasource` binds parameters rather than splicing them, and which marker it binds to is the
+// engine's**: `?` for SQLite and MySQL, `$1`, `$2` for Postgres. Nothing translates between them --
+// `eql` emits the right one because it generates the SQL, and a library that writes its own has to
+// ask the same question. This module wrote `?` at first and so worked on two engines of three; the
+// North Star's Postgres suite is what said so, the fixture here running on SQLite alone.
+fn mark(dialect: string, position: int) -> string {
+    if dialect == "postgres" {
+        return concat("$", str(position))
+    }
+    return "?"
 }
 
 // ---------------------------------------------------------------- reading the record
@@ -190,7 +208,7 @@ fn lift<T>(r: Result<T, DbError>) -> Result<T, string> {
 pub fn status(conn: datasource.Connection, table: string, id: Uuid) -> Result<Option<Run>, string> {
     val found = try lift<Option<db.Row>>(datasource.query_one(
         conn,
-        prelude.format("SELECT * FROM {} WHERE id = ?", table),
+        prelude.format("SELECT * FROM {} WHERE id = {}", table, mark(datasource.dialect(conn), 1)),
         uuid.uuid_to_sql(id)
     ))
     switch found {
@@ -212,11 +230,13 @@ pub fn recent(
         prelude.format(
             """
             SELECT * FROM {}
-             WHERE job = ?
+             WHERE job = {}
              ORDER BY started_at DESC, id DESC
-             LIMIT ?
+             LIMIT {}
             """,
-            table
+            table,
+            mark(datasource.dialect(conn), 1),
+            mark(datasource.dialect(conn), 2)
         ),
         SqlValue.Text(job_name),
         SqlValue.Int(if limit < 1 { 1 } else { limit })
@@ -247,10 +267,12 @@ pub fn stale(
         prelude.format(
             """
             SELECT * FROM {}
-             WHERE status = ? AND started_at < ?
+             WHERE status = {} AND started_at < {}
              ORDER BY started_at
             """,
-            table
+            table,
+            mark(datasource.dialect(conn), 1),
+            mark(datasource.dialect(conn), 2)
         ),
         SqlValue.Text(status_running),
         time.to_sql(cutoff)
@@ -265,14 +287,21 @@ pub fn stale(
 // ---------------------------------------------------------------- running one
 
 fn insert_run(conn: datasource.Connection, table: string, r: Run) -> Result<unit, string> {
+    val d = datasource.dialect(conn)
     val _ = try lift<int>(datasource.execute(
         conn,
         prelude.format(
             """
             INSERT INTO {} (id, job, status, started_at, items, resume)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES ({}, {}, {}, {}, {}, {})
             """,
-            table
+            table,
+            mark(d, 1),
+            mark(d, 2),
+            mark(d, 3),
+            mark(d, 4),
+            mark(d, 5),
+            mark(d, 6)
         ),
         uuid.uuid_to_sql(r.id),
         SqlValue.Text(r.job),
@@ -301,15 +330,21 @@ fn finish_run(
         Some(text) { SqlValue.Text(text) }
         None { SqlValue.Null }
     }
+    val d = datasource.dialect(conn)
     val _ = try lift<int>(datasource.execute(
         conn,
         prelude.format(
             """
             UPDATE {}
-               SET status = ?, finished_at = ?, items = ?, message = ?
-             WHERE id = ?
+               SET status = {}, finished_at = {}, items = {}, message = {}
+             WHERE id = {}
             """,
-            table
+            table,
+            mark(d, 1),
+            mark(d, 2),
+            mark(d, 3),
+            mark(d, 4),
+            mark(d, 5)
         ),
         SqlValue.Text(state),
         time.to_sql(instant_now()),
@@ -329,7 +364,13 @@ fn note_for(table: string, id: Uuid) -> Note {
         write: fn(conn: datasource.Connection, items: int, resume: string) -> Result<unit, string> {
             val _ = try lift<int>(datasource.execute(
                 conn,
-                prelude.format("UPDATE {} SET items = ?, resume = ? WHERE id = ?", into),
+                prelude.format(
+                    "UPDATE {} SET items = {}, resume = {} WHERE id = {}",
+                    into,
+                    mark(datasource.dialect(conn), 1),
+                    mark(datasource.dialect(conn), 2),
+                    mark(datasource.dialect(conn), 3)
+                ),
                 SqlValue.Int(items),
                 SqlValue.Text(resume),
                 uuid.uuid_to_sql(run_id)
