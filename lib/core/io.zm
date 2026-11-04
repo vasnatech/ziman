@@ -52,25 +52,49 @@ pub fn io_error_message(e: IoError) -> string {
 
 // ---------------------------------------------------------------- starting one
 
-// Bytes already in hand, as a source: one chunk and then the end.
+// How much of a `[byte]` in hand `of_bytes` gives out at a time. It matters because a `Cursor`'s
+// window is bounded by *the largest chunk its source produces* (see `cursor`), so a source that
+// answers a whole document in one go makes every reader over it hold that document decoded --
+// which is the opposite of what a reader over a source is for.
+//
+// **Measured, because this was a one-chunk source until 2026-11-03 and the cost was invisible.**
+// `xml.elements` over an Apple-Health-shaped export, same document both ways:
+//
+//     40,000 records, 4.7 MB   one chunk      432 MB, 11,494 ms
+//                              64 KiB chunks   46 MB,  5,010 ms
+//
+// Flat memory and half the time, for a change in the *producer*. `xml.parse` is
+// `folded(events(of_bytes(..)))`, so every tree parse in the library was paying it too, as was
+// `http.body_source` for a request body held in memory.
+//
+// 64 KiB rather than smaller: the per-chunk work is one `chars` decode and one window append, so a
+// tiny chunk pays for itself in iteration, and 64 KiB of characters is a window of about 6 MB in
+// the worst case -- bounded, which is the property that was missing.
+val chunk_bytes = 65536
+
+// Bytes already in hand, as a source, in chunks of `chunk_bytes`.
 //
 // **This is how a whole-value caller reaches the layers.** `compress`'s ceiling is `limited` now
 // rather than a parameter of its own (docs/design/byte-streams.md §6.1), so decompressing a `[byte]`
 // under a cap reads `drain(limited(inflating(of_bytes(data)), max), max)` -- and every fixture for
 // this module starts here.
+//
+// **It chunks rather than answering once**, for the reason `chunk_bytes` gives: a reader over this
+// should cost what a reader costs, not what holding the whole value costs. Anything shorter than
+// `chunk_bytes` is still exactly one chunk, so nothing about a small value changed.
 pub fn of_bytes(data: [byte]) -> Iter<Result<[byte], IoError>> {
     val held = data
-    val done = mutable_new(false)
+    val at = mutable_new(0)
     return iter_from(
         fn() -> Option<Result<[byte], IoError>> {
-            if get(done) {
+            val from = get(at)
+            val total = prelude.len(held)
+            if from >= total {
                 return None
             }
-            set(done, true)
-            if prelude.len(held) == 0 {
-                return None
-            }
-            return Some(ok(held))
+            val to = if total - from > chunk_bytes { from + chunk_bytes } else { total }
+            set(at, to)
+            return Some(ok(slice(held, from, to)))
         },
         fn() {}
     )

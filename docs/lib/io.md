@@ -114,12 +114,16 @@ The message to show a human, the counterpart of `fs_error_message` and `net_erro
 pub fn of_bytes(data: [byte]) -> Iter<Result<[byte], IoError>>
 ```
 
-Bytes already in hand, as a source: one chunk and then the end.
+Bytes already in hand, as a source, in chunks of `chunk_bytes`.
 
 **This is how a whole-value caller reaches the layers.** `compress`'s ceiling is `limited` now
 rather than a parameter of its own (docs/design/byte-streams.md §6.1), so decompressing a `[byte]`
 under a cap reads `drain(limited(inflating(of_bytes(data)), max), max)` -- and every fixture for
 this module starts here.
+
+**It chunks rather than answering once**, for the reason `chunk_bytes` gives: a reader over this
+should cost what a reader costs, not what holding the whole value costs. Anything shorter than
+`chunk_bytes` is still exactly one chunk, so nothing about a small value changed.
 
 ### `mapped`
 
