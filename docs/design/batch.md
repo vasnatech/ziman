@@ -270,5 +270,29 @@ resumes rather than re-fetching and that the migration is still the DDL the libr
 
 **ICD-10 and ICD-11 are refused by name**, their readers being a ClaML XML in a zip and a zip of
 linearisation files. The endpoint exists and works; what it cannot fetch it says it cannot fetch,
-which is the §9.1 bar met once rather than twice -- the second adoption is still owed, and
-`service/apple_health.zm` is the candidate once its own per-record cost (§2) is understood.
+which is the §9.1 bar met once rather than twice -- the second adoption is still owed.
+
+**And it is not `service/apple_health.zm`, which this document named as the candidate for weeks.**
+Ruled out 2026-11-04, on a mechanical test rather than a judgement: *can the job obtain its input
+again?* Everything this library is for depends on yes. The medical-code import resumes because its
+source is a URL it can re-fetch. An Apple Health import's source is an **upload**, and the server
+deletes a spilled body at the end of the request -- `lib/http/server/serve.zm` says so where it does
+it, and draws the same conclusion for its own reasons: *"which is also why a handler must not keep
+the source."* So a `batch` run there would write a resume marker that nothing could ever use, and
+would break the endpoint's contract besides, since its response carries `imported: N` today.
+
+**The per-record cost, which this section used to make the blocker, was never the obstacle.** It
+turned out to be the collector (ziman F267), and it is fixed -- the import is flat in the record
+count now. The obstacle was the input, and nobody had checked it.
+
+Two candidates survive that test, and both are worth stating so the next reader starts from the
+test rather than from a name. **`service/integration_sync.zm`** fits properly: a provider's API can
+be asked again, so a marker naming the window or page reached is meaningful. Against it: it already
+records status on the `user_integration` row, so `batch` would partly duplicate that, and the change
+touches seven providers. **`service/testdata.zm`** is re-derivable from its preset and far smaller,
+but it is scaffolding, so it would exercise less of the library than its first caller already does.
+
+**The honest third option is to wait.** This bar exists to test the design against a real second
+use; choosing a caller *because* the bar exists inverts it, and a library shaped by that pressure is
+the thing the bar was written to prevent. Better one real caller and an open §9.1 than two callers
+and a design that was never challenged.
