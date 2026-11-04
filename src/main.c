@@ -92,7 +92,9 @@ static void usage(FILE *out) {
           "  --emit-derived   print the code each #[derive] generates, then continue\n"
           "  --gc-stress      collect at every safe point instead of on a growth threshold:\n"
           "                   turns a value the collector cannot see into an immediate failure\n"
-          "                   rather than one that needs a large program to show up\n"
+          "                   rather than one that needs a large program to show up;\n"
+          "                   --gc-stress=N collects every Nth safe point instead, which is\n"
+          "                   what makes a whole-suite sweep finish (N=1 is the bare flag)\n"
           "  --stack-mb=N     the main thread's stack in MB (1-768; default: computed from the memory available)\n"
           "  --thread-stack-mb=N  the stack of each `spawn`ed thread in MB (default: computed)\n"
           "  --threads=N      how many threads to plan stacks for (default 64)\n"
@@ -677,6 +679,7 @@ static int run_tests_main(int argc, char **argv) {
         /* `--gc-stress` is most valuable here and reached everywhere but here: this is where a
          * user's own `#[test]` functions run. */
         else if (strcmp(a, "--gc-stress") == 0) ziman_set_gc_stress(1);
+        else if (strncmp(a, "--gc-stress=", 12) == 0) ziman_set_gc_stress((int)atol(a + 12));
         /* An option this mode does not take was a file name, so `ziman test --lint f.zm` reported
          * that it could not open '--lint' -- a path error for what is a usage error. */
         else if (a[0] == '-' && a[1] == '-') {
@@ -802,6 +805,7 @@ int main(int argc, char **argv) {
         else if (strcmp(a, "--canonical") == 0) fmt_canonical = 1;
         else if (strcmp(a, "--emit-derived") == 0) g_emit_derived = 1;
         else if (strcmp(a, "--gc-stress") == 0) ziman_set_gc_stress(1);
+        else if (strncmp(a, "--gc-stress=", 12) == 0) ziman_set_gc_stress((int)atol(a + 12));
         else if (strncmp(a, "--stack-mb=", 11) == 0) stack_main_mb = atol(a + 11);
         else if (strncmp(a, "--thread-stack-mb=", 18) == 0) stack_thread_mb = atol(a + 18);
         else if (strncmp(a, "--threads=", 10) == 0) stack_threads = atol(a + 10);

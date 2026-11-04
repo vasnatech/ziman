@@ -48,7 +48,8 @@ void interpret_tests(Module *module, const char *file_label, int *out_run, int *
 void ziman_force_collect(void);
 
 /* `--gc-stress`: collect at every safe point. See interpreter.c. */
-void ziman_set_gc_stress(int on);
+/* 0 off, else collect every `every`-th safe point; 1 is every one (`--gc-stress`). */
+void ziman_set_gc_stress(int every);
 
 /* This thread's own per-thread root-source addresses (t_defer_envs, t_env_pool, t_active_iters,
  * t_pending_handler/t_has_pending_handler) -- addresses, not values, for the same reason

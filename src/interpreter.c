@@ -1998,16 +1998,35 @@ static size_t gc_growth_before_next_collect(size_t reserved_now) {
  * generated file with 300 derive sites all passed.
  *
  * Under this flag the wrong window is every window, and that bug reproduces on the first
- * declaration. Off by default and read once; the cost when off is one predictable branch. */
+ * declaration. Off by default and read once; the cost when off is one predictable branch.
+ *
+ * **`--gc-stress=N` collects every Nth safe point instead of every one**, and bare `--gc-stress`
+ * is N=1, exactly as before. The form exists because F267 made this flag honest: it used to be
+ * silently suppressed wherever a guard was held -- an argument's evaluation, a closure's whole
+ * body -- which on a fixture like `csv_extended`, whose work is almost entirely inside
+ * `print(json.format(unwrap(csv.parse(..))))`, meant it barely collected at all and passed the
+ * sweep in seconds. Now that every safe point really collects, that one fixture marks a growing
+ * 20,000-row tree once per statement and takes **over fifty minutes**, where it used to take
+ * seconds -- so a whole-suite sweep at N=1 is no longer something anyone will run. N trades
+ * the density of the windows checked for a sweep that finishes: the bug class needs a collection
+ * in a particular window, and one every 64 statements still lands in a great many of them.
+ *
+ * A tick that does not fire still falls through to the ordinary growth threshold below, so a run
+ * under this flag never collects *less* than a run without it. */
 static int g_gc_stress = 0;
-void ziman_set_gc_stress(int on) { g_gc_stress = on; }
+static __thread unsigned long long t_gc_stress_tick = 0;
+void ziman_set_gc_stress(int every) { g_gc_stress = every > 0 ? every : 0; }
 
 static void maybe_collect(void) {
     if (t_gc_unsafe_depth > 0) return;
     if (g_gc_stress) {
-        gc_heap_collect(ziman_thread_heap(), mark_this_threads_roots, NULL);
-        t_reserved_at_last_collect = ziman_thread_heap_reserved();
-        return;
+        t_gc_stress_tick++;
+        if (t_gc_stress_tick % (unsigned long long)g_gc_stress == 0) {
+            gc_heap_collect(ziman_thread_heap(), mark_this_threads_roots, NULL);
+            t_reserved_at_last_collect = ziman_thread_heap_reserved();
+            return;
+        }
+        /* Falls through to the growth threshold, so N > 1 is still at least a normal run. */
     }
     size_t reserved = ziman_thread_heap_reserved();
     if (reserved - t_reserved_at_last_collect < gc_growth_before_next_collect(t_reserved_at_last_collect)) return;
