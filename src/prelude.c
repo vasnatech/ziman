@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "prelude.h"
+
+#include "gc_pending.h"
 #include "utf8.h"
 
 #ifdef ZIMAN_GC
@@ -3311,10 +3313,18 @@ static Value native_array_map(Value *args, int argc, int line, int col) {
     const ArrayObj *a = args[0].as.arr;
     int n = a->count;
     Value *out = ziman_xmalloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+    /* The result is built across calls into Ziman, each of which is a safe point, so the prefix
+     * already built is registered rather than the collector being switched off for the whole walk
+     * (F267). Found by `--gc-stress`: without this, `map(..)` answered its *last* element in an
+     * earlier slot -- the buffer had been swept and reused. */
+    PendingValues pending;
+    gc_pending_push(&pending, out, 0);
     for (int i = 0; i < n; i++) {
         Value x = array_get(a, i);
         out[i] = native_call_closure(args[1], &x, 1, line, col);
+        pending.count = i + 1;
     }
+    gc_pending_pop(&pending);
     ArrayObj *packed = array_try_pack(out, n);
     if (packed != NULL) {
         free(out);
@@ -3812,14 +3822,22 @@ static Value native_map_filter(Value *args, int argc, int line, int col) {
     mapobj_entries(args[0].as.map, &keys, &vals);
     int n = args[0].as.map->count;
     MapObj *out = mapobj_empty();
-    native_gc_unsafe_enter();
+    /* `out` is a C local no `Env` roots, and `mapobj_set` answers a new map on every kept entry,
+     * so it is registered as a one-entry pending buffer and kept current -- rather than forbidding
+     * a collection for the whole walk, which is what this did before F267. The predicate is
+     * arbitrary Ziman code and the map may be large. `pair` needs nothing here: the call itself
+     * registers its own arguments. */
+    Value held = value_map(args[0].type, out);
+    PendingValues pending;
+    gc_pending_push(&pending, &held, 1);
     for (int i = 0; i < n; i++) {
         Value pair[2] = {keys[i], vals[i]};
         if (native_call_closure(args[1], pair, 2, line, col).as.b) {
             out = mapobj_set(out, keys[i], vals[i]);
+            held = value_map(args[0].type, out);
         }
     }
-    native_gc_unsafe_leave();
+    gc_pending_pop(&pending);
     return value_map(args[0].type, out);
 }
 
@@ -3831,13 +3849,17 @@ static Value native_set_filter(Value *args, int argc, int line, int col) {
     mapobj_entries(args[0].as.map, &keys, NULL);
     int n = args[0].as.map->count;
     MapObj *out = mapobj_empty();
-    native_gc_unsafe_enter();
+    /* The same registration as native_map_filter's, for the same reason. */
+    Value held = value_map(args[0].type, out);
+    PendingValues pending;
+    gc_pending_push(&pending, &held, 1);
     for (int i = 0; i < n; i++) {
         if (native_call_closure(args[1], &keys[i], 1, line, col).as.b) {
             out = mapobj_set(out, keys[i], value_int(0));
+            held = value_map(args[0].type, out);
         }
     }
-    native_gc_unsafe_leave();
+    gc_pending_pop(&pending);
     return value_map(args[0].type, out);
 }
 
@@ -3846,10 +3868,16 @@ static Value native_array_flat_map(Value *args, int argc, int line, int col) {
     const ArrayObj *a = args[0].as.arr;
     int n = a->count;
     Value *parts = ziman_xmalloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+    /* The same registration as native_array_map's, for the same reason: each element is an array
+     * this call has built and nothing else holds yet. */
+    PendingValues pending;
+    gc_pending_push(&pending, parts, 0);
     for (int i = 0; i < n; i++) {
         Value x = array_get(a, i);
         parts[i] = native_call_closure(args[1], &x, 1, line, col);
+        pending.count = i + 1;
     }
+    gc_pending_pop(&pending);
     return ziman_concat_arrays(array_obj_new(parts, n));
 }
 

@@ -23,6 +23,7 @@
 #include "locals.h"
 #include "profile.h"
 #include "error.h"
+#include "gc_pending.h"
 #include "interpreter.h"
 #include "corelib.h"
 #include "parser.h"
@@ -735,6 +736,11 @@ int main(int argc, char **argv) {
     (void)GC_expand_hp(32u * 1024 * 1024);
 #endif
     ziman_gc_install_boehm_root_hook();
+    /* What to restore on an unwinding jump, so a `longjmp` past a part-built buffer of `Value`s
+     * cannot leave the chain naming a frame that has returned -- see src/gc_pending.h. Installed
+     * beside the Boehm root hook because both are "tell the collector about something it cannot
+     * find on its own", and both have to be in place before any Ziman runs. */
+    gc_pending_install_unwind_hook();
     /* `test` is a subcommand rather than a flag (docs/design/journal/, "#[test], ziman test, and the
      * test module"), and it was recognised at argv[1] only -- so an option written before it,
      * `ziman --gc-stress test f.zm`, read `test` as a second source file and died with "more than

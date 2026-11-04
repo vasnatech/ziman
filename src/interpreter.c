@@ -26,6 +26,7 @@
 #include "gc_heap.h"
 #include "gc_interp_roots.h"
 #include "gc_mark.h"
+#include "gc_pending.h"
 #include "gc_thread_heap.h"
 #include "mapobj.h"
 #include "native.h"
@@ -632,7 +633,12 @@ typedef struct SpawnArgs {
  * through, so guarding it here protects all of them without touching each one individually. */
 static Value call_closure_value(Module *module, Value closure, Value *args, int argc) {
     ClosureObj *clo = closure.as.clo;
-    gc_unsafe_enter();
+    /* Registered rather than guarded (F267). What needs protecting is the **caller's** `args`
+     * array -- a C local that no Env roots -- for as long as this call is on the stack. Guarding
+     * instead meant the callee's whole body ran with the collector off, and a closure body is
+     * arbitrary Ziman code: this one site is why a server request could not collect at all. */
+    PendingValues pending_args;
+    gc_pending_push(&pending_args, args, argc);
     Value result;
     if (clo->ncaptured == 0) {
         result = call_function(module, clo->fn, args, argc, 0, 0, 0);
@@ -640,10 +646,14 @@ static Value call_closure_value(Module *module, Value closure, Value *args, int 
         Value *all = ziman_xmalloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
         memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
         memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
+        /* Pushed after both memcpys, so every entry is initialised at its full length. */
+        PendingValues pending_all;
+        gc_pending_push(&pending_all, all, clo->ncaptured + argc);
         result = call_function(module, clo->fn, all, clo->ncaptured + argc, 0, 0, 0);
+        gc_pending_pop(&pending_all);
         free(all);
     }
-    gc_unsafe_leave();
+    gc_pending_pop(&pending_args);
     return result;
 }
 
@@ -1400,11 +1410,25 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             Value inline_args[ARGS_INLINE];
             Value *args = argc == 0 ? NULL : (argc <= ARGS_INLINE ? inline_args
                                                                   : ziman_xmalloc((size_t)argc * sizeof(Value)));
-            gc_unsafe_enter();
+            /* Registered rather than guarded (F267): an argument's own evaluation is arbitrary
+             * Ziman code and may run for seconds, and forbidding a collection for its whole
+             * duration is what made a server request uncollectable. `count` rises one element at a
+             * time, so a collection partway through this loop marks exactly the prefix that is
+             * initialised. */
+            PendingValues pending_args;
+            gc_pending_push(&pending_args, args, 0);
             for (int i = 0; i < argc; i++) {
                 args[i] = eval_expr(module, env, e->as.call.args.items[i]);
+                pending_args.count = i + 1;
             }
-            gc_unsafe_leave();
+            /* **Popped after the dispatch, not here.** A native function's own `args` is a C array
+             * no `Env` roots, and a native that calls back into Ziman -- `map`, `filter`,
+             * `flat_map` -- gives the collector a safe point while still reading `args[0]`. Leaving
+             * it registered for the whole call is what keeps the source array alive, and costs a
+             * few extra marked `Value`s. A Ziman function binds its parameters into an Env, so for
+             * that branch this is redundant and harmless. There is one exit below, which is what
+             * makes a single pop correct; a `ziman_error` inside the call unwinds through the hook
+             * in error.c instead. */
             Value result;
             /* NULL only for a call through a value, which the first branch takes before any
              * dispatch runs. `bid` is this node's cached builtin id -- see ast.h's call_builtin. */
@@ -1623,6 +1647,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     result.type = &e->resolved_type;
                 }
             }
+            gc_pending_pop(&pending_args);
             /* Only a heap one is freed -- `free` is a no-op under the collector, but the plain build
              * has a real one, and handing it a stack address would be a crash rather than a leak. */
             if (args != inline_args) {
@@ -1683,11 +1708,13 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_ARRAY_LIT: {
             int count = e->as.array_lit.elements.count;
             Value *items = count > 0 ? ziman_xmalloc((size_t)count * sizeof(Value)) : NULL;
-            gc_unsafe_enter();
+            PendingValues pending_items;
+            gc_pending_push(&pending_items, items, 0);
             for (int i = 0; i < count; i++) {
                 items[i] = eval_expr(module, env, e->as.array_lit.elements.items[i]);
+                pending_items.count = i + 1;
             }
-            gc_unsafe_leave();
+            gc_pending_pop(&pending_items);
             ArrayObj *packed = array_try_pack(items, count);
             if (packed != NULL) return value_array(&e->resolved_type, packed);
             return value_array(&e->resolved_type, array_obj_new(items, count));
@@ -1718,11 +1745,13 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
              * the same seven pointers for one YAML parse -- and re-derive the order with
              * `count` x `count` strcmps each time. */
             Value *fields = ziman_xmalloc((size_t)count * sizeof(Value));
-            gc_unsafe_enter();
+            PendingValues pending_fields;
+            gc_pending_push(&pending_fields, fields, 0);
             for (int i = 0; i < count; i++) {
                 fields[i] = eval_expr(module, env, e->struct_lit_order[i]);
+                pending_fields.count = i + 1;
             }
-            gc_unsafe_leave();
+            gc_pending_pop(&pending_fields);
             return value_struct(&e->resolved_type, struct_obj_new(decl->field_names, fields, count));
         }
         case EXPR_FIELD_ACCESS: {
@@ -1743,10 +1772,13 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             int count = old->count;
             Value *fields = ziman_xmalloc((size_t)count * sizeof(Value));
             memcpy(fields, old->fields, (size_t)count * sizeof(Value));
-            /* Guarded from the memcpy onward, not just the override loop: every entry (memcpy'd or
-             * about to be overridden) is equally unrooted until `fields` is fully handed off to
-             * struct_obj_new below. */
-            gc_unsafe_enter();
+            /* Registered from the memcpy onward, not just over the override loop: every entry
+             * (memcpy'd or about to be overridden) is equally unrooted until `fields` is handed off
+             * to struct_obj_new below. All `count` of them are initialised already, by the memcpy,
+             * so this one is pushed at its full length -- an override replaces an entry rather than
+             * extending the prefix. */
+            PendingValues pending_with;
+            gc_pending_push(&pending_with, fields, count);
             for (int i = 0; i < e->as.with_expr.overrides.count; i++) {
                 FieldInit *fi = &e->as.with_expr.overrides.items[i];
                 for (int j = 0; j < count; j++) {
@@ -1756,7 +1788,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     }
                 }
             }
-            gc_unsafe_leave();
+            gc_pending_pop(&pending_with);
             /* Reuses old->field_names directly (same struct type, same
              * field order) -- never mutates `old`, so sharing it is safe. */
             return value_struct(&e->resolved_type, struct_obj_new(old->field_names, fields, count));
@@ -1854,6 +1886,10 @@ static void mark_this_threads_roots(const Arena *a, void *ctx) {
     /* See t_active_iters's own comment (just above defer_env_untrack): every `for ... in <iter>`
      * loop currently running on this thread, innermost last. */
     for (int i = 0; i < t_active_iter_count; i++) gc_mark_value(a, t_active_iters[i]);
+    /* Every buffer of `Value`s this thread's C code is holding or still filling -- an argument
+     * array, an array or struct literal, a `with`'s fields. See src/gc_pending.h: these used to
+     * forbid a collection instead of being marked by one, which is F267. */
+    gc_mark_pending(a);
     /* See ziman_thread_mark_slots' own comment: this thread's `thread.local` values, which are
      * reachable only from a slot array Boehm scans and this collector did not know about. */
     ziman_thread_mark_slots(a);
@@ -2567,18 +2603,25 @@ int native_value_compare(Value a, Value b, int line, int col) {
 
 Value native_call_closure(Value fn, Value *args, int argc, int line, int col) {
     ClosureObj *clo = fn.as.clo;
-    gc_unsafe_enter();
+    /* The same change as call_closure_value's, for the native side's own choke point: the
+     * caller's `args` is registered for the duration of the call rather than the call being made
+     * uncollectable. */
+    PendingValues pending_args;
+    gc_pending_push(&pending_args, args, argc);
     Value result;
     if (clo->ncaptured == 0) {
         result = call_function(g_program, clo->fn, args, argc, 0, line, col);
     } else {
         Value *all = ziman_xmalloc((size_t)(clo->ncaptured + argc) * sizeof(Value));
         memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
-        if (argc > 0) memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value)); /* see the same guard in eval_expr */
+        if (argc > 0) memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value)); /* see the same registration in eval_expr */
+        PendingValues pending_all;
+        gc_pending_push(&pending_all, all, clo->ncaptured + argc);
         result = call_function(g_program, clo->fn, all, clo->ncaptured + argc, 0, line, col);
+        gc_pending_pop(&pending_all);
         free(all);
     }
-    gc_unsafe_leave();
+    gc_pending_pop(&pending_args);
     return result;
 }
 

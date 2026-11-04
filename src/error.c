@@ -15,6 +15,11 @@ static int g_error_count = 0;
 #define MAX_RECOVERY_DEPTH 512
 static jmp_buf *g_recovery[MAX_RECOVERY_DEPTH];
 static int g_recovery_depth = 0;
+/* See ziman_recovery_set_unwind: one state to save per recovery point, restored before the jump
+ * that unwinds to it. Parallel to g_recovery and indexed the same way. */
+static void *(*g_unwind_save)(void) = NULL;
+static void (*g_unwind_restore)(void *) = NULL;
+static void *g_recovery_mark[MAX_RECOVERY_DEPTH];
 
 /* A compile-time error (`ziman_error`, `g_sink == NULL` only -- the LSP's own sink streams each diagnostic as
  * found instead, unaffected by any of this) is collected here rather than printed as it is raised, so the whole
@@ -116,8 +121,16 @@ static void print_excerpt(const char *file, int line, int col) {
     fputs("^\n", stderr);
 }
 
+void ziman_recovery_set_unwind(void *(*save)(void), void (*restore)(void *saved)) {
+    g_unwind_save = save;
+    g_unwind_restore = restore;
+}
+
 void ziman_recovery_push(jmp_buf *jb) {
-    if (g_recovery_depth < MAX_RECOVERY_DEPTH) g_recovery[g_recovery_depth] = jb;
+    if (g_recovery_depth < MAX_RECOVERY_DEPTH) {
+        g_recovery[g_recovery_depth] = jb;
+        g_recovery_mark[g_recovery_depth] = g_unwind_save != NULL ? g_unwind_save() : NULL;
+    }
     g_recovery_depth++;
 }
 
@@ -130,6 +143,7 @@ void ziman_recovery_pop(void) {
 static void jump_to_recovery(void) {
     int depth = g_recovery_depth > MAX_RECOVERY_DEPTH ? MAX_RECOVERY_DEPTH : g_recovery_depth;
     g_recovery_depth = depth - 1;
+    if (g_unwind_restore != NULL) g_unwind_restore(g_recovery_mark[depth - 1]);
     longjmp(*g_recovery[depth - 1], 1);
 }
 
@@ -141,6 +155,7 @@ _Noreturn void ziman_abort_quietly(void) {
 static void jump_to_outermost(void) {
     if (g_recovery_depth > MAX_RECOVERY_DEPTH) g_recovery_depth = MAX_RECOVERY_DEPTH;
     g_recovery_depth = 0;
+    if (g_unwind_restore != NULL) g_unwind_restore(g_recovery_mark[0]);
     longjmp(*g_recovery[0], 1);
 }
 
@@ -472,6 +487,7 @@ char *ziman_trace_string(void) { return build_trace(); }
 void ziman_thread_boundary_enter(ThreadBoundary *b) {
     b->message = NULL;
     b->raw = NULL;
+    b->pending_mark = g_unwind_save != NULL ? g_unwind_save() : NULL;
     t_boundary = b;
     t_frame_count = 0;
 }
@@ -497,6 +513,7 @@ _Noreturn void ziman_error(const char *phase, int line, int col, const char *fmt
         snprintf(text, room, "runtime error at %d:%d%s%s: %s", line, col, has_file ? " in " : "", has_file ? g_error_file : "", message);
         b->message = text;
         b->raw = message;   /* the same text without the location; freed by neither, like `text` */
+        if (g_unwind_restore != NULL) g_unwind_restore(b->pending_mark);
         longjmp(b->jb, 1);
     }
     if (g_sink != NULL) {

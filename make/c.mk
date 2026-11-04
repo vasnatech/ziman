@@ -15,7 +15,7 @@ all: $(BIN)
 unit-tests: test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy \
             test-regex lib-tests \
             test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots \
-            test-gc-interp-roots test-lsp test-maptable test-handleslot
+            test-gc-interp-roots test-gc-pending test-lsp test-maptable test-handleslot
 
 GC_SRC := $(GC_DIR)/extra/gc.c $(wildcard $(GC_DIR)/*.c) $(wildcard $(GC_DIR)/include/*.h $(GC_DIR)/include/*/*.h)
 
@@ -228,6 +228,13 @@ test-gc-env-roots: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c s
 test-gc-interp-roots: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c src/gc_interp_roots.c tests/c/gc_interp_roots_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_interp_roots_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c src/gc_interp_roots.c tests/c/gc_interp_roots_test.c
 	/tmp/ziman_gc_interp_roots_test
+
+# src/gc_pending.c: the part-built buffers of `Value`s that only C is holding, which the precise
+# mark phase has to be told about -- see src/gc_pending.h, and F267 for what forbidding a collection
+# instead of marking them cost. Links the same set gc_interp_roots does, plus gc_pending itself.
+test-gc-pending: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_pending.c tests/c/gc_pending_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_pending_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_pending.c tests/c/gc_pending_test.c
+	/tmp/ziman_gc_pending_test
 
 # ./ziman-allocprofile: the collector build plus a count of every allocation against its source
 # site, dumped to stderr at exit, hottest first. Not a normal build and not fast -- it takes a mutex

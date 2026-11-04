@@ -29,6 +29,10 @@ typedef struct ThreadBoundary {
      * test` does, because an assertion raised inside the bundled test module carries test.zm's
      * own line and the reader wants the line that asserted. NULL until a runtime error arrives. */
     char *raw;
+    /* What this thread's pending-value chain (src/gc_pending.h) looked like when the boundary was
+     * entered, restored before the longjmp that unwinds to it -- the nodes of that chain live on
+     * the C stack, and unwinding past one leaves it naming a frame that has returned. */
+    void *pending_mark;
 } ThreadBoundary;
 void ziman_thread_boundary_enter(ThreadBoundary *b);
 void ziman_thread_boundary_leave(void);
@@ -42,6 +46,11 @@ void ziman_thread_boundary_leave(void);
  * before. After `ziman_recovery_push(&jb)`, `setjmp(jb) == 0` is the normal path;
  * a non-zero return means an error was reported (the point is already popped).
  * A normal exit from the guarded code must call ziman_recovery_pop(). */
+/* Installs what to save before an unwinding jump and restore before it happens -- see
+ * src/gc_pending.h, the one caller. Keeping it here rather than in each recovery site is the whole
+ * point: there are a dozen of those and one of these. NULL for either half disables it. */
+void ziman_recovery_set_unwind(void *(*save)(void), void (*restore)(void *saved));
+
 void ziman_recovery_push(jmp_buf *jb);
 void ziman_recovery_pop(void);
 /* Jump to the innermost recovery point without printing anything (used to skip a

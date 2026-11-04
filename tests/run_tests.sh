@@ -21,7 +21,9 @@
 #     Leaving the substring off asserts position alone, so a fixture about where
 #     an error lands does not break when someone rewords the message.
 #
-# Either kind may have a sibling name.env (KEY=VALUE lines) exported for its run.
+# Either kind may have a sibling name.env (KEY=VALUE lines) exported for its run, and a sibling
+# name.timeout (one number, seconds) for a fixture that is meant to take longer than the five
+# seconds every other one gets.
 #
 # SKIP="name1 name2" leaves those fixtures out, reporting each as skipped. For a fixture that
 # cannot hold under a particular build rather than one that is broken: `make asan` uses it for
@@ -88,6 +90,20 @@ check_fixture() {
         cli_args=("--json" "${cli_args[@]+"${cli_args[@]}"}")
     fi
 
+    # An optional tests/lang/<name>.timeout holds a number of seconds for this fixture alone,
+    # multiplied by the same factor a sanitizer build raises $TIMEOUT by so one file does not have
+    # to know which build it is in. For a fixture that is *meant* to be slow -- `meta_boundary`
+    # runs the whole generator path under --gc-stress, which collects at every safe point -- where
+    # raising $TIMEOUT for all 1,400 would weaken the deadlock guard for every one of them.
+    local fixture_timeout="$TIMEOUT"
+    local timeout_file="tests/lang/$name.timeout"
+    if [ -f "$timeout_file" ]; then
+        local want
+        read -r want < "$timeout_file"
+        fixture_timeout=$((want * TIMEOUT / 5))
+        [ "$fixture_timeout" -lt "$want" ] && fixture_timeout="$want"
+    fi
+
     local stdout status stderr
     # `timeout` guards against a genuine deadlock in a spawn/Channel fixture
     # (a mistake in the interpreter's channel/thread handling) hanging the
@@ -98,12 +114,12 @@ check_fixture() {
         read -r -a prog_args < "tests/lang/$name.progargs"
         prog_args=(-- "${prog_args[@]}")
     fi
-    stdout=$(env "${env_args[@]}" timeout "$TIMEOUT" "$BIN" "${cli_args[@]+"${cli_args[@]}"}" "$entry" "${prog_args[@]+"${prog_args[@]}"}" 2>/tmp/ziman_test_stderr.$$)
+    stdout=$(env "${env_args[@]}" timeout "$fixture_timeout" "$BIN" "${cli_args[@]+"${cli_args[@]}"}" "$entry" "${prog_args[@]+"${prog_args[@]}"}" 2>/tmp/ziman_test_stderr.$$)
     status=$?
     stderr=$(cat /tmp/ziman_test_stderr.$$)
     rm -f /tmp/ziman_test_stderr.$$
     if [ "$status" -eq 124 ]; then
-        stderr="$stderr"$'\n'"(timed out after ${TIMEOUT}s -- possible deadlock)"
+        stderr="$stderr"$'\n'"(timed out after ${fixture_timeout}s -- possible deadlock)"
     fi
 
     if [ -f "$out_file" ]; then
