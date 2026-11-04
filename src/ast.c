@@ -35,6 +35,39 @@ const Type *type_scalar_ref(TypeKind kind) {
     return &g_scalar_types[kind];
 }
 
+/* `[T]` for a scalar `T`, one constant per element kind, for the same reason `g_scalar_types` is a
+ * table: `type_ref(type_array(type_scalar(TY_STRING)))` was **two** heap allocations -- the element
+ * `Type` that `type_array` mallocs, and the outer one `type_ref` mallocs -- to rebuild a value that
+ * never varies. Every native answering `[string]`, `[int]` or `[byte]` did that per call.
+ *
+ * `.rodata` rather than a lazily-filled static, exactly as the two tables above: nothing to write,
+ * so nothing to race on. The cast is because `elem` is `Type *` for the AST's sake; nothing ever
+ * writes through this one, which is already true of the scalar each entry points at. */
+static const Type g_scalar_array_types[TY_KIND_COUNT] = {
+    [TY_VOID] = {.kind = TY_ARRAY, .elem = (Type *)&g_scalar_types[TY_VOID]},
+    [TY_UNIT] = {.kind = TY_ARRAY, .elem = (Type *)&g_scalar_types[TY_UNIT]},
+    [TY_INT] = {.kind = TY_ARRAY, .elem = (Type *)&g_scalar_types[TY_INT]},
+    [TY_FLOAT] = {.kind = TY_ARRAY, .elem = (Type *)&g_scalar_types[TY_FLOAT]},
+    [TY_BOOL] = {.kind = TY_ARRAY, .elem = (Type *)&g_scalar_types[TY_BOOL]},
+    [TY_STRING] = {.kind = TY_ARRAY, .elem = (Type *)&g_scalar_types[TY_STRING]},
+    [TY_BIGINT] = {.kind = TY_ARRAY, .elem = (Type *)&g_scalar_types[TY_BIGINT]},
+    [TY_DECIMAL] = {.kind = TY_ARRAY, .elem = (Type *)&g_scalar_types[TY_DECIMAL]},
+    [TY_BYTE] = {.kind = TY_ARRAY, .elem = (Type *)&g_scalar_types[TY_BYTE]},
+};
+
+const Type *type_scalar_array_ref(TypeKind elem) {
+    return &g_scalar_array_types[elem];
+}
+
+/* `Result<string, string>`, which `bytes_to_string` and its neighbours answer on every call. */
+static const Type g_string_result_type = {.kind = TY_RESULT,
+                                          .elem = (Type *)&g_scalar_types[TY_STRING],
+                                          .elem_err = (Type *)&g_scalar_types[TY_STRING]};
+
+const Type *type_string_result_ref(void) {
+    return &g_string_result_type;
+}
+
 /* The `Option` enum type, as one shared constant, for the natives that return an `Option` on a hot
  * path. They used to build it per call -- `type_enum("Option")` strdups the name and `type_ref`
  * mallocs 64 bytes for the `Type` -- so a `mutable_map_get` did three heap allocations where one

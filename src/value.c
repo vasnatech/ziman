@@ -334,13 +334,13 @@ ArrayObj *array_swapped(const ArrayObj *old, int i, int j) {
 Value value_int_array(const int64_t *buf, size_t n) {
     int64_t *ints = zalloc_atomic(n > 0 ? n * sizeof(int64_t) : 1);
     if (n > 0) memcpy(ints, buf, n * sizeof(int64_t));
-    return value_array(type_ref(type_array(type_scalar(TY_INT))), array_obj_new_packed(PK_INT, ints, (int)n));
+    return value_array(type_scalar_array_ref(TY_INT), array_obj_new_packed(PK_INT, ints, (int)n));
 }
 
 Value value_byte_array(const uint8_t *buf, size_t n) {
     uint8_t *bytes = zalloc_atomic(n > 0 ? n : 1);
     if (n > 0) memcpy(bytes, buf, n);
-    return value_array(type_ref(type_array(type_scalar(TY_BYTE))), array_obj_new_bytes(bytes, (int)n));
+    return value_array(type_scalar_array_ref(TY_BYTE), array_obj_new_bytes(bytes, (int)n));
 }
 
 uint8_t *array_copy_bytes(const ArrayObj *a, int *out_len) {

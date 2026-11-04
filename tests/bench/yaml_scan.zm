@@ -11,7 +11,20 @@
 //
 //     yaml, a character at a time    6,535 ms     121x the json parse
 //     yaml, reading runs             1,955 ms      36x
+//     yaml, after 2026-11-04         1,068 ms      20x
 //     json                              54 ms
+//
+// **The json row is the control, and it is why the 2026-11-04 row can be believed.** `json.parse`
+// is native C, so interpreter work cannot touch it -- and measured again the same way on the same
+// machine it is 53-54 ms, to the millisecond what it was. The yaml parse halving while its control
+// does not move is the interpreter getting cheaper, not the machine getting faster.
+//
+// That day's work was five changes, none of them in this module: the collection guard becoming a
+// root source (F267), the collection floor becoming a 4 MB setting, an enum access resolving once
+// instead of per evaluation (F268), the variadic tail's type cached on its declaration, and the
+// fixed compound types becoming `.rodata` constants. This file is the workload they were worth the
+// most on, because it is the one that was allocation-bound to begin with -- which the paragraph
+// below, written before any of them, already said.
 //
 // **3.3x, and four changes none of which touched how YAML is read.** In profile order:
 //

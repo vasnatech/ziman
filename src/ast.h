@@ -146,6 +146,10 @@ const Type *type_scalar_ref(TypeKind kind);
  * see ast.c for why building it per call cost two of the three allocations such a native makes,
  * and why one shared value is sound. */
 const Type *type_option_ref(void);
+/* `[T]` for a scalar `T`, and `Result<string, string>`: constants, for the reason their tables in
+ * ast.c record -- a native that answers one of these was rebuilding it per call. */
+const Type *type_scalar_array_ref(TypeKind elem);
+const Type *type_string_result_ref(void);
 const Type *type_ref(Type t);
 Type type_array(Type elem);
 Type type_struct(const char *name);

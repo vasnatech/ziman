@@ -109,6 +109,13 @@ static int float_text_ok(const char *s, size_t n) {
     return 1;
 }
 
+/* The three builder types, which `type_ref(type_struct("X"))` rebuilt on every construction --
+ * and `type_struct` **strdups the name**, so that was two allocations each for a value fixed at
+ * compile time. `.rodata`, as `g_scalar_types` is, for the reason its own comment gives. */
+static const Type g_mutable_string_type = {.kind = TY_STRUCT, .struct_name = (char *)"MutableString"};
+static const Type g_mutable_array_type = {.kind = TY_STRUCT, .struct_name = (char *)"MutableArray"};
+static const Type g_mutable_cell_type = {.kind = TY_STRUCT, .struct_name = (char *)"Mutable"};
+
 static Value native_parse_int(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -528,7 +535,7 @@ static Value native_split(Value *args, int argc, int line, int col) {
         if (found < 0) break;
         cursor = (size_t)found + ld;
     }
-    return value_array(type_ref(type_array(type_scalar(TY_STRING))), array_obj_new(items, count));
+    return value_array(type_scalar_array_ref(TY_STRING), array_obj_new(items, count));
 }
 
 static Value native_trim(Value *args, int argc, int line, int col) {
@@ -933,7 +940,7 @@ Value ziman_mutable_string_from(Value source, int source_is_handle) {
     int64_t handle = mutable_string_table_register(buf);
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int(handle);
-    return value_struct(type_ref(type_struct("MutableString")), struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
+    return value_struct(&g_mutable_string_type, struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
 }
 
 static Value native_mutable_string_new(Value *args, int argc, int line, int col) {
@@ -965,7 +972,7 @@ static Value native_mutable_string_new(Value *args, int argc, int line, int col)
 
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int(handle);
-    return value_struct(type_ref(type_struct("MutableString")), struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
+    return value_struct(&g_mutable_string_type, struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
 }
 
 static Value native_mutable_string_append(Value *args, int argc, int line, int col) {
@@ -1281,7 +1288,7 @@ static Value mutable_array_new_value(size_t capacity, double grow_factor) {
     int64_t handle = mutable_array_table_register(buf);
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int(handle);
-    return value_struct(type_ref(type_struct("MutableArray")), struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
+    return value_struct(&g_mutable_array_type, struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
 }
 
 static Value native_mutable_array_new(Value *args, int argc, int line, int col) {
@@ -1546,7 +1553,6 @@ static long utf8_find_invalid(const uint8_t *s, size_t len) {
 
 static Value native_bytes_to_string(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    Type str_type = type_scalar(TY_STRING);
     ArrayObj *arr = args[0].as.arr;
     int n = 0;
     uint8_t *tmp = array_copy_bytes(arr, &n);
@@ -1555,14 +1561,14 @@ static Value native_bytes_to_string(Value *args, int argc, int line, int col) {
         char msg[80];
         snprintf(msg, sizeof msg, "bytes are not valid UTF-8 (invalid sequence at byte %ld)", bad);
         free(tmp);
-        return value_result(type_ref(type_result(str_type, str_type)), result_obj_new(0, value_string(ziman_xstrdup(msg))));
+        return value_result(type_string_result_ref(), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     if (memchr(tmp, 0, (size_t)n) != NULL) {
         free(tmp);
-        return value_result(type_ref(type_result(str_type, str_type)), result_obj_new(0, value_string(ziman_xstrdup("bytes contain a NUL byte and cannot be a string"))));
+        return value_result(type_string_result_ref(), result_obj_new(0, value_string(ziman_xstrdup("bytes contain a NUL byte and cannot be a string"))));
     }
     char *s = (char *)tmp; /* already NUL-terminated by array_copy_bytes */
-    return value_result(type_ref(type_result(str_type, str_type)), result_obj_new(1, value_string(s)));
+    return value_result(type_string_result_ref(), result_obj_new(1, value_string(s)));
 }
 
 /* One string per code point of `s` (never a raw byte): `chars("héllo")` is `[h, é, l, l, o]`,
@@ -1590,7 +1596,7 @@ static Value native_chars(Value *args, int argc, int line, int col) {
         items[count++] = string_slice(args[0], pos, (size_t)n);
         pos += (size_t)n;
     }
-    return value_array(type_ref(type_array(type_scalar(TY_STRING))), array_obj_new(items, count));
+    return value_array(type_scalar_array_ref(TY_STRING), array_obj_new(items, count));
 }
 
 /* The number of code points in `s` -- `char_count("héllo")` is 5, where `len("héllo")` (bytes)
@@ -3123,7 +3129,7 @@ static Value native_mutable_new(Value *args, int argc, int line, int col) {
     buf->value = args[0];
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)buf);
-    return value_struct(type_ref(type_struct("Mutable")), struct_obj_new(MUTABLE_FIELD_NAMES, fields, 1));
+    return value_struct(&g_mutable_cell_type, struct_obj_new(MUTABLE_FIELD_NAMES, fields, 1));
 }
 
 static Value native_mutable_get(Value *args, int argc, int line, int col) {
