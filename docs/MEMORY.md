@@ -2041,3 +2041,50 @@ showed `futex_do_wait` with 10 minutes of CPU against nearly nine hours elapsed,
 as a deadlock. It was not: the thread was parked mid-collection and the process had been signalled
 by the harness that stopped its sweep. Run cleanly it holds 100% CPU and produces correct output,
 identically with one marker thread or two. A stopped process sampled once is not a diagnosis.
+
+## The collection floor was never measured, and it cost a factor of three
+
+Fixing F267 made the collector run, and a profile of the North Star's Apple Health import then came
+back **77% collector, with the next entry at 2.1%**. Everything below that line is noise, so the
+question was not which function to improve but how much collection was happening -- and the answer
+was in a constant whose own comment admitted it was "an arbitrary, unmeasured starting point ...
+not to be a considered performance choice": `ZIMAN_GC_TRIGGER_FLOOR`, 64 KB.
+
+**The floor binding at all is the finding.** The proportional term beside it (`reserved/2`) was
+added to stop quadratic behaviour on a heap that *grows*, and it does that. It does nothing for the
+opposite shape -- a small live set with heavy churn -- where the heap stays small and the floor is
+what decides. The import allocates about 90 KB per record, so a 64 KB floor collected roughly
+**once per imported record**.
+
+Measured per floor on one machine, the import against a fresh server and database each time and
+`tests/bench/server_load.sh` at 300 requests a phase:
+
+    floor    2,500 rec   20,000 rec   GET /health p50   list p50   server RSS
+    64 KB      5.4 s       40.9 s         4.9 ms         194 ms      220 MB
+     4 MB      2.5 s       19.3 s         0.7 ms          78 ms      258 MB
+    16 MB      1.8 s       14.0 s         0.6 ms          31 ms      283 MB
+
+`GET /health` is a trivial endpoint that was spending four of its five milliseconds collecting,
+which is why this is not only an import story. **A small program pays nothing**: a hello-world
+measured 8,584 KB at a 64 KB floor and 8,484 KB at 16 MB, because it never allocates enough to reach
+even the old threshold. The cost lands only on allocation-heavy programs, and as a bounded ceiling
+rather than as per-record growth.
+
+**It is a setting rather than a new constant**, because the right answer differs per deployment:
+`--gc-heap-floor-mb=N`, else `ZIMAN_GC_HEAP_FLOOR_MB`, else **4**, with the flag winning as it does
+for `--stack-mb`. 4 MB takes most of the win -- 7x on a trivial request, about 2x on the import --
+for 38 MB rather than 63 MB of server footprint. A value it cannot use is refused rather than
+clamped silently, since a mistyped setting that looks like it worked is worse than one that stops.
+`gc_heap_floor_setting` and `gc_heap_floor_refused` cover the two halves.
+
+**Two cautions about these numbers.** The first version of the experiment read the environment on
+every safe point, which taxes every configuration equally but makes each absolute figure
+pessimistic -- it reported `GET /health` at 10.1 ms where reading the value once gives 4.9 ms. And
+the import's wall clock varies by about 20% run to run on this machine (20,000 records measured at
+37.8 and 45.5 s in consecutive passes), so the ratios above are worth more than any single cell.
+
+**What is left, and it is the larger prize.** The import still allocates about **1,500 objects per
+record**, dominated by a `Type` per constructed value (`type_ref`, 167 a record), variadic argument
+collapsing (221 a record) and `Result`/`Option` boxing. Collecting less often does not make that
+cheaper, it only pays for it less often; `docs/roadmap/larger.md`'s unboxing entry is where that
+goes, and `src/ast.c` records that interning types was already tried and abandoned for no gain.

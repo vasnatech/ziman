@@ -51,6 +51,11 @@ void ziman_force_collect(void);
 /* 0 off, else collect every `every`-th safe point; 1 is every one (`--gc-stress`). */
 void ziman_set_gc_stress(int every);
 
+/* The least this thread's heap must grow before a collection, in MB: `--gc-heap-floor-mb=N`, else
+ * `ZIMAN_GC_HEAP_FLOOR_MB`, else 4. Called once before any Ziman runs; see interpreter.c for the
+ * measurements behind the default. Refuses a value it cannot use rather than clamping silently. */
+void ziman_gc_configure(long floor_mb);
+
 /* This thread's own per-thread root-source addresses (t_defer_envs, t_env_pool, t_active_iters,
  * t_pending_handler/t_has_pending_handler) -- addresses, not values, for the same reason
  * ZimanFramesRootAddrs (error.h) is: each array is reallocated as it grows, so

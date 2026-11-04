@@ -1,0 +1,7 @@
+// A collection floor that is not a number of megabytes is refused, rather than silently falling
+// back to the default -- a mistyped setting that looks like it worked is worse than one that stops.
+// The value comes from this fixture's own `.env`, since that is the half of the setting a test can
+// reach (the flag's own half is `gc_heap_floor_setting`).
+fn main() {
+    print("never reached")
+}

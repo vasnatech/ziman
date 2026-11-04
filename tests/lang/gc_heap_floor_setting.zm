@@ -1,0 +1,18 @@
+// `--gc-heap-floor-mb=N` is accepted and the program runs under it. The floor is the least a
+// thread's heap grows before a collection (src/interpreter.c): 64 KB until 2026-11-04, when
+// measuring it found a factor of three, and 4 MB by default since. 1 MB here, which is the
+// "memory is tight" end of the setting -- what this asserts is that the option parses and the
+// collector still works under it, not a number that would differ per machine.
+use os
+
+fn main() {
+    // Enough churn to cross a 1 MB floor many times over, retaining nothing.
+    var total = 0
+    for i in 0..20000 {
+        val made = concat("row-", str(i))
+        total = total + len(made)
+    }
+    print(total)
+    os.collect_garbage()
+    print("collected")
+}

@@ -102,6 +102,12 @@ static void usage(FILE *out) {
           "                   ZIMAN_THREADS do the same; a flag wins)\n"
           "  --version        print the version and exit\n"
           "  --help           print this help and exit\n", out);
+    /* A second call rather than more of the one above: concatenated literals are one object, and
+     * the whole of this text passed the 4,095 characters C99 requires a compiler to support. */
+    fputs("  --gc-heap-floor-mb=N  the least a thread's heap grows before a collection\n"
+          "                   (default 4): raise it for lower latency at the cost of memory,\n"
+          "                   lower it where memory is tight. ZIMAN_GC_HEAP_FLOOR_MB does the\n"
+          "                   same and the flag wins.\n", out);
 }
 
 static char *read_whole(const char *path, size_t *len) {
@@ -669,6 +675,8 @@ static int run_tests_main(int argc, char **argv) {
      * the flag to be opened as a source file. */
     int coverage = 0, n = 0;
     const char *coverage_lcov = NULL;
+    /* --gc-heap-floor-mb=N; see interpreter.c for the measurements behind the default. */
+    long gc_floor_mb = 0;
     for (int i = 0; i < argc; i++) {
         const char *a = argv[i];
         if (strcmp(a, "--coverage") == 0) coverage = 1;
@@ -680,6 +688,7 @@ static int run_tests_main(int argc, char **argv) {
          * user's own `#[test]` functions run. */
         else if (strcmp(a, "--gc-stress") == 0) ziman_set_gc_stress(1);
         else if (strncmp(a, "--gc-stress=", 12) == 0) ziman_set_gc_stress((int)atol(a + 12));
+        else if (strncmp(a, "--gc-heap-floor-mb=", 19) == 0) gc_floor_mb = atol(a + 19);
         /* An option this mode does not take was a file name, so `ziman test --lint f.zm` reported
          * that it could not open '--lint' -- a path error for what is a usage error. */
         else if (a[0] == '-' && a[1] == '-') {
@@ -695,6 +704,7 @@ static int run_tests_main(int argc, char **argv) {
         return 2;
     }
     if (coverage) ziman_coverage_enable();
+    ziman_gc_configure(gc_floor_mb);
     ziman_stack_configure(0, 0, 0);
     TestOptions options = {argv, argc, coverage, coverage_lcov};
     ziman_run_on_big_stack(run_tests_program, &options);
@@ -771,7 +781,7 @@ int main(int argc, char **argv) {
     }
     int check_only = 0, json = 0, lint = 0, lint_bundled = 0, fmt = 0, fmt_write = 0, fmt_width = 120, fmt_canonical = 0, lsp = 0, coverage = 0, profile = 0, locals = 0;
     const char *coverage_lcov = NULL;
-    long stack_main_mb = 0, stack_thread_mb = 0, stack_threads = 0;
+    long stack_main_mb = 0, stack_thread_mb = 0, stack_threads = 0, gc_floor_mb = 0;
     const char *file = NULL;
     char **files = ziman_xmalloc((size_t)argc * sizeof(char *));
     int n_files = 0;
@@ -806,6 +816,7 @@ int main(int argc, char **argv) {
         else if (strcmp(a, "--emit-derived") == 0) g_emit_derived = 1;
         else if (strcmp(a, "--gc-stress") == 0) ziman_set_gc_stress(1);
         else if (strncmp(a, "--gc-stress=", 12) == 0) ziman_set_gc_stress((int)atol(a + 12));
+        else if (strncmp(a, "--gc-heap-floor-mb=", 19) == 0) gc_floor_mb = atol(a + 19);
         else if (strncmp(a, "--stack-mb=", 11) == 0) stack_main_mb = atol(a + 11);
         else if (strncmp(a, "--thread-stack-mb=", 18) == 0) stack_thread_mb = atol(a + 18);
         else if (strncmp(a, "--threads=", 10) == 0) stack_threads = atol(a + 10);
@@ -821,7 +832,8 @@ int main(int argc, char **argv) {
          * run on the process stack instead: `ulimit -s` (8 MB typically), with --stack-mb accepted
          * and then ignored -- so a deep type took the server down, and the "raise it with
          * --stack-mb=N" the error suggests could not be acted on. */
-        ziman_stack_configure(stack_main_mb, stack_thread_mb, stack_threads);
+        ziman_gc_configure(gc_floor_mb);
+    ziman_stack_configure(stack_main_mb, stack_thread_mb, stack_threads);
         return (int)(intptr_t)ziman_run_on_big_stack(run_lsp, NULL);
     }
     if (fmt) {
@@ -834,6 +846,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     ziman_set_json_errors(json);
+    ziman_gc_configure(gc_floor_mb);
     ziman_stack_configure(stack_main_mb, stack_thread_mb, stack_threads);
     if (lint_bundled) typecheck_enable_lint_bundled();
     RunOptions options = {file, json, lint, check_only, coverage, profile, locals, coverage_lcov};

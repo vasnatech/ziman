@@ -1971,13 +1971,70 @@ void **ziman_global_env_addr(void) {
  * denominator is deliberately generous (collect once the heap has grown by half again) because a
  * collection here walks every root source this interpreter has, and the cost of collecting too
  * often is exactly what this constant got wrong before. */
-#define ZIMAN_GC_TRIGGER_FLOOR ((size_t)(64 * 1024))
+/* **The floor was 64 KB and that cost a factor of three.** The comment above is about the
+ * proportional term, which fixed the quadratic case -- a heap that grows. It does nothing for the
+ * opposite shape: a small live set with heavy churn, where the floor is what binds. The North
+ * Star's Apple Health import allocates about 90 KB per record, so a 64 KB floor collected roughly
+ * **once per imported record**, and a profile of that import is 77% collector with the next entry
+ * at 2.1%.
+ *
+ * Measured per floor, on one machine (the import against a fresh server and database each time;
+ * `tests/bench/server_load.sh` at 300 requests a phase):
+ *
+ *     floor    2,500 rec   20,000 rec   GET /health p50   list p50   server RSS
+ *     64 KB      5.4 s       40.9 s         4.9 ms         194 ms      220 MB
+ *      4 MB      2.5 s       19.3 s         0.7 ms          78 ms      258 MB
+ *     16 MB      1.8 s       14.0 s         0.6 ms          31 ms      283 MB
+ *
+ * `GET /health` is a trivial endpoint that was spending four of its five milliseconds collecting.
+ * **A small program pays nothing** for the larger floor -- a hello-world measured 8,584 KB at 64 KB
+ * and 8,484 KB at 16 MB, because it never allocates enough to reach even the old threshold. The
+ * cost lands only on allocation-heavy programs, as a bounded ceiling rather than per-record growth.
+ *
+ * 4 MB is the default because it takes most of the win (7x on a trivial request, 2.1x on the
+ * import) for 38 MB rather than 63 MB of server footprint. It is a **setting** rather than a new
+ * constant because the right answer differs per deployment: `--gc-heap-floor-mb=16` for a
+ * latency-sensitive server, `ZIMAN_GC_HEAP_FLOOR_MB=1` where memory is tight. A flag wins over the
+ * environment variable, as with `--stack-mb`. */
+#define ZIMAN_GC_FLOOR_DEFAULT_MB 4
+#define ZIMAN_GC_FLOOR_MAX_MB 4096
 #define ZIMAN_GC_TRIGGER_DIVISOR ((size_t)2)
 static __thread size_t t_reserved_at_last_collect = 0;
+/* 0 until configured, which `ziman_gc_configure` does once before any Ziman runs. */
+static size_t g_trigger_floor = 0;
+
+static long gc_floor_env(void) {
+    const char *v = getenv("ZIMAN_GC_HEAP_FLOOR_MB");
+    if (v == NULL || *v == '\0') return 0;
+    char *end = NULL;
+    long n = strtol(v, &end, 10);
+    if (end == v || (end != NULL && *end != '\0') || n < 0) {
+        fprintf(stderr, "ziman: ZIMAN_GC_HEAP_FLOOR_MB is '%s', which is not a number of megabytes\n", v);
+        exit(1);
+    }
+    return n;
+}
+
+void ziman_gc_configure(long floor_mb) {
+    long mb = floor_mb > 0 ? floor_mb : gc_floor_env();
+    if (mb <= 0) mb = ZIMAN_GC_FLOOR_DEFAULT_MB;
+    if (mb > ZIMAN_GC_FLOOR_MAX_MB) {
+        fprintf(stderr,
+                "ziman: a collection floor of %ld MB is past the %d MB this accepts "
+                "(--gc-heap-floor-mb=N / ZIMAN_GC_HEAP_FLOOR_MB)\n",
+                mb, ZIMAN_GC_FLOOR_MAX_MB);
+        exit(1);
+    }
+    g_trigger_floor = (size_t)mb * 1024u * 1024u;
+}
 
 static size_t gc_growth_before_next_collect(size_t reserved_now) {
+    /* Configured before anything runs; the fallback keeps a unit test or an embedder that never
+     * calls `ziman_gc_configure` on the documented default rather than on a zero floor, which
+     * would collect at every safe point. */
+    if (g_trigger_floor == 0) g_trigger_floor = (size_t)ZIMAN_GC_FLOOR_DEFAULT_MB * 1024u * 1024u;
     size_t proportional = reserved_now / ZIMAN_GC_TRIGGER_DIVISOR;
-    return proportional > ZIMAN_GC_TRIGGER_FLOOR ? proportional : ZIMAN_GC_TRIGGER_FLOOR;
+    return proportional > g_trigger_floor ? proportional : g_trigger_floor;
 }
 
 /* Called from exec_stmt's own entry, before that statement's own evaluation has begun anything --
