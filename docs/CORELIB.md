@@ -19,6 +19,56 @@ and docs/design/journal/'s "Prelude" entry), since everything it declares
 unqualified in every program, the same way `print`/`str`/`parse_int`
 are. See docs/syntax/'s "Modules" section for what it contains.
 
+## `batch`
+
+```
+pub val status_running = "RUNNING"
+
+pub val status_succeeded = "SUCCEEDED"
+
+pub val status_failed = "FAILED"
+
+pub struct Run {
+    id: Uuid
+    job: string
+    status: string
+    started_at: Instant
+    finished_at: Option<Instant>
+    // How many items the job reported writing. Its own count, in its own units.
+    items: int
+    resume: string
+    // Why it failed, when it did. Never set on a run that succeeded.
+    message: Option<string>
+}
+
+pub struct Note {
+    write: fn(datasource.Connection, int, string) -> Result<unit, string>
+}
+
+pub struct Job {
+    name: string
+    run: fn(string, Note) -> Result<int, string>
+    done: Option<fn() -> Result<bool, string>>
+}
+
+pub fn job(name: string, run: fn(string, Note) -> Result<int, string>) -> Job
+
+pub fn job_unless(
+
+pub fn schema(table: string) -> string
+
+pub fn status(conn: datasource.Connection, table: string, id: Uuid) -> Result<Option<Run>, string>
+
+pub fn recent(
+
+pub fn stale(
+
+pub fn run_now(
+
+pub fn launch(
+
+```
+
 ## `bits`
 
 ```
@@ -2561,56 +2611,6 @@ pub fn format(e: Element) -> Result<string, string>
 pub fn parse(text: string) -> Result<Json, string>
 
 pub fn format(j: Json) -> string
-
-```
-
-## `batch`
-
-```
-pub val status_running = "RUNNING"
-
-pub val status_succeeded = "SUCCEEDED"
-
-pub val status_failed = "FAILED"
-
-pub struct Run {
-    id: Uuid
-    job: string
-    status: string
-    started_at: Instant
-    finished_at: Option<Instant>
-    // How many items the job reported writing. Its own count, in its own units.
-    items: int
-    resume: string
-    // Why it failed, when it did. Never set on a run that succeeded.
-    message: Option<string>
-}
-
-pub struct Note {
-    write: fn(datasource.Connection, int, string) -> Result<unit, string>
-}
-
-pub struct Job {
-    name: string
-    run: fn(string, Note) -> Result<int, string>
-    done: Option<fn() -> Result<bool, string>>
-}
-
-pub fn job(name: string, run: fn(string, Note) -> Result<int, string>) -> Job
-
-pub fn job_unless(
-
-pub fn schema(table: string) -> string
-
-pub fn status(conn: datasource.Connection, table: string, id: Uuid) -> Result<Option<Run>, string>
-
-pub fn recent(
-
-pub fn stale(
-
-pub fn run_now(
-
-pub fn launch(
 
 ```
 
