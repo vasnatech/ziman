@@ -1,6 +1,6 @@
 # A batch library, and the chunking it does not need
 
-Status: **built 2026-11-04**, as `lib/db/batch.zm`, with the North Star's medical-code import as its
+Status: **built 2026-11-04**, as `lib/core/batch.zm`, with the North Star's medical-code import as its
 first caller. The measurements in §2 refuted the reason this was proposed -- chunked commits -- so
 what shipped is a quarter of Spring Batch and a different quarter than expected. §11 records what
 building it changed.
@@ -239,8 +239,17 @@ part Spring users never mention, which is the part that remembers what happened.
 ## 11. What building it changed
 
 Shipped as `lib/db/batch.zm` -- not `lib/core/` -- because it owns a table, as `migrate` owns
-migrations, and `gen_lib_manual.py`'s groups made that call before I did. Five things the design got
-wrong or left out.
+migrations, and `gen_lib_manual.py`'s groups made that call before I did.
+
+**Moved to `lib/core/batch.zm` on 2026-11-04, on the user's call, and the original reasoning above
+is the thing that was wrong.** Owning a table is where this module *stores* something, not what it
+is about: `lib/db` is for talking to a database, and a reader meets `batch` by having work that has
+to survive a crash rather than by reaching for a connection. It keeps its own group in the manual
+("Jobs") rather than a line under Databases, because what it composes with is `schedule` -- that
+decides *when* something runs, this records *what happened*, and neither contains the other. The
+module's `use` name was always flat, so nothing that imports it changed.
+
+Five things the design got wrong or left out.
 
 1. **`Note` had to take the connection, and that is now the one rule the module enforces.** §7 said
    the marker must be written in the job's own transaction; §4's sketch had the library build the

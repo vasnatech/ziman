@@ -1,0 +1,10 @@
+-- a run that fails part way --
+first: FAILED imported=30 next page after '2' -- the source timed out on page 3
+-- the next run resumes from the marker rather than starting again --
+second: SUCCEEDED imported=20 next page after '4'
+-- what the two runs left behind --
+  SUCCEEDED imported=20
+  FAILED imported=30
+-- a status endpoint reads one back by id --
+status: SUCCEEDED imported=20 next page after '4'
+an id nothing launched: no such run

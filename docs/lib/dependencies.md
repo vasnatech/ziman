@@ -8,6 +8,7 @@ and its own natives.
 ```mermaid
 flowchart LR
     subgraph group_core["core"]
+        batch["batch"]
         bits["bits"]
         clock["clock"]
         codec["codec"]
@@ -54,7 +55,6 @@ flowchart LR
         yaml["yaml"]
     end
     subgraph group_db["databases"]
-        batch["db.batch"]
         datasource["db.datasource"]
         db["db"]
         derive_entity["db.derive_entity"]

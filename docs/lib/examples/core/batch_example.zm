@@ -1,0 +1,92 @@
+use batch
+use datasource
+use db.DbError
+use db.db_error_message
+use sqlite
+use uuid
+
+// A job repository: what ran, how it went, and **where it got to**. The last of those is the
+// reason to have one -- a job that fails part way leaves a marker behind, so the next attempt is a
+// resumption rather than a restart.
+//
+// The job below imports a catalogue a page at a time. It is deliberately made to fail on its
+// second run, so the third can pick up where it stopped.
+val drivers = datasource.registry([sqlite.driver()])
+val table = "import_run"
+
+// How many pages the source claims to have, and which one the importer will choke on.
+val total_pages = 5
+
+fn import_pages(conn: datasource.Connection, note: batch.Note, resume: string, fail_at: int) -> Result<int, string> {
+    val write = note.write
+    // An empty marker means "never run"; otherwise it is the last page that finished.
+    val from = if resume == "" { 0 } else { unwrap(parse_int(resume)) + 1 }
+    var imported = 0
+    for page in from..total_pages {
+        if page == fail_at {
+            return err(concat("the source timed out on page ", str(page)))
+        }
+        imported = imported + 10
+        // **Written on the connection the job was handed**, so the marker lands in whatever
+        // transaction the work is in: a crash cannot leave rows written and the marker lost.
+        if Err(e) = write(conn, imported, str(page)) {
+            return err(e)
+        }
+    }
+    return imported
+}
+
+fn job_that_fails_at(conn: datasource.Connection, fail_at: int) -> batch.Job {
+    return batch.job("catalogue", fn(resume: string, note: batch.Note) -> Result<int, string> {
+        return import_pages(conn, note, resume, fail_at)
+    })
+}
+
+fn show(label: string, run: batch.Run) {
+    printf(
+        "{}: {} imported={} next page after '{}'{}\n",
+        label,
+        run.status,
+        run.items,
+        run.resume,
+        switch run.message {
+            Some(m) { concat(" -- ", m) }
+            None { "" }
+        }
+    )
+}
+
+fn main() {
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
+    // The library answers its own DDL, so the table is whatever this version of it needs.
+    // `schema` answers the DDL with one type left as a token, because which type a uuid column
+    // takes is the engine's business: `migrate` substitutes it in a migration file, and a program
+    // creating the table itself says so here.
+    unwrap(datasource.execute(conn, replace(batch.schema(table), "{uuid}", "TEXT")))
+
+    // `run_now` runs the job on this thread and answers when it is done; `launch` does the same on
+    // a thread of its own and answers at once, for an endpoint that wants to poll.
+    print("-- a run that fails part way --")
+    val failed = unwrap(batch.run_now(conn, table, job_that_fails_at(conn, 3), ""))
+    show("first", failed)
+
+    print("-- the next run resumes from the marker rather than starting again --")
+    val resumed = unwrap(batch.run_now(conn, table, job_that_fails_at(conn, 0 - 1), failed.resume))
+    show("second", resumed)
+
+    print("-- what the two runs left behind --")
+    for run in unwrap(batch.recent(conn, table, "catalogue", 10)) {
+        printf("  {} imported={}\n", run.status, run.items)
+    }
+
+    print("-- a status endpoint reads one back by id --")
+    switch unwrap(batch.status(conn, table, resumed.id)) {
+        Some(run) { show("status", run) }
+        None { print("status: no such run") }
+    }
+    switch unwrap(batch.status(conn, table, uuid.uuid_new())) {
+        Some(run) { show("status", run) }
+        None { print("an id nothing launched: no such run") }
+    }
+    datasource.close(conn)
+}
