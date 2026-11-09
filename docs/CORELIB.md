@@ -2191,6 +2191,51 @@ pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string,
 
 ```
 
+## `terminal`
+
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
+
+```
+pub enum Key {
+    Char(string)
+    Enter
+    Tab
+    Backspace
+    Escape
+    Delete
+    Up
+    Down
+    Left
+    Right
+    Home
+    End
+    PageUp
+    PageDown
+    Insert
+    Function(int)
+    Ctrl(string)
+    Unknown([byte])
+}
+
+pub struct Size {
+    rows: int
+    cols: int
+}
+
+pub native fn is_tty() -> bool
+
+pub fn size() -> Result<Size, string>
+
+pub fn with_raw<T>(body: fn() -> Result<T, string>) -> Result<T, string>
+
+pub fn read_key(timeout_ms: int) -> Result<Option<Key>, string>
+
+pub fn decode_key(bytes: [byte]) -> Key
+
+pub fn key_name(key: Key) -> string
+
+```
+
 ## `test`
 
 ```

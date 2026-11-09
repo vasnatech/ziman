@@ -1,11 +1,13 @@
 # Terminal: raw mode, one key at a time, and putting back what we changed
 
-Status: **proposed, 2026-11-09**; §9's half is **built**. Nothing in this module is written. The
-four decisions in §3 are taken before the first line, because each one lands in every signature or
-in the shape of the C half; everything else is a sketch to argue with.
+Status: **built, 2026-11-09.** `lib/core/terminal.zm`, `src/native_terminal.c`,
+`tests/stdlib/terminal_test.zm` (24 checks), and §9's `io.stdin()`. All five decisions in §3
+survived contact; **§7's sketch did not**, and §7 now says why -- it is the only part of this
+document that was wrong, and it was wrong about the language rather than about the terminal.
 
-Two of §11's open questions were settled on 2026-11-09, the day this was written: **`with_raw` is
-the public shape** (§6, decision 3.5) and **`io.stdin()` went first** (§9, now shipped).
+Two of §11's open questions were settled on the day this was written: **`with_raw` is the public
+shape** (§6, decision 3.5) and **`io.stdin()` went first** (§9). A third, the module's name, went
+to `terminal` as §11 leaned.
 
 ## 1. The gap was found by an application, not by a wishlist
 
@@ -163,39 +165,55 @@ exported for a hypothetical caller who would be taking on exactly the risk the s
 
 ## 7. What it has to make writable (the only real test of the API)
 
-```
-use terminal
+The sketch this section was written with **does not compile**, and finding that out is the most
+useful thing building the module did. It was:
 
-fn main() {
-    if !terminal.is_tty() {
-        os.write_stderr("curly ui needs a terminal\n")
-        os.exit(2)
-    }
-    val _ = terminal.with_raw(fn() -> Result<unit, string> {
-        var running = true
-        while running {
-            val screen = try terminal.size()
-            draw(screen)                              // writes escape sequences with `print`
-            switch try terminal.read_key(50) {
-                Some(key) {
-                    switch key {
-                        Char("q") { running = false }
-                        Up { select_previous() }
-                        Down { select_next() }
-                        Enter { send_selected() }
-                        Unknown(bytes) { log_unknown(bytes) }
-                        ... 
-                    }
-                }
-                None {}                               // timed out; redraw, in case of a resize
-            }
-        }
-        return ok(unit)
-    })
+```
+switch key {
+    Char("q") { running = false }      // a literal in a payload pattern
+    Up { select_previous() }
+    ...                                 // and the rest left out
 }
 ```
 
-Nothing in that sketch needs a fifth native.
+Two language rules it walked into, both in docs/syntax/functions-and-types.md §`switch`:
+
+* **A payload pattern binds a name; it cannot match a literal.** `Char("q")` is a *syntax* error
+  ("expected a name for the variant's payload"). It has to be `Char(c) { if c == "q" { .. } }`.
+* **There is no default arm, by design** -- "it would bring back the silent case this exists to
+  remove" -- so a `switch` over `Key` needs **all eighteen arms**, every time. The `...` in the
+  sketch was not shorthand for tedium; it was shorthand for something the compiler refuses.
+
+That is right for an enum a program consumes exhaustively and wrong for the way a TUI reads keys,
+which is "I care about six of these". So the dispatch is the per-variant predicate the same section
+blesses (`if Shape.is_Circle(s)` remains fine for a single-variant test):
+
+```
+val outcome = terminal.with_raw<unit>(fn() -> Result<unit, string> {
+    var running = true
+    while running {
+        val screen = try terminal.size()
+        draw(screen)                                   // escape sequences, written with `print`
+        switch try terminal.read_key(50) {
+            Some(key) {
+                if terminal.Key.is_Up(key)        { select_previous() }
+                if terminal.Key.is_Down(key)      { select_next() }
+                if terminal.Key.is_Enter(key)     { send_selected() }
+                if terminal.key_name(key) == "q"  { running = false }
+            }
+            None {}                                    // timed out; redraw, in case of a resize
+        }
+    }
+    return ok(unit)
+})
+```
+
+**This is why `key_name` is in the module rather than in an application.** It was written as a
+helper for a help line, and it turns out to be the practical way to ask "was that `q`?" -- one call
+instead of `switch`-and-compare. A `tui` module (§8) would wrap this into a key-binding table; until
+one exists, the predicates and the name are the API.
+
+Nothing in the corrected sketch needs a fifth native, which was the question this section was for.
 
 ## 8. Non-goals
 
@@ -265,6 +283,30 @@ Adding a core module is six edits, and the Makefile documents five of them:
 The decoder is the only part with real test surface, and it needs no terminal: feed it byte arrays
 and assert the `Key`. That is the argument in §3.2 paying off.
 
+**Built: the six were seven.** `src/corelib.c` needs *two* edits, not one — the line in the
+`CORE_MODULES` table that the Makefile's comment names, and an `#include "terminal_source.h"` for
+the generated header, which it does not. The build fails with `TERMINAL_SOURCE undeclared ... did
+you mean TEMPLATE_SOURCE?`, a good error pointing at the wrong fix. Worth correcting in the
+Makefile's comment the next time something is added there.
+
+**What a terminal-shaped module needs beyond the six.** The decoder is testable with no terminal and
+that covers the table, but it covers none of the half decision 3.1 is about. Raw mode, the restore
+and `read_key`'s assembly of a real burst were driven through a **pty** from Python (`pty.fork`,
+`TIOCSWINSZ` for a known size, `tcgetattr` on the master to read the mode back). Four cases, all
+passing:
+
+| what ends the program | restored by | result |
+|---|---|---|
+| the scope returns, program keeps running | `with_raw` | `echo/canon` **at a mark printed while still running** — the §6 case, which `atexit` would not have caught |
+| normal exit in raw mode | `atexit` | restored |
+| a fatal Ziman error in raw mode | `atexit` | restored, and the stack trace prints readably (OPOST back) |
+| `SIGTERM` in raw mode | the signal handler | restored, and the process still dies of signal 15 |
+
+The fourth is the one `atexit` cannot do, and the reason the C half claims terminating signals —
+**but only those still at `SIG_DFL`**, so a program that called `os.install_shutdown_handler()`
+keeps its own drain and reaches `atexit` the ordinary way. `SIGKILL` remains unfixable, and is the
+one honest hole in decision 3.1.
+
 ## 11. Open questions
 
 1. ~~**`with_raw` or `set_raw`, or both?**~~ **Answered 2026-11-09**: `with_raw` is the public
@@ -272,13 +314,22 @@ and assert the `Key`. That is the argument in §3.2 paying off.
    in §4 the way the other four do.
 2. ~~**Does `io.stdin()` (§9) go first?**~~ **Answered 2026-11-09: yes, and it is built.** §9 has
    what it cost and the three things it taught.
-3. **`terminal` or `tty`?** The module is about more than the device — `Key` and the decoder are
-   not tty concepts — so `terminal` reads better to me.
-4. **Is `Function(int)` worth it?** F-keys vary more between terminals than anything else here, and
-   a program can live on `Ctrl` plus letters. Including it costs a dozen table rows.
+3. ~~**`terminal` or `tty`?**~~ **Answered 2026-11-09: `terminal`**, as this leaned. The module is
+   about more than the device: `Key`, the decoder and `key_name` are not tty concepts.
+4. ~~**Is `Function(int)` worth it?**~~ **Answered 2026-11-09: yes, and it cost less than
+   feared** — three table rows (SS3 `ESC O P`-`S`, the Linux console's `ESC [ [ A`-`E`, and the
+   `ESC [ <n> ~` numbers), not a dozen. The numbers have historical gaps at 16 and 22, and the table
+   leaves them `Unknown` rather than guessing which F-key a terminal meant.
 5. **Bracketed paste?** A TUI that accepts pasted text wants to know a burst is a paste and not
    typing. It is one more mode to enable and restore, and it can wait for an application that wants
    it — but it is the first thing I would add after mouse.
 6. **What happens to raw mode across `process.run`?** A child that writes to the same terminal while
    the parent holds raw mode will look wrong. Probably the application's problem, but worth a
-   sentence in the module's own docs.
+   sentence in the module's own docs. **Still open** — nothing built so far runs a child.
+
+7. **New, from building it: should `Key` carry modifiers?** The table answers `Unknown` for
+   `ESC [ 1;5A` (Ctrl-Up) rather than `Up`, because a shortcut bound to Up must not fire on a key
+   the user did not press — see §7. That is correct and it is also a gap: Ctrl-Up is a key people
+   bind. Adding a `Modified { key: Key, ctrl: bool, alt: bool, shift: bool }` variant would mean
+   every caller's `is_Up` check misses the modified form, which is the kind of change that wants an
+   application asking for it first.

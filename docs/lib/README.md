@@ -53,6 +53,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | Module | What it is |
 |---|---|
 | [`io`](io.md) | Byte streams: a pull source of `[byte]` chunks, one error for every layer over it, and the layers themselves. |
+| [`terminal`](terminal.md) | Raw mode, one key at a time, and putting back what we changed. |
 | [`fs`](fs.md) | The filesystem: files, directories and paths. |
 | [`os`](os.md) | The process and its environment. |
 | [`process`](process.md) | Starting another program, waiting for it, signalling it. |

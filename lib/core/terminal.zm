@@ -1,0 +1,453 @@
+// terminal.zm -- raw mode, one key at a time, and putting back what we changed.
+//
+// **The gap this closes was found by an application, not by a wishlist.** A Ziman program could
+// print anywhere on the screen and could not learn that a key had been pressed, so every
+// interactive tool in this tree was either a line of text at a time or a browser.
+//
+// **Two halves, and the split is the point** (docs/design/terminal.md decision 3.2). C reads bytes
+// and restores `termios`; everything about *keys* -- the escape-sequence table, the ESC ambiguity,
+// UTF-8 -- is here, because that is the half most likely to grow as terminals disagree and the half
+// that can be tested from a byte array with no terminal attached. `decode_key` is a pure function
+// over `[byte]`, and `tests/stdlib/terminal_test.zm` is the whole table.
+//
+// **The terminal is restored however the program ends** (decision 3.1), which is why `with_raw` is
+// the public shape and not a pair of calls: `atexit` in the C half covers a program that *ends* in
+// raw mode, and nothing but a scope covers a program that keeps running after an early `return`.
+// A program that dies in raw mode leaves the user's shell with no echo and no line editing, and
+// they have to type `reset` blind -- worse than the crash that caused it.
+//
+// **Linux and macOS** (decision 3.3). `termios` is POSIX, so the two come together; Windows needs a
+// different API entirely and says so rather than pretending.
+//
+// What this is deliberately not: a widget toolkit, a mouse reader, a terminfo lookup, or colour
+// helpers. docs/design/terminal.md §8 has each one and why.
+#![experimental]
+use io
+
+// A key press. **`Char` is one character and may be several bytes**; `Ctrl` is `"a"` to `"z"`.
+//
+// **`Unknown` carries the bytes rather than dropping them**, for the reason a `Json` unknown-tag
+// error names the tag: a key this table has not met is a gap in the table, and a program that logs
+// the bytes can have it fixed. Silently swallowing input is how a terminal feature becomes
+// impossible to diagnose from the outside -- and with terminals disagreeing as much as they do,
+// being diagnosable from the outside is the only way the table ever gets finished.
+pub enum Key {
+    Char(string)
+    Enter
+    Tab
+    Backspace
+    Escape
+    Delete
+    Up
+    Down
+    Left
+    Right
+    Home
+    End
+    PageUp
+    PageDown
+    Insert
+    Function(int)
+    Ctrl(string)
+    Unknown([byte])
+}
+
+// The window, in character cells.
+pub struct Size {
+    rows: int
+    cols: int
+}
+
+// ------------------------------------------------------------------ the native half
+
+// Whether standard input is a terminal. **Ask this first**: a TUI whose input is a pipe should
+// refuse rather than render a frame into a file, and everything else in this module is undefined
+// when it is false.
+pub native fn is_tty() -> bool
+
+// `[rows, cols]`. A native cannot build a `Size` (a user-declared struct), so the crossing is a
+// plain array and `size` below makes the struct -- the same division `os.cpu_times` uses.
+native fn size_raw() -> Result<[int], string>
+
+// Raw mode on or off. Private: decision 3.5 makes `with_raw` the public shape, and exporting this
+// would hand a caller exactly the risk the scope exists to remove. Entering twice is not an error.
+native fn set_raw(on: bool) -> Result<unit, string>
+
+// **One byte**, or none if `timeout_ms` passed first; a negative timeout waits indefinitely. An
+// empty answer is the timeout, which is not an error.
+//
+// One byte rather than a bufferful so that `read_key` needs no buffer of its own -- see its own
+// comment, and `src/native_terminal.c` for why it costs a terminal nothing.
+native fn read_raw(timeout_ms: int) -> Result<[byte], string>
+
+// ------------------------------------------------------------------ the window
+
+// The terminal's size right now. **Call it every frame rather than caching it**: decision 3.4 makes
+// a resize polled rather than delivered, so this answering a new number is how a program learns the
+// window changed. `os.install_shutdown_handler()` sets the same precedent for a signal -- the
+// handler sets a flag and the program asks at a moment of its choosing.
+pub fn size() -> Result<Size, string> {
+    val dims = try size_raw()
+    if len(dims) != 2 {
+        return err("the terminal size came back malformed")
+    }
+    return ok(Size { rows: dims[0], cols: dims[1] })
+}
+
+// ------------------------------------------------------------------ raw mode as a scope
+
+// Runs `body` with the terminal in raw mode, and **puts the settings back whatever `body` does** --
+// answers `Ok`, answers `Err`, or fails fatally (the C half's `atexit` covers the last one).
+//
+// This is the whole of decision 3.5. Ziman has no `defer` and no destructors, so the alternative
+// was a `set_raw(true)`/`set_raw(false)` pair, whose failure mode is the one thing decision 3.1
+// says must not happen: an early `return` between the two leaves the user's shell broken, and no
+// amount of documentation prevents one. A closure cannot leak the mode. The cost is that `body`
+// cannot `return` out of the enclosing function, which in a render loop is no cost at all.
+//
+// **A failed restore is reported only when `body` succeeded.** If both went wrong, `body`'s error
+// is the one the caller needs -- a restore failure is a consequence, and the `atexit` handler will
+// try again at exit anyway.
+pub fn with_raw<T>(body: fn() -> Result<T, string>) -> Result<T, string> {
+    try set_raw(true)
+    val outcome = body()
+    val restored = set_raw(false)
+    switch outcome {
+        Ok(value) {
+            try restored
+            return ok(value)
+        }
+        Err(why) { return err(why) }
+    }
+}
+
+// ------------------------------------------------------------------ reading a key
+
+// How long to wait for the rest of an escape sequence once `ESC` has arrived.
+//
+// **This number is the ESC ambiguity, and there is no way around it.** `ESC` alone and the first
+// byte of `ESC [ A` are the same byte, so the only thing that separates "the user pressed Escape"
+// from "an arrow key is arriving" is that the rest of a sequence comes from the terminal in one
+// burst and a human's next keystroke does not. 25 ms is comfortably longer than a local terminal's
+// burst and comfortably shorter than a person pressing Escape and then a key on purpose.
+//
+// It is the one number here that a slow remote connection could make wrong, which is why Escape
+// followed by nothing is the *fallback* rather than the assumption: a sequence that arrives late
+// decodes as `Escape` and then its own remainder, which a program sees as unknown keys rather than
+// as a lie about which arrow was pressed.
+val escape_timeout_ms = 25
+
+// The next key press, or `None` if `timeout_ms` passed with nothing to report.
+//
+// **No buffer and no reader object**: the native answers one byte, so every byte this reads was
+// asked for, and there is never a tail of a burst to keep somewhere. "Somewhere" would be
+// module-level mutable state in a module that otherwise has none.
+//
+// The timeout applies to the *first* byte only. Once a key has started arriving the rest of it is
+// already in the driver's buffer, so the follow-up reads use `escape_timeout_ms` and in practice
+// return at once.
+pub fn read_key(timeout_ms: int) -> Result<Option<Key>, string> {
+    val first = try read_raw(timeout_ms)
+    if len(first) == 0 {
+        return ok(Option<Key>.None)
+    }
+    val lead = first[0]
+    // A multi-byte UTF-8 character: the lead byte says how many follow.
+    val width = utf8_width(lead)
+    if width > 1 {
+        val gathered = mutable_array_new<byte>()
+        push(gathered, lead)
+        for _ in 1..width {
+            val next = try read_raw(escape_timeout_ms)
+            if len(next) == 0 {
+                // Truncated -- the terminal sent a lead byte and no continuation. Reported as the
+                // bytes rather than as a replacement character, because this is a terminal fault
+                // and `Unknown` is the variant that exists to be diagnosable.
+                return ok(Option<Key>.Some(Key.Unknown(snapshot(gathered))))
+            }
+            push(gathered, next[0])
+        }
+        return ok(Option<Key>.Some(decode_key(snapshot(gathered))))
+    }
+    if lead != 27b {
+        return ok(Option<Key>.Some(decode_key(first)))
+    }
+    // ESC. Read on until the sequence is complete or nothing more arrives.
+    val sequence = mutable_array_new<byte>()
+    push(sequence, lead)
+    while true {
+        val next = try read_raw(escape_timeout_ms)
+        if len(next) == 0 {
+            return ok(Option<Key>.Some(decode_key(snapshot(sequence))))
+        }
+        push(sequence, next[0])
+        if sequence_complete(snapshot(sequence)) {
+            return ok(Option<Key>.Some(decode_key(snapshot(sequence))))
+        }
+        // A runaway sequence is a terminal speaking something this table does not know. Stopping
+        // keeps one bad burst from reading forever.
+        if len(sequence) >= 16 {
+            return ok(Option<Key>.Some(Key.Unknown(snapshot(sequence))))
+        }
+    }
+    return ok(Option<Key>.None)
+}
+
+// ------------------------------------------------------------------ the table, which is pure
+
+// How many bytes the character beginning with `lead` occupies: 1 for ASCII and for anything that is
+// not a valid lead byte, so that a caller always makes progress.
+fn utf8_width(lead: byte) -> int {
+    if lead < 128b {
+        return 1
+    }
+    if lead >= 240b && lead <= 247b {
+        return 4
+    }
+    if lead >= 224b {
+        return 3
+    }
+    if lead >= 192b {
+        return 2
+    }
+    return 1
+}
+
+// **Whether `bytes` is a finished escape sequence.** Separate from `decode_key` and pure, because
+// it is what `read_key` needs in order to stop reading, and because the two halves of "is it over"
+// and "what is it" fail differently: a table that does not know a sequence should still know where
+// it ends.
+//
+// A CSI sequence (`ESC [`) runs through parameter and intermediate bytes and ends at a final byte
+// in `0x40`-`0x7e`. An SS3 sequence (`ESC O`) is exactly one byte long. `ESC` followed by anything
+// else is over at that byte -- that is Alt plus a key, which this table reports as `Unknown`.
+fn sequence_complete(bytes: [byte]) -> bool {
+    if len(bytes) < 2 {
+        return false
+    }
+    if bytes[1] == 91b {
+        // ESC [ ... final
+        if len(bytes) < 3 {
+            return false
+        }
+        // `ESC [ [` is the Linux console's function-key prefix, and the byte after it is the final.
+        if bytes[2] == 91b {
+            return len(bytes) >= 4
+        }
+        val last = bytes[len(bytes) - 1]
+        return last >= 64b && last <= 126b
+    }
+    if bytes[1] == 79b {
+        // ESC O final
+        return len(bytes) >= 3
+    }
+    return true
+}
+
+// **The table.** Pure, total, and the reason decision 3.2 put this half in Ziman: it takes bytes and
+// answers a `Key`, so the whole of it is testable with no terminal attached.
+//
+// Anything it does not recognise is `Unknown` carrying the bytes. That is not a fallback that
+// should never happen -- terminals disagree, and a program that logs the bytes is how the gap gets
+// closed.
+pub fn decode_key(bytes: [byte]) -> Key {
+    if len(bytes) == 0 {
+        return Key.Unknown(bytes)
+    }
+    if len(bytes) == 1 {
+        return decode_single(bytes[0], bytes)
+    }
+    if bytes[0] != 27b {
+        // A multi-byte character. Decoded rather than trusted: a terminal that sent an invalid
+        // sequence should produce `Unknown`, not a string the rest of the program cannot print.
+        return switch bytes_to_string(bytes) {
+            Ok(text) { if len(text) == 1 { Key.Char(text) } else { Key.Unknown(bytes) } }
+            Err(_) { Key.Unknown(bytes) }
+        }
+    }
+    return decode_escape(bytes)
+}
+
+// One byte that is not the start of anything longer.
+//
+// **`Enter` is both `\r` and `\n`.** Raw mode turns off the ICRNL translation, so a terminal sends
+// `\r` where a cooked read would have given `\n`; a program that also reads a piped line should see
+// one key for both. Likewise `Backspace` is both `0x7f` (what terminals actually send) and `0x08`.
+fn decode_single(b: byte, raw: [byte]) -> Key {
+    if b == 13b || b == 10b {
+        return Key.Enter
+    }
+    if b == 9b {
+        return Key.Tab
+    }
+    if b == 127b || b == 8b {
+        return Key.Backspace
+    }
+    if b == 27b {
+        return Key.Escape
+    }
+    // Ctrl plus a letter is the letter's position in the alphabet: Ctrl-A is 1. Tab, Enter and
+    // Backspace are in this range too and were taken above, where their own names are better.
+    if b >= 1b && b <= 26b {
+        return Key.Ctrl(letter_at((b as int) - 1))
+    }
+    if b >= 32b && b < 127b {
+        return switch bytes_to_string(raw) {
+            Ok(text) { Key.Char(text) }
+            Err(_) { Key.Unknown(raw) }
+        }
+    }
+    return Key.Unknown(raw)
+}
+
+val alphabet = "abcdefghijklmnopqrstuvwxyz"
+
+fn letter_at(index: int) -> string {
+    if index < 0 || index >= len(alphabet) {
+        return "?"
+    }
+    return substring(alphabet, index, index + 1)
+}
+
+// `ESC` and what followed it.
+fn decode_escape(bytes: [byte]) -> Key {
+    if len(bytes) == 1 {
+        return Key.Escape
+    }
+    if bytes[1] == 79b {
+        // SS3: what xterm sends for F1-F4, and for the arrows in application cursor mode.
+        if len(bytes) != 3 {
+            return Key.Unknown(bytes)
+        }
+        return switch ss3_key(bytes[2]) {
+            Some(key) { key }
+            None { Key.Unknown(bytes) }
+        }
+    }
+    if bytes[1] != 91b {
+        return Key.Unknown(bytes)
+    }
+    if len(bytes) < 3 {
+        return Key.Unknown(bytes)
+    }
+    // The Linux console's own function keys: ESC [ [ A .. ESC [ [ E are F1-F5.
+    if bytes[2] == 91b {
+        if len(bytes) != 4 {
+            return Key.Unknown(bytes)
+        }
+        if bytes[3] >= 65b && bytes[3] <= 69b {
+            return Key.Function((bytes[3] as int) - 64)
+        }
+        return Key.Unknown(bytes)
+    }
+    val final_byte = bytes[len(bytes) - 1]
+    val parameters = switch bytes_to_string(slice(bytes, 2, len(bytes) - 1)) {
+        Ok(text) { text }
+        Err(_) { return Key.Unknown(bytes) }
+    }
+    // **A modifier makes it Unknown rather than the unmodified key.** `ESC [ 1;5A` is Ctrl-Up, and
+    // answering `Up` would tell a program the user pressed something they did not -- a shortcut
+    // bound to Up would fire on Ctrl-Up. `Key` has no modifier field (§8: no widget toolkit, and
+    // this is the same restraint), so the honest answer is the bytes.
+    if contains(parameters, ";") {
+        return Key.Unknown(bytes)
+    }
+    if len(parameters) == 0 {
+        return switch csi_letter_key(final_byte) {
+            Some(key) { key }
+            None { Key.Unknown(bytes) }
+        }
+    }
+    if final_byte == 126b {
+        return switch csi_tilde_key(parameters) {
+            Some(key) { key }
+            None { Key.Unknown(bytes) }
+        }
+    }
+    // `ESC [ 1 A` is the arrow with an explicit count of one, which some terminals send.
+    if parameters == "1" {
+        return switch csi_letter_key(final_byte) {
+            Some(key) { key }
+            None { Key.Unknown(bytes) }
+        }
+    }
+    return Key.Unknown(bytes)
+}
+
+fn ss3_key(final_byte: byte) -> Option<Key> {
+    if final_byte >= 80b && final_byte <= 83b {
+        // P Q R S -> F1 F2 F3 F4
+        return Option<Key>.Some(Key.Function((final_byte as int) - 79))
+    }
+    return csi_letter_key(final_byte)
+}
+
+// The sequences whose last byte is a letter: the arrows, and the Home/End that xterm sends without
+// a number.
+fn csi_letter_key(final_byte: byte) -> Option<Key> {
+    if final_byte == 65b { return Option<Key>.Some(Key.Up) }
+    if final_byte == 66b { return Option<Key>.Some(Key.Down) }
+    if final_byte == 67b { return Option<Key>.Some(Key.Right) }
+    if final_byte == 68b { return Option<Key>.Some(Key.Left) }
+    if final_byte == 70b { return Option<Key>.Some(Key.End) }
+    if final_byte == 72b { return Option<Key>.Some(Key.Home) }
+    return Option<Key>.None
+}
+
+// The `ESC [ <n> ~` family. **Two numbers mean Home and two mean End**, and both pairs are real:
+// `1`/`7` and `4`/`8` are the vt220 and the Linux console disagreeing, and a table that picked one
+// would be wrong on half the terminals in use.
+fn csi_tilde_key(parameters: string) -> Option<Key> {
+    val n = switch parse_int(parameters) {
+        Ok(value) { value }
+        Err(_) { return Option<Key>.None }
+    }
+    if n == 1 || n == 7 { return Option<Key>.Some(Key.Home) }
+    if n == 2 { return Option<Key>.Some(Key.Insert) }
+    if n == 3 { return Option<Key>.Some(Key.Delete) }
+    if n == 4 || n == 8 { return Option<Key>.Some(Key.End) }
+    if n == 5 { return Option<Key>.Some(Key.PageUp) }
+    if n == 6 { return Option<Key>.Some(Key.PageDown) }
+    // 11-15 are F1-F5, 17-21 are F6-F10, 23-24 are F11-F12. The gaps at 16 and 22 are historical
+    // and are not ours to fill: a terminal that sends one is sending something else.
+    if n >= 11 && n <= 15 { return Option<Key>.Some(Key.Function(n - 10)) }
+    if n >= 17 && n <= 21 { return Option<Key>.Some(Key.Function(n - 11)) }
+    if n >= 23 && n <= 24 { return Option<Key>.Some(Key.Function(n - 12)) }
+    return Option<Key>.None
+}
+
+// ------------------------------------------------------------------ naming a key
+
+// What to show a human: `"a"`, `"Up"`, `"Ctrl-C"`, `"F5"`, or the bytes of a key this table does not
+// know. The counterpart of `io.io_error_message` -- every module here has one, and a help line or a
+// key-binding list is the reason.
+pub fn key_name(key: Key) -> string {
+    return switch key {
+        Char(text) { text }
+        Enter { "Enter" }
+        Tab { "Tab" }
+        Backspace { "Backspace" }
+        Escape { "Escape" }
+        Delete { "Delete" }
+        Up { "Up" }
+        Down { "Down" }
+        Left { "Left" }
+        Right { "Right" }
+        Home { "Home" }
+        End { "End" }
+        PageUp { "PageUp" }
+        PageDown { "PageDown" }
+        Insert { "Insert" }
+        Function(n) { concat("F", str(n)) }
+        Ctrl(letter) { concat("Ctrl-", to_upper(letter)) }
+        Unknown(bytes) { concat("unknown key ", byte_list(bytes)) }
+    }
+}
+
+fn byte_list(bytes: [byte]) -> string {
+    val parts = mutable_array_new<string>()
+    for b in bytes {
+        push(parts, str(b as int))
+    }
+    return concat("[", concat(join(separator: " ", pieces: snapshot(parts)), "]"))
+}

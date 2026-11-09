@@ -1,0 +1,58 @@
+use terminal
+
+// **Ask `is_tty` first.** A TUI whose standard input is a pipe should refuse rather than render a
+// frame into a file, and everything else in this module is undefined when it is false. Under this
+// manual's own test runner there is no terminal, which is why the rest of this example demonstrates
+// the half that needs none.
+fn interactive() -> Result<unit, string> {
+    if !terminal.is_tty() {
+        print("standard input is not a terminal")
+        return ok(unit)
+    }
+    // **`with_raw` is the only way into raw mode**, and it puts the settings back whatever the body
+    // does -- answers, fails, or dies. A `set_raw(true)`/`set_raw(false)` pair would leave the
+    // user's shell with no echo on any early return, and they would have to type `reset` blind.
+    return terminal.with_raw<unit>(fn() -> Result<unit, string> {
+        val screen = try terminal.size()
+        print(prelude.format("{} rows by {} columns", screen.rows, screen.cols))
+        // The timeout is what makes a render loop possible: it is how a redraw happens when nothing
+        // was typed, which is also how a resize is noticed (a resize is polled, not delivered).
+        switch try terminal.read_key(50) {
+            Some(key) { print(concat("you pressed ", terminal.key_name(key))) }
+            None { print("nothing was typed") }
+        }
+        return ok(unit)
+    })
+}
+
+// **The escape-sequence table is a pure function over bytes**, which is the whole reason it is in
+// Ziman rather than in C: it can be read, tested and extended with no terminal attached.
+fn decoding() {
+    // One byte: a character, or a key with a name of its own. Enter is both `\r` and `\n`, because
+    // raw mode turns off the translation between them.
+    print(terminal.key_name(terminal.decode_key([97b])))
+    print(terminal.key_name(terminal.decode_key([13b])))
+    print(terminal.key_name(terminal.decode_key([3b])))
+
+    // An escape sequence: `ESC [ A` is Up, and `ESC O P` is F1 -- two families, because xterm and
+    // the vt220 disagreed and both survived.
+    print(terminal.key_name(terminal.decode_key([27b, 91b, 65b])))
+    print(terminal.key_name(terminal.decode_key([27b, 79b, 80b])))
+
+    // A multi-byte character is one key.
+    print(terminal.key_name(terminal.decode_key([195b, 169b])))
+
+    // **A sequence the table does not know keeps its bytes.** That is not a fallback that should
+    // never happen: terminals disagree, and a program that logs the bytes is how the gap gets
+    // closed. Here it is Ctrl-Up, which `Key` has no way to say -- answering plain `Up` would fire
+    // a shortcut on a key the user did not press.
+    print(terminal.key_name(terminal.decode_key([27b, 91b, 49b, 59b, 53b, 65b])))
+}
+
+fn main() {
+    decoding()
+    switch interactive() {
+        Ok(_) {}
+        Err(why) { print(concat("terminal: ", why)) }
+    }
+}

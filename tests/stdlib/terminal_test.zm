@@ -1,0 +1,243 @@
+// The whole of `terminal`'s escape-sequence table, tested with no terminal attached.
+//
+// **This file is decision 3.2 of docs/design/terminal.md paying off.** The C half reads bytes and
+// restores `termios`; the table that turns bytes into keys is in Ziman, so it is a pure function
+// over `[byte]` and every row of it can be asserted here. A table in C would have needed a pty.
+//
+// The sequences are the real ones: xterm, the Linux console and the vt220 disagree about function
+// keys and about Home/End, and each disagreement below is a terminal in actual use rather than a
+// hypothetical.
+use terminal
+use test
+
+// `key_name` is the assertion vehicle throughout: `Key` has no `Eq`, and a name is what a test
+// failure should print anyway -- "expected Up, got unknown key [27 91 65]" says what went wrong
+// where a structural mismatch would not.
+fn name_of(bytes: [byte]) -> string {
+    return terminal.key_name(terminal.decode_key(bytes))
+}
+
+fn esc(rest: [byte]) -> [byte] {
+    val out = mutable_array_new<byte>()
+    push(out, 27b)
+    for b in rest {
+        push(out, b)
+    }
+    return snapshot(out)
+}
+
+// ---------------------------------------------------------------- single bytes
+
+#[test]
+fn a_printable_byte_is_that_character() {
+    test.assert_eq("a", name_of([97b]))
+    test.assert_eq("Z", name_of([90b]))
+    test.assert_eq(" ", name_of([32b]))
+    test.assert_eq("~", name_of([126b]))
+}
+
+#[test]
+fn enter_is_both_carriage_return_and_newline() {
+    // Raw mode turns off the ICRNL translation, so a terminal sends \r where a cooked read gives
+    // \n. A program should not have to care which.
+    test.assert_eq("Enter", name_of([13b]))
+    test.assert_eq("Enter", name_of([10b]))
+}
+
+#[test]
+fn backspace_is_both_del_and_bs() {
+    // Terminals send 0x7f; 0x08 is what the name BS suggests and what a few still send.
+    test.assert_eq("Backspace", name_of([127b]))
+    test.assert_eq("Backspace", name_of([8b]))
+}
+
+#[test]
+fn tab_and_escape_have_their_own_names_not_ctrl() {
+    // Tab is Ctrl-I and Escape is Ctrl-[ as far as the byte goes. Reporting them that way would be
+    // true and useless.
+    test.assert_eq("Tab", name_of([9b]))
+    test.assert_eq("Escape", name_of([27b]))
+}
+
+#[test]
+fn ctrl_plus_a_letter_is_its_position_in_the_alphabet() {
+    test.assert_eq("Ctrl-A", name_of([1b]))
+    test.assert_eq("Ctrl-C", name_of([3b]))
+    test.assert_eq("Ctrl-Z", name_of([26b]))
+}
+
+#[test]
+fn a_byte_with_no_meaning_is_unknown_and_keeps_it() {
+    // NUL is Ctrl-Space on some keyboards and nothing on others, and a Ziman string cannot hold it
+    // regardless -- so it is reported as the byte rather than guessed at.
+    test.assert_eq("unknown key [0]", name_of([0b]))
+}
+
+// ---------------------------------------------------------------- arrows
+
+#[test]
+fn the_arrows_arrive_as_csi_letters() {
+    test.assert_eq("Up", name_of(esc([91b, 65b])))
+    test.assert_eq("Down", name_of(esc([91b, 66b])))
+    test.assert_eq("Right", name_of(esc([91b, 67b])))
+    test.assert_eq("Left", name_of(esc([91b, 68b])))
+}
+
+#[test]
+fn the_arrows_also_arrive_as_ss3_in_application_cursor_mode() {
+    // `ESC O A`. A terminal switches to this when an application asks, and plenty of them do it
+    // without being asked.
+    test.assert_eq("Up", name_of(esc([79b, 65b])))
+    test.assert_eq("Left", name_of(esc([79b, 68b])))
+}
+
+#[test]
+fn an_arrow_with_an_explicit_count_of_one_is_still_that_arrow() {
+    // `ESC [ 1 A`, which some terminals send where others send `ESC [ A`.
+    test.assert_eq("Up", name_of(esc([91b, 49b, 65b])))
+}
+
+#[test]
+fn a_modified_arrow_is_unknown_rather_than_the_bare_arrow() {
+    // `ESC [ 1;5A` is Ctrl-Up. Answering `Up` would fire a shortcut bound to Up on a key the user
+    // did not press -- `Key` has no modifier field, so the honest answer is the bytes.
+    test.assert_eq(
+        "unknown key [27 91 49 59 53 65]",
+        name_of(esc([91b, 49b, 59b, 53b, 65b]))
+    )
+}
+
+// ---------------------------------------------------------------- navigation
+
+#[test]
+fn home_and_end_arrive_as_letters_and_as_two_numbers_each() {
+    // The vt220 says 1 and 4; the Linux console says 7 and 8; xterm says H and F. All three are in
+    // use, so all three are in the table -- picking one would be wrong on two-thirds of terminals.
+    test.assert_eq("Home", name_of(esc([91b, 72b])))
+    test.assert_eq("End", name_of(esc([91b, 70b])))
+    test.assert_eq("Home", name_of(esc([91b, 49b, 126b])))
+    test.assert_eq("Home", name_of(esc([91b, 55b, 126b])))
+    test.assert_eq("End", name_of(esc([91b, 52b, 126b])))
+    test.assert_eq("End", name_of(esc([91b, 56b, 126b])))
+}
+
+#[test]
+fn insert_delete_and_the_page_keys() {
+    test.assert_eq("Insert", name_of(esc([91b, 50b, 126b])))
+    test.assert_eq("Delete", name_of(esc([91b, 51b, 126b])))
+    test.assert_eq("PageUp", name_of(esc([91b, 53b, 126b])))
+    test.assert_eq("PageDown", name_of(esc([91b, 54b, 126b])))
+}
+
+// ---------------------------------------------------------------- function keys
+
+#[test]
+fn f1_to_f4_arrive_as_ss3() {
+    test.assert_eq("F1", name_of(esc([79b, 80b])))
+    test.assert_eq("F2", name_of(esc([79b, 81b])))
+    test.assert_eq("F3", name_of(esc([79b, 82b])))
+    test.assert_eq("F4", name_of(esc([79b, 83b])))
+}
+
+#[test]
+fn f1_to_f5_also_arrive_as_the_linux_consoles_double_bracket() {
+    test.assert_eq("F1", name_of(esc([91b, 91b, 65b])))
+    test.assert_eq("F5", name_of(esc([91b, 91b, 69b])))
+}
+
+#[test]
+fn f5_to_f12_arrive_as_numbers_with_two_gaps_that_are_not_ours_to_fill() {
+    test.assert_eq("F1", name_of(esc([91b, 49b, 49b, 126b])))
+    test.assert_eq("F5", name_of(esc([91b, 49b, 53b, 126b])))
+    test.assert_eq("F6", name_of(esc([91b, 49b, 55b, 126b])))
+    test.assert_eq("F10", name_of(esc([91b, 50b, 49b, 126b])))
+    test.assert_eq("F11", name_of(esc([91b, 50b, 51b, 126b])))
+    test.assert_eq("F12", name_of(esc([91b, 50b, 52b, 126b])))
+    // 16 and 22 are historical gaps. A terminal that sends one is sending something else, and
+    // guessing which F-key it meant would be inventing a key.
+    test.assert_eq("unknown key [27 91 49 54 126]", name_of(esc([91b, 49b, 54b, 126b])))
+    test.assert_eq("unknown key [27 91 50 50 126]", name_of(esc([91b, 50b, 50b, 126b])))
+}
+
+// ---------------------------------------------------------------- UTF-8
+
+#[test]
+fn a_multi_byte_character_is_one_char_key() {
+    // é is C3 A9, and € is E2 82 AC: two bytes and three, one key each.
+    test.assert_eq("é", name_of([195b, 169b]))
+    test.assert_eq("€", name_of([226b, 130b, 172b]))
+}
+
+#[test]
+fn bytes_that_are_not_valid_utf8_are_unknown_not_a_replacement_character() {
+    // A terminal sending this is a terminal fault, and `Unknown` exists to be diagnosable. A
+    // replacement character would look like a key the user pressed.
+    test.assert_eq("unknown key [195 40]", name_of([195b, 40b]))
+}
+
+#[test]
+fn two_characters_in_one_burst_are_not_one_key() {
+    // `read_key` never hands two characters to the table -- the native answers one byte at a time,
+    // so this only arrives through `decode_key` directly. It must not silently report the first.
+    test.assert_eq("unknown key [97 98]", name_of([97b, 98b]))
+}
+
+// ---------------------------------------------------------------- the edges
+
+#[test]
+fn no_bytes_at_all_is_unknown_rather_than_a_crash() {
+    // `decode_key` is total: it is public, and a caller composing it with something else should not
+    // be able to reach an index out of range.
+    test.assert_eq("unknown key []", name_of([]))
+}
+
+#[test]
+fn escape_followed_by_an_ordinary_key_is_unknown() {
+    // That is Alt plus the key. `Key` has no modifier field, so the bytes are the honest answer --
+    // and they are the ones a program would log to ask for Alt support.
+    test.assert_eq("unknown key [27 97]", name_of(esc([97b])))
+}
+
+#[test]
+fn a_sequence_this_table_does_not_know_keeps_every_byte() {
+    // A mouse report, which is a non-goal -- the point is that it does not crash and does not
+    // decode as something else.
+    val mouse = esc([91b, 60b, 48b, 59b, 49b, 59b, 49b, 77b])
+    test.assert_eq("unknown key [27 91 60 48 59 49 59 49 77]", terminal.key_name(terminal.decode_key(mouse)))
+}
+
+// ---------------------------------------------------------------- the terminal itself
+
+#[test]
+fn is_tty_is_false_under_the_test_runner() {
+    // The suite's standard input is not a terminal, which is the fact a TUI checks before it draws
+    // anything. It is asserted rather than assumed: if it were ever true here, every test below
+    // that depends on there being no terminal would start lying.
+    test.assert_false(terminal.is_tty())
+}
+
+#[test]
+fn entering_raw_mode_without_a_terminal_is_refused_not_pretended() {
+    // Decision 3.3's shape: a platform-shaped failure says so rather than answering a made-up
+    // success. `with_raw` is the only way in, so this is also the assertion that the scope
+    // propagates the refusal instead of running the body anyway.
+    val ran = mutable_new(false)
+    val outcome = terminal.with_raw<int>(fn() -> Result<int, string> {
+        set(ran, true)
+        return ok(1)
+    })
+    switch outcome {
+        Ok(_) { test.fail("raw mode was entered with no terminal attached") }
+        Err(why) { test.assert_contains(why, "not a terminal") }
+    }
+    test.assert_false(get(ran))
+}
+
+#[test]
+fn the_size_of_a_non_terminal_is_an_error_not_zero_rows() {
+    // A renderer divides by the number of rows. Decision 3.3 again: never a made-up number.
+    switch terminal.size() {
+        Ok(_) { test.fail("a size was reported with no terminal attached") }
+        Err(why) { test.assert_not_blank(why) }
+    }
+}

@@ -93,6 +93,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | --- | --- |
 | `io`\* | byte streams: a pull source of `[byte]` chunks (`Iter<Result<[byte], IoError>>`), one error for every layer, a ceiling, UTF-8 decoding across chunk boundaries, lines, and `drain` back to a whole `[byte]` -- see [docs/design/byte-streams.md](docs/design/byte-streams.md) |
 | `fs`, `os`, `process`, `clock`, `random` | files, environment and this process, starting and signalling child processes, time source, entropy |
+| `terminal`\* | raw mode as a scope that always puts the settings back, the window size, and one key at a time: `Key` plus a pure escape-sequence decoder (xterm, vt220 and the Linux console) -- see [docs/design/terminal.md](docs/design/terminal.md) |
 | `schedule` | periodic background work in a long-running process: an interval, a daily UTC time or a six-field cron pattern, each due job run on its own thread so one failure cannot stop the rest |
 | `time` | `java.time`-shaped dates, times, durations, instants |
 | `uuid`, `number`, `encoding`, `crypto` | UUIDs, number formatting/parsing, base 2/8/16/32/64 over bytes, SHA-256/HMAC/PBKDF2 |

@@ -74,6 +74,7 @@
 #include "properties_source.h"
 #include "compress_source.h"
 #include "io_source.h"
+#include "terminal_source.h"
 #include "mime_source.h"
 #include "jwt_source.h"
 #include "eql_source.h"
@@ -173,6 +174,7 @@ static const CoreModule CORE_MODULES[] = {
     {"properties", PROPERTIES_SOURCE, PROPERTIES_SOURCE_PATH},
     {"compress", COMPRESS_SOURCE, COMPRESS_SOURCE_PATH},
     {"io", IO_SOURCE, IO_SOURCE_PATH},
+    {"terminal", TERMINAL_SOURCE, TERMINAL_SOURCE_PATH},
     {"mime", MIME_SOURCE, MIME_SOURCE_PATH},
     {"jwt", JWT_SOURCE, JWT_SOURCE_PATH},
     {"memdb", MEMDB_SOURCE, MEMDB_SOURCE_PATH},
