@@ -1883,6 +1883,8 @@ pub native fn exit(code: int)
 
 pub fn fatal(message: string)
 
+pub native fn write_stdout(text: string)
+
 pub native fn write_stderr(text: string)
 
 pub native fn install_shutdown_handler()
@@ -2228,11 +2230,51 @@ pub fn size() -> Result<Size, string>
 
 pub fn with_raw<T>(body: fn() -> Result<T, string>) -> Result<T, string>
 
+pub fn with_screen<T>(body: fn() -> Result<T, string>) -> Result<T, string>
+
 pub fn read_key(timeout_ms: int) -> Result<Option<Key>, string>
 
 pub fn decode_key(bytes: [byte]) -> Key
 
 pub fn key_name(key: Key) -> string
+
+pub fn at(row: int, col: int) -> string
+
+pub fn clear_screen() -> string
+
+pub fn clear_to_line_end() -> string
+
+pub fn hide_cursor() -> string
+
+pub fn show_cursor() -> string
+
+pub fn enter_alternate_screen() -> string
+
+pub fn leave_alternate_screen() -> string
+
+pub enum Color {
+    Black
+    Red
+    Green
+    Yellow
+    Blue
+    Magenta
+    Cyan
+    White
+    Default
+}
+
+pub fn fg(c: Color) -> string
+
+pub fn bg(c: Color) -> string
+
+pub fn bold() -> string
+
+pub fn dim() -> string
+
+pub fn reverse() -> string
+
+pub fn reset_style() -> string
 
 ```
 

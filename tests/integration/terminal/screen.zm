@@ -1,0 +1,40 @@
+// A full-screen program: the alternate screen **and** raw mode, nested, painting one frame and then
+// waiting. The driver kills it with SIGTERM while both are held, which is the case the fifth native
+// exists for -- `atexit` does not run for a signal, and a program that dies with the alternate
+// screen up leaves the user staring at a dead frame.
+//
+// The driver reads the pty master, so it sees the leave sequence the C handler writes to descriptor
+// 1. That is a direct observation of the restore rather than an inference from it.
+use os
+use terminal
+
+fn main() {
+    if !terminal.is_tty() {
+        print("not a tty")
+        return
+    }
+    val outcome = terminal.with_screen<unit>(fn() -> Result<unit, string> {
+        return terminal.with_raw<unit>(fn() -> Result<unit, string> {
+            val screen = try terminal.size()
+            // One write for the whole frame, which is how a paint looks instantaneous.
+            os.write_stdout(concat(
+                terminal.clear_screen(),
+                concat(
+                    terminal.at(2, 3),
+                    concat(terminal.fg(terminal.Color.Cyan), "PAINTED")
+                )
+            ))
+            os.write_stdout(concat(terminal.reset_style(), terminal.at(screen.rows, 1)))
+            os.write_stdout("READY")
+            // Waits to be killed. A key would end it too, so the driver can use either.
+            switch try terminal.read_key(5000) {
+                Some(_) { return ok(unit) }
+                None { return ok(unit) }
+            }
+        })
+    })
+    switch outcome {
+        Ok(_) { print("done") }
+        Err(why) { print(concat("failed: ", why)) }
+    }
+}

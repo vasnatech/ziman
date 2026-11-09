@@ -1,0 +1,16 @@
+// The alternate screen held while the program **dies**. Only `atexit` is left to put it back.
+use os
+use terminal
+
+fn main() {
+    val outcome = terminal.with_screen<unit>(fn() -> Result<unit, string> {
+        os.write_stdout("READY")
+        val empty = mutable_array_new<int>()
+        print(str(empty[7]))
+        return ok(unit)
+    })
+    switch outcome {
+        Ok(_) { print("done") }
+        Err(why) { print(concat("failed: ", why)) }
+    }
+}

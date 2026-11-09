@@ -234,6 +234,90 @@ fn entering_raw_mode_without_a_terminal_is_refused_not_pretended() {
 }
 
 #[test]
+fn the_alternate_screen_is_refused_without_a_terminal_too() {
+    // Same shape as raw mode, and the same reason: never a made-up success. `with_screen` is also
+    // the only way in, so this asserts the scope does not run the body on a refusal.
+    val ran = mutable_new(false)
+    val outcome = terminal.with_screen<int>(fn() -> Result<int, string> {
+        set(ran, true)
+        return ok(1)
+    })
+    switch outcome {
+        Ok(_) { test.fail("the alternate screen was entered with no terminal attached") }
+        Err(why) { test.assert_contains(why, "not a terminal") }
+    }
+    test.assert_false(get(ran))
+}
+
+// ---------------------------------------------------------------- the sequences
+
+// **These are pure**, so the bytes can be asserted exactly -- which is the point of them being
+// strings to compose rather than calls that write. A wrong sequence is otherwise only visible as a
+// terminal doing something strange.
+
+fn bytes_of(text: string) -> [int] {
+    val out = mutable_array_new<int>()
+    for b in to_bytes(text) {
+        push(out, b as int)
+    }
+    return snapshot(out)
+}
+
+#[test]
+fn the_cursor_move_is_one_based_and_row_first() {
+    // `ESC [ 1 ; 1 H`. Both 1-based, because that is what the terminal counts from -- a renderer
+    // that converted would be converting in both directions all day.
+    test.assert_eq([27, 91, 49, 59, 49, 72], bytes_of(terminal.at(1, 1)))
+    // `ESC [ 24 ; 80 H` -- row first, which is the order that is easy to get backwards.
+    test.assert_eq([27, 91, 50, 52, 59, 56, 48, 72], bytes_of(terminal.at(24, 80)))
+}
+
+#[test]
+fn clear_screen_leaves_the_scrollback_alone() {
+    // `ESC [ 2J` then `ESC [ H`, and **no `ESC [ 3J`** -- that would clear the scrollback too,
+    // throwing away what the user had on screen before the program started.
+    test.assert_eq([27, 91, 50, 74, 27, 91, 72], bytes_of(terminal.clear_screen()))
+    test.assert_not_contains(terminal.clear_screen(), "3J")
+}
+
+#[test]
+fn the_colours_are_the_thirties_and_the_forties() {
+    // Foreground is 30 plus the offset, background 40 plus the same -- so a mistake in one shows up
+    // as a mistake in both, and asserting both catches a transposition.
+    test.assert_eq([27, 91, 51, 48, 109], bytes_of(terminal.fg(terminal.Color.Black)))
+    test.assert_eq([27, 91, 51, 49, 109], bytes_of(terminal.fg(terminal.Color.Red)))
+    test.assert_eq([27, 91, 51, 55, 109], bytes_of(terminal.fg(terminal.Color.White)))
+    test.assert_eq([27, 91, 52, 49, 109], bytes_of(terminal.bg(terminal.Color.Red)))
+    // `Default` is 39/49, the user's own colour -- not black, which is a colour they did not choose.
+    test.assert_eq([27, 91, 51, 57, 109], bytes_of(terminal.fg(terminal.Color.Default)))
+    test.assert_eq([27, 91, 52, 57, 109], bytes_of(terminal.bg(terminal.Color.Default)))
+}
+
+#[test]
+fn the_attributes_and_the_reset() {
+    test.assert_eq([27, 91, 49, 109], bytes_of(terminal.bold()))
+    test.assert_eq([27, 91, 50, 109], bytes_of(terminal.dim()))
+    test.assert_eq([27, 91, 55, 109], bytes_of(terminal.reverse()))
+    // `0` is every attribute off, not just colour: a frame that reset only the colour would leave
+    // the user's shell bold.
+    test.assert_eq([27, 91, 48, 109], bytes_of(terminal.reset_style()))
+}
+
+#[test]
+fn the_cursor_and_screen_toggles_are_paired_and_differ_by_one_letter() {
+    // `l` is off and `h` is on, which is the pair most easily written the wrong way round.
+    test.assert_eq([27, 91, 63, 50, 53, 108], bytes_of(terminal.hide_cursor()))
+    test.assert_eq([27, 91, 63, 50, 53, 104], bytes_of(terminal.show_cursor()))
+    test.assert_eq([27, 91, 63, 49, 48, 52, 57, 104], bytes_of(terminal.enter_alternate_screen()))
+    test.assert_eq([27, 91, 63, 49, 48, 52, 57, 108], bytes_of(terminal.leave_alternate_screen()))
+}
+
+#[test]
+fn clear_to_line_end_is_the_one_a_redraw_wants() {
+    test.assert_eq([27, 91, 75], bytes_of(terminal.clear_to_line_end()))
+}
+
+#[test]
 fn the_size_of_a_non_terminal_is_an_error_not_zero_rows() {
     // A renderer divides by the number of rows. Decision 3.3 again: never a made-up number.
     switch terminal.size() {

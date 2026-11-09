@@ -11,7 +11,7 @@ terminal to read them back from, which means a pty.
 Each mode below is one way a program can end. The verdict is printed as a PASS/FAIL line in
 tests/run_tests.sh's format; a system with no pty prints SKIP rather than failing.
 
-Usage: terminal_pty.py <name> <keys|after_scope|crash|sigterm> <program.zm>
+Usage: terminal_pty.py <name> <keys|after_scope|crash|sigterm|screen_sigterm|screen_crash> <prog.zm>
 """
 import os
 import pty
@@ -46,6 +46,14 @@ KEY_SCRIPT = [
 def verdict(ok, detail=""):
     print(("PASS " if ok else "FAIL ") + NAME + (" (" + detail + ")" if detail and not ok else ""))
     sys.exit(0 if ok else 1)
+
+
+# The alternate screen is not a termios bit, so it cannot be read back with `tcgetattr` the way raw
+# mode can. What the master *can* see is the sequence itself: the C restore handler writes it to
+# descriptor 1, which is the pty slave. So the assertion is on the bytes, which is a direct
+# observation of the restore rather than an inference from it.
+LEAVE_SCREEN = b"\x1b[?1049l"
+ENTER_SCREEN = b"\x1b[?1049h"
 
 
 def mode_flags(attrs):
@@ -105,7 +113,7 @@ if MODE == "keys":
         os.write(fd, keystrokes)
         pump(0.12)
     pump(1.0)
-elif MODE == "sigterm":
+elif MODE in ("sigterm", "screen_sigterm"):
     # atexit does NOT run for a signal, so this is the case the C half's signal handler exists for.
     os.kill(pid, signal.SIGTERM)
     pump(0.8)
@@ -155,6 +163,26 @@ if MODE == "sigterm":
         verdict(False, "the terminal was not restored after SIGTERM (" + mode_flags(after) + ")")
     if not (os.WIFSIGNALED(status) and os.WTERMSIG(status) == signal.SIGTERM):
         verdict(False, "did not die of SIGTERM (status " + str(status) + ")")
+    verdict(True)
+
+if MODE in ("screen_sigterm", "screen_crash"):
+    raw = bytes(out)
+    if ENTER_SCREEN not in raw:
+        verdict(False, "never entered the alternate screen: " + repr(raw[:200]))
+    if b"READY" not in raw:
+        verdict(False, "never finished painting: " + repr(raw[:200]))
+    # **After the enter, not merely present**: a leave that arrived before the enter would be a
+    # different program's, and a check that only looked for the sequence anywhere would pass on one.
+    if raw.rfind(LEAVE_SCREEN) < raw.find(ENTER_SCREEN):
+        verdict(False, "the alternate screen was never left: " + repr(raw[-200:]))
+    if not same_settings(after, before):
+        verdict(False, "the terminal settings were not restored (" + mode_flags(after) + ")")
+    if MODE == "screen_sigterm":
+        if not (os.WIFSIGNALED(status) and os.WTERMSIG(status) == signal.SIGTERM):
+            verdict(False, "did not die of SIGTERM (status " + str(status) + ")")
+    else:
+        if b"out of bounds" not in raw:
+            verdict(False, "did not die of the error it was written to die of")
     verdict(True)
 
 verdict(False, "unknown mode " + MODE)

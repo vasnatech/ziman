@@ -43,6 +43,21 @@ static struct termios g_saved;
 static volatile sig_atomic_t g_raw_active = 0;
 static int g_atexit_installed = 0;
 
+/* **The alternate screen gets the same guarantee as raw mode, and for the same reason.** A program
+ * that dies with it on leaves the user looking at a dead frame instead of their shell -- the
+ * identical failure decision 3.1 is about, so it is restored from the identical three places. The
+ * design document's §4 said four natives sufficed; its §7 sketch never entered the alternate
+ * screen, which is what changed.
+ *
+ * Separate from `g_raw_active` because the two are separable: a password prompt wants raw mode and
+ * not the alternate screen, and a pager wants the reverse. */
+static volatile sig_atomic_t g_screen_active = 0;
+
+/* `write` is async-signal-safe where `printf` is not, so the sequences are written as bytes with no
+ * stdio in the way. Leaving the alternate screen and showing the cursor, in that order: a cursor
+ * shown while the alternate buffer is still up would be shown in the buffer about to be discarded. */
+static const char LEAVE_SCREEN[] = "\033[?1049l\033[?25h";
+
 /* The signals whose default action is to terminate, and which therefore end the program without
  * `atexit` ever running. SIGINT is in the list even though raw mode turns ISIG off -- raw mode is
  * entered and left, and a SIGINT can arrive in the window where it is still generated. The crash
@@ -57,8 +72,18 @@ static const int g_fatal_signals[] = {
 static int g_claimed[FATAL_SIGNAL_COUNT];
 static struct sigaction g_previous[FATAL_SIGNAL_COUNT];
 
-/* Async-signal-safe: `tcsetattr` is on POSIX's list, and nothing else is called. */
+/* Async-signal-safe: `tcsetattr` and `write` are both on POSIX's list, and nothing else is called.
+ *
+ * The screen goes back before the mode does, so the escape sequence is written while the terminal
+ * is still in the state the program was drawing in. `write`'s result is deliberately ignored --
+ * there is nothing a restore path could do about a failed restore, and the alternative is a handler
+ * that can fail to return. */
 static void restore_now(void) {
+    if (g_screen_active) {
+        g_screen_active = 0;
+        ssize_t ignored = write(STDOUT_FILENO, LEAVE_SCREEN, sizeof LEAVE_SCREEN - 1);
+        (void)ignored;
+    }
     if (g_raw_active) {
         g_raw_active = 0;
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &g_saved);
@@ -88,7 +113,12 @@ static void claim_fatal_signals(void) {
     ours.sa_flags = 0;
     for (int i = 0; i < FATAL_SIGNAL_COUNT; i++) {
         struct sigaction current;
-        g_claimed[i] = 0;
+        /* **Idempotent, because two callers claim.** `set_raw` and `set_screen` both call this, and
+         * an earlier claim must not be forgotten: zeroing `g_claimed[i]` here unconditionally would
+         * make the second call see our own handler, skip it, and leave the record cleared -- so
+         * `release_fatal_signals` would never put the original back and our handler would outlive
+         * the mode it was installed for. */
+        if (g_claimed[i]) continue;
         if (sigaction(g_fatal_signals[i], NULL, &current) != 0) continue;
         if (current.sa_handler != SIG_DFL) continue;
         if (sigaction(g_fatal_signals[i], &ours, &g_previous[i]) == 0) g_claimed[i] = 1;
@@ -162,7 +192,9 @@ static Value native_terminal_set_raw(Value *args, int argc, int line, int col) {
             return value_result(result_of(ok), result_obj_new(1, value_unit()));
         }
         g_raw_active = 0;
-        release_fatal_signals();
+        /* Only once *neither* holds: the handlers exist to restore whichever is still on, and
+         * releasing them while the alternate screen is up would leave that half unguarded. */
+        if (!g_screen_active) release_fatal_signals();
         if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &g_saved) != 0) {
             return terminal_err(ok, "cannot restore the terminal");
         }
@@ -248,9 +280,57 @@ static Value native_terminal_read_raw(Value *args, int argc, int line, int col) 
     }
 }
 
+/* terminal.set_screen(on) -> Result<unit, string>: the alternate screen buffer on or off, with the
+ * cursor hidden while it is on.
+ *
+ * **The fifth native, and it is here for decision 3.1 rather than for the sequence.** A Ziman
+ * caller could write `ESC [ ?1049h` itself with `os.write_stdout` -- `terminal`'s own
+ * `enter_alternate_screen()` answers exactly that string. What it cannot do is be undone by an
+ * `atexit` handler or a signal handler, and that is the whole difference: a program that dies with
+ * the alternate screen up leaves the user staring at a dead frame.
+ *
+ * Entering twice is not an error and leaving when not entered is not either, matching `set_raw`. */
+static Value native_terminal_set_screen(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type ok = type_scalar(TY_UNIT);
+    int on = args[0].as.b;
+    if (!on) {
+        if (!g_screen_active) {
+            return value_result(result_of(ok), result_obj_new(1, value_unit()));
+        }
+        g_screen_active = 0;
+        if (!g_raw_active) release_fatal_signals();
+        if (write(STDOUT_FILENO, LEAVE_SCREEN, sizeof LEAVE_SCREEN - 1) < 0) {
+            return terminal_err(ok, "cannot leave the alternate screen");
+        }
+        return value_result(result_of(ok), result_obj_new(1, value_unit()));
+    }
+    if (g_screen_active) {
+        return value_result(result_of(ok), result_obj_new(1, value_unit()));
+    }
+    if (!isatty(STDOUT_FILENO)) {
+        return value_result(result_of(ok), result_obj_new(0,
+            value_string(ziman_xstrdup("standard output is not a terminal, so there is no alternate screen"))));
+    }
+    /* Handlers and `atexit` before the sequence, for the reason `set_raw` gives: a signal in the
+     * window between would find nothing to restore and nothing to restore it. */
+    if (!g_atexit_installed) {
+        if (atexit(restore_now) == 0) g_atexit_installed = 1;
+    }
+    claim_fatal_signals();
+    static const char enter[] = "\033[?1049h\033[?25l";
+    if (write(STDOUT_FILENO, enter, sizeof enter - 1) < 0) {
+        if (!g_raw_active) release_fatal_signals();
+        return terminal_err(ok, "cannot enter the alternate screen");
+    }
+    g_screen_active = 1;
+    return value_result(result_of(ok), result_obj_new(1, value_unit()));
+}
+
 void native_terminal_register(void) {
     native_register("terminal::is_tty", native_terminal_is_tty);
     native_register("terminal::size_raw", native_terminal_size_raw);
     native_register("terminal::set_raw", native_terminal_set_raw);
     native_register("terminal::read_raw", native_terminal_read_raw);
+    native_register("terminal::set_screen", native_terminal_set_screen);
 }

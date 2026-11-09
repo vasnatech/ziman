@@ -73,6 +73,10 @@ native fn size_raw() -> Result<[int], string>
 // would hand a caller exactly the risk the scope exists to remove. Entering twice is not an error.
 native fn set_raw(on: bool) -> Result<unit, string>
 
+// The alternate screen buffer on or off, with the cursor hidden while it is on. Private for the
+// same reason `set_raw` is: `with_screen` is the shape that cannot be left on by accident.
+native fn set_screen(on: bool) -> Result<unit, string>
+
 // **One byte**, or none if `timeout_ms` passed first; a negative timeout waits indefinitely. An
 // empty answer is the timeout, which is not an error.
 //
@@ -117,6 +121,37 @@ pub fn with_raw<T>(body: fn() -> Result<T, string>) -> Result<T, string> {
             try restored
             return ok(value)
         }
+        Err(why) { return err(why) }
+    }
+}
+
+// Runs `body` with the terminal on its **alternate screen** and the cursor hidden, and puts the
+// normal screen back whatever `body` does -- which is the point, and the reason this is a scope and
+// a native rather than the `enter_alternate_screen()` string below.
+//
+// **The user's shell comes back exactly as they left it.** The terminal keeps the normal buffer
+// untouched while this is on, so a full-screen program neither scrolls away what was on screen nor
+// fills the scrollback with frames.
+//
+// It carries decision 3.1's guarantee, same as `with_raw` and for the same reason: a program that
+// dies with the alternate screen up leaves the user staring at a dead frame, which is as bad as a
+// shell with no echo. The restore happens from here, from the `atexit` handler, and from the signal
+// handler. **`SIGKILL` is the one case nothing can cover.**
+//
+// **Separable from raw mode on purpose.** A password prompt wants `with_raw` and not this; a pager
+// wants this and not raw mode. A full-screen TUI nests them, in either order -- each tracks itself,
+// and the restore undoes whichever is still on.
+pub fn with_screen<T>(body: fn() -> Result<T, string>) -> Result<T, string> {
+    try set_screen(true)
+    val outcome = body()
+    val restored = set_screen(false)
+    switch outcome {
+        Ok(value) {
+            try restored
+            return ok(value)
+        }
+        // `body`'s error is the one the caller needs when both failed; the handlers will try the
+        // restore again at exit. Same rule as `with_raw`.
         Err(why) { return err(why) }
     }
 }
@@ -450,4 +485,144 @@ fn byte_list(bytes: [byte]) -> string {
         push(parts, str(b as int))
     }
     return concat("[", concat(join(separator: " ", pieces: snapshot(parts)), "]"))
+}
+
+// ------------------------------------------------------------------ painting
+
+// **The escape sequences, as strings to compose rather than calls that write.**
+//
+// docs/design/terminal.md §8 says the native half carries no colour or cursor helpers and that
+// "constants and small helpers can live in Ziman later". These are that, and they are pure: each
+// one answers the sequence, and nothing here touches the terminal.
+//
+// **Composing beats writing, for a reason a frame makes obvious.** A renderer that called a
+// `move_to` which wrote, then a `print` which wrote, would hand the terminal a frame in dozens of
+// pieces and the user would watch it arrive. Building the whole frame into one string and handing
+// it to `os.write_stdout` once is how a paint looks instantaneous. So these return strings.
+//
+// **They are functions, not `pub val` constants**, which is not a style choice: a module's `pub
+// val` cannot be reached as `terminal.name` from another module, so a constant exported that way
+// would be unusable by the only callers it has.
+
+// **ESC has no string literal in Ziman**, which is the first thing anything writing an escape
+// sequence runs into. The lexer takes `\n`, `\t`, `\r`, `\"` and `\\` and nothing else -- there is
+// no hex or unicode escape -- so a control character is built from its byte. Computed once here
+// rather than per call: a frame is hundreds of sequences, and each would otherwise pay for a decode.
+val esc = escape_char()
+
+fn escape_char() -> string {
+    return switch bytes_to_string([27b]) {
+        Ok(text) { text }
+        // Unreachable: 0x1b is valid UTF-8. Handled because a `Result` must be, and answering an
+        // empty string would silently emit sequences with no introducer rather than fail loudly.
+        Err(_) { "" }
+    }
+}
+
+// The cursor to `row`, `col`, **both 1-based**, because that is what the terminal counts from and a
+// renderer that converted would be converting in both directions all day.
+pub fn at(row: int, col: int) -> string {
+    return prelude.format("{}[{};{}H", esc, row, col)
+}
+
+// The whole screen, and the cursor home. **The scrollback is left alone** -- `ESC [ 3J` would clear
+// it too, which throws away what the user had on screen before the program started.
+pub fn clear_screen() -> string {
+    return prelude.format("{}[2J{}[H", esc, esc)
+}
+
+// From the cursor to the end of its line. **This is what a frame redraw wants** rather than
+// `clear_screen`: clearing everything first makes the terminal flash, where writing each line and
+// clearing its tail does not.
+pub fn clear_to_line_end() -> string {
+    return concat(esc, "[K")
+}
+
+// Hidden while painting, shown again after. A cursor left visible walks across a frame as it is
+// written, which is the most obvious way a TUI looks unfinished.
+pub fn hide_cursor() -> string {
+    return concat(esc, "[?25l")
+}
+
+pub fn show_cursor() -> string {
+    return concat(esc, "[?25h")
+}
+
+// **The alternate screen sequences, for a caller that is managing it itself.**
+//
+// **Prefer `with_screen`**, which writes these *and* guarantees the normal screen comes back --
+// from the scope, from `atexit`, and from a signal handler. These two are the raw strings, and the
+// pair is the caller's to balance: a program that dies between them leaves the user staring at a
+// dead frame, which is exactly what the scope exists to prevent.
+//
+// They are here because `with_screen` is built on the same sequences and hiding them would be
+// pretending there is only one way to say this, not because a caller should reach for them.
+pub fn enter_alternate_screen() -> string {
+    return concat(esc, "[?1049h")
+}
+
+pub fn leave_alternate_screen() -> string {
+    return concat(esc, "[?1049l")
+}
+
+// The eight colours every terminal since the vt100 has agreed on, plus `Default`, which is the
+// user's own foreground or background. **No 256-colour or true-colour variants**: they are a
+// different sequence family, they are not universally supported, and a TUI that needs them can
+// write its own escape -- the same restraint as §8's "no terminfo".
+pub enum Color {
+    Black
+    Red
+    Green
+    Yellow
+    Blue
+    Magenta
+    Cyan
+    White
+    Default
+}
+
+fn color_offset(c: Color) -> int {
+    return switch c {
+        Black { 0 }
+        Red { 1 }
+        Green { 2 }
+        Yellow { 3 }
+        Blue { 4 }
+        Magenta { 5 }
+        Cyan { 6 }
+        White { 7 }
+        Default { 9 }
+    }
+}
+
+// The foreground colour from here on, until `reset_style`.
+pub fn fg(c: Color) -> string {
+    return prelude.format("{}[{}m", esc, 30 + color_offset(c))
+}
+
+// The background colour from here on, until `reset_style`.
+pub fn bg(c: Color) -> string {
+    return prelude.format("{}[{}m", esc, 40 + color_offset(c))
+}
+
+pub fn bold() -> string {
+    return concat(esc, "[1m")
+}
+
+pub fn dim() -> string {
+    return concat(esc, "[2m")
+}
+
+// Foreground and background swapped, which is how a selected row is drawn without choosing colours
+// that might clash with the user's theme.
+pub fn reverse() -> string {
+    return concat(esc, "[7m")
+}
+
+// Every attribute off: colour, bold, dim and reverse together. **Emit this at the end of anything
+// styled.** A frame that sets a colour and does not reset it leaves the user's shell coloured after
+// the program exits -- the same class of mistake as leaving raw mode on, without a handler that can
+// catch it.
+pub fn reset_style() -> string {
+    return concat(esc, "[0m")
 }

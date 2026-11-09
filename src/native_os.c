@@ -126,6 +126,20 @@ static Value native_os_exit(Value *args, int argc, int line, int col) {
     return value_int(0);
 }
 
+/* os.write_stdout(text): text to stdout, no newline added, flushed.
+ *
+ * **The gap `print` leaves.** `print` appends a newline, which for a screenful of escape sequences
+ * means a scroll per frame -- so a TUI could not paint at all without this. Symmetric with
+ * `write_stderr` below in every respect, including going through the same stdio stream `print`
+ * uses: a native writing to descriptor 1 directly would interleave wrongly with a buffered
+ * `print` in the same program. */
+static Value native_os_write_stdout(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    fwrite(args[0].as.str.ptr, 1, args[0].as.str.len, stdout);
+    fflush(stdout);
+    return value_int(0);
+}
+
 /* os.write_stderr(text): text to stderr, unbuffered, no newline added. */
 static Value native_os_write_stderr(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
@@ -432,6 +446,7 @@ void native_os_register(void) {
     native_register("os::open_descriptors", native_os_open_descriptors);
     native_register("os::collector_enabled", native_os_collector_enabled);
     native_register("os::set_env", native_os_set_env);
+    native_register("os::write_stdout", native_os_write_stdout);
     native_register("os::write_stderr", native_os_write_stderr);
     native_register("os::install_shutdown_handler", native_os_install_shutdown_handler);
     native_register("os::shutdown_requested", native_os_shutdown_requested);

@@ -22,5 +22,7 @@ run_case terminal_keys           keys        tests/integration/terminal/keys.zm
 run_case terminal_scope_restores after_scope tests/integration/terminal/after_scope.zm
 run_case terminal_crash_restores crash       tests/integration/terminal/crash.zm
 run_case terminal_sigterm_restores sigterm   tests/integration/terminal/keys.zm
+run_case terminal_screen_sigterm   screen_sigterm tests/integration/terminal/screen.zm
+run_case terminal_screen_crash     screen_crash   tests/integration/terminal/screen_crash.zm
 
 exit "$fail"

@@ -32,6 +32,7 @@ helpers. docs/design/terminal.md §8 has each one and why.
 ## Example
 
 ```
+use os
 use terminal
 
 // **Ask `is_tty` first.** A TUI whose standard input is a pipe should refuse rather than render a
@@ -43,19 +44,39 @@ fn interactive() -> Result<unit, string> {
         print("standard input is not a terminal")
         return ok(unit)
     }
-    // **`with_raw` is the only way into raw mode**, and it puts the settings back whatever the body
-    // does -- answers, fails, or dies. A `set_raw(true)`/`set_raw(false)` pair would leave the
-    // user's shell with no echo on any early return, and they would have to type `reset` blind.
-    return terminal.with_raw<unit>(fn() -> Result<unit, string> {
-        val screen = try terminal.size()
-        print(prelude.format("{} rows by {} columns", screen.rows, screen.cols))
-        // The timeout is what makes a render loop possible: it is how a redraw happens when nothing
-        // was typed, which is also how a resize is noticed (a resize is polled, not delivered).
-        switch try terminal.read_key(50) {
-            Some(key) { print(concat("you pressed ", terminal.key_name(key))) }
-            None { print("nothing was typed") }
-        }
-        return ok(unit)
+    // **Two scopes, and each puts back what it changed whatever the body does** -- answers, fails,
+    // or dies. `with_screen` gives the user their shell back exactly as they left it, because the
+    // terminal keeps the normal buffer untouched while the alternate one is up; `with_raw` gives
+    // back echo and line editing. A `set_raw(true)`/`set_raw(false)` pair would leave the shell
+    // broken on any early return, and the user would have to type `reset` blind.
+    //
+    // They nest in either order and each tracks itself, so a program wanting only one takes only
+    // one: a password prompt wants raw mode and not the alternate screen.
+    return terminal.with_screen<unit>(fn() -> Result<unit, string> {
+        return terminal.with_raw<unit>(fn() -> Result<unit, string> {
+            val screen = try terminal.size()
+            // **One write for the whole frame.** Every painting helper answers a string rather
+            // than writing, so a frame composes and goes out once -- a frame handed over in dozens
+            // of pieces is a frame the user watches arrive. `os.write_stdout` is `print` without
+            // the newline, which per frame would scroll the screen out from under the drawing.
+            os.write_stdout(concat(
+                terminal.clear_screen(),
+                concat(
+                    terminal.at(2, 4),
+                    concat(terminal.fg(terminal.Color.Cyan), concat(terminal.bold(), "a frame"))
+                )
+            ))
+            // Reset before leaving: a frame that sets a colour and does not reset it leaves the
+            // user's shell coloured, with no handler that can catch it.
+            os.write_stdout(concat(terminal.reset_style(), terminal.at(screen.rows, 1)))
+            // The timeout is what makes a render loop possible: it is how a redraw happens when
+            // nothing was typed, which is also how a resize is noticed (polled, not delivered).
+            switch try terminal.read_key(50) {
+                Some(key) { os.write_stdout(concat("you pressed ", terminal.key_name(key))) }
+                None { os.write_stdout("nothing was typed") }
+            }
+            return ok(unit)
+        })
     })
 }
 
@@ -195,6 +216,29 @@ cannot `return` out of the enclosing function, which in a render loop is no cost
 is the one the caller needs -- a restore failure is a consequence, and the `atexit` handler will
 try again at exit anyway.
 
+### `with_screen`
+
+```
+pub fn with_screen<T>(body: fn() -> Result<T, string>) -> Result<T, string>
+```
+
+Runs `body` with the terminal on its **alternate screen** and the cursor hidden, and puts the
+normal screen back whatever `body` does -- which is the point, and the reason this is a scope and
+a native rather than the `enter_alternate_screen()` string below.
+
+**The user's shell comes back exactly as they left it.** The terminal keeps the normal buffer
+untouched while this is on, so a full-screen program neither scrolls away what was on screen nor
+fills the scrollback with frames.
+
+It carries decision 3.1's guarantee, same as `with_raw` and for the same reason: a program that
+dies with the alternate screen up leaves the user staring at a dead frame, which is as bad as a
+shell with no echo. The restore happens from here, from the `atexit` handler, and from the signal
+handler. **`SIGKILL` is the one case nothing can cover.**
+
+**Separable from raw mode on purpose.** A password prompt wants `with_raw` and not this; a pager
+wants this and not raw mode. A full-screen TUI nests them, in either order -- each tracks itself,
+and the restore undoes whichever is still on.
+
 ## Reading a key
 
 ### `read_key`
@@ -239,3 +283,139 @@ pub fn key_name(key: Key) -> string
 What to show a human: `"a"`, `"Up"`, `"Ctrl-C"`, `"F5"`, or the bytes of a key this table does not
 know. The counterpart of `io.io_error_message` -- every module here has one, and a help line or a
 key-binding list is the reason.
+
+## Painting
+
+### `at`
+
+```
+pub fn at(row: int, col: int) -> string
+```
+
+The cursor to `row`, `col`, **both 1-based**, because that is what the terminal counts from and a
+renderer that converted would be converting in both directions all day.
+
+### `clear_screen`
+
+```
+pub fn clear_screen() -> string
+```
+
+The whole screen, and the cursor home. **The scrollback is left alone** -- `ESC [ 3J` would clear
+it too, which throws away what the user had on screen before the program started.
+
+### `clear_to_line_end`
+
+```
+pub fn clear_to_line_end() -> string
+```
+
+From the cursor to the end of its line. **This is what a frame redraw wants** rather than
+`clear_screen`: clearing everything first makes the terminal flash, where writing each line and
+clearing its tail does not.
+
+### `hide_cursor`
+
+```
+pub fn hide_cursor() -> string
+```
+
+Hidden while painting, shown again after. A cursor left visible walks across a frame as it is
+written, which is the most obvious way a TUI looks unfinished.
+
+### `show_cursor`
+
+```
+pub fn show_cursor() -> string
+```
+
+### `enter_alternate_screen`
+
+```
+pub fn enter_alternate_screen() -> string
+```
+
+**The alternate screen sequences, for a caller that is managing it itself.**
+
+**Prefer `with_screen`**, which writes these *and* guarantees the normal screen comes back --
+from the scope, from `atexit`, and from a signal handler. These two are the raw strings, and the
+pair is the caller's to balance: a program that dies between them leaves the user staring at a
+dead frame, which is exactly what the scope exists to prevent.
+
+They are here because `with_screen` is built on the same sequences and hiding them would be
+pretending there is only one way to say this, not because a caller should reach for them.
+
+### `leave_alternate_screen`
+
+```
+pub fn leave_alternate_screen() -> string
+```
+
+### `Color`
+
+```
+pub enum Color {
+    Black
+    Red
+    Green
+    Yellow
+    Blue
+    Magenta
+    Cyan
+    White
+    Default
+}
+```
+
+The eight colours every terminal since the vt100 has agreed on, plus `Default`, which is the
+user's own foreground or background. **No 256-colour or true-colour variants**: they are a
+different sequence family, they are not universally supported, and a TUI that needs them can
+write its own escape -- the same restraint as §8's "no terminfo".
+
+### `fg`
+
+```
+pub fn fg(c: Color) -> string
+```
+
+The foreground colour from here on, until `reset_style`.
+
+### `bg`
+
+```
+pub fn bg(c: Color) -> string
+```
+
+The background colour from here on, until `reset_style`.
+
+### `bold`
+
+```
+pub fn bold() -> string
+```
+
+### `dim`
+
+```
+pub fn dim() -> string
+```
+
+### `reverse`
+
+```
+pub fn reverse() -> string
+```
+
+Foreground and background swapped, which is how a selected row is drawn without choosing colours
+that might clash with the user's theme.
+
+### `reset_style`
+
+```
+pub fn reset_style() -> string
+```
+
+Every attribute off: colour, bold, dim and reverse together. **Emit this at the end of anything
+styled.** A frame that sets a colour and does not reset it leaves the user's shell coloured after
+the program exits -- the same class of mistake as leaving raw mode on, without a handler that can
+catch it.

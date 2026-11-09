@@ -72,6 +72,14 @@ pub fn fatal(message: string) {
 
 // Writes `text` to stderr immediately, with no newline added and no buffering -- for messages
 // that must not mix into the program's normal output.
+// Text to standard output, **with no newline added**, flushed.
+//
+// `print` is the normal way to write a line; this is for the case where the newline is wrong. A
+// screenful of escape sequences is the reason it exists -- `print` per frame would scroll the
+// screen out from under the thing being drawn -- and `terminal`'s helpers are composed into one
+// string and handed here once, which is also how a frame avoids tearing.
+pub native fn write_stdout(text: string)
+
 pub native fn write_stderr(text: string)
 
 // ---------------------------------------------------------------- graceful shutdown

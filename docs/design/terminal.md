@@ -1,9 +1,13 @@
 # Terminal: raw mode, one key at a time, and putting back what we changed
 
 Status: **built, 2026-11-09.** `lib/core/terminal.zm`, `src/native_terminal.c`,
-`tests/stdlib/terminal_test.zm` (24 checks), and §9's `io.stdin()`. All five decisions in §3
-survived contact; **§7's sketch did not**, and §7 now says why -- it is the only part of this
-document that was wrong, and it was wrong about the language rather than about the terminal.
+`tests/stdlib/terminal_test.zm` (31 checks), six pty cases in `tests/run_terminal_test.sh`, and
+§9's `io.stdin()`. All five decisions in §3 survived contact; **§7's sketch did not**, and §7 now
+says why -- it was wrong about the language rather than about the terminal.
+
+**§4's "four functions" is now five**, and §8's "no colour or cursor helpers" grew the Ziman half it
+said it would — see §4.1 and §8.1. Neither is a reversal: the fifth native exists to give the
+alternate screen decision 3.1's guarantee, which is the decision that drove the whole module.
 
 Two of §11's open questions were settled on the day this was written: **`with_raw` is the public
 shape** (§6, decision 3.5) and **`io.stdin()` went first** (§9). A third, the module's name, went
@@ -96,6 +100,40 @@ expired, which is not an error — `Err` is reserved for a read that failed.
 **`read_raw` answers bytes, not characters.** A UTF-8 character and an escape sequence both arrive
 in pieces, and a reader that tried to answer characters would have to buffer and decode — which is
 §3.2's job, in Ziman.
+
+**Built: `read_raw` answers exactly one byte**, which the signature above does not say and which is
+a decision. §5 gives the public reader as `read_key(timeout_ms) -> Result<Option<Key>, string>` —
+no reader object, no module state — and that signature is only honest if a read never returns bytes
+the decoder did not ask for. A bufferful would leave the tail of a burst *somewhere*, and
+"somewhere" is module-level mutable state in a module that otherwise has none. It costs a terminal
+nothing: the continuation bytes of a character and the rest of a sequence are already in the
+driver's buffer by the time the decoder asks, so those reads do not wait. A thousand-character paste
+is a thousand syscalls, and bracketed paste is a non-goal.
+
+### 4.1 The fifth native: `set_screen`
+
+```
+native fn set_screen(on: bool) -> Result<unit, string>
+```
+
+**It is here for decision 3.1, not for the sequence.** A Ziman caller can write `ESC [ ?1049h`
+itself — `terminal.enter_alternate_screen()` answers exactly that string, and §8.1's helpers are
+public. What a caller cannot do is be undone by an `atexit` handler or a signal handler, and that is
+the whole difference: **a program that dies with the alternate screen up leaves the user staring at
+a dead frame**, the identical failure 3.1 is about and as bad as a shell with no echo.
+
+So `with_screen(body)` is the public shape, exactly as `with_raw` is, and the C half's `restore_now`
+writes `ESC [ ?1049l ESC [ ?25h` before it restores the `termios`. `write` is async-signal-safe
+where `printf` is not, so the sequence goes out as bytes with no stdio in the way.
+
+**Separable from raw mode, and that is why it is a second flag rather than a mode of the first.** A
+password prompt wants raw mode and not the alternate screen; a pager wants the reverse; a
+full-screen TUI nests both in either order. Each tracks itself and the restore undoes whichever is
+still on. One consequence worth writing down: `claim_fatal_signals` had to become **idempotent**,
+because both scopes call it — the first version cleared its record of an earlier claim, so leaving
+one scope would have left our handler installed with no way to put the original back.
+
+**What `with_screen` does not cover is `SIGKILL`**, the same single hole decision 3.1 has.
 
 ## 5. The Ziman half: `Key`, and a decoder that loses nothing
 
@@ -225,9 +263,36 @@ Nothing in the corrected sketch needs a fifth native, which was the question thi
 * **No terminfo or termcap.** The sequences xterm and its imitators send are hardcoded. A database
   lookup is a dependency and a file-format parser for a problem nobody in this tree has yet.
 * **No colour or cursor helpers in the native half.** Output is `print` with escape sequences;
-  constants and small helpers can live in Ziman later, and need no C.
+  constants and small helpers can live in Ziman later, and need no C. **They do now — see §8.1.**
 * **No Windows**, per §3.3.
 * **No `read_line`.** See §9 — it is a different gap.
+
+### 8.1 The painting helpers, which are the "later" above
+
+`at`, `clear_screen`, `clear_to_line_end`, `hide_cursor`/`show_cursor`,
+`enter_alternate_screen`/`leave_alternate_screen`, `Color` with `fg`/`bg`, and
+`bold`/`dim`/`reverse`/`reset_style`. All in Ziman, all pure, no C. Three things about them:
+
+* **They answer strings rather than writing.** A renderer calling a `move_to` that wrote and then a
+  `print` that wrote would hand the terminal a frame in dozens of pieces, and the user would watch
+  it arrive. Composing the whole frame and writing once is what makes a paint look instantaneous.
+* **They are functions, not `pub val` constants,** which is forced rather than chosen: a module's
+  `pub val` cannot be reached as `terminal.name` from another module, so a constant exported that
+  way would be unusable by the only callers it has.
+* **Eight colours and `Default`, no 256-colour or true-colour.** A different sequence family, not
+  universally supported, and a TUI that needs them can write its own escape — the same restraint as
+  "no terminfo" above.
+
+**Two gaps they ran into, both worth knowing before writing any escape sequence in Ziman:**
+
+1. **There is no way to write a control character in a string literal.** `src/lexer.c` takes `\n`,
+   `\t`, `\r`, `\"` and `\\` and nothing else — no hex and no unicode escape. ESC comes from
+   `bytes_to_string([27b])`, computed once into a module-level `val` (which does work, and is
+   evaluated once).
+2. **There was no `os.write_stdout`.** `print` appends a newline, which per frame scrolls the screen
+   out from under the thing being drawn, so a TUI could not paint at all. Added symmetric with the
+   existing `os.write_stderr`, including going through the same stdio stream `print` uses — a native
+   writing to descriptor 1 directly would interleave wrongly with a buffered `print`.
 
 ## 9. The other half of the gap, which is not this module
 

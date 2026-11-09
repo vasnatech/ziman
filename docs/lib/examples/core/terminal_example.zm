@@ -1,3 +1,4 @@
+use os
 use terminal
 
 // **Ask `is_tty` first.** A TUI whose standard input is a pipe should refuse rather than render a
@@ -9,19 +10,39 @@ fn interactive() -> Result<unit, string> {
         print("standard input is not a terminal")
         return ok(unit)
     }
-    // **`with_raw` is the only way into raw mode**, and it puts the settings back whatever the body
-    // does -- answers, fails, or dies. A `set_raw(true)`/`set_raw(false)` pair would leave the
-    // user's shell with no echo on any early return, and they would have to type `reset` blind.
-    return terminal.with_raw<unit>(fn() -> Result<unit, string> {
-        val screen = try terminal.size()
-        print(prelude.format("{} rows by {} columns", screen.rows, screen.cols))
-        // The timeout is what makes a render loop possible: it is how a redraw happens when nothing
-        // was typed, which is also how a resize is noticed (a resize is polled, not delivered).
-        switch try terminal.read_key(50) {
-            Some(key) { print(concat("you pressed ", terminal.key_name(key))) }
-            None { print("nothing was typed") }
-        }
-        return ok(unit)
+    // **Two scopes, and each puts back what it changed whatever the body does** -- answers, fails,
+    // or dies. `with_screen` gives the user their shell back exactly as they left it, because the
+    // terminal keeps the normal buffer untouched while the alternate one is up; `with_raw` gives
+    // back echo and line editing. A `set_raw(true)`/`set_raw(false)` pair would leave the shell
+    // broken on any early return, and the user would have to type `reset` blind.
+    //
+    // They nest in either order and each tracks itself, so a program wanting only one takes only
+    // one: a password prompt wants raw mode and not the alternate screen.
+    return terminal.with_screen<unit>(fn() -> Result<unit, string> {
+        return terminal.with_raw<unit>(fn() -> Result<unit, string> {
+            val screen = try terminal.size()
+            // **One write for the whole frame.** Every painting helper answers a string rather
+            // than writing, so a frame composes and goes out once -- a frame handed over in dozens
+            // of pieces is a frame the user watches arrive. `os.write_stdout` is `print` without
+            // the newline, which per frame would scroll the screen out from under the drawing.
+            os.write_stdout(concat(
+                terminal.clear_screen(),
+                concat(
+                    terminal.at(2, 4),
+                    concat(terminal.fg(terminal.Color.Cyan), concat(terminal.bold(), "a frame"))
+                )
+            ))
+            // Reset before leaving: a frame that sets a colour and does not reset it leaves the
+            // user's shell coloured, with no handler that can catch it.
+            os.write_stdout(concat(terminal.reset_style(), terminal.at(screen.rows, 1)))
+            // The timeout is what makes a render loop possible: it is how a redraw happens when
+            // nothing was typed, which is also how a resize is noticed (polled, not delivered).
+            switch try terminal.read_key(50) {
+                Some(key) { os.write_stdout(concat("you pressed ", terminal.key_name(key))) }
+                None { os.write_stdout("nothing was typed") }
+            }
+            return ok(unit)
+        })
     })
 }
 
