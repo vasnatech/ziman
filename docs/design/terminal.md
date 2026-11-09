@@ -1,0 +1,284 @@
+# Terminal: raw mode, one key at a time, and putting back what we changed
+
+Status: **proposed, 2026-11-09**; §9's half is **built**. Nothing in this module is written. The
+four decisions in §3 are taken before the first line, because each one lands in every signature or
+in the shape of the C half; everything else is a sketch to argue with.
+
+Two of §11's open questions were settled on 2026-11-09, the day this was written: **`with_raw` is
+the public shape** (§6, decision 3.5) and **`io.stdin()` went first** (§9, now shipped).
+
+## 1. The gap was found by an application, not by a wishlist
+
+The curly port spent several days exercising this library against a real program, and it surfaced
+three gaps in order of increasing depth. `client` had no multipart builder, so one got written by
+hand in the application. `bytes_to_string` is strict with no lossy sibling, so a UTF-8 replacement
+decoder got written by hand in the application. Both of those are **library** gaps: a Ziman program
+could close them itself.
+
+The third cannot be closed from Ziman at all. **Nothing in this language can read standard input.**
+`io` is a parsing cursor over a stream somebody else opened; `os` can `write_stderr` and has no
+read; `process.start` redirects a child's stdio to **files**, not pipes, so a Ziman program cannot
+even borrow another program's terminal handling. `curly collections import curl` needs the command
+on stdin when it is not given as an argument, and the only trick available was
+`fs.read_text("/dev/stdin")` — which works solely because that input ends.
+
+So today no interactive program can be written in Ziman. Not a TUI, not a password prompt, not a
+`read -p`, not a confirmation. That is a platform gap, and this document is about the smaller half
+of it.
+
+## 2. What already exists makes this smaller than it sounds
+
+The 2D stack is complete and shipped: `geom`, `shape`, `paint`, `scene`, `stroker`, `font`,
+`truetype`, `image`, `raster`, and a `layout` engine with paragraphs, grids and tables.
+`raster.render(Scene, Options) -> image.Image`. And `server`, `rest`, `derive_routes` and `http`
+mean a browser front end is already possible.
+
+**So Ziman can already draw and already serve. The only missing half of a user interface is input
+and terminal control** — which is four functions, not a toolkit. That is the whole argument for
+doing this rather than something larger.
+
+## 3. Five decisions taken before the first line
+
+**3.1 The terminal is restored however the program ends.** This is the one that must not be got
+wrong, and it is a decision rather than an implementation detail: a program that dies in raw mode
+leaves the user's shell with no echo and no line editing, and they have to type `reset` blind. That
+failure is worse than the crash that caused it. The saved `termios` is restored from an `atexit`
+handler registered the first time raw mode is entered, and from the existing shutdown handler's
+path.
+
+**3.2 The C half hands over bytes; Ziman decodes keys.** An escape sequence is a table, it is the
+part most likely to grow as terminals disagree, and it is testable from a byte array with no
+terminal attached. Putting it in Ziman keeps the native surface at four functions and puts the
+fiddly half where `ziman test` can reach it.
+
+**3.3 Linux and macOS. Windows is an honest error.** No native in this tree carries a `_WIN32` or
+`__APPLE__` guard today, and `os.zm` already sets the precedent for a platform-shaped feature: the
+machine figures come from `/proc`, and elsewhere they are
+`Err("not supported here: ...")`, **never a made-up number**. `termios` is POSIX, so Linux and macOS
+come together; Windows needs a different API entirely and says so rather than pretending.
+
+**3.4 A resize is polled, not delivered.** `os.install_shutdown_handler()` plus
+`os.shutdown_requested()` is the shape this language already uses for a signal: the handler sets a
+flag and the program asks at a moment of its choosing. A render loop asks `size()` per frame anyway,
+so `SIGWINCH` buys nothing a poll does not — and a callback from a signal context is a different and
+much worse conversation.
+
+**3.5 Raw mode is entered through a scope, not a pair of calls.** `with_raw(body)` is the public
+shape; the `set_raw` pair stays underneath it, because the native needs it and because the scope is
+built out of it. §6 is the argument, and the short version is that 3.1 is only half a decision
+without this one: `atexit` covers a program that *ends* in raw mode, and nothing but a scope covers
+a program that keeps running after an early `return` between two calls.
+
+## 4. The native surface: four functions
+
+```
+native fn is_tty() -> bool
+native fn size_raw() -> Result<[int], string>              // [rows, cols]
+native fn set_raw(on: bool) -> Result<unit, string>
+native fn read_raw(timeout_ms: int) -> Result<[byte], string>   // empty on timeout
+```
+
+**`is_tty` comes first because a program must be able to refuse.** A TUI whose stdin is a pipe
+should say so, not render a frame into a file. Everything else here is undefined when this is false.
+
+**`size_raw` answers `[rows, cols]` because Ziman has no tuple type.** A `Size { rows, cols }`
+struct is the better public shape and belongs in the Ziman half; the native crossing stays a plain
+array, as `os.load_average` already returns `[float]`.
+
+**`read_raw` takes a timeout, and that is load-bearing twice.** A render loop must not block
+forever, or a redraw on resize never happens. And the ESC ambiguity cannot be resolved without one:
+`ESC` alone and the first byte of `ESC [ A` are the same byte, so the decoder reads again with a
+short timeout and treats nothing-arrived as a real Escape. An empty result means the timeout
+expired, which is not an error — `Err` is reserved for a read that failed.
+
+**`read_raw` answers bytes, not characters.** A UTF-8 character and an escape sequence both arrive
+in pieces, and a reader that tried to answer characters would have to buffer and decode — which is
+§3.2's job, in Ziman.
+
+## 5. The Ziman half: `Key`, and a decoder that loses nothing
+
+```
+pub enum Key {
+    Char(string)        // one character, possibly multi-byte
+    Enter
+    Tab
+    Backspace
+    Escape
+    Delete
+    Up    Down    Left    Right
+    Home  End     PageUp  PageDown  Insert
+    Function(int)       // F1..F12
+    Ctrl(string)        // "a".."z"
+    Unknown([byte])     // a sequence this table does not know
+}
+```
+
+**`Unknown` carries the bytes rather than being dropped**, for the reason `Json`'s unknown-tag
+errors name the tag: a key this table has not met yet is a gap in the table, and a program that
+logs the bytes can have it fixed. Silently swallowing input is how a terminal feature becomes
+impossible to diagnose from the outside.
+
+The public reader sits on top:
+
+```
+pub struct Size { rows: int  cols: int }
+
+pub fn size() -> Result<Size, string>
+pub fn read_key(timeout_ms: int) -> Result<Option<Key>, string>    // None on timeout
+```
+
+## 6. The question that mattered: a pair or a scope? — a scope
+
+§3.1 says the terminal is always restored, and `atexit` covers the process ending. It does not cover
+a program that *keeps running* after it is done with raw mode — a TUI that drops to a shell prompt,
+or a one-off that asks for a password and then prints a report.
+
+Ziman has no `defer` and no destructors, so the choice is:
+
+```
+// (a) a pair, and the caller is responsible
+try terminal.set_raw(true)
+...
+try terminal.set_raw(false)
+
+// (b) a scope, and the module is responsible
+try terminal.with_raw(fn() -> Result<unit, string> {
+    ...
+})
+```
+
+**(b) is the one I would take**, because (a)'s failure mode is the whole problem in §3.1 and no
+amount of documentation prevents an early `return` between the two calls. A closure cannot leak the
+mode: the module restores it on the way out whether the body answered `Ok`, answered `Err`, or
+propagated one. The cost is that the body cannot `return` out of the enclosing function, which in a
+render loop is no cost at all.
+
+Worth noting it is not either/or — `with_raw` can be the public shape with `set_raw` underneath it,
+exported or not.
+
+**Decided 2026-11-09: (b), as decision 3.5.** `with_raw` is what a caller reaches for; `set_raw`
+stays as the native the scope is built from. Whether it is `pub` is left to the module: the honest
+test is whether anything in §7 needs it, and if nothing does it stays private rather than being
+exported for a hypothetical caller who would be taking on exactly the risk the scope removes.
+
+## 7. What it has to make writable (the only real test of the API)
+
+```
+use terminal
+
+fn main() {
+    if !terminal.is_tty() {
+        os.write_stderr("curly ui needs a terminal\n")
+        os.exit(2)
+    }
+    val _ = terminal.with_raw(fn() -> Result<unit, string> {
+        var running = true
+        while running {
+            val screen = try terminal.size()
+            draw(screen)                              // writes escape sequences with `print`
+            switch try terminal.read_key(50) {
+                Some(key) {
+                    switch key {
+                        Char("q") { running = false }
+                        Up { select_previous() }
+                        Down { select_next() }
+                        Enter { send_selected() }
+                        Unknown(bytes) { log_unknown(bytes) }
+                        ... 
+                    }
+                }
+                None {}                               // timed out; redraw, in case of a resize
+            }
+        }
+        return ok(unit)
+    })
+}
+```
+
+Nothing in that sketch needs a fifth native.
+
+## 8. Non-goals
+
+* **No widget toolkit.** Boxes, lists, text fields and focus are an application's business until
+  two applications want the same ones; then they are a `tui` module written entirely in Ziman on
+  top of this one.
+* **No mouse.** It is another escape-sequence family and another mode to enable and restore.
+  `Unknown` means a mouse report will not crash a program that did not ask for one.
+* **No terminfo or termcap.** The sequences xterm and its imitators send are hardcoded. A database
+  lookup is a dependency and a file-format parser for a problem nobody in this tree has yet.
+* **No colour or cursor helpers in the native half.** Output is `print` with escape sequences;
+  constants and small helpers can live in Ziman later, and need no C.
+* **No Windows**, per §3.3.
+* **No `read_line`.** See §9 — it is a different gap.
+
+## 9. The other half of the gap, which is not this module
+
+There are **two** missing things, and conflating them would make this module the wrong shape.
+
+1. **Interactive terminal input** — this document.
+2. **Plain standard input as a byte stream** — for a pipe, which has nothing to do with a terminal.
+
+curly needs (2) today: `collections import curl` with no command argument reads the command from
+stdin, and it currently reads `/dev/stdin` as a whole file because there is no alternative. That
+works for input that ends and is wrong for anything else.
+
+(2) is smaller and belongs elsewhere: an `io` source, something like `io.stdin() ->
+Iter<Result<[byte], IoError>>`, which then composes with `io.text`, `io.lines` and `io.cursor`
+exactly as `fs.chunks` already does. **One native, one line in `io.zm`, no new module** — and it
+closes the `/dev/stdin` hack properly. It is worth doing first, because it is the cheaper half and
+the one an existing program is already working around.
+
+**Built 2026-11-09, and the estimate held**: `src/native_io.c` with one function, `io.stdin()` in
+`lib/core/io.zm`, the include and the register call in `src/main.c`. `io` was already in
+`CORELIB_MODULES` and in `corelib.c`'s table, so four of §10's six edits did not apply.
+
+Three things it taught, each one a smaller version of something this module will hit:
+
+* **The never-empty-chunk rule has to be kept in Ziman.** A native cannot build an `Option`, so the
+  C half says end-of-input with an empty `Ok` and `io.stdin()` turns that into the `None` the
+  convention promises. That is decision 3.2 in miniature, and it is why the C half of *this* module
+  can hand over bytes without knowing what a `Key` is.
+* **One `read(2)`, not a loop that fills the buffer.** A pipe hands over what has been written and a
+  terminal a line at a time, so filling 64 KiB first would make an interactive reader wait for 64
+  KiB of typing. `read_raw`'s timeout in §4 is the same property stated as a deadline.
+* **The test suite could not feed standard input at all**, and worse, a fixture inherited the
+  *runner's* stdin — so a program that read it would have consumed the suite's own input or blocked
+  on a terminal. `tests/run_tests.sh` now takes a `<name>.in` and gives every other fixture
+  `/dev/null`. This module's decoder needs no terminal (§3.2, §10), so it needs nothing further
+  here; but `is_tty()` answering `false` under the suite is now a fact rather than a hope.
+
+## 10. The cost
+
+Adding a core module is six edits, and the Makefile documents five of them:
+
+* `lib/core/terminal.zm` — the `native fn` declarations, `Key`, the decoder, `with_raw`, `size`.
+* `src/native_terminal.c` and `.h` — four functions, the saved `termios`, the `atexit` handler, and
+  `native_terminal_register()`.
+* `src/main.c` — the include and the `native_terminal_register()` call.
+* `Makefile` — `terminal` added to `CORELIB_MODULES`.
+* `src/corelib.c` — one line in the `CORE_MODULES` table.
+* `docs/lib/terminal.md` and `docs/lib/examples/core/terminal_example.zm` — every one of the 64
+  modules has both, and `make check` has targets that notice when one is missing.
+
+`src/*.c` is wildcarded into the build, so there is no object-list edit.
+
+The decoder is the only part with real test surface, and it needs no terminal: feed it byte arrays
+and assert the `Key`. That is the argument in §3.2 paying off.
+
+## 11. Open questions
+
+1. ~~**`with_raw` or `set_raw`, or both?**~~ **Answered 2026-11-09**: `with_raw` is the public
+   shape, `set_raw` is underneath it. It became decision 3.5, because it constrains every signature
+   in §4 the way the other four do.
+2. ~~**Does `io.stdin()` (§9) go first?**~~ **Answered 2026-11-09: yes, and it is built.** §9 has
+   what it cost and the three things it taught.
+3. **`terminal` or `tty`?** The module is about more than the device — `Key` and the decoder are
+   not tty concepts — so `terminal` reads better to me.
+4. **Is `Function(int)` worth it?** F-keys vary more between terminals than anything else here, and
+   a program can live on `Ctrl` plus letters. Including it costs a dozen table rows.
+5. **Bracketed paste?** A TUI that accepts pasted text wants to know a burst is a paste and not
+   typing. It is one more mode to enable and restore, and it can wait for an application that wants
+   it — but it is the first thing I would add after mouse.
+6. **What happens to raw mode across `process.run`?** A child that writes to the same terminal while
+   the parent holds raw mode will look wrong. Probably the application's problem, but worth a
+   sentence in the module's own docs.

@@ -1,0 +1,33 @@
+// `io.stdin()` as a byte source: what the layers over it make of a piped input, and the three
+// promises that are its own rather than `fs.chunks`'s.
+use io
+
+fn main() {
+    // Lines, through the same `io.lines` a file goes through. The input is fed by io_stdin.in.
+    for item in io.lines(io.stdin()) {
+        switch item {
+            Ok(line) {
+                print(concat("line: ", line))
+            }
+            Err(e) {
+                print(io.io_error_message(e))
+                return
+            }
+        }
+    }
+
+    // **Ended stays ended.** The input is spent, so a fresh source over the same descriptor reads
+    // end-of-input -- and reads it as `None`, not as an empty chunk, which is the rule io.zm's
+    // header states and the one thing the native cannot enforce itself.
+    val spent = io.stdin()
+    switch iter_next(spent) {
+        Some(_) { print("spent: a chunk?!") }
+        None { print("spent: end") }
+    }
+    // **Closing a source does not close descriptor 0**: a third one still reads, and still ends.
+    iter_close(spent)
+    switch iter_next(io.stdin()) {
+        Some(_) { print("after close: a chunk?!") }
+        None { print("after close: end") }
+    }
+}

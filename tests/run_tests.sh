@@ -21,9 +21,10 @@
 #     Leaving the substring off asserts position alone, so a fixture about where
 #     an error lands does not break when someone rewords the message.
 #
-# Either kind may have a sibling name.env (KEY=VALUE lines) exported for its run, and a sibling
+# Either kind may have a sibling name.env (KEY=VALUE lines) exported for its run, a sibling
 # name.timeout (one number, seconds) for a fixture that is meant to take longer than the five
-# seconds every other one gets.
+# seconds every other one gets, and a sibling name.in holding its standard input (every fixture
+# without one reads /dev/null).
 #
 # SKIP="name1 name2" leaves those fixtures out, reporting each as skipped. For a fixture that
 # cannot hold under a particular build rather than one that is broken: `make asan` uses it for
@@ -104,6 +105,14 @@ check_fixture() {
         [ "$fixture_timeout" -lt "$want" ] && fixture_timeout="$want"
     fi
 
+    # An optional tests/lang/<name>.in is the program's standard input -- how a fixture exercises
+    # io.stdin(), which has nothing else it could read. **Every other fixture gets /dev/null**, and
+    # that is the half of this that matters: until now a fixture inherited the *runner's* stdin, so
+    # a program that read it would have consumed the suite's own input or blocked forever on a
+    # terminal. Empty-by-default makes "reads nothing" the deterministic answer.
+    local stdin_file="tests/lang/$name.in"
+    [ -f "$stdin_file" ] || stdin_file=/dev/null
+
     local stdout status stderr
     # `timeout` guards against a genuine deadlock in a spawn/Channel fixture
     # (a mistake in the interpreter's channel/thread handling) hanging the
@@ -114,7 +123,7 @@ check_fixture() {
         read -r -a prog_args < "tests/lang/$name.progargs"
         prog_args=(-- "${prog_args[@]}")
     fi
-    stdout=$(env "${env_args[@]}" timeout "$fixture_timeout" "$BIN" "${cli_args[@]+"${cli_args[@]}"}" "$entry" "${prog_args[@]+"${prog_args[@]}"}" 2>/tmp/ziman_test_stderr.$$)
+    stdout=$(env "${env_args[@]}" timeout "$fixture_timeout" "$BIN" "${cli_args[@]+"${cli_args[@]}"}" "$entry" "${prog_args[@]+"${prog_args[@]}"}" <"$stdin_file" 2>/tmp/ziman_test_stderr.$$)
     status=$?
     stderr=$(cat /tmp/ziman_test_stderr.$$)
     rm -f /tmp/ziman_test_stderr.$$

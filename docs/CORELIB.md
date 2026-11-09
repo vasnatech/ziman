@@ -701,6 +701,8 @@ pub fn io_error_message(e: IoError) -> string
 
 pub fn of_bytes(data: [byte]) -> Iter<Result<[byte], IoError>>
 
+pub fn stdin() -> Iter<Result<[byte], IoError>>
+
 pub fn mapped<T, E, F>(
 
 pub fn limited(source: Iter<Result<[byte], IoError>>, max: int) -> Iter<Result<[byte], IoError>>

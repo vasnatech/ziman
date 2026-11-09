@@ -34,6 +34,7 @@
 #include "native_sqlite.h"
 #include "iter.h"
 #include "native_fs.h"
+#include "native_io.h"
 #include "native_locale.h"
 #include "native_regex.h"
 #include "native_net.h"
@@ -189,6 +190,7 @@ static int run_format(char **files, int n_files, int write, int check, int width
  * `ziman test`, so the three can never drift out of sync with each other. */
 static void register_all_natives(void) {
     native_fs_register();
+    native_io_register();
     native_iter_register();
     native_locale_register();
     native_regex_register();

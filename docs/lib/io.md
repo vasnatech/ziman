@@ -125,6 +125,40 @@ this module starts here.
 should cost what a reader costs, not what holding the whole value costs. Anything shorter than
 `chunk_bytes` is still exactly one chunk, so nothing about a small value changed.
 
+### `stdin`
+
+```
+pub fn stdin() -> Iter<Result<[byte], IoError>>
+```
+
+**The process's standard input, as a source** -- so that `io.text`, `io.lines`, `io.cursor`,
+`limited` and every parser built over them read a pipe exactly as they read a file.
+
+This is the piece that was missing for a program at the end of a pipeline. Until it existed the
+way to read standard input was `fs.read_text("/dev/stdin")`, which is three separate lies: it is
+Linux-only, it reads the whole input into memory before the first byte can be looked at, and it
+fails outright on a pipe on some systems rather than streaming it. `curl .. | prog` is the normal
+shape of a command-line tool and it should cost one chunk of memory, not the size of the input.
+
+**Three things about it are not like `fs.chunks`,** all for the same reason -- a file descriptor
+the process was handed is not a file this function opened:
+
+* **It cannot fail to start.** There is no `Result` on the call, because there is nothing to
+open: descriptor 0 either reads or its first chunk is an `Err`. A redirection that went wrong is
+the caller's shell's problem and arrives here as a read failure.
+* **Two calls are two views of one stream, not two streams.** Each has its own end-of-input flag,
+but the bytes are consumed from the same descriptor, so reading both interleaves them. Call it
+once and pass the source along.
+* **Closing it does not close descriptor 0.** `iter_close` ends *this* source -- a later
+`io.stdin()` still reads, and a child process still inherits a working standard input. Closing the
+process's own input out from under itself is not a thing a `for` loop leaving early should be able
+to do.
+
+Chunks are `chunk_bytes` at most and usually smaller: a pipe hands over what has been written so
+far, and a terminal a line at a time. **The never-empty rule is kept here** -- the native says end
+of input with an empty answer, because C cannot build an `Option`, and this turns that into the
+`None` the convention promises. Once it has ended, by input or by error, it stays ended.
+
 ### `mapped`
 
 ```
