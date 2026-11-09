@@ -1,0 +1,17 @@
+// A program that **dies** in raw mode: the case decision 3.1 names outright, where `with_raw`'s own
+// restore never runs and `atexit`'s is the only one left. The driver asserts the terminal is back
+// afterwards, and that the stack trace printed readably -- which it only does if OPOST is restored.
+use terminal
+
+fn main() {
+    val outcome = terminal.with_raw<unit>(fn() -> Result<unit, string> {
+        print("in raw mode")
+        val empty = mutable_array_new<int>()
+        print(str(empty[7]))
+        return ok(unit)
+    })
+    switch outcome {
+        Ok(_) { print("done") }
+        Err(why) { print(concat("failed: ", why)) }
+    }
+}

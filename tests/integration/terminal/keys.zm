@@ -1,0 +1,41 @@
+// Reads keys from a real terminal and names each one, then quits on `q`.
+//
+// Driven by tests/terminal_pty.py, which feeds the escape sequences through a pty master. The
+// sequences it sends are the ones a real terminal sends: a CSI arrow as one burst, an SS3 function
+// key, a **lone Escape with nothing after it** (the ambiguity the escape timeout exists for), a
+// multi-byte character, and Ctrl-C, which in raw mode is a byte rather than a signal.
+use terminal
+
+fn main() {
+    if !terminal.is_tty() {
+        print("not a tty")
+        return
+    }
+    val outcome = terminal.with_raw<unit>(fn() -> Result<unit, string> {
+        val screen = try terminal.size()
+        print(prelude.format("size {}x{}", screen.rows, screen.cols))
+        var seen = 0
+        while seen < 16 {
+            switch try terminal.read_key(3000) {
+                Some(key) {
+                    print(concat("key ", terminal.key_name(key)))
+                    seen = seen + 1
+                    // A `switch` over `Key` would need all eighteen arms; the predicate plus the
+                    // name is how a program actually reads keys. See docs/design/terminal.md §7.
+                    if terminal.Key.is_Char(key) && terminal.key_name(key) == "q" {
+                        return ok(unit)
+                    }
+                }
+                None {
+                    print("timeout")
+                    return ok(unit)
+                }
+            }
+        }
+        return ok(unit)
+    })
+    switch outcome {
+        Ok(_) { print("done") }
+        Err(why) { print(concat("failed: ", why)) }
+    }
+}

@@ -1,0 +1,18 @@
+// A program that **keeps running** after it is done with raw mode -- docs/design/terminal.md §6,
+// and the case `atexit` cannot cover. The driver samples the terminal's settings at the MARK, while
+// this process is still alive, so a restore that only happened at exit would fail the check.
+use clock
+use terminal
+
+fn main() {
+    val outcome = terminal.with_raw<int>(fn() -> Result<int, string> {
+        return ok(7)
+    })
+    switch outcome {
+        Ok(value) { print(concat("scope answered ", str(value))) }
+        Err(why) { print(concat("failed: ", why)) }
+    }
+    print("MARK")
+    // Long enough for the driver to read the settings back, short enough not to slow the suite.
+    clock.sleep_millis(600)
+}

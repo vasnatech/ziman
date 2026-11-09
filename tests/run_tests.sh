@@ -226,6 +226,19 @@ while IFS= read -r line; do
     esac
 done < <(BIN="$BIN" tests/run_shutdown_test.sh 2>&1)
 
+# Real-terminal tests (the suite's own stdin is a /dev/null, by design -- see the .in note above).
+# tests/stdlib/terminal_test.zm covers the escape-sequence table, which is pure; this covers raw
+# mode actually being entered and, the part that matters, the settings being put back however the
+# program ends. A system with no pty prints SKIP and is not counted either way.
+while IFS= read -r line; do
+    echo "$line"
+    case "$line" in
+        PASS*) pass=$((pass + 1)) ;;
+        FAIL*) fail=$((fail + 1)) ;;
+        SKIP*) skipped=$((skipped + 1)) ;;
+    esac
+done < <(BIN="$BIN" tests/run_terminal_test.sh 2>&1)
+
 echo "----"
 if [ "$skipped" -gt 0 ]; then echo "$pass passed, $fail failed, $skipped skipped"; else echo "$pass passed, $fail failed"; fi
 [ "$fail" -eq 0 ]

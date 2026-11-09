@@ -307,6 +307,13 @@ The fourth is the one `atexit` cannot do, and the reason the C half claims termi
 keeps its own drain and reaches `atexit` the ordinary way. `SIGKILL` remains unfixable, and is the
 one honest hole in decision 3.1.
 
+**And it is a gate, not a one-off.** `tests/terminal_pty.py` plus `tests/run_terminal_test.sh` run
+those four cases from `tests/run_tests.sh`, the way `tests/run_shutdown_test.sh` already runs the
+real-signal tests — the same precedent and the same PASS/FAIL format. A system with no pty prints
+`SKIP` rather than failing. The restore comparison was checked against the harness's own raw sample
+to make sure it is not vacuous: it rejects the raw settings and accepts the restored ones, and
+breaking one expected key takes the whole suite to exit 1.
+
 ## 11. Open questions
 
 1. ~~**`with_raw` or `set_raw`, or both?**~~ **Answered 2026-11-09**: `with_raw` is the public
