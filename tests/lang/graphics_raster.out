@@ -35,3 +35,10 @@ past the pixel cap:  raster: 4000x4000 is 16000000 pixels, past the 1000 allowed
 image out of range:  raster: a draw names image 3 but Options.images holds 0
 one gradient stop:   raster: a gradient needs at least two stops, got 1
 a zero-size scene:   raster: a 0.0x10.0 scene has no pixels
+surface matches render: true
+frame two matches one: true
+after a full frame:    true
+surface size:          24x16
+a scene of the wrong size: raster: the scene is 40x16 but the surface is 24x16 -- make a new surface when the window resizes
+a zero-size surface:   raster: a surface must be at least 1x1, got 0x16
+too large a surface:   raster: a surface may be at most 16384 on a side, got 20000x10

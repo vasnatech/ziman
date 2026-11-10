@@ -67,6 +67,24 @@ fn triple(img: image.Image, x: int, y: int) -> string {
     return concat(format("{:.1}", c.red), ",", format("{:.1}", c.green), ",", format("{:.1}", c.blue))
 }
 
+// Every channel of every pixel, as one string. **A whole-image comparison, where the rest of this
+// file reads four pixels**: for the canvas cases below the question is whether two renders agree
+// everywhere, and a handful of samples would miss a difference in the corner they do not cover.
+fn digest(img: image.Image) -> string {
+    val out = mutable_array_new<string>()
+    var y = 0
+    while y < img.height {
+        var x = 0
+        while x < img.width {
+            val c = unwrap(image.pixel_at(img, x, y))
+            push(out, concat(round4(c.red), ",", round4(c.green), ",", round4(c.blue), ",", round4(c.alpha)))
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return join(separator: " ", pieces: snapshot(out))
+}
+
 fn refusal<T>(r: Result<T, string>) -> string {
     return switch r {
         Ok(_) { "UNEXPECTEDLY ACCEPTED" }
@@ -475,5 +493,78 @@ fn main() {
         raster.options()
     ))))
     print(concat("a zero-size scene:   ", refusal(raster.render(scene.scene_of(0.0, 10.0), raster.options()))))
+
+    // ---- a reused surface draws what a fresh one does
+    //
+    // **`render_into` is a second path to the same pixels, so it needs the same oracle.** The whole
+    // argument for F270 is that `raster.zm` is checked per pixel against itself; a canvas the caller
+    // keeps is where that is easiest to get wrong, in two ways this asserts separately.
+    //
+    // A scene with partial alpha and overlap, because both failures hide in a scene without them.
+    val reuse = scene.with_ops(
+        scene.scene_of(24.0, 16.0),
+        [
+            scene.fill(
+                shape.rect_path(geom.rect_of(0.0, 0.0, 16.0, 10.0)),
+                paint.Paint.Solid(paint.rgba(0.2, 0.6, 0.9, 0.6))
+            ),
+            scene.fill(
+                shape.circle_path(geom.point_of(14.0, 9.0), 6.0),
+                paint.Paint.Solid(paint.rgba(0.9, 0.3, 0.1, 0.5))
+            )
+        ]
+    )
+    val fresh = unwrap_render(raster.render(reuse, raster.options()))
+    val surface = switch raster.surface_of(24, 16) {
+        Ok(c) { c }
+        Err(why) {
+            print(concat("surface refused: ", why))
+            return
+        }
+    }
+    val first = unwrap_render(raster.render_into(surface, reuse, raster.options()))
+    print(concat("surface matches render: ", str(digest(first) == digest(fresh))))
+
+    // **The second frame on the same surface**, which is the case a missing clear breaks: it still
+    // holds frame one, so compositing frame two over it doubles every alpha. Four pixels would not
+    // see that; the digest does.
+    val second = unwrap_render(raster.render_into(surface, reuse, raster.options()))
+    print(concat("frame two matches one: ", str(digest(second) == digest(first))))
+
+    // A third, after a scene that leaves *more* ink, to be sure the clear is not merely idempotent
+    // for one particular frame.
+    val heavier = scene.with_ops(
+        scene.scene_of(24.0, 16.0),
+        [scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 24.0, 16.0)), paint.Paint.Solid(paint.black()))]
+    )
+    val _ = unwrap_render(raster.render_into(surface, heavier, raster.options()))
+    val third = unwrap_render(raster.render_into(surface, reuse, raster.options()))
+    print(concat("after a full frame:    ", str(digest(third) == digest(first))))
+
+    print(concat(
+        "surface size:          ",
+        str(raster.surface_width(surface)),
+        "x",
+        str(raster.surface_height(surface))
+    ))
+
+    // ---- what a surface refuses
+    print(concat("a scene of the wrong size: ", refusal(raster.render_into(
+        surface,
+        scene.with_ops(scene.scene_of(40.0, 16.0), []),
+        raster.options()
+    ))))
+    print(concat("a zero-size surface:   ", refusal(raster.surface_of(0, 16))))
+    print(concat("too large a surface:   ", refusal(raster.surface_of(20000, 10))))
+}
+
+fn unwrap_render(r: Result<image.Image, string>) -> image.Image {
+    return switch r {
+        Ok(img) { img }
+        Err(why) {
+            print(concat("UNEXPECTED REFUSAL: ", why))
+            unwrap(image.image_of(1, 1, image.Pixels.Rgba8, [0b, 0b, 0b, 0b]))
+        }
+    }
 }
 use math

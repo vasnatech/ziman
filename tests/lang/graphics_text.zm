@@ -230,6 +230,64 @@ fn demo() -> Result<unit, string> {
     val bold_ids = try font.glyphs_of(bold, "a")
     print(concat("'a' is one glyph id: ", str(regular_ids[0] == bold_ids[0]), " (", str(regular_ids[0]), ")"))
 
+    // ---- a surface keeps its glyphs between frames, and keeps a bound on them
+    //
+    // **The other half of why `raster.Surface` exists**, and it needs a font, so it lives here
+    // rather than beside the surface cases in `graphics_raster.zm`. Two frames of the same text:
+    // the first fills the cache and the second finds it already filled, which is what makes a
+    // repainting window cheaper than a sequence of one-off renders.
+    val surface = switch raster.surface_of(150, 24) {
+        Ok(c) { c }
+        Err(why) { return err(concat("surface refused: ", why)) }
+    }
+    val run = text_scene("Hamburgefonstiv", 150.0, 24.0, 16.0, 2.0)
+    val opts = with raster.options() { fonts: [f], samples: 4 }
+    print(concat("glyphs before:       ", str(raster.cached_glyphs(surface))))
+    val frame_one = try raster.render_into(surface, run, opts)
+    val after_one = raster.cached_glyphs(surface)
+    print(concat("glyphs after a frame: ", str(after_one > 0)))
+    val frame_two = try raster.render_into(surface, run, opts)
+    print(concat("unchanged by frame 2: ", str(raster.cached_glyphs(surface) == after_one)))
+    // And the pixels are the same both times, which is what the reuse must not cost.
+    print(concat(
+        "both frames identical: ",
+        str(ink_in_columns(frame_one, 0, 149) == ink_in_columns(frame_two, 0, 149))
+    ))
+
+    // **The bound, with a limit of two instead of the real 8192**, which a fixture cannot reach.
+    // Checked at the *start* of a frame, so the overflowing frame still finishes with a working
+    // cache and the next one starts empty -- evicting mid-frame would thrash and be slower than no
+    // cache at all.
+    //
+    // **Two different texts, and that is the whole design of this case.** The first version of it
+    // drew the same text twice and asserted the count was unchanged -- which is true whether or not
+    // the bound does anything, because the second frame either refills exactly what it dropped or
+    // finds it all still there. Only a frame of *different* glyphs separates the two: a bounded
+    // surface ends holding the second text alone, an unbounded one holds both. So it is asserted
+    // against a default surface given the same two frames.
+    val other = text_scene("QWXZ 1234", 150.0, 24.0, 16.0, 2.0)
+    val bounded = switch raster.surface_of(150, 24) {
+        Ok(c) { with c { glyph_limit: 2 } }
+        Err(why) { return err(concat("surface refused: ", why)) }
+    }
+    val unbounded = switch raster.surface_of(150, 24) {
+        Ok(c) { c }
+        Err(why) { return err(concat("surface refused: ", why)) }
+    }
+    val _ = try raster.render_into(bounded, run, opts)
+    print(concat("over the limit:      ", str(raster.cached_glyphs(bounded) > 2)))
+    val _ = try raster.render_into(bounded, other, opts)
+    val _ = try raster.render_into(unbounded, run, opts)
+    val _ = try raster.render_into(unbounded, other, opts)
+    print(concat("bounded dropped the first text: ", str(
+        raster.cached_glyphs(bounded) < raster.cached_glyphs(unbounded)
+    )))
+    // And the unbounded one really did accumulate both, which is what makes the line above a
+    // comparison between two behaviours rather than between two numbers that happen to differ.
+    print(concat("unbounded kept both: ", str(
+        raster.cached_glyphs(unbounded) > raster.cached_glyphs(bounded) + 1
+    )))
+
     val alone_regular = try one_face("a", f, 0)
     val alone_bold = try one_face("a", bold_ref, 0)
     print(concat("alone, ink differs:  ", str(ink_sum(alone_regular) != ink_sum(alone_bold))))

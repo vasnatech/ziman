@@ -22,6 +22,13 @@ bold units per em:   1000
 same metrics:        true
 face ids differ:     true
 'a' is one glyph id: true (68)
+glyphs before:       0
+glyphs after a frame: true
+unchanged by frame 2: true
+both frames identical: true
+over the limit:      true
+bounded dropped the first text: true
+unbounded kept both: true
 alone, ink differs:  true
 bold after regular:  107.3961
   matches bold alone: true

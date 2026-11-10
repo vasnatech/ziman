@@ -1,0 +1,133 @@
+// What repainting a window costs, against rendering it once -- the question `ui_frame.zm` cannot
+// ask.
+//
+// **`ui_frame.zm` renders each scene once, and that is the wrong shape for a toolkit.** A window
+// repaints: the same size, the same font, mostly the same text, sixty times a second if it can. So
+// the cost that matters is the *second* frame and every one after it, and the two things a one-off
+// render cannot avoid paying every time are the ones this measures -- a canvas asked for and zeroed
+// per frame, and a glyph cache thrown away per frame.
+//
+// `--profile` over `ui_frame.zm` put `mutable_array_filled` and the collection it causes at about a
+// quarter of a frame, ahead of the edge walk and twice the character map: `new_target` asks for
+// `width * height * 4` floats, which is 4,096,000 at 1280x800, measured on its own at 16.5 ms a
+// frame. `raster.Surface` and `render_into` are the answer to that, and this file is the evidence.
+//
+// **Interleaved, A then B, three passes**, which is the technique every measurement in F270 uses and
+// for a reason worth repeating: this machine's absolute figures have moved by about 2x between two
+// batches an hour apart with no code change. Read the ratio of the pair in one pass, never a number
+// against a number in another file.
+//
+// Measured when written, 10 frames of a 1280x800 window of chrome and text:
+//
+//   | pass | render | render_into | ratio |
+//   | ---- | ------ | ----------- | ----- |
+//   | 0    | 808 ms | 451 ms      | 1.79x |
+//   | 1    | 699 ms | 398 ms      | 1.76x |
+//   | 2    | 613 ms | 418 ms      | 1.47x |
+//
+// A second run after the rename, on a quieter machine state, read 759/417, 744/433 and 764/410 --
+// 1.82x, 1.72x, 1.86x. The two batches agree on the ratio and disagree on the absolutes by a third,
+// which is the point of the paragraph above.
+//
+// 35 glyphs stayed cached across all ten frames. The remaining per-frame cost is the edge walk and
+// the character map, which are F270's items 5 and 2.
+use clock
+use font
+use fs
+use geom
+use paint
+use raster
+use scene
+use shape
+
+fn solid(r: float, g: float, b: float) -> paint.Paint {
+    return paint.Paint.Solid(paint.rgb(r, g, b))
+}
+
+// A window's worth of chrome and text, like ui_frame's.
+fn frame_scene(width: float, height: float) -> scene.Scene {
+    val ops = mutable_array_new<scene.Op>()
+    val chrome = solid(0.93, 0.93, 0.95)
+    val ink = solid(0.1, 0.1, 0.12)
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, width, 44.0)), chrome))
+    for i in 0..8 {
+        val x = 12.0 + (i as float) * 92.0
+        push(ops, scene.fill(shape.round_rect_path(geom.rect_of(x, 8.0, 84.0, 28.0), 6.0), solid(1.0, 1.0, 1.0)))
+        push(ops, scene.text_of("Menu", geom.point_of(x + 10.0, 28.0), 13.0, 0, ink))
+    }
+    for i in 0..40 {
+        val y = 56.0 + (i as float) * 18.0
+        if y < height - 18.0 {
+            push(ops, scene.text_of("A record of some length, 2026-11-10", geom.point_of(12.0, y), 12.0, 0, ink))
+        }
+    }
+    return scene.with_ops(scene.scene_of(width, height), snapshot(ops))
+}
+
+fn main() {
+    val data = switch fs.read_bytes("vendor/fonts/Caladea-Regular.ttf") {
+        Ok(d) { d }
+        Err(_) {
+            print("no font")
+            return
+        }
+    }
+    val f = switch font.load(data) {
+        Ok(x) { x }
+        Err(why) {
+            printf("load: {}\n", why)
+            return
+        }
+    }
+    val o = with raster.options() {
+        fonts: [f],
+        samples: 4,
+        background: Option<paint.Color>.Some(paint.white()),
+        max_pixels: 4000000
+    }
+    val s = frame_scene(1280.0, 800.0)
+    val rounds = 10
+
+    // Interleaved, A then B then A then B, three rounds each -- the technique this file's
+    // predecessors use, because this machine's absolutes drift by about 2x within an hour.
+    var pass = 0
+    while pass < 3 {
+        var a = 0
+        val t0 = clock.monotonic_millis()
+        while a < rounds {
+            switch raster.render(s, o) {
+                Ok(_) { unit }
+                Err(why) { printf("render: {}\n", why) }
+            }
+            a = a + 1
+        }
+        val render_ms = clock.monotonic_millis() - t0
+
+        val canvas = switch raster.surface_of(1280, 800) {
+            Ok(c) { c }
+            Err(why) {
+                printf("canvas: {}\n", why)
+                return
+            }
+        }
+        var b = 0
+        val t1 = clock.monotonic_millis()
+        while b < rounds {
+            switch raster.render_into(canvas, s, o) {
+                Ok(_) { unit }
+                Err(why) { printf("render_into: {}\n", why) }
+            }
+            b = b + 1
+        }
+        val into_ms = clock.monotonic_millis() - t1
+        printf(
+            "pass {}: render {} ms  render_into {} ms  ({} frames each, {} glyphs cached)\n",
+            str(pass),
+            str(render_ms),
+            str(into_ms),
+            str(rounds),
+            str(raster.cached_glyphs(canvas))
+        )
+        pass = pass + 1
+    }
+}
