@@ -36,6 +36,7 @@
 #include "native_fs.h"
 #include "native_io.h"
 #include "native_terminal.h"
+#include "native_raster.h"
 #include "native_window.h"
 #include "native_locale.h"
 #include "native_regex.h"
@@ -194,6 +195,7 @@ static void register_all_natives(void) {
     native_fs_register();
     native_io_register();
     native_terminal_register();
+    native_raster_register();
     native_window_register();
     native_iter_register();
     native_locale_register();

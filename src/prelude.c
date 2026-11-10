@@ -1259,6 +1259,19 @@ static int64_t mutable_array_handle_of(Value ab) {
     return ab.as.st->fields[0].as.i;
 }
 
+/* See prelude.h. Deliberately not a general "give me the buffer" accessor: it answers only for
+ * float-packed storage, so a caller cannot reach a boxed builder's `Value *` and write a double
+ * into it. */
+double *ziman_mutable_array_float_data(Value ab, size_t *out_len) {
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(ab));
+    if (buf->pkind != PK_FLOAT || buf->pdata == NULL || buf->length == 0) {
+        *out_len = 0;
+        return NULL;
+    }
+    *out_len = buf->length;
+    return (double *)buf->pdata;
+}
+
 static void mutable_array_ensure_capacity(MutableArrayBuf *buf, size_t additional) {
     size_t needed = buf->length + additional;
     if (needed <= buf->capacity) {

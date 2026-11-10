@@ -13,11 +13,22 @@
 //   * fills only, no text -- is glyph rasterisation the cost? (a glyph cache would fix that)
 //   * an EMPTY scene at four sizes -- what does a canvas cost with nothing drawn at all?
 //
-// The last one is the answer: an empty 1280x800 canvas costs about 1.2 microseconds per pixel, and
-// it is linear in pixels, so roughly 70% of a real frame is spent before anything is drawn.
-// 60 fps at that size needs 16 ns per pixel. Drawing is cheap here; touching pixels from the
-// interpreter is not, which is why the design puts a renderer in C and keeps `raster.zm` as the
-// reference implementation and the headless-test oracle.
+// The last one was the answer, and acting on it is F270's first instalment. **Measured history,
+// because the point of this file is the comparison:**
+//
+//   | 1280x800        | all Ziman | clear + convert in C |
+//   | --------------- | --------- | -------------------- |
+//   | empty scene     | ~1290 ms  | 28 ms                |
+//   | fills only      | ~1640 ms  | 397 ms               |
+//   | the full frame  | ~1950 ms  | 625 ms               |
+//
+// An empty canvas cost about 1.2 microseconds per pixel, linear in pixels, so roughly two thirds of
+// a frame went before anything was drawn -- `clear_to` and `finish` in `raster.zm`, four floats per
+// pixel each way. Those two are native now and the floor is 45x smaller.
+//
+// **What remains is the drawing, which is the rest of F270.** 625 ms is still 37x too slow for
+// 60 fps at this size, and it is now spent where a renderer actually spends it: flattening paths,
+// filling spans, and rasterising glyphs.
 //
 // Run: `./ziman tests/bench/ui_frame.zm` (from the repository root -- see the design document's
 // note on `lib/graphics` not loading from outside it).

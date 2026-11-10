@@ -146,6 +146,19 @@ Value ziman_mutable_string_from(Value source, int source_is_handle);
 Value ziman_mutable_array_lit(const Value *items, int n);
 Value ziman_slice_array(Value a, int64_t start, int64_t end, int line, int col);
 Value ziman_slice_mutable_array(Value b, int64_t start, int64_t end, int line, int col);
+
+/* The packed `double` storage of a `MutableArray<float>` under construction, so a native can work
+ * on a large buffer in place instead of copying it.
+ *
+ * Exported for `src/native_raster.c`, whose whole reason to exist is that a raster canvas is four
+ * doubles per pixel -- 4 million of them for a 1280x800 frame -- and both snapshotting it and
+ * walking it element by element from the interpreter cost more than the drawing does.
+ *
+ * Answers NULL, with `*out_len` zero, for a builder that is empty or is not float-packed; a caller
+ * must handle that rather than assume, because a `MutableArray` only adopts a packed
+ * representation once it has an element to adopt it from. The pointer is valid until the builder is
+ * next grown or snapshotted, so a caller uses it and returns -- it must not be kept. */
+double *ziman_mutable_array_float_data(Value ab, size_t *out_len);
 Value ziman_narrow_mutable_array(Value b, int64_t start, int64_t end, int line, int col);
 Value ziman_swap_mutable_array(Value b, int64_t i, int64_t j, int line, int col);
 Value ziman_concat_strings(const ArrayObj *pieces);
