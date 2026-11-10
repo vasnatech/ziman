@@ -1,4 +1,5 @@
-// Presents four flat quadrants and holds the window while the harness screenshots it.
+// Presents four flat quadrants, reports every event it is sent, and holds the window while the
+// harness screenshots it and synthesises input.
 //
 // **The pattern is red/green/blue/white and not a picture, because channel order is the bug this
 // case exists to catch.** `src/native_window.c` repacks RGBA into whatever the visual's masks say,
@@ -6,8 +7,14 @@
 // obvious implementation shows blue where red should be, on every machine, and no amount of reading
 // the code makes that as obvious as a screenshot does.
 //
-// Prints the window id for the harness, then drains events until its deadline so a resize or an
-// expose is consumed rather than queued.
+// Prints the window id for the harness, then reports every event it receives until it is asked to
+// close or its deadline passes.
+//
+// **The event lines are the other half of the gate.** The pixels prove `present` reaches the
+// screen; nothing in Ziman can prove that a real key press becomes a `KeyDown`, because no Ziman
+// code can press a key -- so `tests/tools/x11_inject.c` presses them through the X server and these
+// lines are what the harness reads back. A `Close` is obeyed rather than counted, which is also the
+// check that `with_window` gives the window back when its body returns normally.
 use clock
 use window
 
@@ -47,6 +54,57 @@ fn quadrants() -> [byte] {
     return snapshot(out)
 }
 
+// One line per event, in a shape the harness greps: the name, then whatever the event carries that
+// could be wrong. Positions and modifier flags are printed rather than summarised, because a
+// pointer event at the wrong coordinates and a modifier that never arrives are exactly the
+// mistakes this exists to catch.
+fn report(e: window.Event) {
+    switch e {
+        KeyDown(k) {
+            printf(
+                "event KeyDown {} shift={} control={} alt={}\n",
+                window.key_name(k),
+                str(k.shift),
+                str(k.control),
+                str(k.alt)
+            )
+        }
+        KeyUp(k) { printf("event KeyUp {}\n", window.key_name(k)) }
+        Char(text) { printf("event Char [{}]\n", text) }
+        PointerDown(p) { printf("event PointerDown button={} at {},{}\n", str(p.button), str(p.x), str(p.y)) }
+        PointerUp(p) { printf("event PointerUp button={} at {},{}\n", str(p.button), str(p.x), str(p.y)) }
+        PointerMove(p) { printf("event PointerMove {},{}\n", str(p.x), str(p.y)) }
+        Scroll(s) {
+            printf("event Scroll vertical={} horizontal={} at {},{}\n", str(s.vertical), str(s.horizontal), str(s.x), str(s.y))
+        }
+        Resize(size) { printf("event Resize {}x{}\n", str(size.width), str(size.height)) }
+        Close { print("event Close") }
+        FocusIn { print("event FocusIn") }
+        FocusOut { print("event FocusOut") }
+        Exposed { print("event Exposed") }
+    }
+}
+
+// Whether the window manager -- or the harness standing in for it -- asked this window to go away.
+// Written out arm by arm because this language has no wildcard arm for a variant, which is the
+// trade for a switch that fails to compile when a case is added to `Event`.
+fn is_close(e: window.Event) -> bool {
+    return switch e {
+        Close { true }
+        KeyDown(_) { false }
+        KeyUp(_) { false }
+        Char(_) { false }
+        PointerDown(_) { false }
+        PointerUp(_) { false }
+        PointerMove(_) { false }
+        Scroll(_) { false }
+        Resize(_) { false }
+        FocusIn { false }
+        FocusOut { false }
+        Exposed { false }
+    }
+}
+
 fn main() {
     val outcome = window.with_window<unit>(
         "ziman window test",
@@ -65,9 +123,18 @@ fn main() {
             // every pass costs nothing here and means any capture after "presented" sees the
             // pattern. A real application does this too: it is what an `Exposed` event asks for.
             val frame = quadrants()
-            val deadline = clock.monotonic_millis() + 6000
-            while clock.monotonic_millis() < deadline {
-                val _ = try window.poll(w)
+            // **A backstop, not a duration.** The run ends when the harness sends a close, which
+            // is the last thing it does; this only bounds a run where that never arrives, so a
+            // failing case cannot hang `make check`.
+            val deadline = clock.monotonic_millis() + 30000
+            var closing = false
+            while !closing && clock.monotonic_millis() < deadline {
+                for one in try window.poll(w) {
+                    report(one)
+                    if is_close(one) {
+                        closing = true
+                    }
+                }
                 try window.present(w, frame, width, height)
                 clock.sleep_millis(50)
             }

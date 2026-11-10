@@ -26,11 +26,12 @@
  * have, and the backend seam means F274 can add SDL3 when input methods make it worth a
  * dependency.
  *
- * xalloc-exempt: the window's pixel buffer is allocated with plain `malloc` and checked for NULL
+ * xalloc-exempt: the window's pixel buffer is allocated with libc's own malloc and checked for NULL
  * here, because `XDestroyImage` calls libc `free()` on it -- an XImage owns the data it was handed.
- * A buffer from `ziman_xmalloc` would be freed by the X library through the wrong allocator, which
- * is the one thing worse than checking NULL by hand. Every other allocation in this file uses
- * xalloc as usual. */
+ * A buffer from the collector would be freed by the X library through the wrong allocator, which is
+ * the one thing worse than checking NULL by hand. **`malloc` alone is not libc's malloc in this
+ * build** -- see `libc_malloc` below, which is the correction to the version of this note that
+ * thought it was. Every other allocation in this file uses xalloc as usual. */
 #define _POSIX_C_SOURCE 200809L
 #include "native_window.h"
 
@@ -151,10 +152,30 @@ static Slot *slot_of(int64_t handle) {
     return s->used ? s : NULL;
 }
 
+/* **The pixel buffer has to come from the allocator the X library will hand it back to.**
+ * `XDestroyImage` calls libc `free()` on `image->data` -- that code is inside libX11 and so sees
+ * nothing of src/zgc.h -- while in this build `malloc` *is* `GC_MALLOC`, because zgc.h is
+ * force-included and `$(GC_FLAGS)` is part of the default `CFLAGS`. So the plain `malloc(bytes)`
+ * this used to call gave the collector's memory to libc's free, and closing a window aborted the
+ * process with `free(): invalid size`. Found by pressing a key at a real window (F269), not by
+ * reading the code: the file's own header already said what the rule was.
+ *
+ * The idiom is src/iter.c:154 and src/native_http.c:15 -- suspended rather than undefined, so the
+ * rest of the file still allocates through the collector like everything else. Keeping these pixels
+ * outside the collector hides nothing from the mark phase: they are bytes, never pointers. */
+#pragma push_macro("malloc")
+#pragma push_macro("free")
+#undef malloc
+#undef free
+static void *libc_malloc(size_t n) { return malloc(n); } /* xalloc-ok: libc's own malloc, reached on purpose; `ensure_image` checks the NULL */
+static void libc_free(void *p) { free(p); }
+#pragma pop_macro("free")
+#pragma pop_macro("malloc")
+
 static void free_image(Slot *s) {
     if (s->image != NULL) {
-        /* XDestroyImage frees the data pointer too, which is why `pixels` is allocated with
-         * malloc and not ziman_xmalloc: the X library will call free() on it. */
+        /* XDestroyImage frees the data pointer too, with libc's free, which is why `pixels` comes
+         * from `libc_malloc` and not from the collector. */
         XDestroyImage(s->image);
         s->image = NULL;
         s->pixels = NULL;
@@ -170,13 +191,13 @@ static const char *ensure_image(Slot *s, int width, int height) {
     Visual *visual = DefaultVisual(g_display, screen);
     int depth = DefaultDepth(g_display, screen);
     size_t bytes = (size_t)width * (size_t)height * 4u;
-    char *data = malloc(bytes); /* xalloc-ok: NULL checked below; XDestroyImage frees it */
+    char *data = libc_malloc(bytes); /* xalloc-ok: NULL checked below; XDestroyImage frees it */
     if (data == NULL) return "out of memory for the window's pixel buffer";
     memset(data, 0, bytes);
     XImage *image = XCreateImage(g_display, visual, (unsigned)depth, ZPixmap, 0, data,
                                  (unsigned)width, (unsigned)height, 32, width * 4);
     if (image == NULL) {
-        free(data);
+        libc_free(data);
         return "cannot create an image for the window (unsupported visual?)";
     }
     s->image = image;
@@ -184,6 +205,21 @@ static const char *ensure_image(Slot *s, int width, int height) {
     s->image_width = width;
     s->image_height = height;
     return NULL;
+}
+
+/* Appends one event's five fields, growing `out`. Returns the (possibly moved) buffer.
+ *
+ * A function because `poll_raw` appends from two places -- an X KeyPress produces both a `KeyDown`
+ * and the `Char` it composed -- and the second copy of this arithmetic is what put them in the
+ * wrong order. */
+static int64_t *push_event(int64_t *out, int *count, int *capacity, const int64_t *fields) {
+    if (*count + 1 > *capacity) {
+        *capacity = *capacity == 0 ? 32 : *capacity * 2;
+        out = ziman_xrealloc(out, (size_t)*capacity * EVENT_FIELDS * sizeof *out);
+    }
+    memcpy(out + (size_t)*count * EVENT_FIELDS, fields, (size_t)EVENT_FIELDS * sizeof *out);
+    (*count)++;
+    return out;
 }
 
 #endif /* ZIMAN_X11 */
@@ -325,6 +361,14 @@ static Value native_window_poll_raw(Value *args, int argc, int line, int col) {
         XNextEvent(g_display, &e);
         int64_t fields[EVENT_FIELDS] = { 0, 0, 0, 0, 0 };
         int have = 0;
+        /* A second event out of the same X event: the text a key composed. Held rather than
+         * appended where it is computed, because **it has to follow the `KeyDown`, not precede
+         * it.** It used to precede it -- the text arrived before the keystroke that produced it,
+         * which breaks any program that decides from the `KeyDown` whether to consume the
+         * character, and which no unit test over `decode_events` could see, because the order is
+         * the native's and the decoder only maps what it is handed. */
+        int64_t extra[EVENT_FIELDS] = { 0, 0, 0, 0, 0 };
+        int have_extra = 0;
 
         switch (e.type) {
         case KeyPress:
@@ -342,13 +386,9 @@ static Value native_window_poll_raw(Value *args, int argc, int line, int col) {
                 KeySym ignored;
                 int len = XLookupString(&e.xkey, buf, sizeof buf, &ignored, NULL);
                 if (len > 0 && (unsigned char)buf[0] >= 0x20 && (unsigned char)buf[0] != 0x7f) {
-                    if (count + 2 > capacity) {
-                        capacity = capacity == 0 ? 32 : capacity * 2;
-                        out = ziman_xrealloc(out, (size_t)capacity * EVENT_FIELDS * sizeof *out);
-                    }
-                    int64_t ch[EVENT_FIELDS] = { EV_CHAR, (int64_t)(unsigned char)buf[0], 0, 0, 0 };
-                    memcpy(out + (size_t)count * EVENT_FIELDS, ch, sizeof ch);
-                    count++;
+                    extra[0] = EV_CHAR;
+                    extra[1] = (int64_t)(unsigned char)buf[0];
+                    have_extra = 1;
                 }
             }
             break;
@@ -418,12 +458,8 @@ static Value native_window_poll_raw(Value *args, int argc, int line, int col) {
         }
 
         if (!have) continue;
-        if (count + 1 > capacity) {
-            capacity = capacity == 0 ? 32 : capacity * 2;
-            out = ziman_xrealloc(out, (size_t)capacity * EVENT_FIELDS * sizeof *out);
-        }
-        memcpy(out + (size_t)count * EVENT_FIELDS, fields, sizeof fields);
-        count++;
+        out = push_event(out, &count, &capacity, fields);
+        if (have_extra) out = push_event(out, &count, &capacity, extra);
     }
 
     /* `out` is still NULL when nothing happened, which is the common case in a render loop --

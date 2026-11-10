@@ -23,6 +23,12 @@
 // character the layout and any dead keys actually produced. Deriving either from the other is how
 // keyboard layouts go wrong -- a program that computes text from a keysym gets a German keyboard
 // subtly wrong, and one that computes shortcuts from text cannot tell Ctrl-S from a typed `s`.
+//
+// **The `KeyDown` comes first and the `Char` second**, which is a promise rather than an accident: a
+// program that decides from the key whether to consume the character needs to see the key first.
+// They arrived the other way round until a real key press was finally synthesised against a real
+// window (`tests/run_window_test.sh`), because the order is the backend's and no test over
+// `decode_events` can see it.
 pub enum Event {
     KeyDown(KeyPress)
     KeyUp(KeyPress)
