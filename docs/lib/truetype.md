@@ -152,6 +152,26 @@ point has the *last* listed advance, which is how a monospaced font stores one w
 thousands of glyphs. Reading past the array instead of clamping is the classic bug here, and it
 returns whatever bytes follow.
 
+### `face_id`
+
+```
+pub fn face_id(f: Face) -> int
+```
+
+What distinguishes one face from another, for anything that caches per face.
+
+**The `head` table's `checkSumAdjustment`**, which the font's builder computed over the whole
+file and stored in it -- so it is a content fingerprint that costs four bytes to read rather than
+a hash this library would have to compute per call. Two faces of one family differ here even when
+their units per em, glyph count and byte length are identical, which is exactly the case that
+matters: `Caladea-Regular` and `Caladea-Bold` are both 1000 units and 420 glyphs.
+
+Zero for a face with no `head` table, which is a face `parse` would already have refused -- so a
+caller treating zero as "cannot tell these apart" is being careful rather than correct.
+
+Not a cryptographic identity and not meant as one: a font edited without its checksum being
+recomputed keeps the old value, and this is for keying a cache, not for trusting a file.
+
 ### `name_of`
 
 ```

@@ -397,7 +397,24 @@ fn draw_text(
     // entries rather than falling off the cache.
     val linear = matrix_concat(m, geom.scaling(run.size / (face.units_per_em as float), 0.0 - run.size /
             (face.units_per_em as float)))
+    // **The face has to be part of the key, and it was not.** The key was the transform, the glyph
+    // id and the subpixel offset -- so two faces with the same units per em, drawn at the same size
+    // under the same transform, produced the same prefix, and a glyph id present in both was served
+    // from whichever face drew it first. That is not a corner case: it is regular and bold of one
+    // family in one scene, which share a character set and so share glyph ids. `Caladea-Regular`
+    // and `Caladea-Bold` are both 1000 units per em with 420 glyphs, and 'a' is glyph 68 in both;
+    // drawing it in each rendered the second in the first's shape.
+    //
+    // `truetype.face_id` is the font's own `checkSumAdjustment`, four bytes it already carries. The
+    // units per em and the glyph count go in beside it so that a face with no usable checksum --
+    // where `face_id` answers 0 -- still separates from most others rather than from none.
     val prefix = concat(
+        str(truetype.face_id(face)),
+        ":",
+        str(face.units_per_em),
+        ":",
+        str(face.glyph_count),
+        ":",
         format("{:.5}", linear.a),
         ",",
         format("{:.5}", linear.b),

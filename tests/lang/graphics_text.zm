@@ -21,6 +21,7 @@ use scene
 use truetype
 
 val font_path = "vendor/fonts/Caladea-Regular.ttf"
+val bold_path = "vendor/fonts/Caladea-Bold.ttf"
 
 fn round4(x: float) -> string {
     return format("{:.4}", x)
@@ -77,9 +78,13 @@ fn ink_in_columns(img: image.Image, from_x: int, to_x: int) -> float {
 }
 
 fn loaded() -> Result<font.FontRef, string> {
-    val data = switch fs.read_bytes(font_path) {
+    return load_from(font_path)
+}
+
+fn load_from(path: string) -> Result<font.FontRef, string> {
+    val data = switch fs.read_bytes(path) {
         Ok(d) { d }
-        Err(e) { return err(concat("cannot read ", font_path, ": ", fs.fs_error_message(e))) }
+        Err(e) { return err(concat("cannot read ", path, ": ", fs.fs_error_message(e))) }
     }
     return font.load(data)
 }
@@ -199,7 +204,76 @@ fn demo() -> Result<unit, string> {
     // U+4E2D is Chinese; this is a Latin face. The refusal has to say which code point, because a
     // caller's only other option is to guess which character of a long string was the problem.
     print(concat("missing glyph:       ", refusal(font.glyphs_of(face, "ok 中"))))
+
+    // ---- two faces in one scene get their own glyphs
+    //
+    // **The case a single face cannot test, and the reason `Caladea-Bold` is vendored beside the
+    // Regular.** `raster.zm` caches rasterised glyphs, and its key was the transform, the glyph id
+    // and the subpixel offset -- nothing naming the face. These two are *1000 units per em with 420
+    // glyphs each*, so every part of that key matched, and `a` is glyph 68 in both: drawing it in
+    // each rendered the second in the first's shape. Regular above bold in one scene is as ordinary
+    // as a heading over a paragraph.
+    //
+    // Asserted three ways, because each alone could pass for the wrong reason. The faces must be
+    // indistinguishable by their metrics (or the key would separate them by accident); their ink
+    // drawn *alone* must differ (or there is nothing for a cache to get wrong); and the bold drawn
+    // after the regular **in one scene** must match the bold drawn alone.
+    val bold_ref = try load_from(bold_path)
+    val bold = try face_of(bold_ref)
+    print(concat("bold units per em:   ", str(bold.units_per_em)))
+    print(concat("same metrics:        ", str(
+        bold.units_per_em == face.units_per_em && bold.glyph_count == face.glyph_count
+    )))
+    // The identity that does separate them, which is what the cache key carries.
+    print(concat("face ids differ:     ", str(truetype.face_id(bold) != truetype.face_id(face))))
+    val regular_ids = try font.glyphs_of(face, "a")
+    val bold_ids = try font.glyphs_of(bold, "a")
+    print(concat("'a' is one glyph id: ", str(regular_ids[0] == bold_ids[0]), " (", str(regular_ids[0]), ")"))
+
+    val alone_regular = try one_face("a", f, 0)
+    val alone_bold = try one_face("a", bold_ref, 0)
+    print(concat("alone, ink differs:  ", str(ink_sum(alone_regular) != ink_sum(alone_bold))))
+    // Both faces in one render, so they share one cache. The bold run is read on its own half.
+    val together = try raster.render(
+        scene.with_ops(
+            scene.scene_of(120.0, 40.0),
+            [
+                scene.text_of("a", geom.point_of(4.0, 29.0), 28.0, 0, paint.Paint.Solid(paint.rgb(0.0, 0.0, 0.0))),
+                scene.text_of("a", geom.point_of(64.0, 29.0), 28.0, 1, paint.Paint.Solid(paint.rgb(0.0, 0.0, 0.0)))
+            ]
+        ),
+        with raster.options() { fonts: [f, bold_ref], samples: 4 }
+    )
+    print(concat("bold after regular:  ", round4(ink_in_columns(together, 60, 119))))
+    print(concat("  matches bold alone: ", str(
+        round4(ink_in_columns(together, 60, 119)) == round4(ink_in_columns(try shifted_bold(bold_ref), 60, 119))
+    )))
     return ok(unit)
+}
+
+// One character on a 120x40 canvas, drawn with the given font index out of a one-font list.
+fn one_face(content: string, f: font.FontRef, index: int) -> Result<image.Image, string> {
+    val _ = index
+    return raster.render(
+        scene.with_ops(
+            scene.scene_of(120.0, 40.0),
+            [scene.text_of(content, geom.point_of(4.0, 29.0), 28.0, 0, paint.Paint.Solid(paint.rgb(0.0, 0.0, 0.0)))]
+        ),
+        with raster.options() { fonts: [f], samples: 4 }
+    )
+}
+
+// The bold 'a' at the *same place* the two-face scene puts it, so the two are comparable band for
+// band rather than only in total -- `ink_sum` is translation-invariant and would not notice a run
+// drawn in the wrong place.
+fn shifted_bold(bold_ref: font.FontRef) -> Result<image.Image, string> {
+    return raster.render(
+        scene.with_ops(
+            scene.scene_of(120.0, 40.0),
+            [scene.text_of("a", geom.point_of(64.0, 29.0), 28.0, 0, paint.Paint.Solid(paint.rgb(0.0, 0.0, 0.0)))]
+        ),
+        with raster.options() { fonts: [bold_ref], samples: 4 }
+    )
 }
 
 fn refusal<T>(r: Result<T, string>) -> string {

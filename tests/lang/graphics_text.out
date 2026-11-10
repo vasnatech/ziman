@@ -18,4 +18,11 @@ half-pixel shift moves ink: true
 gray8 channels:      1
 gray8 darkest pixel: 1
 missing glyph:       font.glyphs_of: the face cannot draw U+4E2D
+bold units per em:   1000
+same metrics:        true
+face ids differ:     true
+'a' is one glyph id: true (68)
+alone, ink differs:  true
+bold after regular:  107.3961
+  matches bold alone: true
 ok
