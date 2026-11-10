@@ -322,6 +322,130 @@ static Value native_raster_add_span(Value *args, int argc, int line, int col) {
     return value_unit();
 }
 
+/* raster.composite_row_gradient(canvas, coverage, row_base, first_col, last_col, spec, mask,
+ * has_mask): one scanline of a linear or radial gradient fill.
+ *
+ * **The largest ratio left in the renderer when this was written.** A full-canvas solid fill of
+ * 1280x800 took 47 ms through `composite_row_flat`; the same fill with a linear gradient took
+ * 2625 ms, because a gradient is evaluated per pixel -- an inverse transform, a search through the
+ * stops, a lerp, and a `Premul` built and returned -- all in the interpreter. 56x, for a scene that
+ * looks no more complicated.
+ *
+ * **The paint arrives as one flat `[float]` rather than a dozen parameters**, which is what makes
+ * this extensible to the tiled and placed-image inks later without changing the signature:
+ *
+ *     [0]      kind: 0 linear, 1 radial
+ *     [1..6]   the inverse matrix a, b, c, d, e, f
+ *     [7..9]   linear: from.x, from.y, span     radial: centre.x, centre.y, radius
+ *     [10..11] linear: dx, dy                   radial: unused
+ *     [12]     the number of stops, n
+ *     [13..]   n groups of five: offset, then premultiplied red, green, blue, alpha
+ *
+ * The row's device y is a parameter rather than part of the spec, because the spec is built once
+ * per fill and y changes per row.
+ *
+ * Everything below is transcribed from `ready_at` and `ramp_at`: the clamp of the ramp position to
+ * 0..1, the `<=` against the first stop, the search for the first stop at or past the position, the
+ * zero-width guard, and the lerp written as `a + (b - a) * f` rather than the algebraically equal
+ * `a * (1 - f) + b * f`, which rounds differently. Coverage accumulates into bytes, so those are
+ * not free choices. */
+static Value native_raster_composite_row_gradient(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    size_t canvas_len = 0;
+    double *data = ziman_mutable_array_float_data(args[0], &canvas_len);
+    size_t cov_len = 0;
+    const double *coverage = ziman_mutable_array_float_data(args[1], &cov_len);
+    const ArrayObj *spec_arr = args[6].as.arr;
+    const double *spec = spec_arr == NULL ? NULL : spec_arr->floats;
+    if (data == NULL || coverage == NULL || spec == NULL) return value_unit();
+    size_t spec_len = spec_arr->count < 0 ? 0 : (size_t)spec_arr->count;
+    if (spec_len < 13) return value_unit();
+
+    int64_t row_base = args[2].as.i;
+    int64_t first_col = args[3].as.i;
+    int64_t last_col = args[4].as.i;
+    double row_y = args[5].as.f;
+    const ArrayObj *mask_arr = args[7].as.arr;
+    const double *mask = mask_arr == NULL ? NULL : mask_arr->floats;
+    int has_mask = args[8].as.b != 0;
+    if (has_mask && mask == NULL) return value_unit();
+    size_t mask_len = (has_mask && mask_arr != NULL && mask_arr->count > 0)
+                          ? (size_t)mask_arr->count : 0;
+
+    int radial = spec[0] != 0.0;
+    double ia = spec[1], ib = spec[2], ic = spec[3], id = spec[4], ie = spec[5], iff = spec[6];
+    double g0 = spec[7], g1 = spec[8], g2 = spec[9], g3 = spec[10], g4 = spec[11];
+    int64_t stops = (int64_t)spec[12];
+    if (stops < 1 || spec_len < (size_t)(13 + stops * 5)) return value_unit();
+    const double *st = spec + 13;
+
+    for (int64_t x = first_col; x <= last_col; x++) {
+        if (x < 0 || (size_t)x >= cov_len) continue;
+        double cov = coverage[x];
+        if (cov <= 0.002) continue;
+        double through = 1.0;
+        int64_t pi = row_base + x;
+        if (pi < 0) continue;
+        if (has_mask) {
+            if ((size_t)pi >= mask_len) continue;
+            through = mask[pi];
+        }
+        if (through <= 0.002) continue;
+
+        /* The pixel's centre, through the inverse transform: `ready_at`'s own first step, and
+         * `geom.transform_point` written out. */
+        double px = (double)x + 0.5;
+        double ux = ia * px + ic * row_y + ie;
+        double uy = ib * px + id * row_y + iff;
+
+        double t;
+        if (radial) {
+            double ddx = ux - g0;
+            double ddy = uy - g1;
+            t = sqrt(ddx * ddx + ddy * ddy) / g2;
+        } else {
+            t = ((ux - g0) * g3 + (uy - g1) * g4) / g2;
+        }
+        if (t < 0.0) t = 0.0;
+        if (t > 1.0) t = 1.0;
+
+        double r, g, b, a;
+        if (t <= st[0]) {
+            r = st[1]; g = st[2]; b = st[3]; a = st[4];
+        } else {
+            int64_t i = 1;
+            r = st[(stops - 1) * 5 + 1];
+            g = st[(stops - 1) * 5 + 2];
+            b = st[(stops - 1) * 5 + 3];
+            a = st[(stops - 1) * 5 + 4];
+            while (i < stops) {
+                const double *lo = st + (i - 1) * 5;
+                const double *hi = st + i * 5;
+                if (t <= hi[0]) {
+                    double width = hi[0] - lo[0];
+                    double f = width > 0.0 ? (t - lo[0]) / width : 0.0;
+                    r = lo[1] + (hi[1] - lo[1]) * f;
+                    g = lo[2] + (hi[2] - lo[2]) * f;
+                    b = lo[3] + (hi[3] - lo[3]) * f;
+                    a = lo[4] + (hi[4] - lo[4]) * f;
+                    break;
+                }
+                i++;
+            }
+        }
+
+        double weight = cov * through;
+        size_t at = (size_t)pi * CHANNELS;
+        if (at + 3 >= canvas_len) continue;
+        double keep = 1.0 - a * weight;
+        data[at + 0] = r * weight + data[at + 0] * keep;
+        data[at + 1] = g * weight + data[at + 1] * keep;
+        data[at + 2] = b * weight + data[at + 2] * keep;
+        data[at + 3] = a * weight + data[at + 3] * keep;
+    }
+    return value_unit();
+}
+
 void native_raster_register(void) {
     native_register("raster::clear_premul", native_raster_clear_premul);
     native_register("raster::to_bytes_premul", native_raster_to_bytes_premul);
@@ -329,4 +453,5 @@ void native_raster_register(void) {
     native_register("raster::composite_span_flat", native_raster_composite_span_flat);
     native_register("raster::clear_range", native_raster_clear_range);
     native_register("raster::add_span", native_raster_add_span);
+    native_register("raster::composite_row_gradient", native_raster_composite_row_gradient);
 }

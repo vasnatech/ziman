@@ -239,6 +239,23 @@ native fn to_bytes_premul(data: MutableArray<float>, channels: int) -> Result<[b
 // per span per sub-scanline with a per-pixel run in the middle. Both are transcribed statement for
 // statement in `src/native_raster.c`; `add_span`'s arithmetic especially, because coverage
 // accumulates and one ulp in a partial pixel survives into the composite and then into a byte.
+// One scanline of a linear or radial gradient. **The paint crosses as one flat `[float]`**, not as
+// a dozen parameters: the kind, the inverse matrix, the gradient's geometry and its premultiplied
+// stops, built once per fill by `gradient_spec`. A solid fill measured 47 ms over a 1280x800 canvas
+// and the same fill with a gradient 2625 ms, because a gradient is an inverse transform, a stop
+// search and a lerp *per pixel* -- 56x for a scene that looks no more complicated.
+native fn composite_row_gradient(
+    data: MutableArray<float>,
+    coverage: MutableArray<float>,
+    row_base: int,
+    first_col: int,
+    last_col: int,
+    row_y: float,
+    spec: [float],
+    mask: [float],
+    has_mask: bool
+)
+
 native fn clear_range(row: MutableArray<float>, from_x: int, to_x: int)
 
 native fn add_span(row: MutableArray<float>, width: int, from: float, to: float, weight: float)
@@ -652,6 +669,18 @@ fn fill_shape(
         Tiled(_) { Premul { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 } }
         Placed(_) { Premul { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 } }
     }
+    // Decided once, like `is_flat` above: an ink the native can evaluate crosses as a flat spec,
+    // and anything else keeps the per-pixel path.
+    val spec = gradient_spec(ready, inv)
+    val no_spec: [float] = []
+    val spec_values = switch spec {
+        Some(v) { v }
+        None { no_spec }
+    }
+    val is_gradient = switch spec {
+        Some(_) { true }
+        None { false }
+    }
     var y = first_row
     while y <= last_row {
         cursor = advance_active(plan, live, cursor, y)
@@ -671,13 +700,25 @@ fn fill_shape(
                 mask,
                 clipped
             )
+        } else if is_gradient {
+            composite_row_gradient(
+                t.data,
+                row,
+                row_base,
+                first_col,
+                last_col,
+                (y as float) + 0.5,
+                spec_values,
+                mask,
+                clipped
+            )
         } else {
             var x = first_col
             while x <= last_col {
                 val cov = row[x]
                 // Below a 255th of a level there is nothing to add to an 8-bit channel, and skipping
                 // it is what keeps a full-page fill from evaluating a gradient outside its own
-                // bounds. `composite_row_flat` reproduces both guards and this constant.
+                // bounds. The two natives reproduce both guards and this constant.
                 if cov > 0.002 {
                     val through = if clipped { mask[row_base + x] } else { 1.0 }
                     if through > 0.002 {
@@ -1090,6 +1131,63 @@ fn ready_at(r: Ready, inv: Matrix, device: Point) -> Premul {
 // Interpolation **in premultiplied alpha**, over stops that were premultiplied once. Done on
 // straight colour, a ramp from opaque red to transparent passes through a dark red halfway along,
 // because the transparent stop's own RGB gets averaged in at full weight.
+// The flat form of a gradient that `composite_row_gradient` reads -- see its own comment in
+// src/native_raster.c for the layout. `None` for an ink the native does not handle, which keeps the
+// per-pixel Ziman path below as the general case rather than a fallback nobody exercises.
+//
+// Built once per fill. The stops are already premultiplied by `prepare`, so this only flattens
+// them; getting that wrong would darken every gradient through its middle, which is the bug
+// `Premul`'s own comment warns about.
+fn gradient_spec(r: Ready, inv: Matrix) -> Option<[float]> {
+    val out = mutable_array_new<float>()
+    val stops = switch r {
+        Axial(g) {
+            push(out, 0.0)
+            push_matrix(out, inv)
+            push(out, g.from.x)
+            push(out, g.from.y)
+            push(out, g.span)
+            push(out, g.dx)
+            push(out, g.dy)
+            g.stops
+        }
+        Radial(g) {
+            push(out, 1.0)
+            push_matrix(out, inv)
+            push(out, g.centre.x)
+            push(out, g.centre.y)
+            push(out, g.radius)
+            push(out, 0.0)
+            push(out, 0.0)
+            g.stops
+        }
+        Flat(_) { return Option<[float]>.None }
+        Tiled(_) { return Option<[float]>.None }
+        Placed(_) { return Option<[float]>.None }
+    }
+    if len(stops) == 0 {
+        return Option<[float]>.None
+    }
+    push(out, len(stops) as float)
+    for one in stops {
+        push(out, one.offset)
+        push(out, one.colour.red)
+        push(out, one.colour.green)
+        push(out, one.colour.blue)
+        push(out, one.colour.alpha)
+    }
+    return Option<[float]>.Some(snapshot(out))
+}
+
+fn push_matrix(out: MutableArray<float>, m: Matrix) {
+    push(out, m.a)
+    push(out, m.b)
+    push(out, m.c)
+    push(out, m.d)
+    push(out, m.e)
+    push(out, m.f)
+}
+
 fn ramp_at(stops: [ReadyStop], raw: float) -> Premul {
     var t = raw
     if t < 0.0 {

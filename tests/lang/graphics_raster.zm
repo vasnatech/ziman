@@ -9,6 +9,7 @@
 // contract until they are.
 use font
 use geom
+use geom.matrix_concat
 use image
 use paint
 use raster
@@ -233,6 +234,34 @@ fn main() {
         round4(unwrap(image.pixel_at(ball, 16, 16)).red),
         " ",
         round4(unwrap(image.pixel_at(ball, 1, 1)).red)
+    )))
+
+    // **A gradient under a group transform**, which is the case that tests the inverse.
+    //
+    // A paint is evaluated in *user* space, so every covered pixel's centre is mapped back through
+    // the group's inverse transform before the ramp is read -- and every gradient above sits under
+    // an identity transform, where an inverse that lost its translation would read identically.
+    // Here the same 16-wide ramp is drawn inside a group translated by 8 and scaled by 2, so the
+    // ramp spans device x 8..40: device x=8 is the gradient's own origin and x=24 is half way.
+    val ramped = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(48.0, 8.0), [scene.group(
+            matrix_concat(geom.translation(8.0, 0.0), geom.scaling(2.0, 1.0)),
+            [scene.fill(
+                shape.rect_path(geom.rect_of(0.0, 0.0, 16.0, 8.0)),
+                paint.linear(geom.point_of(0.0, 0.0), geom.point_of(16.0, 0.0), [
+                    paint.stop_of(0.0, paint.black()),
+                    paint.stop_of(1.0, paint.white())
+                ])
+            )]
+        )]),
+        raster.options()
+    ))
+    print(concat("ramp under a transform:    ", concat(
+        round4(unwrap(image.pixel_at(ramped, 9, 4)).red),
+        " ",
+        round4(unwrap(image.pixel_at(ramped, 24, 4)).red),
+        " ",
+        round4(unwrap(image.pixel_at(ramped, 39, 4)).red)
     )))
 
     // ---- clipping is a coverage mask, not a rectangle
