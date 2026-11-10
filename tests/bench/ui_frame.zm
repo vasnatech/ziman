@@ -18,9 +18,9 @@
 //
 //   | 1280x800       | all Ziman | now    | ratio |
 //   | -------------- | --------- | ------ | ----- |
-//   | empty scene    | 2518 ms   | 42 ms  | 59.9x |
-//   | fills only     | 3279 ms   | 68 ms  | 48.2x |
-//   | the full frame | 3849 ms   | 347 ms | 11.0x |
+//   | empty scene    | 2548 ms   | 36 ms  | 70.7x |
+//   | fills only     | 3295 ms   | 72 ms  | 45.7x |
+//   | the full frame | 3859 ms   | 232 ms | 16.6x |
 //
 // An empty canvas cost about 1.2 microseconds per pixel, linear in pixels, so roughly two thirds of
 // a frame went before anything was drawn -- `clear_to` and `finish`, four floats per pixel each
@@ -36,11 +36,17 @@
 // absolutes from a faster machine state as though they were comparable with each other; they were
 // each internally consistent and are not comparable across commits.
 //
-// What remains is no longer the pixels. Of the 347 ms, 42 is the canvas and 26 the fills -- so
-// **about 280 ms, four fifths of the frame, is text**, and it is not rasterisation: glyph tiles are
-// cached, so that cost is the per-glyph loop in `draw_text` building a string cache key
-// (`concat` of five pieces), looking it up in a `MutableMap`, and asking `truetype` for an advance,
-// about 1700 times a frame. The next instalment is a caching question, not a renderer one.
+// **What remains is still text, but not for the reason this comment first guessed.** It said the
+// per-glyph cache key -- a string built and hashed per glyph -- and that was wrong: replacing it
+// with a packed integer was measured twice, interleaved, and made no difference either time. The
+// cost was `truetype`'s byte accessors. `u32_at` was four calls to `u8_at`, so a four-byte read
+// allocated five `Result`s, and `lookup12`'s binary search does about twenty such reads per
+// character -- a hundred allocations to map one character. One bounds check and direct indexing
+// took `font.glyphs_of` from 281 ms to 74 ms for 4290 characters, with `truetype.advance_of` at
+// 4 ms and `glyph_outline` at 8 ms beside it.
+//
+// Of the 232 ms now, 36 is the canvas and 36 the fills, so about 160 is still text -- and the
+// largest part of that is still the cmap lookup, now ~17 microseconds a character rather than ~65.
 //
 // Run: `./ziman tests/bench/ui_frame.zm` (from the repository root -- see the design document's
 // note on `lib/graphics` not loading from outside it).

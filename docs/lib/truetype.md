@@ -83,6 +83,14 @@ pub struct Face {
     hmtx: int
     maxp: int
     cmap: int
+    // **The cmap subtable to use, chosen once here rather than on every lookup.** `glyph_for` used
+    // to call `best_subtable` per character, and that walks every record in the table reading
+    // `u16`s and `u32`s out of the byte array -- which measured as 281 ms of a 347 ms frame on a
+    // page of text, more than the rasterising it feeds. -1 when the face has no usable subtable,
+    // which `glyph_for` reports in the same words it always did.
+    cmap_subtable: int
+    // Its format, 4 or 12, so the lookup does not re-read the two bytes per character either.
+    cmap_format: int
     name: int
     os2: int
     loca: int

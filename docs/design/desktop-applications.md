@@ -99,21 +99,25 @@ machine's absolute figures moved 2x between batches an hour apart with no code c
 
 | 1280x800 | all Ziman | now | ratio |
 | --- | --- | --- | --- |
-| empty scene | 2518 ms | 42 ms | 59.9x |
-| fills only | 3279 ms | 68 ms | 48.2x |
-| full frame | 3849 ms | 347 ms | 11.0x | `tests/lang/graphics_raster.zm`, 418
+| empty scene | 2548 ms | 36 ms | 70.7x |
+| fills only | 3295 ms | 72 ms | 45.7x |
+| full frame | 3859 ms | 232 ms | 16.6x | `tests/lang/graphics_raster.zm`, 418
 lines of asserted pixels across anti-aliasing, both winding rules, strokes, gradients, alpha and all
 three output formats, is byte-identical across the change -- which is the oracle argument above,
 used rather than described.
 
 **The conclusion is unchanged and better evidenced**, and the remaining cost has moved somewhere
-this section did not predict. 347 ms is still 20x short of 60 fps at that size -- but of it, 42 ms
-is the canvas and 26 the fills, so **four fifths is text, and that part is not rasterisation at
-all**: glyph tiles are cached, and what is left is the per-glyph loop building a string cache key,
-hashing it, and asking for an advance, about 1700 times a frame. The prediction that the renderer
-has to be C is demonstrated rather than implied; the prediction that the *drawing* is where the
-time goes turns out to hold only until the drawing is fast, after which the bookkeeping around it
-is.
+this section did not predict. 232 ms is still 14x short of 60 fps at that size -- but of it, 36 ms
+is the canvas and 36 the fills, so **most of what is left is text, and that part is not
+rasterisation at all**: glyph tiles are cached, and the cost was `truetype` allocating a `Result`
+per byte read inside a binary search over the font's character map.
+
+The prediction that the renderer has to be C is demonstrated rather than implied. The prediction
+that the *drawing* is where the time goes held only until the drawing was fast, after which the
+table parsing beside it was -- and **that part did not need C at all**, just an accessor that
+allocates once instead of five times. Worth recording as a caution against this document's own
+framing: "move it to C" was right four times and wrong the fifth, where the answer was to stop
+allocating.
 
 ## 4. The constraint that decides the rest: there is no FFI
 
