@@ -134,7 +134,134 @@ static Value native_raster_to_bytes_premul(Value *args, int argc, int line, int 
                         result_obj_new(1, bytes));
 }
 
+/* raster.composite_row_flat(canvas, coverage, row_base, first_col, last_col, r, g, b, a, mask,
+ * has_mask): one scanline of a solid fill, composited.
+ *
+ * **The third loop, and the one left after the floor was dealt with.** `fill_shape`'s inner loop
+ * runs once per pixel of a shape's bounding box and does, in the interpreter: an array index for
+ * coverage, a compare, maybe a second index for the clip mask, and then `composite` -- four reads
+ * and four writes of `double` plus the blend. For the sidebar rectangle of
+ * `tests/bench/ui_frame.zm` that is 181,000 iterations of roughly fifteen interpreted operations.
+ *
+ * Only the **flat** case comes here, which is `Paint.Solid`. A gradient, a tiled paint or an image
+ * evaluates its colour per pixel through `ready_at` and an inverse transform, and stays in Ziman:
+ * moving it would mean moving the paint model too, and `raster.zm`'s own comment already notes that
+ * solid is the common case. So this is a fast path beside the general one, not a replacement for it.
+ *
+ * The two `> 0.002` guards are reproduced in the same order and with the same constant.
+ * `raster.zm` explains the number -- below a 255th of a level there is nothing to add to an 8-bit
+ * channel -- and a fast path that skipped a pixel the reference composites, or composited one it
+ * skips, would differ on real images. */
+static Value native_raster_composite_row_flat(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    size_t canvas_len = 0;
+    double *data = ziman_mutable_array_float_data(args[0], &canvas_len);
+    size_t cov_len = 0;
+    const double *coverage = ziman_mutable_array_float_data(args[1], &cov_len);
+    if (data == NULL || coverage == NULL) return value_unit();
+
+    int64_t row_base = args[2].as.i;
+    int64_t first_col = args[3].as.i;
+    int64_t last_col = args[4].as.i;
+    double r = args[5].as.f;
+    double g = args[6].as.f;
+    double b = args[7].as.f;
+    double a = args[8].as.f;
+    /* An immutable `[float]`: its packed buffer directly, so a clip mask costs no copy. A boxed or
+     * empty array answers NULL, which `has_mask` then must not have claimed. */
+    const ArrayObj *mask_arr = args[9].as.arr;
+    const double *mask = mask_arr == NULL ? NULL : mask_arr->floats;
+    int has_mask = args[10].as.b != 0;
+    if (has_mask && mask == NULL) return value_unit();
+
+    for (int64_t x = first_col; x <= last_col; x++) {
+        if (x < 0 || (size_t)x >= cov_len) continue;
+        double cov = coverage[x];
+        if (cov <= 0.002) continue;
+        double through = 1.0;
+        if (has_mask) {
+            int64_t at = row_base + x;
+            if (at < 0) continue;
+            through = mask[at];
+        }
+        if (through <= 0.002) continue;
+        double weight = cov * through;
+        size_t at = (size_t)(row_base + x) * CHANNELS;
+        if (at + 3 >= canvas_len) continue;
+        double keep = 1.0 - a * weight;
+        data[at + 0] = r * weight + data[at + 0] * keep;
+        data[at + 1] = g * weight + data[at + 1] * keep;
+        data[at + 2] = b * weight + data[at + 2] * keep;
+        data[at + 3] = a * weight + data[at + 3] * keep;
+    }
+    return value_unit();
+}
+
+/* raster.composite_span_flat(canvas, cover, cover_at, canvas_at, count, r, g, b, a, mask,
+ * has_mask): a run of pixels of a solid fill, with the coverage and the canvas indexed
+ * independently.
+ *
+ * **This is `blit`'s loop, which is text.** A glyph's coverage lives in a tile just big enough to
+ * hold it, so its index advances by the tile's width while the canvas index advances by the
+ * canvas's -- which is the only way this differs from `composite_row_flat` above, and the reason it
+ * is a second function rather than a parameter on the first: a fill's coverage is a `MutableArray`
+ * being reused row by row and a tile's is an immutable `[float]`, so the two cannot share a
+ * signature without one of them copying.
+ *
+ * The caller clips the run to the canvas, because it knows the tile's placement; this only checks
+ * that the indices it was handed are inside the buffers it was handed. Guards and blend are
+ * `composite`'s, as above. */
+static Value native_raster_composite_span_flat(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    size_t canvas_len = 0;
+    double *data = ziman_mutable_array_float_data(args[0], &canvas_len);
+    const ArrayObj *cover_arr = args[1].as.arr;
+    const double *cover = cover_arr == NULL ? NULL : cover_arr->floats;
+    if (data == NULL || cover == NULL) return value_unit();
+    size_t cover_len = cover_arr->count < 0 ? 0 : (size_t)cover_arr->count;
+
+    int64_t cover_at = args[2].as.i;
+    int64_t canvas_at = args[3].as.i;
+    int64_t count = args[4].as.i;
+    double r = args[5].as.f;
+    double g = args[6].as.f;
+    double b = args[7].as.f;
+    double a = args[8].as.f;
+    const ArrayObj *mask_arr = args[9].as.arr;
+    const double *mask = mask_arr == NULL ? NULL : mask_arr->floats;
+    int has_mask = args[10].as.b != 0;
+    if (has_mask && mask == NULL) return value_unit();
+    size_t mask_len = (has_mask && mask_arr != NULL && mask_arr->count > 0)
+                          ? (size_t)mask_arr->count : 0;
+
+    for (int64_t i = 0; i < count; i++) {
+        int64_t ci = cover_at + i;
+        int64_t pi = canvas_at + i;
+        if (ci < 0 || (size_t)ci >= cover_len) continue;
+        if (pi < 0) continue;
+        double cov = cover[ci];
+        if (cov <= 0.002) continue;
+        double through = 1.0;
+        if (has_mask) {
+            if ((size_t)pi >= mask_len) continue;
+            through = mask[pi];
+        }
+        if (through <= 0.002) continue;
+        double weight = cov * through;
+        size_t at = (size_t)pi * CHANNELS;
+        if (at + 3 >= canvas_len) continue;
+        double keep = 1.0 - a * weight;
+        data[at + 0] = r * weight + data[at + 0] * keep;
+        data[at + 1] = g * weight + data[at + 1] * keep;
+        data[at + 2] = b * weight + data[at + 2] * keep;
+        data[at + 3] = a * weight + data[at + 3] * keep;
+    }
+    return value_unit();
+}
+
 void native_raster_register(void) {
     native_register("raster::clear_premul", native_raster_clear_premul);
     native_register("raster::to_bytes_premul", native_raster_to_bytes_premul);
+    native_register("raster::composite_row_flat", native_raster_composite_row_flat);
+    native_register("raster::composite_span_flat", native_raster_composite_span_flat);
 }

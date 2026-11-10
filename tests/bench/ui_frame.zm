@@ -16,19 +16,24 @@
 // The last one was the answer, and acting on it is F270's first instalment. **Measured history,
 // because the point of this file is the comparison:**
 //
-//   | 1280x800        | all Ziman | clear + convert in C |
-//   | --------------- | --------- | -------------------- |
-//   | empty scene     | ~1290 ms  | 28 ms                |
-//   | fills only      | ~1640 ms  | 397 ms               |
-//   | the full frame  | ~1950 ms  | 625 ms               |
+//   | 1280x800       | all Ziman | + clear/convert | + the composite loops |
+//   | -------------- | --------- | --------------- | --------------------- |
+//   | empty scene    | ~1290 ms  | 28 ms           | ~25 ms                |
+//   | fills only     | ~1640 ms  | 397 ms          | ~165 ms               |
+//   | the full frame | ~1950 ms  | 625 ms          | ~295 ms               |
 //
 // An empty canvas cost about 1.2 microseconds per pixel, linear in pixels, so roughly two thirds of
-// a frame went before anything was drawn -- `clear_to` and `finish` in `raster.zm`, four floats per
-// pixel each way. Those two are native now and the floor is 45x smaller.
+// a frame went before anything was drawn -- `clear_to` and `finish`, four floats per pixel each
+// way. Then the per-pixel composite loops of `fill_shape` and `blit`, for the solid case. 6.6x on a
+// frame in all, and 52x on the floor.
 //
-// **What remains is the drawing, which is the rest of F270.** 625 ms is still 37x too slow for
-// 60 fps at this size, and it is now spent where a renderer actually spends it: flattening paths,
-// filling spans, and rasterising glyphs.
+// **Figures vary a few percent between runs**, and `fills only` more than that -- it was measured
+// at 153, 163, 164 and 192 ms over four consecutive runs, so a single reading is not a measurement.
+//
+// What remains, measured rather than guessed: of ~295 ms, about 25 is the canvas, 140 the fills and
+// 130 the text. Inside those, `samples=1` costs ~214 ms against ~295, so the anti-aliasing
+// sub-scanline pass (`row_coverage`, which fills and glyph tiles share) is about 80 ms and is the
+// next target. 60 fps at this size is 16.7 ms, so there is still an order of magnitude to find.
 //
 // Run: `./ziman tests/bench/ui_frame.zm` (from the repository root -- see the design document's
 // note on `lib/graphics` not loading from outside it).

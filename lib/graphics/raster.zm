@@ -227,6 +227,41 @@ native fn clear_premul(data: MutableArray<float>, r: float, g: float, b: float, 
 
 native fn to_bytes_premul(data: MutableArray<float>, channels: int) -> Result<[byte], string>
 
+// One scanline of a **solid** fill. The third per-pixel loop, and the one `fill_shape` spends its
+// time in: a shape's bounding box, once per pixel, with a coverage read, a clip read and a blend.
+// Only the flat case goes native -- a gradient or an image evaluates its colour per pixel through
+// `ready_at` and stays here, because moving it would mean moving the paint model with it.
+// A run of a **solid** fill whose coverage and canvas are indexed independently: `blit`'s loop,
+// which is text. A glyph's coverage is a tile just big enough to hold it, so it advances by the
+// tile's width while the canvas advances by the canvas's.
+native fn composite_span_flat(
+    data: MutableArray<float>,
+    cover: [float],
+    cover_at: int,
+    canvas_at: int,
+    count: int,
+    r: float,
+    g: float,
+    b: float,
+    a: float,
+    mask: [float],
+    has_mask: bool
+)
+
+native fn composite_row_flat(
+    data: MutableArray<float>,
+    coverage: MutableArray<float>,
+    row_base: int,
+    first_col: int,
+    last_col: int,
+    r: float,
+    g: float,
+    b: float,
+    a: float,
+    mask: [float],
+    has_mask: bool
+)
+
 fn clear_to(t: Target, c: Premul) {
     clear_premul(t.data, c.red, c.green, c.blue, c.alpha)
 }
@@ -441,32 +476,61 @@ fn blit(
         Tiled(_) { Option<Premul>.None }
         Placed(_) { Option<Premul>.None }
     }
+    // Decided once rather than per pixel, as `fill_shape` does with the same two values.
+    val clipped = switch clip {
+        Some(_) { true }
+        None { false }
+    }
+    val no_mask: [float] = []
+    val mask_values = switch clip {
+        Some(m) { m }
+        None { no_mask }
+    }
+    // The tile's x range that lands on the canvas, computed per blit rather than tested per pixel:
+    // a glyph half off the left edge otherwise costs a bounds check for every pixel it does not
+    // have. `lo`/`hi` are tile coordinates; the canvas column is `ix + tile.left + tx`.
+    val offset = ix + tile.left
+    val lo = if offset < 0 { 0 - offset } else { 0 }
+    val hi = if offset + tile.width > t.width { t.width - offset - 1 } else { tile.width - 1 }
+    if lo > hi {
+        return unit
+    }
     var ty = 0
     while ty < tile.height {
         val py = iy + tile.top + ty
         if py >= 0 && py < t.height {
-            var tx = 0
-            while tx < tile.width {
-                val px = ix + tile.left + tx
-                if px >= 0 && px < t.width {
+            if Some(constant) = flat {
+                composite_span_flat(
+                    t.data,
+                    tile.cover,
+                    ty * tile.width + lo,
+                    py * t.width + offset + lo,
+                    hi - lo + 1,
+                    constant.red,
+                    constant.green,
+                    constant.blue,
+                    constant.alpha,
+                    mask_values,
+                    clipped
+                )
+            } else {
+                var tx = lo
+                while tx <= hi {
+                    val px = offset + tx
                     val cov = tile.cover[ty * tile.width + tx]
                     if cov > 0.002 {
-                        val through = switch clip {
-                            Some(mask) { mask[py * t.width + px] }
-                            None { 1.0 }
-                        }
+                        val through = if clipped { mask_values[py * t.width + px] } else { 1.0 }
                         if through > 0.002 {
-                            val c = switch flat {
-                                Some(constant) { constant }
-                                None {
-                                    ready_at(ready, inv, point_of((px as float) + 0.5, (py as float) + 0.5))
-                                }
-                            }
+                            val c = ready_at(
+                                ready,
+                                inv,
+                                point_of((px as float) + 0.5, (py as float) + 0.5)
+                            )
                             composite(t, px, py, c, cov * through)
                         }
                     }
+                    tx = tx + 1
                 }
-                tx = tx + 1
             }
         }
         ty = ty + 1
@@ -488,12 +552,7 @@ fn clip_mask(
     val device = shape.transform_path(path, m)
     val e = edges_of(device)
     val mask = mutable_array_new<float>()
-    val row = mutable_array_new<float>()
-    var i = 0
-    while i < t.width {
-        push(row, 0.0)
-        i = i + 1
-    }
+    val row = mutable_array_filled<float>(t.width, 0.0)
     val plan = plan_of(e, 0, t.height - 1)
     val live = mutable_array_new<int>()
     var cursor = 0
@@ -552,12 +611,7 @@ fn fill_shape(
     // which also skips the inverse transform there. Every other ink genuinely varies with position.
     // Worth 1.33x on the same page (2253 ms to 1667 ms, interleaved), and `Solid` is the common case.
     val ready = try prepare(k, o.images)
-    val row = mutable_array_new<float>()
-    var i = 0
-    while i < t.width {
-        push(row, 0.0)
-        i = i + 1
-    }
+    val row = mutable_array_filled<float>(t.width, 0.0)
     val plan = plan_of(e, first_row, last_row)
     val live = mutable_array_new<int>()
     var cursor = 0
@@ -594,23 +648,36 @@ fn fill_shape(
         cursor = advance_active(plan, live, cursor, y)
         row_coverage(row, t.width, e, live, device.winding, o.samples, y, first_col, last_col)
         val row_base = y * t.width
-        var x = first_col
-        while x <= last_col {
-            val cov = row[x]
-            // Below a 255th of a level there is nothing to add to an 8-bit channel, and skipping
-            // it is what keeps a full-page fill from evaluating a gradient outside its own bounds.
-            if cov > 0.002 {
-                val through = if clipped { mask[row_base + x] } else { 1.0 }
-                if through > 0.002 {
-                    val c = if is_flat {
-                        flat_ink_value
-                    } else {
-                        ready_at(ready, inv, point_of((x as float) + 0.5, (y as float) + 0.5))
+        if is_flat {
+            composite_row_flat(
+                t.data,
+                row,
+                row_base,
+                first_col,
+                last_col,
+                flat_ink_value.red,
+                flat_ink_value.green,
+                flat_ink_value.blue,
+                flat_ink_value.alpha,
+                mask,
+                clipped
+            )
+        } else {
+            var x = first_col
+            while x <= last_col {
+                val cov = row[x]
+                // Below a 255th of a level there is nothing to add to an 8-bit channel, and skipping
+                // it is what keeps a full-page fill from evaluating a gradient outside its own
+                // bounds. `composite_row_flat` reproduces both guards and this constant.
+                if cov > 0.002 {
+                    val through = if clipped { mask[row_base + x] } else { 1.0 }
+                    if through > 0.002 {
+                        val c = ready_at(ready, inv, point_of((x as float) + 0.5, (y as float) + 0.5))
+                        composite(t, x, y, c, cov * through)
                     }
-                    composite(t, x, y, c, cov * through)
                 }
+                x = x + 1
             }
-            x = x + 1
         }
         y = y + 1
     }

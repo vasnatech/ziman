@@ -91,18 +91,20 @@ Three consequences, and they shape everything below:
   is irrelevant. It also becomes the *oracle*: a C renderer can be tested by rendering the same
   `Scene` both ways and comparing pixels, which is a far better gate than screenshots.
 
-**Acted on, in part, and the numbers above are now history for the floor.** F270's first instalment
-moved exactly the two loops this section identified -- `clear_to` and `finish`, which have no
-geometry in them -- into `src/native_raster.c`. The empty 1280x800 canvas went from ~1290 ms to
-28 ms, about 45x, and a full frame from ~1950 ms to 625 ms. `tests/lang/graphics_raster.zm`, 418
+**Acted on, in part, and the numbers above are now history.** F270 moved the four loops with no
+geometry in them into `src/native_raster.c`: `clear_to` and `finish`, which this section identified,
+and then the per-pixel composite inside `fill_shape` and `blit` for the solid-paint case. The empty
+1280x800 canvas went from ~1290 ms to ~25 ms, about 52x, and a full frame from ~1950 ms to ~295 ms,
+about 6.6x. `tests/lang/graphics_raster.zm`, 418
 lines of asserted pixels across anti-aliasing, both winding rules, strokes, gradients, alpha and all
 three output formats, is byte-identical across the change -- which is the oracle argument above,
 used rather than described.
 
-**The conclusion is unchanged and better evidenced.** 625 ms is still 37x short of 60 fps at that
-size, and what remains is the drawing itself: flattening paths, filling spans, rasterising glyphs.
-The prediction that the renderer has to be C is what the measurement now demonstrates rather than
-merely implies.
+**The conclusion is unchanged and better evidenced.** ~295 ms is still 18x short of 60 fps at that
+size, and what remains is where a renderer really spends its time: of that figure, about 25 ms is
+the canvas, 140 the fills and 130 the text, with the anti-aliasing sub-scanline pass about 80 ms of
+it. The prediction that the renderer has to be C is what the measurement now demonstrates rather
+than merely implies -- and the part still in Ziman is the part that is still slow.
 
 ## 4. The constraint that decides the rest: there is no FFI
 
