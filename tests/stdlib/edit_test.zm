@@ -1,0 +1,287 @@
+// `lib/ui/edit`: a text field's caret, selection, edits and undo.
+//
+// **The grapheme cases are the reason this file is long.** Moving a caret by code point is index
+// arithmetic and needs barely any testing; moving it by *cluster* is where a text field is either
+// right or quietly infuriating -- a backspace that leaves a floating accent behind, a caret that
+// stops between the two halves of a line break, a flag that deletes into two letters. Those are
+// the cases a reader cannot verify by looking at the code, so they are asserted here.
+//
+// Strings carry their UTF-8 directly, so the combining marks and emoji below are written as
+// characters rather than escapes -- Ziman has no `\u`.
+use edit
+use test
+
+fn state(e: edit.Editor) -> string {
+    return prelude.format("{}|{}..{}", e.text, str(edit.selection_start(e)), str(edit.selection_end(e)))
+}
+
+fn caret_at(text: string, at: int) -> edit.Editor {
+    return edit.Editor { text: text, caret: at, anchor: at }
+}
+
+// --- the selection
+
+#[test]
+fn a_fresh_editor_has_the_caret_at_the_end_and_no_selection() {
+    val e = edit.editor_of("hello")
+    test.assert_eq(e.caret, 5)
+    test.assert_false(edit.has_selection(e))
+    test.assert_eq(edit.selected_text(e), "")
+}
+
+#[test]
+fn a_selection_reads_low_to_high_whichever_way_it_was_made() {
+    val forward = edit.Editor { text: "abcdef", caret: 4, anchor: 1 }
+    val backward = edit.Editor { text: "abcdef", caret: 1, anchor: 4 }
+    test.assert_eq(edit.selected_text(forward), "bcd")
+    test.assert_eq(edit.selected_text(backward), "bcd")
+    test.assert_eq(edit.selection_start(backward), 1)
+    test.assert_eq(edit.selection_end(backward), 4)
+}
+
+#[test]
+fn select_all_anchors_at_the_start() {
+    test.assert_eq(state(edit.select_all(edit.editor_of("abc"))), "abc|0..3")
+}
+
+// --- moving
+
+#[test]
+fn left_and_right_move_one_character() {
+    val e = caret_at("abc", 1)
+    test.assert_eq(edit.move_left(e, false).caret, 0)
+    test.assert_eq(edit.move_right(e, false).caret, 2)
+}
+
+#[test]
+fn moving_stops_at_the_ends() {
+    test.assert_eq(edit.move_left(caret_at("abc", 0), false).caret, 0)
+    test.assert_eq(edit.move_right(caret_at("abc", 3), false).caret, 3)
+}
+
+// **An unextended Left with a selection goes to the selection's start.** Every editor does this and
+// it is easy to get wrong: a user who selected a word and presses Left expects the caret at its
+// beginning, not one character in from wherever the caret happened to be.
+#[test]
+fn left_with_a_selection_collapses_to_its_start() {
+    val e = edit.Editor { text: "abcdef", caret: 4, anchor: 1 }
+    test.assert_eq(state(edit.move_left(e, false)), "abcdef|1..1")
+    test.assert_eq(state(edit.move_right(e, false)), "abcdef|4..4")
+}
+
+#[test]
+fn shift_extends_instead_of_collapsing() {
+    val e = edit.Editor { text: "abcdef", caret: 4, anchor: 1 }
+    test.assert_eq(state(edit.move_left(e, true)), "abcdef|1..3")
+    test.assert_eq(state(edit.move_right(e, true)), "abcdef|1..5")
+}
+
+#[test]
+fn home_and_end_go_to_the_ends() {
+    val e = caret_at("abcdef", 3)
+    test.assert_eq(edit.move_home(e, false).caret, 0)
+    test.assert_eq(edit.move_end(e, false).caret, 6)
+    test.assert_eq(state(edit.move_home(e, true)), "abcdef|0..3")
+}
+
+// --- grapheme clusters
+
+// A combining acute accent: "e" then U+0301. Two code points, one character on screen -- and a
+// backspace must remove both, or the user is left with a floating accent they cannot delete.
+#[test]
+fn a_combining_mark_deletes_with_its_base() {
+    val e = edit.editor_of("hé")
+    test.assert_eq(len(e.text), 3)
+    val after = edit.delete_back(e)
+    test.assert_eq(after.text, "h")
+}
+
+#[test]
+fn the_caret_steps_over_a_combining_mark_in_one_move() {
+    val e = caret_at("éx", 0)
+    // Past the e-with-accent in one press, not two.
+    test.assert_eq(edit.move_right(e, false).caret, 2)
+    test.assert_eq(edit.move_left(caret_at("éx", 2), false).caret, 0)
+}
+
+// A CRLF is one cluster, so the caret never lands between the carriage return and the line feed.
+#[test]
+fn a_crlf_is_one_cluster() {
+    val e = caret_at("a\r\nb", 3)
+    test.assert_eq(edit.move_left(e, false).caret, 1)
+    test.assert_eq(edit.delete_back(e).text, "ab")
+}
+
+// Two regional indicators are one flag. Deleting one half would leave a stray letter on screen.
+#[test]
+fn a_flag_deletes_as_one() {
+    val flag = "🇩🇪"
+    val e = edit.editor_of(concat("x", flag))
+    test.assert_eq(edit.delete_back(e).text, "x")
+}
+
+// A zero-width joiner binds what is on either side of it.
+#[test]
+fn a_joined_sequence_deletes_as_one() {
+    // The middle string is a zero-width joiner, which is invisible here by nature.
+    val joined = concat("👨", concat("‍", "💻"))
+    val e = edit.editor_of(concat("hi ", joined))
+    test.assert_eq(edit.delete_back(e).text, "hi ")
+}
+
+#[test]
+fn forward_delete_also_takes_a_whole_cluster() {
+    val e = caret_at("éx", 0)
+    test.assert_eq(edit.delete_forward(e).text, "x")
+}
+
+// --- words
+
+#[test]
+fn a_word_move_skips_the_run_and_the_space_after_it() {
+    val e = caret_at("one two three", 0)
+    test.assert_eq(edit.move_word_right(e, false).caret, 4)
+    test.assert_eq(edit.move_word_right(caret_at("one two three", 4), false).caret, 8)
+}
+
+#[test]
+fn a_word_move_back_lands_at_the_start_of_the_word() {
+    test.assert_eq(edit.move_word_left(caret_at("one two", 7), false).caret, 4)
+    // From inside the gap, it skips the spaces and then the word before them.
+    test.assert_eq(edit.move_word_left(caret_at("one   two", 6), false).caret, 0)
+}
+
+// **Punctuation is its own run**, which is why there are three kinds and not two: with two,
+// `foo.bar` would be one word and a double click would take all of it, where every editor takes
+// `foo`.
+#[test]
+fn punctuation_is_its_own_run() {
+    test.assert_eq(state(edit.select_word_at(edit.editor_of("foo.bar"), 1)), "foo.bar|0..3")
+    test.assert_eq(state(edit.select_word_at(edit.editor_of("foo.bar"), 3)), "foo.bar|3..4")
+    test.assert_eq(state(edit.select_word_at(edit.editor_of("foo.bar"), 5)), "foo.bar|4..7")
+}
+
+// Double-clicking the gap between two words selects the gap, which is what a user who then types
+// expects to replace.
+#[test]
+fn a_double_click_in_a_gap_selects_the_gap() {
+    test.assert_eq(state(edit.select_word_at(edit.editor_of("a   b"), 2)), "a   b|1..4")
+}
+
+#[test]
+fn a_double_click_in_an_empty_field_does_nothing() {
+    test.assert_eq(state(edit.select_word_at(edit.empty_editor(), 0)), "|0..0")
+}
+
+// Letters above ASCII are word characters: an accented letter or an ideograph is part of a word,
+// and treating it as punctuation would split words in most of the world's languages.
+#[test]
+fn letters_above_ascii_are_word_characters() {
+    test.assert_eq(state(edit.select_word_at(edit.editor_of("café crème"), 2)), "café crème|0..4")
+}
+
+// --- editing
+
+#[test]
+fn typing_inserts_at_the_caret() {
+    test.assert_eq(state(edit.insert(caret_at("ac", 1), "b")), "abc|2..2")
+}
+
+#[test]
+fn typing_replaces_the_selection() {
+    val e = edit.Editor { text: "abcdef", caret: 4, anchor: 1 }
+    test.assert_eq(state(edit.insert(e, "X")), "aXef|2..2")
+}
+
+#[test]
+fn backspace_takes_the_selection_when_there_is_one() {
+    val e = edit.Editor { text: "abcdef", caret: 4, anchor: 1 }
+    test.assert_eq(state(edit.delete_back(e)), "aef|1..1")
+}
+
+#[test]
+fn backspace_and_delete_do_nothing_at_the_ends() {
+    test.assert_eq(edit.delete_back(caret_at("ab", 0)).text, "ab")
+    test.assert_eq(edit.delete_forward(caret_at("ab", 2)).text, "ab")
+}
+
+#[test]
+fn a_word_backspace_removes_the_word_behind() {
+    test.assert_eq(state(edit.delete_word_back(caret_at("one two", 7))), "one |4..4")
+}
+
+// --- cut, copy, paste
+
+#[test]
+fn copy_answers_the_selection_and_changes_nothing() {
+    val e = edit.Editor { text: "abcdef", caret: 4, anchor: 1 }
+    test.assert_eq(edit.copy(e), "bcd")
+    test.assert_eq(state(e), "abcdef|1..4")
+}
+
+#[test]
+fn cut_removes_the_selection_and_does_nothing_without_one() {
+    val e = edit.Editor { text: "abcdef", caret: 4, anchor: 1 }
+    test.assert_eq(state(edit.cut(e)), "aef|1..1")
+    test.assert_eq(state(edit.cut(caret_at("abc", 1))), "abc|1..1")
+}
+
+#[test]
+fn paste_inserts_and_replaces_a_selection() {
+    test.assert_eq(state(edit.paste(caret_at("ad", 1), "bc")), "abcd|3..3")
+    val selected = edit.Editor { text: "abcd", caret: 3, anchor: 1 }
+    test.assert_eq(state(edit.paste(selected, "X")), "aXd|2..2")
+}
+
+// --- undo
+
+#[test]
+fn undo_goes_back_and_redo_comes_forward() {
+    val first = edit.editor_of("a")
+    var h = edit.history_of(10)
+    h = edit.record(h, first)
+    val second = edit.insert(first, "b")
+    test.assert_eq(second.text, "ab")
+
+    val back = edit.undo(h, second)
+    test.assert_eq(back.editor.text, "a")
+    test.assert(edit.can_redo(back.history))
+
+    val forward = edit.redo(back.history, back.editor)
+    test.assert_eq(forward.editor.text, "ab")
+}
+
+#[test]
+fn undo_with_nothing_recorded_keeps_the_state() {
+    val e = edit.editor_of("x")
+    val h = edit.history_of(10)
+    test.assert_false(edit.can_undo(h))
+    test.assert_eq(edit.undo(h, e).editor.text, "x")
+}
+
+// **Recording clears the redo side.** Once something new is typed, the future that was undone no
+// longer fits the document, and offering it would re-apply an edit to text it was never made
+// against.
+#[test]
+fn a_new_edit_clears_the_redo_side() {
+    val first = edit.editor_of("a")
+    var h = edit.record(edit.history_of(10), first)
+    val second = edit.insert(first, "b")
+    val back = edit.undo(h, second)
+    test.assert(edit.can_redo(back.history))
+    val after = edit.record(back.history, back.editor)
+    test.assert_false(edit.can_redo(after))
+}
+
+// The limit bounds the stack rather than the session: the oldest state is dropped, so a long
+// editing session cannot grow without end.
+#[test]
+fn the_history_is_bounded_and_drops_the_oldest() {
+    var h = edit.history_of(2)
+    h = edit.record(h, edit.editor_of("1"))
+    h = edit.record(h, edit.editor_of("2"))
+    h = edit.record(h, edit.editor_of("3"))
+    test.assert_len(2, h.past)
+    test.assert_eq(h.past[0].text, "2")
+    test.assert_eq(h.past[1].text, "3")
+}

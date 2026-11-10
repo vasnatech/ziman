@@ -1,0 +1,10 @@
+start: hello world caret=11 selected=
+word left: hello world caret=6 selected=
+word selected: hello world caret=11 selected=world
+typed over it: hello there caret=11 selected=
+code points in the accented word: 5
+after one backspace:  caf
+double click in foo.bar: foo
+after undo: one (redo available: true)
+copy answers: bcd
+cut leaves:   aef

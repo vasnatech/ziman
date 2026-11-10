@@ -168,6 +168,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 |---|---|
 | [`widget`](widget.md) | A widget tree: what a window is made of, laid out, and turned into a `Scene`. |
 | [`focus`](focus.md) | Which control has the keyboard, what a click lands on, and where Tab goes next. |
+| [`edit`](edit.md) | A text field's state and every edit you can make to it. |
 
 ## Always available
 
