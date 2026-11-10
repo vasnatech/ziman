@@ -1,0 +1,279 @@
+// A window, the pixels in it, and what the user did -- the platform floor under a graphical
+// application.
+//
+// **This module draws nothing.** `lib/graphics` describes a drawing as a `Scene` and renders one to
+// an `image.Image`; this takes the bytes of such an image and puts them on screen. The two meet at
+// `present`, which takes `width * height * 4` bytes of RGBA and knows nothing about where they came
+// from -- so the same program works against a renderer that takes two seconds a frame and against
+// one that takes two milliseconds, which is the whole reason the seam is that narrow.
+//
+// **Everything about events is in Ziman, not in C.** The native hands over a flat array of integers
+// and `decode_events` turns it into `Event`s, exactly as `terminal` reads bytes in C and decodes
+// keys in Ziman. The decoder, the key names and the modifier tests are therefore reachable from
+// `ziman test` with no display attached, which is where almost all of the behaviour worth testing
+// is.
+//
+// See docs/design/desktop-applications.md, and docs/reviews/tasks/f269-f277.md F269 for what this
+// is and is not meant to be yet.
+
+// What happened, as an application cares about it.
+//
+// **A key press and the text it produced are separate events**, and both are reported for one
+// keystroke. A shortcut wants to know that `S` was pressed with Control held; a text field wants the
+// character the layout and any dead keys actually produced. Deriving either from the other is how
+// keyboard layouts go wrong -- a program that computes text from a keysym gets a German keyboard
+// subtly wrong, and one that computes shortcuts from text cannot tell Ctrl-S from a typed `s`.
+pub enum Event {
+    KeyDown(KeyPress)
+    KeyUp(KeyPress)
+    // One character of text the server composed. Today this is a single byte's worth, which is
+    // ASCII only -- F274 is where composed and multi-byte text arrives, and until then a program
+    // that needs more than Latin text should know this is the limit rather than discover it.
+    Char(string)
+    PointerDown(PointerPress)
+    PointerUp(PointerPress)
+    PointerMove(Position)
+    Scroll(ScrollStep)
+    Resize(Size)
+    // The user asked to close the window -- the close box, or the window manager. **It is a
+    // request, not a fact**: nothing has closed, and a program that ignores it keeps running, which
+    // is what makes "save before quitting?" possible.
+    Close
+    FocusIn
+    FocusOut
+    // The server wants a region drawn again. A program that repaints every frame can ignore it; one
+    // that paints only on change must not.
+    Exposed
+}
+
+pub struct KeyPress {
+    // The X11 keysym. A number rather than an enum of every key there is: `key_name` names the ones
+    // worth naming and the rest keep their value, which is the same choice `terminal.Key.Unknown`
+    // makes and for the same reason -- a program that logs an unknown key is how the gap gets
+    // closed.
+    keysym: int
+    shift: bool
+    control: bool
+    alt: bool
+    // The "logo"/"command" key. Named for what it does rather than for one platform's label.
+    meta: bool
+}
+
+pub struct Position {
+    x: int
+    y: int
+}
+
+pub struct PointerPress {
+    x: int
+    y: int
+    // 1 left, 2 middle, 3 right. The wheel is never a button here: X11 reports it as buttons 4 and
+    // 5 and the native turns those into `Scroll`, so this module's callers never learn that.
+    button: int
+}
+
+pub struct ScrollStep {
+    x: int
+    y: int
+    horizontal: int
+    vertical: int
+}
+
+pub struct Size {
+    width: int
+    height: int
+}
+
+// A window, which is only a handle: the pixels and the connection live in C.
+pub struct Window {
+    handle: int
+}
+
+native fn open_raw(title: string, width: int, height: int) -> Result<int, string>
+native fn present_raw(handle: int, pixels: [byte], width: int, height: int) -> Result<unit, string>
+native fn poll_raw(handle: int) -> Result<[int], string>
+native fn size_raw(handle: int) -> Result<[int], string>
+native fn id_raw(handle: int) -> Result<int, string>
+native fn close_raw(handle: int)
+
+// Five ints per event, matching src/native_window.c's EVENT_FIELDS.
+val fields_per_event = 5
+
+val ev_key_down = 1
+val ev_key_up = 2
+val ev_char = 3
+val ev_pointer_down = 4
+val ev_pointer_up = 5
+val ev_pointer_move = 6
+val ev_scroll = 7
+val ev_resize = 8
+val ev_close = 9
+val ev_focus_in = 10
+val ev_focus_out = 11
+val ev_exposed = 12
+
+// The modifier bits X11 reports, which the native passes through unchanged.
+val mod_shift = 1
+val mod_control = 4
+val mod_alt = 8
+val mod_meta = 64
+
+// **Opens a window, runs `body`, and closes it however `body` ends** -- answers, fails, or dies.
+//
+// A scope rather than an `open`/`close` pair for the reason `terminal.with_raw` is one: an early
+// return in the middle of a program should not leak the thing it opened. It is **not** guarding
+// against a crash, which is the difference from `with_raw` worth knowing: a terminal's settings
+// outlive the process, so `terminal` restores them from a signal handler, while a window does not --
+// the display server drops it when the connection goes. So there is no signal machinery here and
+// none is missing.
+pub fn with_window<T>(
+    title: string,
+    width: int,
+    height: int,
+    body: fn(Window) -> Result<T, string>
+) -> Result<T, string> {
+    val handle = try open_raw(title, width, height)
+    val window = Window { handle: handle }
+    val run = body
+    val answer = run(window)
+    close_raw(handle)
+    return answer
+}
+
+// Puts `pixels` on the window: `width * height * 4` bytes, RGBA, row-major, no padding -- the layout
+// `image.Pixels.Rgba8` already has, so a `raster.render` result needs no conversion.
+//
+// Alpha is ignored rather than blended. A window has no backdrop to blend against, and compositing
+// is the job of whatever produced the pixels.
+pub fn present(w: Window, pixels: [byte], width: int, height: int) -> Result<unit, string> {
+    return present_raw(w.handle, pixels, width, height)
+}
+
+// The window's size as the display server last reported it, which is not necessarily what was
+// asked for: a window manager may have resized it on the way to the screen.
+pub fn size(w: Window) -> Result<Size, string> {
+    val dims = try size_raw(w.handle)
+    if prelude.len(dims) != 2 {
+        return err("the window backend did not report a size")
+    }
+    return ok(Size { width: dims[0], height: dims[1] })
+}
+
+// The display server's id for this window. **For tests, not for applications**: F269's gate
+// screenshots the real window with `import -window <id>` and compares pixels, which needs the id
+// the window manager knows it by.
+pub fn id(w: Window) -> Result<int, string> {
+    return id_raw(w.handle)
+}
+
+// Every event waiting, oldest first, or an empty array when nothing happened. Never blocks.
+pub fn poll(w: Window) -> Result<[Event], string> {
+    return ok(decode_events(try poll_raw(w.handle)))
+}
+
+// **Pure, and the reason this is the interesting function in the module**: the whole event protocol
+// can be tested by handing it an array of integers, with no window, no display and no user.
+pub fn decode_events(raw: [int]) -> [Event] {
+    val out = mutable_array_new<Event>()
+    var at = 0
+    while at + fields_per_event <= prelude.len(raw) {
+        if Some(event) = decode_one(raw[at], raw[at + 1], raw[at + 2], raw[at + 3], raw[at + 4]) {
+            push(out, event)
+        }
+        at = at + fields_per_event
+    }
+    return snapshot(out)
+}
+
+// A trailing partial record is dropped rather than guessed at, and an unknown kind is dropped
+// rather than turned into something: a new event kind in C must not become a wrong event here.
+fn decode_one(kind: int, a: int, b: int, c: int, d: int) -> Option<Event> {
+    if kind == ev_key_down {
+        return Option<Event>.Some(Event.KeyDown(key_press(a, b)))
+    }
+    if kind == ev_key_up {
+        return Option<Event>.Some(Event.KeyUp(key_press(a, b)))
+    }
+    if kind == ev_char {
+        return switch bytes_to_string([a as byte]) {
+            Ok(text) { Option<Event>.Some(Event.Char(text)) }
+            Err(_) { Option<Event>.None }
+        }
+    }
+    if kind == ev_pointer_down {
+        return Option<Event>.Some(Event.PointerDown(PointerPress { x: a, y: b, button: c }))
+    }
+    if kind == ev_pointer_up {
+        return Option<Event>.Some(Event.PointerUp(PointerPress { x: a, y: b, button: c }))
+    }
+    if kind == ev_pointer_move {
+        return Option<Event>.Some(Event.PointerMove(Position { x: a, y: b }))
+    }
+    if kind == ev_scroll {
+        return Option<Event>.Some(
+            Event.Scroll(ScrollStep { x: a, y: b, horizontal: c, vertical: d })
+        )
+    }
+    if kind == ev_resize {
+        return Option<Event>.Some(Event.Resize(Size { width: a, height: b }))
+    }
+    if kind == ev_close {
+        return Option<Event>.Some(Event.Close)
+    }
+    if kind == ev_focus_in {
+        return Option<Event>.Some(Event.FocusIn)
+    }
+    if kind == ev_focus_out {
+        return Option<Event>.Some(Event.FocusOut)
+    }
+    if kind == ev_exposed {
+        return Option<Event>.Some(Event.Exposed)
+    }
+    return Option<Event>.None
+}
+
+fn key_press(keysym: int, modifiers: int) -> KeyPress {
+    return KeyPress {
+        keysym: keysym,
+        shift: has_bit(modifiers, mod_shift),
+        control: has_bit(modifiers, mod_control),
+        alt: has_bit(modifiers, mod_alt),
+        meta: has_bit(modifiers, mod_meta)
+    }
+}
+
+fn has_bit(bits: int, mask: int) -> bool {
+    return (bits / mask) % 2 == 1
+}
+
+// The name of a key worth naming, or its keysym as text. The same bargain `terminal.key_name`
+// makes: the keys a program dispatches on are named, and anything else keeps its number so that a
+// program can log it rather than silently treat it as a key the user did not press.
+pub fn key_name(k: KeyPress) -> string {
+    if k.keysym == 65293 { return "Enter" }
+    if k.keysym == 65288 { return "Backspace" }
+    if k.keysym == 65535 { return "Delete" }
+    if k.keysym == 65289 { return "Tab" }
+    if k.keysym == 65307 { return "Escape" }
+    if k.keysym == 32 { return "Space" }
+    if k.keysym == 65361 { return "Left" }
+    if k.keysym == 65362 { return "Up" }
+    if k.keysym == 65363 { return "Right" }
+    if k.keysym == 65364 { return "Down" }
+    if k.keysym == 65365 { return "PageUp" }
+    if k.keysym == 65366 { return "PageDown" }
+    if k.keysym == 65360 { return "Home" }
+    if k.keysym == 65367 { return "End" }
+    // F1 to F12 are contiguous from 0xFFBE.
+    if k.keysym >= 65470 && k.keysym <= 65481 {
+        return prelude.format("F{}", str(k.keysym - 65469))
+    }
+    // A printable ASCII keysym is its own character, which is the one range X11 made easy.
+    if k.keysym >= 33 && k.keysym <= 126 {
+        return switch bytes_to_string([k.keysym as byte]) {
+            Ok(text) { text }
+            Err(_) { prelude.format("keysym({})", str(k.keysym)) }
+        }
+    }
+    return prelude.format("keysym({})", str(k.keysym))
+}

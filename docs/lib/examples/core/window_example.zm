@@ -1,0 +1,66 @@
+use window
+
+// **The event protocol is pure, and that is where the behaviour is.** The native hands over a flat
+// array of integers -- five per event, oldest first -- and `decode_events` turns them into `Event`s.
+// So the whole protocol can be exercised with no window, no display and no user, which is what this
+// example does and what `tests/stdlib/window_test.zm` gates.
+//
+// The integers below are what `src/native_window.c` would have written for: a key press, the text
+// that keystroke produced, a left click at 10,20, and the user asking to close the window.
+fn decoding() {
+    val raw = concat(
+        concat([1, 115, 4, 0, 0], [3, 115, 0, 0, 0]),
+        concat([4, 10, 20, 1, 0], [9, 0, 0, 0, 0])
+    )
+    for event in window.decode_events(raw) {
+        print(describe(event))
+    }
+}
+
+// **A keystroke arrives as two events and a program wants both.** `KeyDown` carries the keysym and
+// the modifiers, so a shortcut can test for Control-S; `Char` carries the text the layout actually
+// produced, so a text field inserts what the user typed. Computing either from the other is how a
+// program gets a non-US keyboard wrong.
+fn describe(event: window.Event) -> string {
+    return switch event {
+        KeyDown(k) { format("KeyDown {} control={}", window.key_name(k), str(k.control)) }
+        KeyUp(k) { format("KeyUp {}", window.key_name(k)) }
+        Char(text) { format("Char {}", text) }
+        PointerDown(p) { format("PointerDown button {} at {},{}", str(p.button), str(p.x), str(p.y)) }
+        PointerUp(p) { format("PointerUp button {}", str(p.button)) }
+        PointerMove(p) { format("PointerMove {},{}", str(p.x), str(p.y)) }
+        Scroll(s) { format("Scroll {} {}", str(s.horizontal), str(s.vertical)) }
+        Resize(s) { format("Resize {}x{}", str(s.width), str(s.height)) }
+        // A request, not a fact: nothing has closed, and a program that ignores it keeps running --
+        // which is what makes "save before quitting?" possible.
+        Close { "Close requested" }
+        FocusIn { "FocusIn" }
+        FocusOut { "FocusOut" }
+        Exposed { "Exposed" }
+    }
+}
+
+// An unknown kind is dropped rather than turned into something. C can add an event kind without
+// this module deciding it means a key the user never pressed.
+fn forward_compatible() {
+    print(str(len(window.decode_events([99, 1, 2, 3, 4]))))
+}
+
+// **Opening a window is deliberately not shown here**, and the reason is a property of the default
+// build rather than of this module: `src/native_window.c` keeps its backend behind `ZIMAN_X11`, so
+// a plain `ziman` -- the one that runs this manual's examples -- has none, and every window native
+// answers an error. `make gui` produces `ziman-gui`, which has one.
+//
+// The shape, for when you have that build: `with_window` is a scope, so the window is closed
+// however the body ends, and `present` takes `width * height * 4` bytes of RGBA -- the layout
+// `image.Pixels.Rgba8` already has, so a `raster.render` result goes straight to the screen.
+//
+//     window.with_window<unit>("title", 320, 240, fn(w) -> Result<unit, string> {
+//         try window.present(w, pixels, 320, 240)
+//         for event in try window.poll(w) { ... }
+//         return ok(unit)
+//     })
+fn main() {
+    decoding()
+    forward_compatible()
+}

@@ -2536,6 +2536,90 @@ pub fn matches(value: Option<string>, pattern: string) -> Option<string>
 
 ```
 
+## `window`
+
+```
+pub enum Event {
+    KeyDown(KeyPress)
+    KeyUp(KeyPress)
+    // One character of text the server composed. Today this is a single byte's worth, which is
+    // ASCII only -- F274 is where composed and multi-byte text arrives, and until then a program
+    // that needs more than Latin text should know this is the limit rather than discover it.
+    Char(string)
+    PointerDown(PointerPress)
+    PointerUp(PointerPress)
+    PointerMove(Position)
+    Scroll(ScrollStep)
+    Resize(Size)
+    // The user asked to close the window -- the close box, or the window manager. **It is a
+    // request, not a fact**: nothing has closed, and a program that ignores it keeps running, which
+    // is what makes "save before quitting?" possible.
+    Close
+    FocusIn
+    FocusOut
+    // The server wants a region drawn again. A program that repaints every frame can ignore it; one
+    // that paints only on change must not.
+    Exposed
+}
+
+pub struct KeyPress {
+    // The X11 keysym. A number rather than an enum of every key there is: `key_name` names the ones
+    // worth naming and the rest keep their value, which is the same choice `terminal.Key.Unknown`
+    // makes and for the same reason -- a program that logs an unknown key is how the gap gets
+    // closed.
+    keysym: int
+    shift: bool
+    control: bool
+    alt: bool
+    // The "logo"/"command" key. Named for what it does rather than for one platform's label.
+    meta: bool
+}
+
+pub struct Position {
+    x: int
+    y: int
+}
+
+pub struct PointerPress {
+    x: int
+    y: int
+    // 1 left, 2 middle, 3 right. The wheel is never a button here: X11 reports it as buttons 4 and
+    // 5 and the native turns those into `Scroll`, so this module's callers never learn that.
+    button: int
+}
+
+pub struct ScrollStep {
+    x: int
+    y: int
+    horizontal: int
+    vertical: int
+}
+
+pub struct Size {
+    width: int
+    height: int
+}
+
+pub struct Window {
+    handle: int
+}
+
+pub fn with_window<T>(
+
+pub fn present(w: Window, pixels: [byte], width: int, height: int) -> Result<unit, string>
+
+pub fn size(w: Window) -> Result<Size, string>
+
+pub fn id(w: Window) -> Result<int, string>
+
+pub fn poll(w: Window) -> Result<[Event], string>
+
+pub fn decode_events(raw: [int]) -> [Event]
+
+pub fn key_name(k: KeyPress) -> string
+
+```
+
 ## `xml`
 
 **Experimental** (see docs/design/journal/ "Experimental modules"). XML 1.0 as a document tree: a reader, a writer and a small path finder, in pure Ziman. Not a `Json` tree -- XML interleaves text with elements, separates attributes from children and identifies a name by its namespace URI, none of which survive a map. There is no DTD at all, so `<!DOCTYPE>` is a parse error and entity-expansion and external-entity attacks have nowhere to stand; size, depth and attribute-count limits are in `XmlLimits`.

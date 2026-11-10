@@ -1,0 +1,5 @@
+KeyDown s control=true
+Char s
+PointerDown button 1 at 10,20
+Close requested
+0

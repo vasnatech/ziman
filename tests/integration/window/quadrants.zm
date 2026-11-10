@@ -1,0 +1,81 @@
+// Presents four flat quadrants and holds the window while the harness screenshots it.
+//
+// **The pattern is red/green/blue/white and not a picture, because channel order is the bug this
+// case exists to catch.** `src/native_window.c` repacks RGBA into whatever the visual's masks say,
+// and a 32-bit TrueColor visual on a little-endian machine wants B, G, R, X in memory -- so the
+// obvious implementation shows blue where red should be, on every machine, and no amount of reading
+// the code makes that as obvious as a screenshot does.
+//
+// Prints the window id for the harness, then drains events until its deadline so a resize or an
+// expose is consumed rather than queued.
+use clock
+use window
+
+val width = 320
+val height = 240
+
+fn quadrants() -> [byte] {
+    val out = mutable_array_new<byte>()
+    for y in 0..height {
+        for x in 0..width {
+            val left = x < width / 2
+            val top = y < height / 2
+            if top && left {
+                push(out, 255b)
+                push(out, 0b)
+                push(out, 0b)
+            } else {
+                if top {
+                    push(out, 0b)
+                    push(out, 255b)
+                    push(out, 0b)
+                } else {
+                    if left {
+                        push(out, 0b)
+                        push(out, 0b)
+                        push(out, 255b)
+                    } else {
+                        push(out, 255b)
+                        push(out, 255b)
+                        push(out, 255b)
+                    }
+                }
+            }
+            push(out, 255b)
+        }
+    }
+    return snapshot(out)
+}
+
+fn main() {
+    val outcome = window.with_window<unit>(
+        "ziman window test",
+        width,
+        height,
+        fn(w: window.Window) -> Result<unit, string> {
+            val id = try window.id(w)
+            val size = try window.size(w)
+            printf("window-id {}\n", str(id))
+            printf("size {}x{}\n", str(size.width), str(size.height))
+            try window.present(w, quadrants(), width, height)
+            print("presented")
+            // **Re-presented every pass, not once.** A compositor can show the window before its
+            // first contents arrive, and a screenshot taken in that gap reads black -- which is
+            // what the harness saw the first time it ran under a loaded `make check-fast`. Painting
+            // every pass costs nothing here and means any capture after "presented" sees the
+            // pattern. A real application does this too: it is what an `Exposed` event asks for.
+            val frame = quadrants()
+            val deadline = clock.monotonic_millis() + 6000
+            while clock.monotonic_millis() < deadline {
+                val _ = try window.poll(w)
+                try window.present(w, frame, width, height)
+                clock.sleep_millis(50)
+            }
+            return ok(unit)
+        }
+    )
+    switch outcome {
+        Ok(_) { print("closed") }
+        Err(why) { printf("failed: {}\n", why) }
+    }
+}

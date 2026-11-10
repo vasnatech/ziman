@@ -1,0 +1,283 @@
+# `window`
+
+A window, the pixels in it, and what the user did -- the platform floor under a graphical
+application.
+
+**This module draws nothing.** `lib/graphics` describes a drawing as a `Scene` and renders one to
+an `image.Image`; this takes the bytes of such an image and puts them on screen. The two meet at
+`present`, which takes `width * height * 4` bytes of RGBA and knows nothing about where they came
+from -- so the same program works against a renderer that takes two seconds a frame and against
+one that takes two milliseconds, which is the whole reason the seam is that narrow.
+
+**Everything about events is in Ziman, not in C.** The native hands over a flat array of integers
+and `decode_events` turns it into `Event`s, exactly as `terminal` reads bytes in C and decodes
+keys in Ziman. The decoder, the key names and the modifier tests are therefore reachable from
+`ziman test` with no display attached, which is where almost all of the behaviour worth testing
+is.
+
+See docs/design/desktop-applications.md, and docs/reviews/tasks/f269-f277.md F269 for what this
+is and is not meant to be yet.
+
+`use window` -- or `use window.Name` to bring one item in bare.
+
+## Example
+
+```
+use window
+
+// **The event protocol is pure, and that is where the behaviour is.** The native hands over a flat
+// array of integers -- five per event, oldest first -- and `decode_events` turns them into `Event`s.
+// So the whole protocol can be exercised with no window, no display and no user, which is what this
+// example does and what `tests/stdlib/window_test.zm` gates.
+//
+// The integers below are what `src/native_window.c` would have written for: a key press, the text
+// that keystroke produced, a left click at 10,20, and the user asking to close the window.
+fn decoding() {
+    val raw = concat(
+        concat([1, 115, 4, 0, 0], [3, 115, 0, 0, 0]),
+        concat([4, 10, 20, 1, 0], [9, 0, 0, 0, 0])
+    )
+    for event in window.decode_events(raw) {
+        print(describe(event))
+    }
+}
+
+// **A keystroke arrives as two events and a program wants both.** `KeyDown` carries the keysym and
+// the modifiers, so a shortcut can test for Control-S; `Char` carries the text the layout actually
+// produced, so a text field inserts what the user typed. Computing either from the other is how a
+// program gets a non-US keyboard wrong.
+fn describe(event: window.Event) -> string {
+    return switch event {
+        KeyDown(k) { format("KeyDown {} control={}", window.key_name(k), str(k.control)) }
+        KeyUp(k) { format("KeyUp {}", window.key_name(k)) }
+        Char(text) { format("Char {}", text) }
+        PointerDown(p) { format("PointerDown button {} at {},{}", str(p.button), str(p.x), str(p.y)) }
+        PointerUp(p) { format("PointerUp button {}", str(p.button)) }
+        PointerMove(p) { format("PointerMove {},{}", str(p.x), str(p.y)) }
+        Scroll(s) { format("Scroll {} {}", str(s.horizontal), str(s.vertical)) }
+        Resize(s) { format("Resize {}x{}", str(s.width), str(s.height)) }
+        // A request, not a fact: nothing has closed, and a program that ignores it keeps running --
+        // which is what makes "save before quitting?" possible.
+        Close { "Close requested" }
+        FocusIn { "FocusIn" }
+        FocusOut { "FocusOut" }
+        Exposed { "Exposed" }
+    }
+}
+
+// An unknown kind is dropped rather than turned into something. C can add an event kind without
+// this module deciding it means a key the user never pressed.
+fn forward_compatible() {
+    print(str(len(window.decode_events([99, 1, 2, 3, 4]))))
+}
+
+// **Opening a window is deliberately not shown here**, and the reason is a property of the default
+// build rather than of this module: `src/native_window.c` keeps its backend behind `ZIMAN_X11`, so
+// a plain `ziman` -- the one that runs this manual's examples -- has none, and every window native
+// answers an error. `make gui` produces `ziman-gui`, which has one.
+//
+// The shape, for when you have that build: `with_window` is a scope, so the window is closed
+// however the body ends, and `present` takes `width * height * 4` bytes of RGBA -- the layout
+// `image.Pixels.Rgba8` already has, so a `raster.render` result goes straight to the screen.
+//
+//     window.with_window<unit>("title", 320, 240, fn(w) -> Result<unit, string> {
+//         try window.present(w, pixels, 320, 240)
+//         for event in try window.poll(w) { ... }
+//         return ok(unit)
+//     })
+fn main() {
+    decoding()
+    forward_compatible()
+}
+```
+
+Output:
+
+```
+KeyDown s control=true
+Char s
+PointerDown button 1 at 10,20
+Close requested
+0
+```
+
+### `Event`
+
+```
+pub enum Event {
+    KeyDown(KeyPress)
+    KeyUp(KeyPress)
+    // One character of text the server composed. Today this is a single byte's worth, which is
+    // ASCII only -- F274 is where composed and multi-byte text arrives, and until then a program
+    // that needs more than Latin text should know this is the limit rather than discover it.
+    Char(string)
+    PointerDown(PointerPress)
+    PointerUp(PointerPress)
+    PointerMove(Position)
+    Scroll(ScrollStep)
+    Resize(Size)
+    // The user asked to close the window -- the close box, or the window manager. **It is a
+    // request, not a fact**: nothing has closed, and a program that ignores it keeps running, which
+    // is what makes "save before quitting?" possible.
+    Close
+    FocusIn
+    FocusOut
+    // The server wants a region drawn again. A program that repaints every frame can ignore it; one
+    // that paints only on change must not.
+    Exposed
+}
+```
+
+What happened, as an application cares about it.
+
+**A key press and the text it produced are separate events**, and both are reported for one
+keystroke. A shortcut wants to know that `S` was pressed with Control held; a text field wants the
+character the layout and any dead keys actually produced. Deriving either from the other is how
+keyboard layouts go wrong -- a program that computes text from a keysym gets a German keyboard
+subtly wrong, and one that computes shortcuts from text cannot tell Ctrl-S from a typed `s`.
+
+### `KeyPress`
+
+```
+pub struct KeyPress {
+    // The X11 keysym. A number rather than an enum of every key there is: `key_name` names the ones
+    // worth naming and the rest keep their value, which is the same choice `terminal.Key.Unknown`
+    // makes and for the same reason -- a program that logs an unknown key is how the gap gets
+    // closed.
+    keysym: int
+    shift: bool
+    control: bool
+    alt: bool
+    // The "logo"/"command" key. Named for what it does rather than for one platform's label.
+    meta: bool
+}
+```
+
+### `Position`
+
+```
+pub struct Position {
+    x: int
+    y: int
+}
+```
+
+### `PointerPress`
+
+```
+pub struct PointerPress {
+    x: int
+    y: int
+    // 1 left, 2 middle, 3 right. The wheel is never a button here: X11 reports it as buttons 4 and
+    // 5 and the native turns those into `Scroll`, so this module's callers never learn that.
+    button: int
+}
+```
+
+### `ScrollStep`
+
+```
+pub struct ScrollStep {
+    x: int
+    y: int
+    horizontal: int
+    vertical: int
+}
+```
+
+### `Size`
+
+```
+pub struct Size {
+    width: int
+    height: int
+}
+```
+
+### `Window`
+
+```
+pub struct Window {
+    handle: int
+}
+```
+
+A window, which is only a handle: the pixels and the connection live in C.
+
+### `with_window`
+
+```
+pub fn with_window<T>(
+    title: string,
+    width: int,
+    height: int,
+    body: fn(Window) -> Result<T, string>
+) -> Result<T, string>
+```
+
+**Opens a window, runs `body`, and closes it however `body` ends** -- answers, fails, or dies.
+
+A scope rather than an `open`/`close` pair for the reason `terminal.with_raw` is one: an early
+return in the middle of a program should not leak the thing it opened. It is **not** guarding
+against a crash, which is the difference from `with_raw` worth knowing: a terminal's settings
+outlive the process, so `terminal` restores them from a signal handler, while a window does not --
+the display server drops it when the connection goes. So there is no signal machinery here and
+none is missing.
+
+### `present`
+
+```
+pub fn present(w: Window, pixels: [byte], width: int, height: int) -> Result<unit, string>
+```
+
+Puts `pixels` on the window: `width * height * 4` bytes, RGBA, row-major, no padding -- the layout
+`image.Pixels.Rgba8` already has, so a `raster.render` result needs no conversion.
+
+Alpha is ignored rather than blended. A window has no backdrop to blend against, and compositing
+is the job of whatever produced the pixels.
+
+### `size`
+
+```
+pub fn size(w: Window) -> Result<Size, string>
+```
+
+The window's size as the display server last reported it, which is not necessarily what was
+asked for: a window manager may have resized it on the way to the screen.
+
+### `id`
+
+```
+pub fn id(w: Window) -> Result<int, string>
+```
+
+The display server's id for this window. **For tests, not for applications**: F269's gate
+screenshots the real window with `import -window <id>` and compares pixels, which needs the id
+the window manager knows it by.
+
+### `poll`
+
+```
+pub fn poll(w: Window) -> Result<[Event], string>
+```
+
+Every event waiting, oldest first, or an empty array when nothing happened. Never blocks.
+
+### `decode_events`
+
+```
+pub fn decode_events(raw: [int]) -> [Event]
+```
+
+**Pure, and the reason this is the interesting function in the module**: the whole event protocol
+can be tested by handing it an array of integers, with no window, no display and no user.
+
+### `key_name`
+
+```
+pub fn key_name(k: KeyPress) -> string
+```
+
+The name of a key worth naming, or its keysym as text. The same bargain `terminal.key_name`
+makes: the keys a program dispatches on are named, and anything else keeps its number so that a
+program can log it rather than silently treat it as a key the user did not press.

@@ -239,6 +239,19 @@ while IFS= read -r line; do
     esac
 done < <(BIN="$BIN" tests/run_terminal_test.sh 2>&1)
 
+# Real-window tests. tests/stdlib/window_test.zm covers the event protocol, which is pure; this
+# covers `present` reaching the screen with its channels in the right order, which is checked by
+# screenshotting the window and reading four pixels out of it. Skipped -- not failed -- on a
+# headless machine, on a ziman built without the backend (`make gui`), or without ImageMagick.
+while IFS= read -r line; do
+    echo "$line"
+    case "$line" in
+        PASS*) pass=$((pass + 1)) ;;
+        FAIL*) fail=$((fail + 1)) ;;
+        SKIP*) skipped=$((skipped + 1)) ;;
+    esac
+done < <(BIN="$BIN" tests/run_window_test.sh 2>&1)
+
 echo "----"
 if [ "$skipped" -gt 0 ]; then echo "$pass passed, $fail failed, $skipped skipped"; else echo "$pass passed, $fail failed"; fi
 [ "$fail" -eq 0 ]

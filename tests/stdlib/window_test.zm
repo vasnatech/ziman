@@ -1,0 +1,318 @@
+// `window`'s event protocol and key names, with no window, no display and no user.
+//
+// **This is the half of F269 that can be gated everywhere**, and it is most of the behaviour worth
+// gating: `decode_events` is a pure function from the flat integer array the native produces to
+// `Event`s, so the whole protocol -- every kind, the modifier bits, a malformed queue -- is
+// reachable from `ziman test` on a machine with no X server. The other half, that a window really
+// appears and really shows the pixels it was given, needs a display and lives in
+// tests/run_window_test.sh.
+//
+// The integer layout here mirrors src/native_window.c's event kinds by hand, which is the point: if
+// C renumbers an event, these tests fail rather than the decoder quietly producing the wrong one.
+use test
+use window
+use window.Event
+
+// Five ints per event, as the native writes them.
+fn ev(kind: int, a: int, b: int, c: int, d: int) -> [int] {
+    return [kind, a, b, c, d]
+}
+
+fn one(raw: [int]) -> Event {
+    val events = window.decode_events(raw)
+    if len(events) != 1 {
+        test.fail(concat("expected exactly one event, got ", str(len(events))))
+        return Event.Close
+    }
+    return events[0]
+}
+
+#[test]
+fn a_key_press_carries_its_keysym_and_no_modifiers() {
+    switch one(ev(1, 97, 0, 0, 0)) {
+        KeyDown(k) {
+            test.assert_eq(k.keysym, 97)
+            test.assert_false(k.shift)
+            test.assert_false(k.control)
+            test.assert_false(k.alt)
+            test.assert_false(k.meta)
+        }
+        KeyUp(_) { test.fail("a press decoded as a release") }
+        Char(_) { test.fail("a press decoded as text") }
+        PointerDown(_) { test.fail("wrong kind") }
+        PointerUp(_) { test.fail("wrong kind") }
+        PointerMove(_) { test.fail("wrong kind") }
+        Scroll(_) { test.fail("wrong kind") }
+        Resize(_) { test.fail("wrong kind") }
+        Close { test.fail("wrong kind") }
+        FocusIn { test.fail("wrong kind") }
+        FocusOut { test.fail("wrong kind") }
+        Exposed { test.fail("wrong kind") }
+    }
+}
+
+// The modifier bits are X11's, passed through unchanged: 1 shift, 4 control, 8 alt, 64 meta. Tested
+// together rather than one at a time because the bug worth catching is a mask that overlaps -- a
+// `control` test that also answers true for alt.
+#[test]
+fn the_modifier_bits_are_read_independently() {
+    switch one(ev(1, 115, 4, 0, 0)) {
+        KeyDown(k) {
+            test.assert(k.control)
+            test.assert_false(k.shift)
+            test.assert_false(k.alt)
+            test.assert_false(k.meta)
+        }
+        KeyUp(_) { test.fail("wrong kind") }
+        Char(_) { test.fail("wrong kind") }
+        PointerDown(_) { test.fail("wrong kind") }
+        PointerUp(_) { test.fail("wrong kind") }
+        PointerMove(_) { test.fail("wrong kind") }
+        Scroll(_) { test.fail("wrong kind") }
+        Resize(_) { test.fail("wrong kind") }
+        Close { test.fail("wrong kind") }
+        FocusIn { test.fail("wrong kind") }
+        FocusOut { test.fail("wrong kind") }
+        Exposed { test.fail("wrong kind") }
+    }
+    switch one(ev(1, 115, 5, 0, 0)) {
+        KeyDown(k) {
+            test.assert(k.control)
+            test.assert(k.shift)
+            test.assert_false(k.alt)
+        }
+        KeyUp(_) { test.fail("wrong kind") }
+        Char(_) { test.fail("wrong kind") }
+        PointerDown(_) { test.fail("wrong kind") }
+        PointerUp(_) { test.fail("wrong kind") }
+        PointerMove(_) { test.fail("wrong kind") }
+        Scroll(_) { test.fail("wrong kind") }
+        Resize(_) { test.fail("wrong kind") }
+        Close { test.fail("wrong kind") }
+        FocusIn { test.fail("wrong kind") }
+        FocusOut { test.fail("wrong kind") }
+        Exposed { test.fail("wrong kind") }
+    }
+    switch one(ev(1, 115, 72, 0, 0)) {
+        KeyDown(k) {
+            test.assert(k.alt)
+            test.assert(k.meta)
+            test.assert_false(k.control)
+            test.assert_false(k.shift)
+        }
+        KeyUp(_) { test.fail("wrong kind") }
+        Char(_) { test.fail("wrong kind") }
+        PointerDown(_) { test.fail("wrong kind") }
+        PointerUp(_) { test.fail("wrong kind") }
+        PointerMove(_) { test.fail("wrong kind") }
+        Scroll(_) { test.fail("wrong kind") }
+        Resize(_) { test.fail("wrong kind") }
+        Close { test.fail("wrong kind") }
+        FocusIn { test.fail("wrong kind") }
+        FocusOut { test.fail("wrong kind") }
+        Exposed { test.fail("wrong kind") }
+    }
+}
+
+// **A keystroke produces two events and both are kept.** A program dispatching Ctrl-S needs the
+// key; a text field needs the character. The native emits the key first and the text second, and a
+// decoder that dropped either would make one of those two jobs impossible.
+#[test]
+fn a_keystroke_decodes_to_a_key_and_the_text_it_produced() {
+    val events = window.decode_events(concat(ev(1, 97, 0, 0, 0), ev(3, 97, 0, 0, 0)))
+    test.assert_len(2, events)
+    test.assert(Event.is_KeyDown(events[0]))
+    test.assert(Event.is_Char(events[1]))
+    switch events[1] {
+        Char(text) { test.assert_eq(text, "a") }
+        KeyDown(_) { test.fail("wrong kind") }
+        KeyUp(_) { test.fail("wrong kind") }
+        PointerDown(_) { test.fail("wrong kind") }
+        PointerUp(_) { test.fail("wrong kind") }
+        PointerMove(_) { test.fail("wrong kind") }
+        Scroll(_) { test.fail("wrong kind") }
+        Resize(_) { test.fail("wrong kind") }
+        Close { test.fail("wrong kind") }
+        FocusIn { test.fail("wrong kind") }
+        FocusOut { test.fail("wrong kind") }
+        Exposed { test.fail("wrong kind") }
+    }
+}
+
+#[test]
+fn a_pointer_press_carries_its_position_and_button() {
+    switch one(ev(4, 120, 45, 3, 0)) {
+        PointerDown(p) {
+            test.assert_eq(p.x, 120)
+            test.assert_eq(p.y, 45)
+            test.assert_eq(p.button, 3)
+        }
+        KeyDown(_) { test.fail("wrong kind") }
+        KeyUp(_) { test.fail("wrong kind") }
+        Char(_) { test.fail("wrong kind") }
+        PointerUp(_) { test.fail("wrong kind") }
+        PointerMove(_) { test.fail("wrong kind") }
+        Scroll(_) { test.fail("wrong kind") }
+        Resize(_) { test.fail("wrong kind") }
+        Close { test.fail("wrong kind") }
+        FocusIn { test.fail("wrong kind") }
+        FocusOut { test.fail("wrong kind") }
+        Exposed { test.fail("wrong kind") }
+    }
+}
+
+// The wheel is a scroll and never a button, which is the one place this module deliberately differs
+// from X11: buttons 4 and 5 are the wheel there, and a caller should not have to know that.
+#[test]
+fn the_wheel_is_a_scroll_with_a_direction() {
+    switch one(ev(7, 10, 20, 0, 1)) {
+        Scroll(s) {
+            test.assert_eq(s.x, 10)
+            test.assert_eq(s.y, 20)
+            test.assert_eq(s.horizontal, 0)
+            test.assert_eq(s.vertical, 1)
+        }
+        KeyDown(_) { test.fail("wrong kind") }
+        KeyUp(_) { test.fail("wrong kind") }
+        Char(_) { test.fail("wrong kind") }
+        PointerDown(_) { test.fail("wrong kind") }
+        PointerUp(_) { test.fail("wrong kind") }
+        PointerMove(_) { test.fail("wrong kind") }
+        Resize(_) { test.fail("wrong kind") }
+        Close { test.fail("wrong kind") }
+        FocusIn { test.fail("wrong kind") }
+        FocusOut { test.fail("wrong kind") }
+        Exposed { test.fail("wrong kind") }
+    }
+    switch one(ev(7, 10, 20, 0, 0 - 1)) {
+        Scroll(s) { test.assert_eq(s.vertical, 0 - 1) }
+        KeyDown(_) { test.fail("wrong kind") }
+        KeyUp(_) { test.fail("wrong kind") }
+        Char(_) { test.fail("wrong kind") }
+        PointerDown(_) { test.fail("wrong kind") }
+        PointerUp(_) { test.fail("wrong kind") }
+        PointerMove(_) { test.fail("wrong kind") }
+        Resize(_) { test.fail("wrong kind") }
+        Close { test.fail("wrong kind") }
+        FocusIn { test.fail("wrong kind") }
+        FocusOut { test.fail("wrong kind") }
+        Exposed { test.fail("wrong kind") }
+    }
+}
+
+#[test]
+fn a_resize_carries_the_new_size() {
+    switch one(ev(8, 1280, 800, 0, 0)) {
+        Resize(s) {
+            test.assert_eq(s.width, 1280)
+            test.assert_eq(s.height, 800)
+        }
+        KeyDown(_) { test.fail("wrong kind") }
+        KeyUp(_) { test.fail("wrong kind") }
+        Char(_) { test.fail("wrong kind") }
+        PointerDown(_) { test.fail("wrong kind") }
+        PointerUp(_) { test.fail("wrong kind") }
+        PointerMove(_) { test.fail("wrong kind") }
+        Scroll(_) { test.fail("wrong kind") }
+        Close { test.fail("wrong kind") }
+        FocusIn { test.fail("wrong kind") }
+        FocusOut { test.fail("wrong kind") }
+        Exposed { test.fail("wrong kind") }
+    }
+}
+
+#[test]
+fn the_payloadless_kinds_decode() {
+    test.assert(Event.is_Close(one(ev(9, 0, 0, 0, 0))))
+    test.assert(Event.is_FocusIn(one(ev(10, 0, 0, 0, 0))))
+    test.assert(Event.is_FocusOut(one(ev(11, 0, 0, 0, 0))))
+    test.assert(Event.is_Exposed(one(ev(12, 0, 0, 0, 0))))
+}
+
+#[test]
+fn an_empty_queue_decodes_to_no_events() {
+    test.assert_len(0, window.decode_events([]))
+}
+
+// **A kind the decoder does not know is dropped, not guessed at.** C gets to add an event kind
+// without this file turning it into the wrong one -- the alternative, a catch-all that maps an
+// unknown kind onto something, is how a program ends up acting on a key the user never pressed.
+#[test]
+fn an_unknown_kind_is_dropped_and_the_rest_still_decode() {
+    val events = window.decode_events(concat(ev(99, 1, 2, 3, 4), ev(9, 0, 0, 0, 0)))
+    test.assert_len(1, events)
+    test.assert(Event.is_Close(events[0]))
+}
+
+// A queue cut short mid-record -- which a future native could produce by miscounting -- loses the
+// partial record and keeps everything before it, rather than reading past the end.
+#[test]
+fn a_trailing_partial_record_is_dropped() {
+    val events = window.decode_events(concat(ev(9, 0, 0, 0, 0), [1, 97]))
+    test.assert_len(1, events)
+    test.assert(Event.is_Close(events[0]))
+}
+
+#[test]
+fn several_events_keep_their_order() {
+    val events = window.decode_events(
+        concat(concat(ev(10, 0, 0, 0, 0), ev(6, 5, 6, 0, 0)), ev(9, 0, 0, 0, 0))
+    )
+    test.assert_len(3, events)
+    test.assert(Event.is_FocusIn(events[0]))
+    test.assert(Event.is_PointerMove(events[1]))
+    test.assert(Event.is_Close(events[2]))
+}
+
+// --- key names ---
+
+fn name_of(keysym: int) -> string {
+    return switch one(ev(1, keysym, 0, 0, 0)) {
+        KeyDown(k) { window.key_name(k) }
+        KeyUp(_) { "wrong kind" }
+        Char(_) { "wrong kind" }
+        PointerDown(_) { "wrong kind" }
+        PointerUp(_) { "wrong kind" }
+        PointerMove(_) { "wrong kind" }
+        Scroll(_) { "wrong kind" }
+        Resize(_) { "wrong kind" }
+        Close { "wrong kind" }
+        FocusIn { "wrong kind" }
+        FocusOut { "wrong kind" }
+        Exposed { "wrong kind" }
+    }
+}
+
+#[test]
+fn the_named_keys_are_named() {
+    test.assert_eq(name_of(65293), "Enter")
+    test.assert_eq(name_of(65288), "Backspace")
+    test.assert_eq(name_of(65289), "Tab")
+    test.assert_eq(name_of(65307), "Escape")
+    test.assert_eq(name_of(32), "Space")
+    test.assert_eq(name_of(65361), "Left")
+    test.assert_eq(name_of(65364), "Down")
+    test.assert_eq(name_of(65360), "Home")
+}
+
+// F1 to F12 are contiguous from 0xFFBE, so the arithmetic is worth checking at both ends -- an
+// off-by-one here names every function key wrong.
+#[test]
+fn the_function_keys_are_numbered_from_one() {
+    test.assert_eq(name_of(65470), "F1")
+    test.assert_eq(name_of(65481), "F12")
+}
+
+#[test]
+fn a_printable_keysym_is_its_own_character() {
+    test.assert_eq(name_of(97), "a")
+    test.assert_eq(name_of(90), "Z")
+    test.assert_eq(name_of(47), "/")
+}
+
+// Anything else keeps its number, so a program can log the key it did not recognise rather than
+// act on a key the user did not press.
+#[test]
+fn an_unnamed_key_keeps_its_keysym() {
+    test.assert_eq(name_of(65027), "keysym(65027)")
+}

@@ -52,6 +52,7 @@ flowchart LR
         url["url"]
         uuid["uuid"]
         validate["validate"]
+        window["window"]
         xml["xml"]
         yaml["yaml"]
     end
@@ -316,7 +317,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `io`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
+| 0 | `bits`, `clock`, `compress`, `io`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread`, `window` |
 | 1 | `derive_reflect`, `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `terminal`, `test`, `validate`, `xml` |
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
@@ -405,6 +406,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `url` | `locale`, `number` | `db`, `http`, `rest` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | `batch`, `eql`, `rest`, `server` |
 | `validate` | `regex` | - |
+| `window` | - | - |
 | `xml` | `io`, `locale` | `codec` |
 | `yaml` | `json`, `locale`, `number` | `codec` |
 | `zone` | `fs`, `number`, `os` | `time` |

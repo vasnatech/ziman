@@ -28,7 +28,7 @@ GROUPS = [
     # `terminal` is under System with `io` and `os`, not a group of its own: it is a wrapper over a
     # native primitive (termios) in the same way `clock` and `random` are, and a reader meets it by
     # wanting to read a key rather than by writing a kind of application.
-    ("System", "core", ["io", "terminal", "fs", "os", "process", "thread", "log", "metrics", "random", "clock", "locale"]),
+    ("System", "core", ["io", "terminal", "window", "fs", "os", "process", "thread", "log", "metrics", "random", "clock", "locale"]),
     ("Networking", "core", ["net", "url"]),
     ("HTTP", "http", ["http", "server", "client"]),
     # **`rest` is its own group, not a line under HTTP**: it is the framework over the server --

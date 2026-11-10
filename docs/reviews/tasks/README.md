@@ -42,3 +42,4 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F165 to F208](f165-f208.md)
 - [F209 to F249](f209-f249.md)
 - [F250 to F265](f250-f262.md)
+- [F269 to F277 — desktop applications (route B)](f269-f277.md)

@@ -35,6 +35,22 @@ $(BIN): $(OBJ) $(GC_LIB)
 
 nogc: ziman-nogc
 
+# **A binary with the window backend compiled in, and a separate one on purpose.**
+# docs/reviews/tasks/f269-f277.md F276: a command-line `ziman` should not need X11 installed to
+# start, so src/native_window.c keeps its backend behind ZIMAN_X11 and its natives answer "this
+# build has no window backend" without it.
+#
+# A separate name rather than a flag on the default build, which is what `ziman-nogc` above already
+# decided and for a reason worth not rediscovering: a `-D` added to CFLAGS is invisible to make, so
+# `make gui && make` leaves the X11 objects in place and the "default" binary still links libX11 --
+# which is exactly how the first attempt at this reported a passing test for a build that could not
+# have passed it. Compiled from $(SRC) in one step, as nogc is, so there are no shared objects to go
+# stale.
+gui: ziman-gui
+
+ziman-gui: $(SRC) $(HDR) $(CORELIB_HEADERS)
+	$(CC) $(CFLAGS) -DZIMAN_X11 -o $@ $(SRC) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread -lX11
+
 $(OBJ): $(CORELIB_HEADERS)
 
 ziman-nogc: $(SRC) $(HDR) $(CORELIB_HEADERS)
