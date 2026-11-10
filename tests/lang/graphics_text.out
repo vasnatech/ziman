@@ -1,0 +1,21 @@
+units per em:        1000
+cmap format:         4
+glyphs for "Aa .":   36 68 3 17
+advance of a space:  220
+advance of 'A':      623
+ink over the line:   373.3098
+alpha levels:        216
+ink in columns 0-9:  30.4118
+ink in columns 40-49: 32.0078
+ink in columns 90-99: 28.6784
+alpha levels, aa off: 178
+ink differs with aa: true
+ink ratio 16px/8px:  3.9979
+  between 3 and 5:   true
+clipped run has ink: true
+  less than unclipped: true
+half-pixel shift moves ink: true
+gray8 channels:      1
+gray8 darkest pixel: 1
+missing glyph:       font.glyphs_of: the face cannot draw U+4E2D
+ok

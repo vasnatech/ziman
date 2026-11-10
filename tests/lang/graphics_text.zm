@@ -1,0 +1,217 @@
+// `lib/graphics` phase 5, part 3: text, rasterised against a font this repository owns.
+//
+// **Why this file exists.** `graphics_raster.zm` covers what the text path *refuses* when no font
+// is loaded, because a fixture cannot rely on a system face being installed, let alone on which
+// version of it. So until `vendor/fonts/` existed, nothing checked that text came out right — four
+// changes to the glyph path in F270 were each verified by rendering a scene before and after and
+// comparing a digest, which catches the author's mistake and nothing else. This is the gate.
+//
+// The same discipline as its sibling: no golden images, every number either exact arithmetic or a
+// comparison between two renders that must differ, and each check chosen so that it fails for a
+// nameable reason. `vendor/fonts/Caladea-Regular.ttf` also uses a **format 4** character map, where
+// the face these were developed against uses format 12 — so `truetype.lookup4` is exercised here
+// for the first time.
+use font
+use fs
+use geom
+use image
+use paint
+use raster
+use scene
+use truetype
+
+val font_path = "vendor/fonts/Caladea-Regular.ttf"
+
+fn round4(x: float) -> string {
+    return format("{:.4}", x)
+}
+
+// The sum of alpha over every pixel: the total coverage the rasteriser laid down. This is the
+// number an off-by-one in the glyph blit changes and a visual comparison does not.
+fn ink_sum(img: image.Image) -> float {
+    var total = 0.0
+    var y = 0
+    while y < img.height {
+        var x = 0
+        while x < img.width {
+            total = total + unwrap(image.pixel_at(img, x, y)).alpha
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return total
+}
+
+// How many distinct alpha levels appear, which is how anti-aliasing is visible to a test: a glyph
+// rendered with no partial coverage has two levels and looks like a stencil.
+fn distinct_alphas(img: image.Image) -> int {
+    val seen = mutable_set_new<int>()
+    var y = 0
+    while y < img.height {
+        var x = 0
+        while x < img.width {
+            add(seen, (unwrap(image.pixel_at(img, x, y)).alpha * 255.0 + 0.5) as int)
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return len(seen)
+}
+
+// Ink inside a column band. **`ink_sum` alone is translation-invariant**, so it cannot see text
+// that moved: a glyph run shifted a pixel sideways has exactly the same total. Positioning is what
+// the sub-pixel quantisation in `draw_text` exists to get right, and uneven spacing is the bug it
+// guards against, so this fixture has to be able to see where the ink is and not only how much.
+fn ink_in_columns(img: image.Image, from_x: int, to_x: int) -> float {
+    var total = 0.0
+    var y = 0
+    while y < img.height {
+        var x = from_x
+        while x <= to_x && x < img.width {
+            total = total + unwrap(image.pixel_at(img, x, y)).alpha
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return total
+}
+
+fn loaded() -> Result<font.FontRef, string> {
+    val data = switch fs.read_bytes(font_path) {
+        Ok(d) { d }
+        Err(e) { return err(concat("cannot read ", font_path, ": ", fs.fs_error_message(e))) }
+    }
+    return font.load(data)
+}
+
+fn face_of(f: font.FontRef) -> Result<truetype.Face, string> {
+    return switch f {
+        Embedded(face) { ok(face) }
+        Standard(_) { err("the vendored font should have parsed as an embedded face") }
+    }
+}
+
+fn text_scene(content: string, width: float, height: float, size: float, x: float) -> scene.Scene {
+    return scene.with_ops(
+        scene.scene_of(width, height),
+        [
+            scene.text_of(
+                content,
+                geom.point_of(x, height * 0.72),
+                size,
+                0,
+                paint.Paint.Solid(paint.rgb(0.0, 0.0, 0.0))
+            )
+        ]
+    )
+}
+
+fn rendered(s: scene.Scene, f: font.FontRef, samples: int) -> Result<image.Image, string> {
+    return raster.render(s, with raster.options() { fonts: [f], samples: samples })
+}
+
+fn demo() -> Result<unit, string> {
+    val f = try loaded()
+    val face = try face_of(f)
+
+    // ---- the character map, which is format 4 in this face
+    //
+    // Asserted as glyph ids rather than as pixels: a cmap that moved by one would still draw
+    // *something*, and this is the check that says which glyph.
+    print(concat("units per em:        ", str(face.units_per_em)))
+    print(concat("cmap format:         ", str(face.cmap_format)))
+    val ids = try font.glyphs_of(face, "Aa .")
+    print(concat("glyphs for \"Aa .\":   ", str(ids[0]), " ", str(ids[1]), " ", str(ids[2]), " ", str(ids[3])))
+    // A space is a real glyph with an advance and no outline, which is the case that makes a
+    // renderer either skip it correctly or leave a gap of the wrong width.
+    print(concat("advance of a space:  ", str(try truetype.advance_of(face, ids[2]))))
+    print(concat("advance of 'A':      ", str(try truetype.advance_of(face, ids[0]))))
+
+    // ---- that text is drawn at all, and anti-aliased
+    val one = try rendered(text_scene("Hamburgefonstiv", 150.0, 24.0, 16.0, 2.0), f, 4)
+    print(concat("ink over the line:   ", round4(ink_sum(one))))
+    print(concat("alpha levels:        ", str(distinct_alphas(one))))
+    // Where the ink is, not just how much: three bands across the line, which a run shifted
+    // sideways by a single pixel changes and a total does not.
+    print(concat("ink in columns 0-9:  ", round4(ink_in_columns(one, 0, 9))))
+    print(concat("ink in columns 40-49: ", round4(ink_in_columns(one, 40, 49))))
+    print(concat("ink in columns 90-99: ", round4(ink_in_columns(one, 90, 99))))
+
+    // **Anti-aliasing has to change the picture.** Same scene, one sub-scanline instead of four:
+    // fewer partial-coverage levels, and a different total. Two renders that must differ, rather
+    // than a number that looks plausible.
+    val aliased = try rendered(text_scene("Hamburgefonstiv", 150.0, 24.0, 16.0, 2.0), f, 1)
+    print(concat("alpha levels, aa off: ", str(distinct_alphas(aliased))))
+    print(concat("ink differs with aa: ", str(ink_sum(one) != ink_sum(aliased))))
+
+    // ---- size scales the ink
+    //
+    // Twice the size is roughly four times the ink, which is the relationship a glyph transform
+    // that lost its scale would break. Compared as a ratio rather than an absolute, so it says
+    // something about the transform rather than about this face's shapes.
+    val small = try rendered(text_scene("nnnn", 80.0, 40.0, 8.0, 2.0), f, 4)
+    val big = try rendered(text_scene("nnnn", 80.0, 40.0, 16.0, 2.0), f, 4)
+    val ratio = ink_sum(big) / ink_sum(small)
+    print(concat("ink ratio 16px/8px:  ", round4(ratio)))
+    print(concat("  between 3 and 5:   ", str(ratio > 3.0 && ratio < 5.0)))
+
+    // ---- a glyph run that starts off the left edge
+    //
+    // The clipped-span case: the blit has to drop the columns that fall outside the canvas rather
+    // than wrapping them onto the previous row, which is what an unclamped index does.
+    val clipped = try rendered(text_scene("Hamburgefonstiv", 60.0, 24.0, 16.0, 0.0 - 20.0), f, 4)
+    print(concat("clipped run has ink: ", str(ink_sum(clipped) > 0.0)))
+    print(concat("  less than unclipped: ", str(ink_sum(clipped) < ink_sum(one))))
+
+    // ---- the same text at a sub-pixel offset is not the same pixels
+    //
+    // Glyph positions are quantised to a quarter of a pixel, so a shift of half a pixel must move
+    // the ink. A renderer that snapped glyphs to whole pixels would print `false` here, and its
+    // text would be unevenly spaced in a way no total would reveal.
+    val shifted = try rendered(text_scene("Hamburgefonstiv", 150.0, 24.0, 16.0, 2.5), f, 4)
+    print(concat("half-pixel shift moves ink: ", str(ink_sum(shifted) != ink_sum(one))))
+
+    // ---- the other two output formats carry the same glyphs
+    val grey = try raster.render(
+        text_scene("Hg", 30.0, 20.0, 14.0, 2.0),
+        with raster.options() {
+            fonts: [f],
+            samples: 4,
+            format: image.Pixels.Gray8,
+            background: Option<paint.Color>.Some(paint.white())
+        }
+    )
+    print(concat("gray8 channels:      ", str(image.channels_of(grey.format))))
+    // White background, black text: some pixel must be darker than white, or nothing was drawn.
+    var darkest = 255
+    var i = 0
+    while i < len(grey.data) {
+        val v = grey.data[i] as int
+        if v < darkest {
+            darkest = v
+        }
+        i = i + 1
+    }
+    print(concat("gray8 darkest pixel: ", str(darkest)))
+
+    // ---- a character the face cannot draw is named, not skipped
+    //
+    // U+4E2D is Chinese; this is a Latin face. The refusal has to say which code point, because a
+    // caller's only other option is to guess which character of a long string was the problem.
+    print(concat("missing glyph:       ", refusal(font.glyphs_of(face, "ok 中"))))
+    return ok(unit)
+}
+
+fn refusal<T>(r: Result<T, string>) -> string {
+    return switch r {
+        Ok(_) { "no refusal" }
+        Err(why) { why }
+    }
+}
+
+fn main() {
+    switch demo() {
+        Ok(_) { print("ok") }
+        Err(why) { print(concat("FAILED: ", why)) }
+    }
+}
