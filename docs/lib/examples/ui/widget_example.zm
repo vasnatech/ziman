@@ -1,0 +1,69 @@
+use geom
+use paint
+use scene
+use widget
+
+// **Measurement is injected, so a layout can be computed with no font and no window.** These two
+// functions stand in for a face: ten units of width per character, and a line twice the em size.
+// `widget.metrics_for(face)` builds the real pair from a loaded font, and fails there -- once --
+// rather than making every box in a window a fallible computation.
+fn fake() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+}
+
+fn boxes(label: string, r: geom.Rect) {
+    printf("{}: {},{} {}x{}\n", label, str(r.x), str(r.y), str(r.width), str(r.height))
+}
+
+fn main() {
+    val m = fake()
+
+    // A widget is a **value**, built and kept rather than a sequence of calls made per frame. That
+    // is what lets an accessibility layer be told what *changed* (F275), and what lets this example
+    // print a layout without a screen.
+    val toolbar = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 4.0,
+        padding: widget.insets_all(2.0),
+        background: Option<paint.Color>.Some(paint.rgb(0.9, 0.9, 0.9)),
+        // A `flex` after the label pushes everything before it to the left: leftover space is a
+        // widget, not a property of its neighbours.
+        children: [widget.named_label("File", 8.0, paint.black(), "menu-file"), widget.flex()],
+        name: "toolbar"
+    })
+
+    // **`expand` is how flexibility crosses a container.** A `flex` has no children and a group
+    // takes its natural size, so a content area that fills whatever the toolbar left needs this.
+    val content = widget.expand(widget.column_of(0.0, [widget.label_of("body", 8.0, paint.black())]))
+    val root = widget.column_of(0.0, [widget.fixed_of(200.0, 20.0, toolbar), content])
+
+    val laid = widget.layout(root, geom.rect_of(0.0, 0.0, 200.0, 100.0), m)
+    boxes("toolbar", laid.children[0].bounds)
+    boxes("content", laid.children[1].bounds)
+
+    // A name is what a focus or accessibility layer refers to a node by; a path is where it sits.
+    // **Prefer the name**: a path changes when a sibling is inserted above it.
+    printf(
+        "the label is named {} at path {}\n",
+        laid.children[0].children[0].children[0].name,
+        laid.children[0].children[0].children[0].path
+    )
+
+    // Two spacers share leftover space in proportion to their weights, which is why a weight is a
+    // number and not a bool.
+    val shared = widget.layout(
+        widget.row_of(0.0, [widget.flex_of(1.0), widget.flex_of(3.0)]),
+        geom.rect_of(0.0, 0.0, 80.0, 10.0),
+        m
+    )
+    boxes("weight 1", shared.children[0].bounds)
+    boxes("weight 3", shared.children[1].bounds)
+
+    // Painting answers a `Scene`, which `graphics/raster` rasterises and `graphics/pdf` writes --
+    // so a window and a printed page are one description rendered twice. Parents paint before
+    // children, so a background sits behind what it is behind.
+    printf("the window is {} ops\n", str(scene.op_count(widget.paint(laid, m))))
+}

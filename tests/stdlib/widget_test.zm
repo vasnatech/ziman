@@ -1,0 +1,284 @@
+// `lib/ui/widget`: a widget tree, its layout and its painting, with no window and no font.
+//
+// **That it needs neither is the point of F271**, not a convenience: a graphical application whose
+// layout can only be checked by looking at it has no layout tests, and every toolkit that went
+// that way has a folder of screenshots nobody can review. Everything here is a pure function over
+// immutable values, so a wrong box is a wrong number.
+//
+// The metrics are a **fake** with numbers chosen to make arithmetic visible: ten units of width per
+// character and a line height of twice the em size. A real face would make every expected value
+// below depend on which face it was, and on nothing about the layout.
+use geom
+use paint
+use scene
+use test
+use widget
+
+fn fake_metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+}
+
+fn black() -> paint.Color {
+    return paint.black()
+}
+
+fn a_label(text: string) -> widget.Widget {
+    return widget.label_of(text, 10.0, black())
+}
+
+fn box(w: float, h: float) -> widget.Widget {
+    return widget.fixed_of(w, h, widget.Widget.Nothing)
+}
+
+fn rect_text(r: geom.Rect) -> string {
+    return prelude.format("{},{} {}x{}", str(r.x), str(r.y), str(r.width), str(r.height))
+}
+
+// --- measurement
+
+#[test]
+fn a_label_measures_its_text_and_line_height() {
+    val s = widget.measure(a_label("abcd"), fake_metrics())
+    test.assert_eq(s.width, 40.0)
+    test.assert_eq(s.height, 20.0)
+}
+
+#[test]
+fn nothing_and_flex_measure_zero() {
+    test.assert_eq(widget.measure(widget.Widget.Nothing, fake_metrics()).width, 0.0)
+    // **A flex has no natural size, and that is what makes it flexible**: everything it is given is
+    // leftover space, so a measurement of anything else would reserve room twice.
+    test.assert_eq(widget.measure(widget.flex(), fake_metrics()).width, 0.0)
+    test.assert_eq(widget.measure(widget.flex_of(5.0), fake_metrics()).height, 0.0)
+}
+
+#[test]
+fn a_fixed_box_measures_what_it_was_given() {
+    val s = widget.measure(box(33.0, 7.0), fake_metrics())
+    test.assert_eq(s.width, 33.0)
+    test.assert_eq(s.height, 7.0)
+}
+
+// A row is the sum along and the maximum across. The two labels are 40 and 20 wide and both 20
+// tall, with one 6-unit gap: 66 by 20.
+#[test]
+fn a_row_sums_along_and_maxes_across() {
+    val r = widget.row_of(6.0, [a_label("abcd"), a_label("ef")])
+    val s = widget.measure(r, fake_metrics())
+    test.assert_eq(s.width, 66.0)
+    test.assert_eq(s.height, 20.0)
+}
+
+#[test]
+fn a_column_sums_the_other_way() {
+    val c = widget.column_of(6.0, [a_label("abcd"), a_label("ef")])
+    val s = widget.measure(c, fake_metrics())
+    test.assert_eq(s.width, 40.0)
+    test.assert_eq(s.height, 46.0)
+}
+
+// **Spacing goes between children, so three children have two gaps.** An unguarded
+// `count * spacing` is wrong by a whole gap on every container, and by a gap on an empty one --
+// which is the case worth asserting, because it is the one a reader does not think of.
+#[test]
+fn spacing_is_between_children_not_after_them() {
+    val two = widget.row_of(10.0, [box(5.0, 5.0), box(5.0, 5.0)])
+    val three = widget.row_of(10.0, [box(5.0, 5.0), box(5.0, 5.0), box(5.0, 5.0)])
+    test.assert_eq(widget.measure(two, fake_metrics()).width, 20.0)
+    test.assert_eq(widget.measure(three, fake_metrics()).width, 35.0)
+}
+
+#[test]
+fn an_empty_container_has_no_gaps() {
+    val empty: [widget.Widget] = []
+    test.assert_eq(widget.measure(widget.row_of(10.0, empty), fake_metrics()).width, 0.0)
+}
+
+// --- layout
+
+fn laid(w: widget.Widget, width: float, height: float) -> widget.Laid {
+    return widget.layout(w, geom.rect_of(0.0, 0.0, width, height), fake_metrics())
+}
+
+#[test]
+fn the_root_fills_what_it_was_given() {
+    val l = laid(a_label("hi"), 100.0, 50.0)
+    test.assert_eq(rect_text(l.bounds), "0.0,0.0 100.0x50.0")
+}
+
+// A row of two fixed boxes and the spacer between them: the boxes keep their widths and the
+// spacer takes everything left over.
+#[test]
+fn a_flex_takes_the_leftover_space() {
+    val r = widget.row_of(0.0, [box(20.0, 10.0), widget.flex(), box(30.0, 10.0)])
+    val l = laid(r, 100.0, 10.0)
+    test.assert_len(3, l.children)
+    test.assert_eq(rect_text(l.children[0].bounds), "0.0,0.0 20.0x10.0")
+    test.assert_eq(rect_text(l.children[1].bounds), "20.0,0.0 50.0x10.0")
+    test.assert_eq(rect_text(l.children[2].bounds), "70.0,0.0 30.0x10.0")
+}
+
+// **Two spacers share in proportion to their weights**, which is the whole reason a weight exists
+// rather than a bool. 1 and 3 over 80 spare units is 20 and 60.
+#[test]
+fn two_flexes_share_by_weight() {
+    val r = widget.row_of(0.0, [widget.flex_of(1.0), box(20.0, 10.0), widget.flex_of(3.0)])
+    val l = laid(r, 100.0, 10.0)
+    test.assert_eq(rect_text(l.children[0].bounds), "0.0,0.0 20.0x10.0")
+    test.assert_eq(rect_text(l.children[1].bounds), "20.0,0.0 20.0x10.0")
+    test.assert_eq(rect_text(l.children[2].bounds), "40.0,0.0 60.0x10.0")
+}
+
+// A weight of zero takes nothing, which is how a spacer is switched off without being removed from
+// the tree -- and removing it from the tree is what would move every sibling's path.
+#[test]
+fn a_zero_weight_flex_takes_nothing() {
+    val r = widget.row_of(0.0, [widget.flex_of(0.0), widget.flex_of(1.0)])
+    val l = laid(r, 60.0, 10.0)
+    test.assert_eq(rect_text(l.children[0].bounds), "0.0,0.0 0.0x10.0")
+    test.assert_eq(rect_text(l.children[1].bounds), "0.0,0.0 60.0x10.0")
+}
+
+// **An over-full container overflows; it does not shrink its children.** Silently shrinking would
+// hide the mistake, and clipping is a scroll container's decision rather than every container's.
+#[test]
+fn children_wider_than_the_room_overflow_rather_than_shrink() {
+    val r = widget.row_of(0.0, [box(80.0, 10.0), box(80.0, 10.0)])
+    val l = laid(r, 100.0, 10.0)
+    test.assert_eq(rect_text(l.children[0].bounds), "0.0,0.0 80.0x10.0")
+    test.assert_eq(rect_text(l.children[1].bounds), "80.0,0.0 80.0x10.0")
+}
+
+#[test]
+fn a_flex_in_an_over_full_container_takes_nothing() {
+    val r = widget.row_of(0.0, [box(120.0, 10.0), widget.flex()])
+    val l = laid(r, 100.0, 10.0)
+    test.assert_eq(rect_text(l.children[1].bounds), "120.0,0.0 0.0x10.0")
+}
+
+// Padding insets the children and the container keeps its own bounds, which is what lets a
+// background paint the padded area rather than only the part the children reached.
+#[test]
+fn padding_insets_the_children_only() {
+    val inner = box(100.0, 20.0)
+    val padded = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.insets_all(5.0),
+        background: Option<paint.Color>.None,
+        children: [inner],
+        name: ""
+    })
+    val l = laid(padded, 40.0, 30.0)
+    test.assert_eq(rect_text(l.bounds), "0.0,0.0 40.0x30.0")
+    test.assert_eq(rect_text(l.children[0].bounds), "5.0,5.0 30.0x20.0")
+}
+
+// **`Expand` is what lets flexibility cross a container.** A `Flex` has no children and a `Group`
+// takes its natural size, so without this the commonest layout there is -- a bar of its own height
+// above a content area filling the rest -- has no spelling. The first draft of this module had no
+// `Expand`, and the test above is what found it: a column holding only a spacer measured zero and
+// collapsed.
+#[test]
+fn an_expand_makes_a_subtree_take_the_leftover_space() {
+    val bar = box(100.0, 20.0)
+    val content = widget.expand(widget.column_of(0.0, [a_label("body")]))
+    val l = laid(widget.column_of(0.0, [bar, content]), 100.0, 90.0)
+    test.assert_eq(rect_text(l.children[0].bounds), "0.0,0.0 100.0x20.0")
+    test.assert_eq(rect_text(l.children[1].bounds), "0.0,20.0 100.0x70.0")
+    // And the expanded subtree's own child gets the whole share, not its natural size.
+    test.assert_eq(rect_text(l.children[1].children[0].bounds), "0.0,20.0 100.0x70.0")
+}
+
+// Two expands share by weight exactly as two spacers do, because they are the same mechanism.
+#[test]
+fn two_expands_share_by_weight() {
+    val l = laid(
+        widget.column_of(0.0, [
+            widget.expand_of(1.0, a_label("a")),
+            widget.expand_of(2.0, a_label("b"))
+        ]),
+        50.0,
+        60.0
+    )
+    test.assert_eq(rect_text(l.children[0].bounds), "0.0,0.0 50.0x20.0")
+    test.assert_eq(rect_text(l.children[1].bounds), "0.0,20.0 50.0x40.0")
+}
+
+// An expand still measures its child, so the axis its parent does *not* distribute along is the
+// child's own -- a row of expands is as tall as its tallest child, not as tall as nothing.
+#[test]
+fn an_expand_measures_its_child_across_the_other_axis() {
+    val s = widget.measure(widget.expand(a_label("abcd")), fake_metrics())
+    test.assert_eq(s.width, 40.0)
+    test.assert_eq(s.height, 20.0)
+}
+
+// --- identity
+
+// A path says where a node is; a name says what it is. **Focus follows the name**, because a path
+// changes when a sibling is inserted above it and focus that moved because an unrelated widget
+// appeared is a bug a user notices and a test does not.
+#[test]
+fn paths_number_the_children_in_order() {
+    val r = widget.row_of(0.0, [a_label("a"), widget.column_of(0.0, [a_label("b"), a_label("c")])])
+    val l = laid(r, 100.0, 20.0)
+    test.assert_eq(l.path, "")
+    test.assert_eq(l.children[0].path, "0")
+    test.assert_eq(l.children[1].path, "1")
+    test.assert_eq(l.children[1].children[1].path, "1/1")
+}
+
+#[test]
+fn a_name_is_carried_onto_the_laid_node() {
+    val l = laid(widget.named_label("Save", 10.0, black(), "save-button"), 50.0, 20.0)
+    test.assert_eq(l.name, "save-button")
+}
+
+#[test]
+fn a_widget_with_no_name_has_an_empty_one() {
+    test.assert_eq(laid(a_label("x"), 10.0, 10.0).name, "")
+}
+
+// --- painting
+
+#[test]
+fn a_label_paints_one_text_op() {
+    val ops = widget.paint_ops(laid(a_label("hi"), 100.0, 20.0), fake_metrics())
+    test.assert_len(1, ops)
+}
+
+#[test]
+fn nothing_and_flex_paint_nothing() {
+    test.assert_len(0, widget.paint_ops(laid(widget.Widget.Nothing, 10.0, 10.0), fake_metrics()))
+    test.assert_len(0, widget.paint_ops(laid(widget.flex(), 10.0, 10.0), fake_metrics()))
+}
+
+// A background is one fill, before the children, so it sits behind them. Asserted by *order*: a
+// background painted after its children hides them, and the op count alone cannot tell.
+#[test]
+fn a_background_paints_before_its_children() {
+    val filled = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        background: Option<paint.Color>.Some(paint.white()),
+        children: [a_label("hi")],
+        name: ""
+    })
+    val ops = widget.paint_ops(laid(filled, 100.0, 20.0), fake_metrics())
+    test.assert_len(2, ops)
+    test.assert(scene.Op.is_Fill(ops[0]))
+    test.assert(scene.Op.is_Text(ops[1]))
+}
+
+// A container with no background paints nothing of its own, which is what keeps a UI from
+// overdrawing every pixel once per nesting level.
+#[test]
+fn a_container_without_a_background_paints_nothing_itself() {
+    val ops = widget.paint_ops(laid(widget.row_of(0.0, [a_label("hi")]), 100.0, 20.0), fake_metrics())
+    test.assert_len(1, ops)
+}

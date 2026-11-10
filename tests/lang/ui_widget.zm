@@ -1,0 +1,124 @@
+// `lib/ui/widget` meeting `lib/graphics`: a window laid out, painted, and rasterised to pixels.
+//
+// **`tests/stdlib/widget_test.zm` is the layout gate and this is the integration one.** That file
+// checks boxes against numbers with a fake metrics and no font, which is where the arithmetic lives;
+// this one checks that the `Scene` the UI layer produces is a scene the renderer actually draws, in
+// the places the layout said. The two failures it is here to catch are a paint order that hides a
+// widget behind its own background and a layout that agrees with itself but disagrees with the
+// pixels -- neither of which a unit test over rectangles can see.
+//
+// Uses `vendor/fonts/Caladea-Regular.ttf`, as `graphics_text.zm` does and for the same reason: a
+// fixture cannot rely on a system face.
+use font
+use fs
+use geom
+use image
+use paint
+use raster
+use scene
+use widget
+
+val font_path = "vendor/fonts/Caladea-Regular.ttf"
+
+fn triple(img: image.Image, x: int, y: int) -> string {
+    val c = unwrap(image.pixel_at(img, x, y))
+    return concat(format("{:.1}", c.red), ",", format("{:.1}", c.green), ",", format("{:.1}", c.blue))
+}
+
+// A window shaped like an application: a toolbar of its own height, then a row of a fixed sidebar
+// and a content area taking the rest. Each region has a distinct background, so a pixel's colour
+// says which region it landed in -- which is the only way to check a layout against a render.
+fn window(w: float, h: float) -> widget.Widget {
+    val toolbar = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 4.0,
+        padding: widget.insets_all(2.0),
+        background: Option<paint.Color>.Some(paint.rgb(1.0, 0.0, 0.0)),
+        children: [widget.label_of("File", 8.0, paint.black()), widget.flex()],
+        name: "toolbar"
+    })
+    val sidebar = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        background: Option<paint.Color>.Some(paint.rgb(0.0, 1.0, 0.0)),
+        children: [widget.flex()],
+        name: "sidebar"
+    })
+    val content = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        background: Option<paint.Color>.Some(paint.rgb(0.0, 0.0, 1.0)),
+        children: [widget.flex()],
+        name: "content"
+    })
+    val body = widget.row_of(0.0, [widget.fixed_of(40.0, h, sidebar), widget.expand(content)])
+    val _ = w
+    return widget.column_of(0.0, [widget.fixed_of(w, 20.0, toolbar), widget.expand(body)])
+}
+
+fn demo() -> Result<unit, string> {
+    val data = switch fs.read_bytes(font_path) {
+        Ok(d) { d }
+        Err(e) { return err(concat("cannot read ", font_path, ": ", fs.fs_error_message(e))) }
+    }
+    val face = try font.load(data)
+    val metrics = try widget.metrics_for(face)
+
+    val laid = widget.layout(window(120.0, 80.0), geom.rect_of(0.0, 0.0, 120.0, 80.0), metrics)
+
+    // The layout first, as the UI layer sees it: the toolbar keeps its 20, the body takes the rest,
+    // the sidebar its 40, and the content everything left across.
+    print(concat("toolbar: ", rect_text(laid.children[0].bounds)))
+    print(concat("body:    ", rect_text(laid.children[1].bounds)))
+    val body = laid.children[1].children[0]
+    print(concat("sidebar: ", rect_text(body.children[0].bounds)))
+    print(concat("content: ", rect_text(body.children[1].bounds)))
+    print(concat("names:   ", concat(
+        laid.children[0].children[0].name,
+        " ",
+        body.children[0].children[0].name,
+        " ",
+        body.children[1].children[0].name
+    )))
+
+    // Then the pixels, which is the check the layout numbers cannot make. A region's colour says
+    // which region a pixel landed in.
+    val img = try raster.render(
+        widget.paint(laid, metrics),
+        with raster.options() { fonts: [face], samples: 4 }
+    )
+    print(concat("in the toolbar:  ", triple(img, 60, 10)))
+    print(concat("in the sidebar:  ", triple(img, 10, 50)))
+    print(concat("in the content:  ", triple(img, 90, 50)))
+    // The toolbar's label is dark text on red, so some pixel in its first few columns must be
+    // darker than the background it sits on. Asserted as a comparison rather than a value, because
+    // which pixel a glyph's stem lands on is the font's business.
+    var darkest = 1.0
+    var x = 2
+    while x < 24 {
+        var y = 2
+        while y < 18 {
+            val r = unwrap(image.pixel_at(img, x, y)).red
+            if r < darkest {
+                darkest = r
+            }
+            y = y + 1
+        }
+        x = x + 1
+    }
+    print(concat("label darkens red:  ", str(darkest < 0.5)))
+    return ok(unit)
+}
+
+fn rect_text(r: geom.Rect) -> string {
+    return prelude.format("{},{} {}x{}", str(r.x), str(r.y), str(r.width), str(r.height))
+}
+
+fn main() {
+    switch demo() {
+        Ok(_) { print("ok") }
+        Err(why) { print(concat("FAILED: ", why)) }
+    }
+}

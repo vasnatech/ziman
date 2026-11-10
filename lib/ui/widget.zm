@@ -1,0 +1,482 @@
+// A widget tree: what a window is made of, laid out, and turned into a `Scene`.
+//
+// **Everything here is a pure function over immutable values**, and that is the point rather than a
+// style preference. docs/reviews/tasks/f269-f277.md F271: the tree, its layout and its painting can
+// be unit-tested with no window, no display and no font, so the only part of a graphical
+// application that needs a screen is the part that blits the result. curly's terminal interface is
+// the precedent -- `tui/rows.zm` and `tui/render.zm` are pure and only `tui/app.zm` touches the
+// terminal -- and it is why that UI could be tested at all.
+//
+// **Retained, not immediate.** A `Widget` is a value built and kept, not a sequence of calls made
+// per frame. The immediate-mode libraries have the nicer API and suit a language of immutable
+// values well, but an accessibility tree cannot be destroyed and rebuilt every frame: assistive
+// technology has to be told *what changed*, which a tree that persists can say and a call sequence
+// cannot. docs/design/desktop-applications.md §5 has the argument; F275 is where it is paid for.
+//
+// **Measurement is injected, not read from a font.** `layout` takes a `Metrics` -- two functions --
+// so this module never loads a face, never fails, and can be tested against a fake whose numbers
+// are chosen to make an arithmetic error obvious. `metrics_for` builds the real one from a
+// `font.FontRef`; `metrics_of` takes the two functions directly, which is what a test wants.
+//
+// **This is not `graphics/layout`.** That module lays out *documents*: paragraphs, columns and
+// tables, measured once and printed. This lays out a *window*: a box model with flexible space,
+// re-run whenever the window changes size. They share `geom` and nothing else, and merging them
+// would give one module two jobs with different notions of what "fits" means.
+use font
+use geom
+use geom.Point
+use geom.Rect
+use paint
+use paint.Color
+use paint.Paint
+use scene
+use scene.Op
+use shape
+
+// ---------------------------------------------------------------- the tree
+
+pub enum Direction {
+    Row
+    Column
+}
+
+pub struct Insets {
+    left: float
+    top: float
+    right: float
+    bottom: float
+}
+
+pub fn insets_of(left: float, top: float, right: float, bottom: float) -> Insets {
+    return Insets { left: left, top: top, right: right, bottom: bottom }
+}
+
+// The same amount on all four sides, which is what most padding is.
+pub fn insets_all(amount: float) -> Insets {
+    return Insets { left: amount, top: amount, right: amount, bottom: amount }
+}
+
+pub fn no_insets() -> Insets {
+    return Insets { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }
+}
+
+pub struct Size {
+    width: float
+    height: float
+}
+
+pub fn size_of(width: float, height: float) -> Size {
+    return Size { width: width, height: height }
+}
+
+// A run of text. No wrapping: a label is one line, and a paragraph that wraps is a different
+// widget with a different measurement (and `graphics/layout` already knows how to break one).
+pub struct Label {
+    text: string
+    // The em size, in device units.
+    size: float
+    colour: Color
+    // What a focus or accessibility layer refers to this node by, or "" for none. **A name, not an
+    // index**: a path changes when a sibling is inserted above it, and focus that moved because an
+    // unrelated widget appeared is a bug a user notices and a test does not.
+    name: string
+}
+
+pub fn label_of(text: string, size: float, colour: Color) -> Widget {
+    return Widget.Text(Label { text: text, size: size, colour: colour, name: "" })
+}
+
+pub fn named_label(text: string, size: float, colour: Color, name: string) -> Widget {
+    return Widget.Text(Label { text: text, size: size, colour: colour, name: name })
+}
+
+// Children in a row or a column, with space between them and around them.
+pub struct Stack {
+    direction: Direction
+    spacing: float
+    padding: Insets
+    // Painted behind the children, before them. `None` draws nothing, which is what most
+    // containers want -- a stack per level each painting a background is how a UI ends up with
+    // twenty overdraws per pixel.
+    background: Option<Color>
+    children: [Widget]
+    name: string
+}
+
+pub fn row_of(spacing: float, children: [Widget]) -> Widget {
+    return Widget.Group(Stack {
+        direction: Direction.Row,
+        spacing: spacing,
+        padding: no_insets(),
+        background: Option<Color>.None,
+        children: children,
+        name: ""
+    })
+}
+
+pub fn column_of(spacing: float, children: [Widget]) -> Widget {
+    return Widget.Group(Stack {
+        direction: Direction.Column,
+        spacing: spacing,
+        padding: no_insets(),
+        background: Option<Color>.None,
+        children: children,
+        name: ""
+    })
+}
+
+// A child that measures a fixed size, whatever its content would have measured.
+//
+// **It fixes what it measures, not the box it ends up in.** A stack divides space along its own
+// direction and hands every child the parent's full extent *across* it -- so a `Fixed(40, 80)` in a
+// row 60 tall is laid out 40 wide and 60 tall. That is the stretch every box model defaults to, and
+// choosing otherwise means an alignment rule (top, centre, end), which belongs with the widget set
+// rather than here.
+pub struct Fixed {
+    width: float
+    height: float
+    child: Widget
+    name: string
+}
+
+pub fn fixed_of(width: float, height: float, child: Widget) -> Widget {
+    return Widget.Sized(Fixed { width: width, height: height, child: child, name: "" })
+}
+
+// A child made flexible: it takes a share of the leftover space along its parent's direction, and
+// lays its own child out inside that.
+//
+// **Without this, flexibility cannot cross a container.** A `Flex` has no children, and a `Group`
+// always takes its natural size -- so "a toolbar of its own height and a content area filling the
+// rest" had no spelling, which is the most ordinary layout there is. `Expand` is the one place a
+// subtree is told to be bigger than it measures.
+pub struct Expanded {
+    weight: float
+    child: Widget
+}
+
+pub fn expand_of(weight: float, child: Widget) -> Widget {
+    return Widget.Expand(Expanded { weight: weight, child: child })
+}
+
+pub fn expand(child: Widget) -> Widget {
+    return Widget.Expand(Expanded { weight: 1.0, child: child })
+}
+
+pub enum Widget {
+    // Occupies nothing and paints nothing. The honest answer for "no child here", rather than an
+    // `Option<Widget>` at every site that holds one.
+    Nothing
+    Text(Label)
+    Group(Stack)
+    Sized(Fixed)
+    // Flexible space. **Its weight is how leftover space is shared**, so two spacers of 1 and 3
+    // split it one quarter to three quarters. A weight of zero takes nothing, which is how a
+    // spacer is switched off without removing it from the tree.
+    Flex(float)
+    // A subtree that is flexible rather than its natural size -- see `Expanded`.
+    Expand(Expanded)
+}
+
+pub fn flex() -> Widget {
+    return Widget.Flex(1.0)
+}
+
+pub fn flex_of(weight: float) -> Widget {
+    return Widget.Flex(weight)
+}
+
+// ---------------------------------------------------------------- measurement
+
+// How wide a string is, and how tall a line of it is, at a given em size.
+//
+// Two functions rather than a font, so that nothing here can fail and nothing here needs a face.
+// `font.advance` answers a `Result` -- a standard font that is not Courier cannot be measured
+// without the file -- and threading that failure through every layout would make a window's shape
+// a fallible computation. A caller resolves it once, when it loads its font.
+pub struct Metrics {
+    text_width: fn(string, float) -> float
+    line_height: fn(float) -> float
+}
+
+pub fn metrics_of(text_width: fn(string, float) -> float, line_height: fn(float) -> float) -> Metrics {
+    return Metrics { text_width: text_width, line_height: line_height }
+}
+
+// The real metrics of a face.
+//
+// **Fails here rather than per measurement**, which is the whole reason it exists: `font.advance`
+// answers a `Result` -- one of the standard fourteen that is not Courier cannot be measured without
+// the file -- and a `Metrics` whose functions could fail would make every box in a window a
+// fallible computation. So the face is probed once, now, and a face that answers once answers for
+// every string; the closures then treat a later failure as a zero width, which cannot happen for a
+// face that got past this line.
+pub fn metrics_for(f: font.FontRef) -> Result<Metrics, string> {
+    val _ = try font.advance(f, "0", 10.0)
+    val face = f
+    return ok(Metrics {
+        text_width: fn(text: string, size: float) -> float {
+            return switch font.advance(face, text, size) {
+                Ok(w) { w }
+                Err(_) { 0.0 }
+            }
+        },
+        line_height: fn(size: float) -> float { return font.line_height(face, size) }
+    })
+}
+
+// The size a widget wants, given nothing: its *natural* size, before any space is shared out.
+//
+// A `Flex` measures zero, which is what makes it flexible -- it has no natural size, so everything
+// it is given is leftover space.
+pub fn measure(w: Widget, m: Metrics) -> Size {
+    return switch w {
+        Nothing { size_of(0.0, 0.0) }
+        Flex(_) { size_of(0.0, 0.0) }
+        Text(it) {
+            val width = m.text_width
+            val height = m.line_height
+            size_of(width(it.text, it.size), height(it.size))
+        }
+        Sized(it) { size_of(it.width, it.height) }
+        Group(it) { measure_stack(it, m) }
+        // Its child's natural size: the *cross* axis still comes from here, and only the axis its
+        // parent distributes along is replaced by the share it is given.
+        Expand(it) { measure(it.child, m) }
+    }
+}
+
+fn measure_stack(s: Stack, m: Metrics) -> Size {
+    var along = 0.0
+    var across = 0.0
+    var count = 0
+    for child in s.children {
+        val child_size = measure(child, m)
+        along = along + along_of(child_size, s.direction)
+        val other = switch s.direction {
+            Row { child_size.height }
+            Column { child_size.width }
+        }
+        if other > across {
+            across = other
+        }
+        count = count + 1
+    }
+    // Spacing goes *between* children, so there is one less gap than there are children -- and
+    // none at all when there are none, which is the case an unguarded `count * spacing` gets wrong
+    // by a whole gap on every empty container.
+    if count > 1 {
+        along = along + ((count - 1) as float) * s.spacing
+    }
+    val h_pad = s.padding.left + s.padding.right
+    val v_pad = s.padding.top + s.padding.bottom
+    return switch s.direction {
+        Row { size_of(along + h_pad, across + v_pad) }
+        Column { size_of(across + h_pad, along + v_pad) }
+    }
+}
+
+// ---------------------------------------------------------------- layout
+
+// A widget with a place on the screen.
+//
+// `widget` is the node itself, so `paint` and a hit test can read its styling without walking the
+// original tree in parallel; its children are in `children` here and are **not** read from
+// `widget`. That duplication is deliberate -- the alternative is a second tree walk that has to
+// stay in step with this one, which is the bug every retained UI makes once.
+pub struct Laid {
+    bounds: Rect
+    // The position in the tree: "" for the root, then "0", "0/1", "0/1/2". Stable for a tree whose
+    // shape does not change, and the thing to use when no `name` was given.
+    path: string
+    // The widget's own `name`, or "" -- see `Label.name`.
+    name: string
+    widget: Widget
+    children: [Laid]
+}
+
+// Places `w` inside `within` and every descendant inside that.
+//
+// **A widget is given the space it is given, not the space it asked for.** A stack's children are
+// measured to decide how to divide the room, but a child wider than its share is not clipped here
+// and not shrunk: it is laid out at its share and overflows, which `paint` then draws outside the
+// parent. Clipping is a decision for a scroll container (F277) and silently shrinking would hide
+// a layout mistake rather than show it.
+pub fn layout(w: Widget, within: Rect, m: Metrics) -> Laid {
+    return place(w, within, m, "", "")
+}
+
+fn place(w: Widget, within: Rect, m: Metrics, path: string, parent_name: string) -> Laid {
+    val own_name = name_of(w)
+    val name = if own_name == "" { parent_name } else { own_name }
+    return switch w {
+        Group(it) { place_stack(it, w, within, m, path, name) }
+        Sized(it) {
+            Laid {
+                bounds: within,
+                path: path,
+                name: name,
+                widget: w,
+                children: [place(it.child, within, m, join_path(path, 0), "")]
+            }
+        }
+        Expand(it) {
+            Laid {
+                bounds: within,
+                path: path,
+                name: name,
+                widget: w,
+                children: [place(it.child, within, m, join_path(path, 0), "")]
+            }
+        }
+        Nothing { leaf(w, within, path, name) }
+        Text(_) { leaf(w, within, path, name) }
+        Flex(_) { leaf(w, within, path, name) }
+    }
+}
+
+fn leaf(w: Widget, within: Rect, path: string, name: string) -> Laid {
+    return Laid { bounds: within, path: path, name: name, widget: w, children: [] }
+}
+
+fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, path: string, name: string) -> Laid {
+    val inner = geom.rect_of(
+        within.x + s.padding.left,
+        within.y + s.padding.top,
+        within.width - s.padding.left - s.padding.right,
+        within.height - s.padding.top - s.padding.bottom
+    )
+    val count = prelude.len(s.children)
+    val gaps = if count > 1 { ((count - 1) as float) * s.spacing } else { 0.0 }
+    val room = switch s.direction {
+        Row { inner.width - gaps }
+        Column { inner.height - gaps }
+    }
+
+    // Two passes: the fixed children take their natural size, and the flexible ones share whatever
+    // is left in proportion to their weights. A negative remainder is simply not shared -- an
+    // over-full container is reported by its children overflowing, not by a spacer of negative
+    // width.
+    var fixed_total = 0.0
+    var weight_total = 0.0
+    for child in s.children {
+        switch flex_weight(child) {
+            Some(weight) { weight_total = weight_total + weight }
+            None { fixed_total = fixed_total + along_of(measure(child, m), s.direction) }
+        }
+    }
+    val spare = if room - fixed_total > 0.0 { room - fixed_total } else { 0.0 }
+
+    val placed = mutable_array_new<Laid>()
+    var offset = 0.0
+    var index = 0
+    for child in s.children {
+        val extent = switch flex_weight(child) {
+            Some(weight) { if weight_total > 0.0 { spare * weight / weight_total } else { 0.0 } }
+            None { along_of(measure(child, m), s.direction) }
+        }
+        val child_rect = switch s.direction {
+            Row { geom.rect_of(inner.x + offset, inner.y, extent, inner.height) }
+            Column { geom.rect_of(inner.x, inner.y + offset, inner.width, extent) }
+        }
+        push(placed, place(child, child_rect, m, join_path(path, index), ""))
+        offset = offset + extent + s.spacing
+        index = index + 1
+    }
+    return Laid {
+        bounds: within,
+        path: path,
+        name: name,
+        widget: w,
+        children: snapshot(placed)
+    }
+}
+
+// A widget's flex weight, or `None` for a widget that is not flexible.
+//
+// Written as an `Option` rather than tested with `if Flex(w) = child` at each site because that
+// form is a *statement* and the two places below need the answer as a value -- and because a
+// `Flex(0.0)` has to stay distinguishable from "not flexible", which a bare 0.0 would not be.
+fn flex_weight(w: Widget) -> Option<float> {
+    return switch w {
+        Flex(weight) { Option<float>.Some(weight) }
+        Expand(it) { Option<float>.Some(it.weight) }
+        Nothing { Option<float>.None }
+        Text(_) { Option<float>.None }
+        Group(_) { Option<float>.None }
+        Sized(_) { Option<float>.None }
+    }
+}
+
+fn along_of(s: Size, direction: Direction) -> float {
+    return switch direction {
+        Row { s.width }
+        Column { s.height }
+    }
+}
+
+fn join_path(path: string, index: int) -> string {
+    if path == "" {
+        return str(index)
+    }
+    return concat(path, "/", str(index))
+}
+
+fn name_of(w: Widget) -> string {
+    return switch w {
+        Nothing { "" }
+        Flex(_) { "" }
+        Expand(_) { "" }
+        Text(it) { it.name }
+        Group(it) { it.name }
+        Sized(it) { it.name }
+    }
+}
+
+// ---------------------------------------------------------------- painting
+
+// The laid-out tree as a `Scene`, parents before children so a background sits behind what it is
+// behind.
+//
+// Text is placed on its **baseline**, which is why a label's y is its bounds' top plus the line
+// height rather than the top itself: a glyph drawn at the top of its box has its ascenders above
+// the box and looks like it has escaped.
+pub fn paint(l: Laid, m: Metrics) -> scene.Scene {
+    val ops = mutable_array_new<Op>()
+    collect(l, m, ops)
+    return scene.with_ops(
+        scene.scene_of(l.bounds.x + l.bounds.width, l.bounds.y + l.bounds.height),
+        snapshot(ops)
+    )
+}
+
+// The ops alone, for a caller composing a scene of its own.
+pub fn paint_ops(l: Laid, m: Metrics) -> [Op] {
+    val ops = mutable_array_new<Op>()
+    collect(l, m, ops)
+    return snapshot(ops)
+}
+
+fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>) {
+    if Group(it) = l.widget {
+        if Some(colour) = it.background {
+            push(ops, scene.fill(shape.rect_path(l.bounds), Paint.Solid(colour)))
+        }
+    }
+    if Text(it) = l.widget {
+        val height = m.line_height
+        push(
+            ops,
+            scene.text_of(
+                it.text,
+                geom.point_of(l.bounds.x, l.bounds.y + height(it.size)),
+                it.size,
+                0,
+                Paint.Solid(it.colour)
+            )
+        )
+    }
+    for child in l.children {
+        collect(child, m, ops)
+    }
+}

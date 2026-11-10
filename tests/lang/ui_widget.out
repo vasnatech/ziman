@@ -1,0 +1,10 @@
+toolbar: 0.0,0.0 120.0x20.0
+body:    0.0,20.0 120.0x60.0
+sidebar: 0.0,20.0 40.0x60.0
+content: 40.0,20.0 80.0x60.0
+names:   toolbar sidebar content
+in the toolbar:  1.0,0.0,0.0
+in the sidebar:  0.0,1.0,0.0
+in the content:  0.0,0.0,1.0
+label darkens red:  true
+ok

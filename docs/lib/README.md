@@ -162,6 +162,12 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`raster`](raster.md) | The second backend: a `Scene` to an `Image`. |
 | [`layout`](layout.md) | Flows, wrapping, tables and pagination. |
 
+## User interface
+
+| Module | What it is |
+|---|---|
+| [`widget`](widget.md) | A widget tree: what a window is made of, laid out, and turned into a `Scene`. |
+
 ## Always available
 
 | Module | What it is |
