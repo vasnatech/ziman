@@ -1,0 +1,376 @@
+// `lib/ui/a11y`: what a screen reader is told about a window.
+//
+// **Every assertion here is about words or structure, and none is about pixels.** That is not a
+// limitation of the tests, it is the subject: a window whose button announces itself as "btn_save_2",
+// or whose label is read twice, or whose eleven layout boxes each become a node the user has to
+// arrow past, renders identically to one that is correct. The only way to see any of it is to ask
+// what the tree says.
+use a11y
+// A module's `pub val` is reached through its own `use`, not as `a11y.root_key`.
+use a11y.root_key
+use focus
+use geom
+use paint
+use test
+use widget
+
+fn metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+}
+
+fn laid(root: widget.Widget) -> widget.Laid {
+    return widget.layout(root, geom.rect_of(0.0, 0.0, 200.0, 100.0), metrics())
+}
+
+fn words(text: string) -> widget.Widget {
+    return widget.label_of(text, 8.0, paint.black())
+}
+
+// A button as F277 will build one: a control wrapping a box wrapping a label.
+fn button(name: string, text: string) -> widget.Widget {
+    return widget.control_of(name, widget.Role.Button, widget.fixed_of(40.0, 20.0, words(text)))
+}
+
+fn control(name: string, role: widget.Role, label: string, state: widget.State, value: string) -> widget.Widget {
+    return widget.Widget.Control(widget.Focusable {
+        name: name,
+        role: role,
+        label: label,
+        description: "",
+        value: value,
+        state: state,
+        child: widget.fixed_of(40.0, 20.0, widget.Widget.Nothing)
+    })
+}
+
+fn tree(root: widget.Widget, focus: string) -> a11y.Tree {
+    return a11y.tree_of(laid(root), "Records", focus)
+}
+
+fn keys_of(t: a11y.Tree) -> string {
+    val out = mutable_array_new<string>()
+    for one in t.nodes {
+        push(out, one.key)
+    }
+    return join(separator: " ", pieces: snapshot(out))
+}
+
+fn said(t: a11y.Tree, key: string) -> string {
+    return switch a11y.node_of(t, key) {
+        Some(one) { a11y.announce(one) }
+        None { concat("(no node keyed ", key, ")") }
+    }
+}
+
+// --- the shape of the tree
+
+// **The flattening, which is the whole algorithm.** Six layout boxes around one button, and the
+// tree is the window and the button. A reader given a node per box makes the user arrow through
+// eleven anonymous groups to reach the thing they wanted.
+#[test]
+fn layout_boxes_do_not_become_nodes() {
+    val deep = widget.column_of(
+        0.0,
+        [
+            widget.row_of(
+                4.0,
+                [widget.flex(), widget.expand(widget.fixed_of(40.0, 20.0, button("save", "Save"))), widget.flex()]
+            )
+        ]
+    )
+    test.assert_eq(keys_of(tree(deep, "")), "@ save")
+}
+
+// The root is a window whatever the application put at the top, because a reader navigates from a
+// window inwards and an adapter needs somewhere to attach everything.
+#[test]
+fn the_root_is_always_the_window_with_its_title() {
+    val t = tree(words("nothing here"), "")
+    switch a11y.node_of(t, root_key) {
+        Some(root) {
+            test.assert_eq(a11y.announce(root), "window, Records")
+            test.assert_len(1, root.children)
+        }
+        None { test.fail("the root should always exist") }
+    }
+    test.assert_eq(t.root, root_key)
+}
+
+// **Parents before children**, so an adapter can register a node knowing its parent is there.
+#[test]
+fn nodes_come_out_parents_before_children() {
+    val list = widget.control_of(
+        "people",
+        widget.Role.List,
+        widget.column_of(0.0, [button("ada", "Ada"), button("grace", "Grace")])
+    )
+    test.assert_eq(keys_of(tree(list, "")), "@ people ada grace")
+}
+
+#[test]
+fn a_nested_control_is_a_child_of_the_outer_one() {
+    val list = widget.control_of("people", widget.Role.List, widget.column_of(0.0, [button("ada", "Ada")]))
+    switch a11y.node_of(tree(list, ""), "people") {
+        Some(one) {
+            test.assert_len(1, one.children)
+            test.assert_eq(one.children[0], "ada")
+        }
+        None { test.fail("the list should be a node") }
+    }
+}
+
+// --- the accessible name, which is the part that goes wrong
+
+// **A control's name comes from the text inside it, and that text does not also become a node.** A
+// reader meeting both would say "button, Save" and then "Save". Every toolkit that builds its
+// accessibility tree by copying its widget tree makes exactly this mistake.
+#[test]
+fn a_controls_name_is_the_text_inside_it_and_the_text_is_not_a_second_node() {
+    val t = tree(button("save", "Save"), "")
+    test.assert_eq(keys_of(t), "@ save")
+    test.assert_eq(said(t, "save"), "button, Save")
+}
+
+// **The name a control is focused by is not the name a person hears.** This is the single most
+// common defect in a UI that draws its own widgets: one string used for both, and the reader
+// announces the programmer's identifier.
+#[test]
+fn the_focus_name_is_never_what_is_announced() {
+    val t = tree(button("btn_save_2", "Save"), "")
+    test.assert_eq(said(t, "btn_save_2"), "button, Save")
+}
+
+#[test]
+fn a_declared_label_wins_over_the_text_inside() {
+    val labelled = widget.labelled_control(
+        "save",
+        widget.Role.Button,
+        "Save the record",
+        widget.fixed_of(40.0, 20.0, words("Save"))
+    )
+    test.assert_eq(said(tree(labelled, ""), "save"), "button, Save the record")
+}
+
+// Several labels inside one control read as one name, in order, which is what a button with an icon
+// caption and a shortcut hint needs.
+#[test]
+fn the_text_of_a_control_is_joined_in_order() {
+    val wide = widget.control_of(
+        "save",
+        widget.Role.Button,
+        widget.row_of(2.0, [words("Save"), words("record")])
+    )
+    test.assert_eq(said(tree(wide, ""), "save"), "button, Save record")
+}
+
+// An inner control's text is its own name and not part of its parent's: a list named after every
+// row it contains would be read as one enormous string.
+#[test]
+fn text_inside_a_nested_control_belongs_to_that_control() {
+    val list = widget.control_of(
+        "people",
+        widget.Role.List,
+        widget.column_of(0.0, [words("Team"), button("ada", "Ada")])
+    )
+    val t = tree(list, "")
+    test.assert_eq(said(t, "people"), "list, Team")
+    test.assert_eq(said(t, "ada"), "button, Ada")
+}
+
+// Text outside every control is static text, which a reader reads without introducing: no role word.
+#[test]
+fn text_outside_a_control_is_a_label_that_leads_with_nothing() {
+    val form = widget.column_of(0.0, [words("Email"), button("email", "")])
+    val t = tree(form, "")
+    test.assert_eq(said(t, "@0"), "Email")
+}
+
+// A node with no name of its own is keyed by its path, which is the bargain `Laid.path` already
+// documents -- acceptable for static text in a way it would not be for a control.
+#[test]
+fn an_unnamed_node_is_keyed_by_its_path() {
+    val t = tree(widget.column_of(0.0, [words("first"), words("second")]), "")
+    test.assert_eq(keys_of(t), "@ @0 @1")
+}
+
+// --- focus, which is computed here and not declared
+
+#[test]
+fn the_focused_control_is_the_one_the_caller_named() {
+    val row = widget.row_of(0.0, [button("a", "A"), button("b", "B")])
+    val t = tree(row, "b")
+    test.assert_eq(t.focus, Option<string>.Some("b"))
+    switch a11y.node_of(t, "b") {
+        Some(one) { test.assert(one.focused) }
+        None { test.fail("b should be a node") }
+    }
+    switch a11y.node_of(t, "a") {
+        Some(one) { test.assert_false(one.focused) }
+        None { test.fail("a should be a node") }
+    }
+}
+
+// A window of labels has nothing to focus, which is a real state and not an error -- the same answer
+// `focus.first` gives.
+#[test]
+fn a_tree_with_nothing_focusable_has_no_focus() {
+    val t = tree(words("just text"), "")
+    test.assert(Option.is_None(t.focus))
+    test.assert_len(0, a11y.reachable(t))
+}
+
+// **A focus naming a control the tree no longer holds is `None`, not a key an adapter would fail to
+// look up.** A control can disappear between layouts, and an adapter told to focus a node that is
+// not in the update it was given has no good move left.
+#[test]
+fn a_focus_the_tree_no_longer_holds_is_none() {
+    val t = tree(button("a", "A"), "deleted")
+    test.assert(Option.is_None(t.focus))
+}
+
+// --- state: declared, and what it makes a reader say
+
+fn disabled_state() -> widget.State {
+    return with widget.no_state() { disabled: true }
+}
+
+// **A disabled control is still in the tree.** It has to be described -- a user needs to know the
+// button is there and dimmed, not that it does not exist -- but a Tab cannot reach it.
+#[test]
+fn a_disabled_control_is_described_but_not_reachable() {
+    val row = widget.row_of(
+        0.0,
+        [control("save", widget.Role.Button, "Save", disabled_state(), ""), button("cancel", "Cancel")]
+    )
+    val t = tree(row, "")
+    test.assert_eq(said(t, "save"), "button, Save, dimmed")
+    test.assert_len(1, a11y.reachable(t))
+    test.assert_eq(a11y.reachable(t)[0].key, "cancel")
+}
+
+// And a focus left on one is `None`, for the same reason a removed control's is.
+#[test]
+fn a_focus_on_a_disabled_control_is_none() {
+    val t = tree(control("save", widget.Role.Button, "Save", disabled_state(), ""), "save")
+    test.assert(Option.is_None(t.focus))
+}
+
+// **A control that cannot be checked says nothing about checking, and a checkbox that is off says
+// "unchecked".** The difference is why `State.checked` is an `Option` and not a `bool`: with a bool,
+// every button in the window would announce itself as unchecked.
+#[test]
+fn only_a_checkable_control_says_whether_it_is_checked() {
+    val plain = tree(control("save", widget.Role.Button, "Save", widget.no_state(), ""), "")
+    test.assert_eq(said(plain, "save"), "button, Save")
+
+    val off = with widget.no_state() { checked: Option<widget.Toggle>.Some(widget.Toggle.Off) }
+    val box = tree(control("notify", widget.Role.CheckBox, "Notify me", off, ""), "")
+    test.assert_eq(said(box, "notify"), "check box, Notify me, unchecked")
+}
+
+// The third state, which is a parent checkbox whose children disagree. A bool cannot say it and a
+// user can see it.
+#[test]
+fn the_third_check_state_is_said_as_partly_checked() {
+    val mixed = with widget.no_state() { checked: Option<widget.Toggle>.Some(widget.Toggle.Mixed) }
+    val t = tree(control("all", widget.Role.CheckBox, "Select all", mixed, ""), "")
+    test.assert_eq(said(t, "all"), "check box, Select all, partly checked")
+}
+
+#[test]
+fn expanded_and_collapsed_are_both_said_and_absence_is_silent() {
+    val open = with widget.no_state() { expanded: Option<bool>.Some(true) }
+    val shut = with widget.no_state() { expanded: Option<bool>.Some(false) }
+    test.assert_eq(
+        said(tree(control("n", widget.Role.MenuItem, "More", open, ""), ""), "n"),
+        "menu item, More, expanded"
+    )
+    test.assert_eq(
+        said(tree(control("n", widget.Role.MenuItem, "More", shut, ""), ""), "n"),
+        "menu item, More, collapsed"
+    )
+}
+
+// A field's value is announced after its name and before its state, which is the order every reader
+// uses: what it is, what it is called, what it holds, how it differs.
+#[test]
+fn a_field_says_its_value_then_its_state() {
+    val needed = with widget.no_state() { required: true, invalid: true }
+    val field = control("email", widget.Role.TextField, "Email", needed, "ada@")
+    test.assert_eq(said(tree(field, ""), "email"), "text field, Email, ada@, required, invalid")
+}
+
+#[test]
+fn read_only_and_selected_are_said() {
+    val ro = with widget.no_state() { readonly: true, selected: true }
+    val t = tree(control("id", widget.Role.TextField, "Record id", ro, "4821"), "")
+    test.assert_eq(said(t, "id"), "text field, Record id, 4821, selected, read only")
+}
+
+// --- the roles themselves
+
+// **A control nothing declared is announced as a control, not as a button and not silently.** While
+// F277 is unbuilt this is the common case: `focusable_of` makes one. Guessing "button" would make a
+// reader confidently wrong, and saying nothing would hide that there is something here to operate.
+#[test]
+fn an_undeclared_role_is_announced_as_a_control() {
+    val bare = widget.focusable_of("thing", widget.fixed_of(20.0, 10.0, words("Thing")))
+    test.assert_eq(said(tree(bare, ""), "thing"), "control, Thing")
+}
+
+// Said as they are read aloud, which is not how they are spelled in either platform's API.
+#[test]
+fn the_role_words_are_the_spoken_ones() {
+    test.assert_eq(
+        said(tree(control("a", widget.Role.RadioButton, "Daily", widget.no_state(), ""), ""), "a"),
+        "radio button, Daily"
+    )
+    test.assert_eq(
+        said(tree(control("a", widget.Role.ScrollBar, "Rows", widget.no_state(), ""), ""), "a"),
+        "scroll bar, Rows"
+    )
+    test.assert_eq(
+        said(tree(control("a", widget.Role.ListItem, "Ada", widget.no_state(), ""), ""), "a"),
+        "list item, Ada"
+    )
+}
+
+// --- what an adapter needs beyond the words
+
+fn bounds_text(r: geom.Rect) -> string {
+    return prelude.format("{},{} {}x{}", str(r.x), str(r.y), str(r.width), str(r.height))
+}
+
+// Bounds in the layout's own coordinates, so an adapter can answer "what is at this point" and
+// "scroll this into view" without walking a second tree.
+//
+// **Asserted against hit testing rather than against a rectangle**, because agreeing with hit
+// testing is the property that matters: an adapter answering "what is at this point" and the
+// toolkit answering "what did the user just click" must not disagree, or a reader's cursor and the
+// pointer land on different widgets. The number is then asserted too, and it is *not* the 40x20 the
+// button asked for -- a row stretches its children across, and a click anywhere in that stretched
+// box does reach the button. Which is exactly why the literal alone would have been the wrong
+// check: it would have documented a guess about the layout instead of the invariant.
+#[test]
+fn a_nodes_bounds_are_the_box_a_click_lands_in() {
+    val l = laid(widget.row_of(0.0, [button("a", "A"), button("b", "B")]))
+    val t = a11y.tree_of(l, "Records", "")
+    val from_tree = switch a11y.node_of(t, "b") {
+        Some(one) { bounds_text(one.bounds) }
+        None { "(no node)" }
+    }
+    val from_layout = switch focus.node_of(l, "b") {
+        Some(one) { bounds_text(one.bounds) }
+        None { "(no laid control)" }
+    }
+    test.assert_eq(from_tree, from_layout)
+    test.assert_eq(from_tree, "40.0,0.0 40.0x100.0")
+}
+
+#[test]
+fn a_key_that_is_not_in_the_tree_answers_none() {
+    test.assert(Option.is_None(a11y.node_of(tree(button("a", "A"), ""), "nope")))
+}

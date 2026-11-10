@@ -1,0 +1,10 @@
+window, Contacts
+Contact details
+text field, Email, ada@example.org, required
+check box, Notify me, checked
+button, Save
+button, Revert, dimmed, nothing to undo yet
+
+tab reaches: email notify save
+focus is on: notify
+the checkbox is called: Notify me

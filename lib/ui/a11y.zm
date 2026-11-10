@@ -1,0 +1,391 @@
+// The accessibility tree: what a screen reader is told about a window drawn from `lib/ui/widget`.
+//
+// docs/reviews/tasks/f269-f277.md F275. **A UI that draws its own widgets is a blank rectangle to a
+// screen reader unless it says otherwise.** The platform does not know that a particular group of
+// rectangles is a button, because nothing on the screen says so -- only the program knows, and only
+// if it was built to say. That is why this is scheduled before the widget set rather than after:
+// the vocabulary a widget declares (`widget.Role`, `widget.State`) has to exist before there are
+// fifty widgets to add it to.
+//
+// **This module is a projection, and owns no vocabulary.** Roles and declared state live on
+// `widget.Focusable`, where a widget is built; everything here either copies what was declared or
+// computes what can only be known once the tree is laid out and the focus is known. Nothing here
+// guesses: a control whose role nothing declared comes out as `Role.Unknown` rather than as a
+// button, because a reader that announces the wrong kind of control is worse than one that
+// announces an unfamiliar one.
+//
+// **Pure, and deliberately not a platform binding.** `tree_of` answers a value; a platform adapter
+// in C turns that value into AT-SPI's D-Bus objects or UI Automation's providers. Keeping the
+// transformation here means the part with the design decisions in it -- which nodes exist, what
+// each one is called -- is unit-testable without a desktop, a screen reader, or either platform's
+// libraries, and that is the part that is wrong in every home-grown toolkit.
+use geom.Rect
+use widget
+use widget.Laid
+use widget.Role
+use widget.State
+use widget.Toggle
+
+// The key the root is addressed by. The root carries no name, so it keys like any unnamed node: see
+// `Node.key`.
+pub val root_key = "@"
+
+// One node of the accessibility tree.
+//
+// **Addressed by a string key rather than an integer id**, which is not the obvious choice and is
+// the right one. A platform adapter sends *updates*, so a node's identity has to survive a relayout
+// -- an id that changes when a sibling is inserted above it makes a reader lose the user's place on
+// every frame. A control's `name` already has exactly that property, and is already required for
+// exactly that reason (focus is held by name). Integers would mean hashing those names here and
+// pretending the collisions away; AT-SPI addresses objects by string path anyway, and interning a
+// key to whatever integer UI Automation or AccessKit wants is a few lines in the adapter, next to
+// the id table it already keeps.
+//
+// So: **a node with a name is keyed by its name, and a node without one by `"@"` and its path.** A
+// label has no name, so its key moves if the tree's shape changes -- the same bargain `Laid.path`
+// already documents, and acceptable for static text in a way it would not be for a control.
+pub struct Node {
+    key: string
+    role: Role
+    // What a reader says. Never the `name` a control is focused by: see `widget.Focusable`.
+    name: string
+    description: string
+    value: string
+    // What the application declared -- see `widget.State`.
+    state: State
+    // Computed here, from the focus passed to `tree_of`, which is why it is not in `State`.
+    focused: bool
+    // Whether a Tab could reach it: a control, unless it is disabled. Not declarable, because it is
+    // implied by being a control and by `state.disabled`, and a third copy of that fact could
+    // disagree with the other two.
+    focusable: bool
+    // In the same coordinates the layout used, so an adapter can answer "what is at this point" and
+    // "scroll this into view" without a second tree.
+    bounds: Rect
+    children: [string]
+}
+
+// A whole tree, flat.
+//
+// **Flat rather than nested, because every platform API asks for one node at a time.** AT-SPI and
+// UI Automation both hand a reader an object and let it ask for that object's children; AccessKit's
+// update is literally a list of nodes with a root and a focus. A nested tree here would have to be
+// flattened by the adapter in C, which is the wrong place for a tree walk.
+//
+// `nodes` is in tree order, **parents before children**, so an adapter can register a node knowing
+// its parent is already registered.
+pub struct Tree {
+    nodes: [Node]
+    root: string
+    // The focused node's key, or `None` -- which is a real state, not an error: a window of labels
+    // has nothing to focus. A focus naming a control this tree no longer holds is `None` too, for
+    // the reason `focus.holds` exists.
+    focus: Option<string>
+}
+
+// The accessibility tree for a laid-out window, under the focus the caller is holding.
+//
+// `title` is the window's own name, which has to be passed in because the widget tree does not know
+// it: a window's title belongs to the window, and `lib/core/window` is where that is.
+pub fn tree_of(l: Laid, title: string, focus: string) -> Tree {
+    val subtree = mutable_array_new<Node>()
+    val top = collect(l, focus, subtree)
+    val nodes = mutable_array_new<Node>()
+    // **The root is always a window, even for a tree of one label.** A reader navigates from a
+    // window inwards and an adapter needs a root to attach everything to, so a tree whose root was
+    // whatever the application happened to put at the top would have no place to start.
+    push(nodes, Node {
+        key: root_key,
+        role: Role.Window,
+        name: title,
+        description: "",
+        value: "",
+        state: widget.no_state(),
+        focused: false,
+        focusable: false,
+        bounds: l.bounds,
+        children: top
+    })
+    concat(nodes, snapshot(subtree))
+    val all = snapshot(nodes)
+    return Tree { nodes: all, root: root_key, focus: focused_key(all, focus) }
+}
+
+// The node with that key, or `None`.
+pub fn node_of(t: Tree, key: string) -> Option<Node> {
+    for one in t.nodes {
+        if one.key == key {
+            return Option<Node>.Some(one)
+        }
+    }
+    return Option<Node>.None
+}
+
+// Every node a Tab could reach, in tree order. The same set `focus.controls` answers over a `Laid`
+// tree, minus the ones that are disabled -- which is the difference worth having, since a disabled
+// control is still a control and still has to be described.
+pub fn reachable(t: Tree) -> [Node] {
+    val out = mutable_array_new<Node>()
+    for one in t.nodes {
+        if one.focusable {
+            push(out, one)
+        }
+    }
+    return snapshot(out)
+}
+
+// What a screen reader would say about one node, as one line.
+//
+// **For tests and for a terminal reader, and not what a platform adapter uses.** An adapter hands
+// over the structured node and the reader's own voice settings, language and verbosity decide the
+// words -- so a real reader says something close to this but not this. It is here because a test
+// that asserts `"check box, Notify me, checked"` says what a user would hear, where a test that
+// asserts six fields says only that six fields were copied.
+//
+// The order is the one every reader uses: what it is, what it is called, what it holds, then how it
+// differs from the ordinary. `focused` is not spoken, because a reader announces a node *when* it
+// takes focus -- saying "focused" as well would be saying it twice.
+pub fn announce(n: Node) -> string {
+    val parts = mutable_array_new<string>()
+    val word = role_word(n.role)
+    if word != "" {
+        push(parts, word)
+    }
+    if n.name != "" {
+        push(parts, n.name)
+    }
+    if n.value != "" {
+        push(parts, n.value)
+    }
+    // Disabled first among the states: it changes what every other one means, because nothing about
+    // a control a user cannot operate is actionable.
+    if n.state.disabled {
+        push(parts, "dimmed")
+    }
+    switch n.state.checked {
+        Some(t) { push(parts, toggle_word(t)) }
+        None {}
+    }
+    switch n.state.expanded {
+        Some(open) { push(parts, if open { "expanded" } else { "collapsed" }) }
+        None {}
+    }
+    if n.state.selected {
+        push(parts, "selected")
+    }
+    if n.state.readonly {
+        push(parts, "read only")
+    }
+    if n.state.required {
+        push(parts, "required")
+    }
+    if n.state.invalid {
+        push(parts, "invalid")
+    }
+    if n.description != "" {
+        push(parts, n.description)
+    }
+    return join(separator: ", ", pieces: snapshot(parts))
+}
+
+// ------------------------------------------------------------------- the walk
+
+// Every node of this subtree that carries meaning, appended to `nodes`; answers the keys of the
+// ones that attach at this level.
+//
+// **The flattening is the whole algorithm and it is subtractive.** A laid-out window is mostly
+// boxes -- rows, columns, fixed sizes, spacers -- and a reader given a node per box is unusable:
+// the user arrows through eleven anonymous groups to reach a button. So a node is emitted for a
+// control, for text outside any control, and for the root, and for nothing else; a layout box emits
+// nothing and its children attach to the nearest ancestor that did emit. That is what the task
+// entry means by mirroring a widget tree that was not designed to be mirrored.
+fn collect(l: Laid, focus: string, nodes: MutableArray<Node>) -> [string] {
+    return switch focusable_in(l) {
+        Some(f) { [emit_control(l, f, focus, nodes)] }
+        None { collect_plain(l, focus, nodes) }
+    }
+}
+
+fn collect_plain(l: Laid, focus: string, nodes: MutableArray<Node>) -> [string] {
+    val own = text_of(l)
+    if own != "" {
+        push(nodes, Node {
+            key: path_key(l.path),
+            role: Role.Label,
+            name: own,
+            description: "",
+            value: "",
+            state: widget.no_state(),
+            focused: false,
+            focusable: false,
+            bounds: l.bounds,
+            children: []
+        })
+        return [path_key(l.path)]
+    }
+    val out = mutable_array_new<string>()
+    for child in l.children {
+        concat(out, collect(child, focus, nodes))
+    }
+    return snapshot(out)
+}
+
+fn emit_control(l: Laid, f: widget.Focusable, focus: string, nodes: MutableArray<Node>) -> string {
+    val key = if f.name == "" { path_key(l.path) } else { f.name }
+    // The subtree is collected into a buffer of its own and appended after this node rather than
+    // before it, which is what makes `Tree.nodes` read parents before children: the children's keys
+    // have to be known before this node can be built, so collecting straight into `nodes` would put
+    // every child ahead of its parent. A copy per control, on a tree of tens of nodes.
+    val subtree = mutable_array_new<Node>()
+    val inner = mutable_array_new<string>()
+    for child in l.children {
+        concat(inner, collect_inside(child, focus, subtree))
+    }
+    val disabled = f.state.disabled
+    push(nodes, Node {
+        key: key,
+        role: f.role,
+        name: if f.label == "" { name_from_text(l) } else { f.label },
+        description: f.description,
+        value: f.value,
+        state: f.state,
+        focused: f.name != "" && f.name == focus,
+        focusable: !disabled,
+        bounds: l.bounds,
+        children: snapshot(inner)
+    })
+    concat(nodes, snapshot(subtree))
+    return key
+}
+
+// Inside a control, where text is the control's name and so is **not** a node.
+//
+// **This is a second collector and it has to be**, which is the thing the straightforward version
+// of this module gets wrong -- including the first draft of this one, caught by its own test. Walk
+// a control's subtree with the ordinary rules and the label inside a button is emitted as a child
+// of it, so a reader says "button, Save" and then "Save". Outside a control the same text is a
+// label a reader should read; inside one it has already been spoken as the name. Nested controls
+// *are* emitted, with the ordinary rules resuming inside them, because a row inside a list is a row
+// a user navigates to.
+fn collect_inside(l: Laid, focus: string, nodes: MutableArray<Node>) -> [string] {
+    return switch focusable_in(l) {
+        Some(f) { [emit_control(l, f, focus, nodes)] }
+        None { descend_inside(l, focus, nodes) }
+    }
+}
+
+fn descend_inside(l: Laid, focus: string, nodes: MutableArray<Node>) -> [string] {
+    val out = mutable_array_new<string>()
+    for child in l.children {
+        concat(out, collect_inside(child, focus, nodes))
+    }
+    return snapshot(out)
+}
+
+// A control's name taken from the text inside it, when nothing was declared.
+//
+// Stops at a nested control, for the same reason `collect_inside` emits one: a list named after
+// every row it contains would be read as one enormous string.
+fn name_from_text(l: Laid) -> string {
+    val parts = mutable_array_new<string>()
+    for child in l.children {
+        gather_text(child, parts)
+    }
+    return trim(join(separator: " ", pieces: snapshot(parts)))
+}
+
+fn gather_text(l: Laid, out: MutableArray<string>) {
+    if widget.is_control(l) {
+        return
+    }
+    val own = text_of(l)
+    if own != "" {
+        push(out, own)
+    }
+    for child in l.children {
+        gather_text(child, out)
+    }
+}
+
+// --------------------------------------------------------------------- pieces
+
+fn path_key(path: string) -> string {
+    return concat("@", path)
+}
+
+fn focusable_in(l: Laid) -> Option<widget.Focusable> {
+    return switch l.widget {
+        Control(f) { Option<widget.Focusable>.Some(f) }
+        Nothing { Option<widget.Focusable>.None }
+        Text(_) { Option<widget.Focusable>.None }
+        Group(_) { Option<widget.Focusable>.None }
+        Sized(_) { Option<widget.Focusable>.None }
+        Flex(_) { Option<widget.Focusable>.None }
+        Expand(_) { Option<widget.Focusable>.None }
+    }
+}
+
+fn text_of(l: Laid) -> string {
+    return switch l.widget {
+        Text(label) { label.text }
+        Nothing { "" }
+        Group(_) { "" }
+        Sized(_) { "" }
+        Flex(_) { "" }
+        Expand(_) { "" }
+        Control(_) { "" }
+    }
+}
+
+// The focus, if this tree still holds it as something focusable. A focus on a control that was
+// removed, or on one that has since been disabled, is `None` rather than a key an adapter would
+// then fail to find.
+fn focused_key(nodes: [Node], focus: string) -> Option<string> {
+    if focus == "" {
+        return Option<string>.None
+    }
+    for one in nodes {
+        if one.key == focus && one.focusable {
+            return Option<string>.Some(focus)
+        }
+    }
+    return Option<string>.None
+}
+
+// The word a reader leads with. Two words where the platforms' own names are two words, because
+// this is read aloud and "checkbox" is not how it is said.
+fn role_word(r: Role) -> string {
+    return switch r {
+        Button { "button" }
+        CheckBox { "check box" }
+        RadioButton { "radio button" }
+        TextField { "text field" }
+        Slider { "slider" }
+        Link { "link" }
+        List { "list" }
+        ListItem { "list item" }
+        Tab { "tab" }
+        TabList { "tab list" }
+        Menu { "menu" }
+        MenuItem { "menu item" }
+        ScrollBar { "scroll bar" }
+        Dialog { "dialog" }
+        Group { "group" }
+        Window { "window" }
+        // Static text leads with nothing: a reader reads it, it does not introduce it.
+        Label { "" }
+        // **Not silent, and not a guess either.** A control nothing declared is announced as a
+        // control, which tells the user there is something here to operate without claiming to
+        // know what. While F277 is unbuilt this is the common case, and it should be visible in
+        // what a reader says rather than hidden.
+        Unknown { "control" }
+    }
+}
+
+fn toggle_word(t: Toggle) -> string {
+    return switch t {
+        Off { "unchecked" }
+        On { "checked" }
+        Mixed { "partly checked" }
+    }
+}

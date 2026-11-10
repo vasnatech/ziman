@@ -283,11 +283,116 @@ pub fn expand_of(weight: float, child: Widget) -> Widget
 pub fn expand(child: Widget) -> Widget
 ```
 
+## Semantics
+
+### `Role`
+
+```
+pub enum Role {
+    Button
+    CheckBox
+    RadioButton
+    TextField
+    Slider
+    Link
+    List
+    ListItem
+    Tab
+    TabList
+    Menu
+    MenuItem
+    ScrollBar
+    Dialog
+    // A container that groups its children for a reader without being anything itself -- a toolbar,
+    // a form section. Worth a node where a plain layout box is not, because a reader navigates by
+    // group.
+    Group
+    // Static text, which is not a control. Produced by `a11y` for a `Text` outside any control, and
+    // not declarable here: a label is text, and text already knows it is text.
+    Label
+    // The window itself, which `a11y` puts at the root.
+    Window
+    Unknown
+}
+```
+
+What kind of control this is -- the first thing a screen reader says, before the name: "button,
+Save" and not "Save", because a user who cannot see it needs to know what pressing it would do.
+
+**The vocabulary lives here, on the widget, rather than in `lib/ui/a11y`**, and that is the whole
+of what F275 means by accessibility in the first widget rather than the fiftieth. A role declared
+where a widget is built is a field that F277's every widget must fill in; a role computed
+afterwards by an accessibility layer is a guess about a tree that was not designed to be guessed
+about, which is the retrofit this ordering exists to avoid. `a11y` is a projection of what is
+declared here, and owns no vocabulary of its own.
+
+The list is the roles that have a counterpart in **both** of the platform APIs this has to reach
+one day -- AT-SPI on Unix and UI Automation on Windows -- because a role only one of them knows
+becomes a lie on the other platform. `Unknown` is deliberate and is what `focusable_of` produces:
+while F277 does not exist, a control whose kind nothing has declared should say so rather than
+claim to be a button.
+
+### `Toggle`
+
+```
+pub enum Toggle {
+    Off
+    On
+    Mixed
+}
+```
+
+A check with three states, because every platform accessibility API has three and a bool has two.
+The third is a parent checkbox whose children disagree -- "partly checked", which is a state a
+user can see and so a state a reader has to be able to say.
+
+### `State`
+
+```
+pub struct State {
+    disabled: bool
+    selected: bool
+    checked: Option<Toggle>
+    expanded: Option<bool>
+    readonly: bool
+    required: bool
+    invalid: bool
+    multiline: bool
+}
+```
+
+The parts of a control's state the application declares when it builds the tree.
+
+**Declared, never derived, which is why `focused` is not here.** Focus is held by name, outside
+the tree, precisely so that rebuilding the tree cannot move it -- so a `focused` field on a
+widget would be a second copy of that fact, free to disagree with the first. `a11y.Node` carries
+`focused` because it is computed there, from the focus the caller passes in. The two kinds of
+state are different kinds of thing, so they are different fields of different types.
+
+`Option` on the two that are not simply absent-or-false: a control that cannot be checked at all
+is not the same as a checkbox that is unchecked, and a reader says "unchecked" for the second and
+nothing for the first. A `bool` there would make every button in the window announce itself as
+unchecked.
+
+### `no_state`
+
+```
+pub fn no_state() -> State
+```
+
+A state that declares nothing: what an ordinary control has.
+
 ### `Focusable`
 
 ```
 pub struct Focusable {
     name: string
+    role: Role
+    label: string
+    description: string
+    // The control's content: a field's text, a slider's reading. Not its label.
+    value: string
+    state: State
     child: Widget
 }
 ```
@@ -297,15 +402,50 @@ A subtree that can take keyboard focus, under a name.
 **Focus is a property of the tree, not of a widget kind.** There are no controls yet -- F277 adds
 buttons and entries -- and when there are, a button will *be* a `Focusable` wrapping a group with
 a label in it rather than a new kind that happens to be focusable. Marking it here means focus,
-hit testing and (F275) accessibility all agree on what a control is, from one declaration.
+hit testing and accessibility all agree on what a control is, from one declaration.
 
 The name is required rather than optional: an unnamed focusable cannot be focused, since focus is
 held by name so that inserting a sibling above a control does not move it.
+
+**`name` and `label` are not the same thing and conflating them is the bug this split exists to
+prevent.** `name` is the identifier focus is held by, chosen by the programmer and never shown;
+`label` is what a person hears. A toolkit that uses one for both makes a screen reader announce
+"btn_save_2", which is the single most common defect in a UI that draws its own widgets. `label`
+is empty in the common case, and then `a11y` takes the name from the text inside -- a button
+wrapping a label called "Save" announces "Save" with nothing declared.
 
 ### `focusable_of`
 
 ```
 pub fn focusable_of(name: string, child: Widget) -> Widget
+```
+
+A focusable subtree whose kind nothing has declared -- `Role.Unknown`, no label, no state.
+
+Kept at two arguments, because it is what the focus and hit-testing tests want and they are not
+about semantics. `control_of` is the one to reach for when building something a person will use.
+
+### `control_of`
+
+```
+pub fn control_of(name: string, role: Role, child: Widget) -> Widget
+```
+
+A control that says what it is. The label is left empty to take it from the text inside, which is
+what a button or a list item wants.
+
+### `labelled_control`
+
+```
+pub fn labelled_control(name: string, role: Role, label: string, child: Widget) -> Widget
+```
+
+A control that says what it is, what it is called and what state it is in -- the full form, which
+`with` makes readable at a call site:
+
+
+```
+widget.labelled_control("notify", widget.Role.CheckBox, "Notify me", box)
 ```
 
 ### `Widget`

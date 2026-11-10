@@ -1,0 +1,89 @@
+use a11y
+use geom
+use paint
+use widget
+
+// A fake metrics, so the example needs no font: ten units per character.
+fn metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+}
+
+fn words(text: string) -> widget.Widget {
+    return widget.label_of(text, 8.0, paint.black())
+}
+
+// A small form: a heading, a text field, a checkbox and two buttons.
+//
+// Each control declares what it *is* where it is built, which is the whole point of F275's
+// ordering: a role added later would have to be guessed from a tree that was not built to be
+// guessed about.
+fn form() -> widget.Widget {
+    val email = widget.Widget.Control(widget.Focusable {
+        name: "email",
+        role: widget.Role.TextField,
+        label: "Email",
+        description: "",
+        value: "ada@example.org",
+        state: with widget.no_state() { required: true },
+        child: widget.fixed_of(120.0, 20.0, widget.Widget.Nothing)
+    })
+    val notify = widget.Widget.Control(widget.Focusable {
+        name: "notify",
+        role: widget.Role.CheckBox,
+        label: "",
+        description: "",
+        value: "",
+        state: with widget.no_state() { checked: Option<widget.Toggle>.Some(widget.Toggle.On) },
+        child: widget.fixed_of(120.0, 20.0, words("Notify me"))
+    })
+    val save = widget.control_of("save", widget.Role.Button, widget.fixed_of(60.0, 20.0, words("Save")))
+    val revert = widget.Widget.Control(widget.Focusable {
+        name: "revert",
+        role: widget.Role.Button,
+        label: "",
+        description: "nothing to undo yet",
+        value: "",
+        state: with widget.no_state() { disabled: true },
+        child: widget.fixed_of(60.0, 20.0, words("Revert"))
+    })
+    return widget.column_of(
+        4.0,
+        [words("Contact details"), email, notify, widget.row_of(4.0, [save, revert])]
+    )
+}
+
+fn main() {
+    val laid = widget.layout(form(), geom.rect_of(0.0, 0.0, 200.0, 120.0), metrics())
+
+    // The focus is held by name, outside the tree, and passed in -- so rebuilding the tree cannot
+    // move it, and `focused` is computed here rather than declared on a widget.
+    val tree = a11y.tree_of(laid, "Contacts", "notify")
+
+    // **What a reader would say, node by node.** Four controls and a heading, out of a laid-out
+    // tree of a dozen rows, columns and fixed boxes: a layout box is not a node, and the text
+    // inside a control is that control's name rather than a node of its own.
+    for node in tree.nodes {
+        printf("{}\n", a11y.announce(node))
+    }
+
+    // A disabled control is still described -- a user needs to know the button is there and dimmed
+    // -- but a Tab cannot reach it.
+    val reachable = mutable_array_new<string>()
+    for node in a11y.reachable(tree) {
+        push(reachable, node.key)
+    }
+    printf("\ntab reaches: {}\n", join(separator: " ", pieces: snapshot(reachable)))
+
+    // The focused node, as the adapter would be told it.
+    if Some(key) = tree.focus {
+        printf("focus is on: {}\n", key)
+    }
+
+    // A checkbox's name came from the text inside it, with nothing declared.
+    if Some(node) = a11y.node_of(tree, "notify") {
+        printf("the checkbox is called: {}\n", node.name)
+    }
+}

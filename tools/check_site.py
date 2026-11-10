@@ -58,7 +58,11 @@ def check_examples(page, examples_dir, problems):
         for fn in sorted(os.listdir(d)):
             if fn.endswith("_example.zm"):
                 on_disk.add("%s/%s" % (folder, fn))
-    linked = set(re.findall(r"examples/([a-z]+/[a-z_]+_example\.zm)", page))
+    # Digits belong in the name: `a11y` is how accessibility is spelled everywhere, and the first
+    # version of this pattern was `[a-z_]+`, which could not see that file at all -- so the page was
+    # reported as missing a link it had. The directory side has always used `endswith`, so only this
+    # half was blind.
+    linked = set(re.findall(r"examples/([a-z0-9]+/[a-z0-9_]+_example\.zm)", page))
     for missing in sorted(on_disk - linked):
         problems.append("index.html does not link docs/lib/examples/%s" % missing)
     for stale in sorted(linked - on_disk):
