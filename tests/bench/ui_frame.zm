@@ -1,0 +1,150 @@
+// What a window of UI costs to rasterise in Ziman, and where the cost is.
+//
+// **The question a desktop-GUI design has to answer first.** `lib/graphics` can already draw, so a
+// GUI built on it would repaint by composing a `Scene` and calling `raster.render`. But `raster.zm`
+// is Ziman running on a tree-walking interpreter, and a toolkit has to repaint at interactive
+// rates. So: measure before designing. See docs/design/desktop-applications.md, which this is the
+// evidence for.
+//
+// Four comparisons, because the total alone would not say what to do about it:
+//
+//   * a frame at three window sizes -- does it scale with pixels or with content?
+//   * `samples=1` against `samples=4` -- is anti-aliasing the cost?
+//   * fills only, no text -- is glyph rasterisation the cost? (a glyph cache would fix that)
+//   * an EMPTY scene at four sizes -- what does a canvas cost with nothing drawn at all?
+//
+// The last one is the answer: an empty 1280x800 canvas costs about 1.2 microseconds per pixel, and
+// it is linear in pixels, so roughly 70% of a real frame is spent before anything is drawn.
+// 60 fps at that size needs 16 ns per pixel. Drawing is cheap here; touching pixels from the
+// interpreter is not, which is why the design puts a renderer in C and keeps `raster.zm` as the
+// reference implementation and the headless-test oracle.
+//
+// Run: `./ziman tests/bench/ui_frame.zm` (from the repository root -- see the design document's
+// note on `lib/graphics` not loading from outside it).
+use clock
+use font
+use fs
+use geom
+use image
+use paint
+use raster
+use scene
+use shape
+
+fn solid(r: float, g: float, b: float) -> paint.Paint {
+    return paint.Paint.Solid(paint.rgb(r, g, b))
+}
+
+// A frame shaped like an application window: a toolbar of buttons, a sidebar list, and a content
+// pane of text lines. Deliberately ordinary -- this is what a repaint actually has to carry.
+fn ui_frame(width: float, height: float, face: int) -> scene.Scene {
+    val ops = mutable_array_new<scene.Op>()
+    val ink = solid(0.1, 0.1, 0.12)
+    val chrome = solid(0.93, 0.93, 0.95)
+    val accent = solid(0.2, 0.45, 0.85)
+    val white = solid(1.0, 1.0, 1.0)
+
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, width, 44.0)), chrome))
+    for i in 0..8 {
+        val x = 12.0 + (i as float) * 92.0
+        push(ops, scene.fill(shape.round_rect_path(geom.rect_of(x, 8.0, 84.0, 28.0), 6.0), white))
+        push(ops, scene.text_of("Action", geom.point_of(x + 14.0, 27.0), 13.0, face, ink))
+    }
+
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(0.0, 44.0, 240.0, height - 44.0)), solid(0.97, 0.97, 0.98)))
+    for i in 0..40 {
+        val y = 52.0 + (i as float) * 24.0
+        if i % 4 == 0 {
+            push(ops, scene.fill(shape.rect_path(geom.rect_of(0.0, y - 4.0, 240.0, 24.0)), accent))
+        }
+        push(ops, scene.text_of("collections/item", geom.point_of(16.0, y + 12.0), 13.0, face, ink))
+    }
+
+    for i in 0..30 {
+        val y = 72.0 + (i as float) * 22.0
+        push(ops, scene.text_of(
+            "The quick brown fox jumps over the lazy dog, 0123456789",
+            geom.point_of(264.0, y),
+            14.0,
+            face,
+            ink
+        ))
+    }
+    return scene.with_ops(scene.scene_of(width, height), snapshot(ops))
+}
+
+fn bench(label: string, frame: scene.Scene, options: raster.Options) {
+    val started = clock.monotonic_millis()
+    switch raster.render(frame, options) {
+        Ok(img) {
+            val took = clock.monotonic_millis() - started
+            printf("{}  {} ops  {} ms\n", label, str(scene.op_count(frame)), str(took))
+            val _ = img
+        }
+        Err(why) { print(concat("render refused: ", why)) }
+    }
+}
+
+// The same window with no text at all: rects only. The difference is what glyph rasterisation
+// costs, and glyphs are the part a cache or a C atlas could take away.
+fn fills_only(width: float, height: float) -> scene.Scene {
+    val ops = mutable_array_new<scene.Op>()
+    val chrome = solid(0.93, 0.93, 0.95)
+    val accent = solid(0.2, 0.45, 0.85)
+    val white = solid(1.0, 1.0, 1.0)
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, width, 44.0)), chrome))
+    for i in 0..8 {
+        val x = 12.0 + (i as float) * 92.0
+        push(ops, scene.fill(shape.round_rect_path(geom.rect_of(x, 8.0, 84.0, 28.0), 6.0), white))
+    }
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(0.0, 44.0, 240.0, height - 44.0)), solid(0.97, 0.97, 0.98)))
+    for i in 0..40 {
+        val y = 52.0 + (i as float) * 24.0
+        if i % 4 == 0 {
+            push(ops, scene.fill(shape.rect_path(geom.rect_of(0.0, y - 4.0, 240.0, 24.0)), accent))
+        }
+    }
+    return scene.with_ops(scene.scene_of(width, height), snapshot(ops))
+}
+
+// An empty scene of the same size: what the per-pixel floor costs on its own -- allocating the
+// canvas and flattening it to the output format, with nothing drawn.
+fn empty_frame(width: float, height: float) -> scene.Scene {
+    return scene.scene_of(width, height)
+}
+
+fn main() {
+    val data = switch fs.read_bytes("/usr/share/fonts/adwaita-mono-fonts/AdwaitaMono-Regular.ttf") {
+        Ok(d) { d }
+        Err(e) {
+            print(concat("cannot read the face: ", fs.fs_error_message(e)))
+            return
+        }
+    }
+    val face = switch font.load(data) {
+        Ok(f) { f }
+        Err(why) {
+            print(concat("cannot load the face: ", why))
+            return
+        }
+    }
+    val base = with raster.options() {
+        fonts: [face],
+        samples: 4,
+        background: Option<paint.Color>.Some(paint.white()),
+        max_pixels: 4000000
+    }
+    bench("640x480  ", ui_frame(640.0, 480.0, 0), base)
+    bench("1280x800 ", ui_frame(1280.0, 800.0, 0), base)
+    bench("1920x1080", ui_frame(1920.0, 1080.0, 0), base)
+    // What a damage-region repaint would cost instead: one 240x24 list row.
+    bench("240x24 row", ui_frame(240.0, 24.0, 0), base)
+    // And with anti-aliasing off, since that is the knob a UI might turn.
+    bench("1280x800 samples=1", ui_frame(1280.0, 800.0, 0), with base { samples: 1 })
+    bench("1280x800 fills only", fills_only(1280.0, 800.0), base)
+    // The per-pixel floor on its own, at three sizes: is it linear in pixels?
+    bench("empty  320x240", empty_frame(320.0, 240.0), base)
+    bench("empty  640x480", empty_frame(640.0, 480.0), base)
+    bench("empty 1280x800", empty_frame(1280.0, 800.0), base)
+    bench("empty 1920x1080", empty_frame(1920.0, 1080.0), base)
+}
