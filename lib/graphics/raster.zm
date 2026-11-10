@@ -234,6 +234,15 @@ native fn to_bytes_premul(data: MutableArray<float>, channels: int) -> Result<[b
 // A run of a **solid** fill whose coverage and canvas are indexed independently: `blit`'s loop,
 // which is text. A glyph's coverage is a tile just big enough to hold it, so it advances by the
 // tile's width while the canvas advances by the canvas's.
+// One coverage row's window set to zero, once per scanline of every fill, and a span's exact
+// overlap with each pixel it touches -- the innermost loop of the anti-aliasing pass, reached once
+// per span per sub-scanline with a per-pixel run in the middle. Both are transcribed statement for
+// statement in `src/native_raster.c`; `add_span`'s arithmetic especially, because coverage
+// accumulates and one ulp in a partial pixel survives into the composite and then into a byte.
+native fn clear_range(row: MutableArray<float>, from_x: int, to_x: int)
+
+native fn add_span(row: MutableArray<float>, width: int, from: float, to: float, weight: float)
+
 native fn composite_span_flat(
     data: MutableArray<float>,
     cover: [float],
@@ -825,11 +834,7 @@ fn row_coverage_at(
 ) {
     // Only the window the shape can touch is cleared. Every crossing comes from an edge, and every
     // edge lies within `[min_x, max_x]`, so no span can write outside it.
-    var i = from_x
-    while i <= to_x {
-        row[i] = 0.0
-        i = i + 1
-    }
+    clear_range(row, from_x, to_x)
     val weight = 1.0 / (samples as float)
     val xs = mutable_array_new<float>()
     val dirs = mutable_array_new<int>()
@@ -921,36 +926,6 @@ fn spans_from(
         }
         i = i + 1
     }
-}
-
-// A span's exact overlap with each pixel it touches.
-fn add_span(row: MutableArray<float>, width: int, from: float, to: float, weight: float) {
-    var xa = from
-    var xb = to
-    if xa < 0.0 {
-        xa = 0.0
-    }
-    if xb > width as float {
-        xb = width as float
-    }
-    if xb <= xa {
-        return
-    }
-    val ia = clamp_int(floor(xa), 0, width - 1)
-    val ib = clamp_int(floor(xb), 0, width - 1)
-    if ia == ib {
-        row[ia] = row[ia] + (xb - xa) * weight
-        return
-    }
-    // The partial pixel at each end, and whole pixels between.
-    row[ia] = row[ia] + (((ia + 1) as float) - xa) * weight
-    var i = ia + 1
-    while i < ib {
-        row[i] = row[i] + weight
-        i = i + 1
-    }
-    row[ib] = row[ib] + (xb - (ib as float)) * weight
-    return
 }
 
 // Source-over in premultiplied alpha, which is two multiplies and an add per channel and the reason

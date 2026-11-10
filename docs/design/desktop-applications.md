@@ -91,20 +91,29 @@ Three consequences, and they shape everything below:
   is irrelevant. It also becomes the *oracle*: a C renderer can be tested by rendering the same
   `Scene` both ways and comparing pixels, which is a far better gate than screenshots.
 
-**Acted on, in part, and the numbers above are now history.** F270 moved the four loops with no
-geometry in them into `src/native_raster.c`: `clear_to` and `finish`, which this section identified,
-and then the per-pixel composite inside `fill_shape` and `blit` for the solid-paint case. The empty
-1280x800 canvas went from ~1290 ms to ~25 ms, about 52x, and a full frame from ~1950 ms to ~295 ms,
-about 6.6x. `tests/lang/graphics_raster.zm`, 418
+**Acted on, and the numbers above are now history.** F270 moved the per-pixel loops into
+`src/native_raster.c` in three instalments: `clear_to` and `finish`, which this section identified;
+then the composite inside `fill_shape` and `blit` for the solid-paint case; then the coverage pass
+both feed. Measured by alternating two binaries in the same minute, three rounds each, because this
+machine's absolute figures moved 2x between batches an hour apart with no code change:
+
+| 1280x800 | all Ziman | now | ratio |
+| --- | --- | --- | --- |
+| empty scene | 2518 ms | 42 ms | 59.9x |
+| fills only | 3279 ms | 68 ms | 48.2x |
+| full frame | 3849 ms | 347 ms | 11.0x | `tests/lang/graphics_raster.zm`, 418
 lines of asserted pixels across anti-aliasing, both winding rules, strokes, gradients, alpha and all
 three output formats, is byte-identical across the change -- which is the oracle argument above,
 used rather than described.
 
-**The conclusion is unchanged and better evidenced.** ~295 ms is still 18x short of 60 fps at that
-size, and what remains is where a renderer really spends its time: of that figure, about 25 ms is
-the canvas, 140 the fills and 130 the text, with the anti-aliasing sub-scanline pass about 80 ms of
-it. The prediction that the renderer has to be C is what the measurement now demonstrates rather
-than merely implies -- and the part still in Ziman is the part that is still slow.
+**The conclusion is unchanged and better evidenced**, and the remaining cost has moved somewhere
+this section did not predict. 347 ms is still 20x short of 60 fps at that size -- but of it, 42 ms
+is the canvas and 26 the fills, so **four fifths is text, and that part is not rasterisation at
+all**: glyph tiles are cached, and what is left is the per-glyph loop building a string cache key,
+hashing it, and asking for an advance, about 1700 times a frame. The prediction that the renderer
+has to be C is demonstrated rather than implied; the prediction that the *drawing* is where the
+time goes turns out to hold only until the drawing is fast, after which the bookkeeping around it
+is.
 
 ## 4. The constraint that decides the rest: there is no FFI
 

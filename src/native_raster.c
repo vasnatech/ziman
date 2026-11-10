@@ -25,6 +25,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "native_raster.h"
 
+#include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -259,9 +260,73 @@ static Value native_raster_composite_span_flat(Value *args, int argc, int line, 
     return value_unit();
 }
 
+/* raster.clear_range(row, from_x, to_x): one coverage row's window set to zero.
+ *
+ * Called once per scanline of every fill, and `raster.zm` explains why it is a window rather than
+ * the whole row -- a 26-pixel shape on a 600-pixel canvas should not pay for 600. For the sidebar
+ * rectangle of `tests/bench/ui_frame.zm` that is still 240 stores on each of 756 rows. */
+static Value native_raster_clear_range(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    size_t n = 0;
+    double *row = ziman_mutable_array_float_data(args[0], &n);
+    if (row == NULL) return value_unit();
+    int64_t from_x = args[1].as.i;
+    int64_t to_x = args[2].as.i;
+    if (from_x < 0) from_x = 0;
+    if (to_x >= (int64_t)n) to_x = (int64_t)n - 1;
+    for (int64_t i = from_x; i <= to_x; i++) row[i] = 0.0;
+    return value_unit();
+}
+
+/* raster.add_span(row, width, from, to, weight): a span's exact overlap with each pixel it touches.
+ *
+ * **The innermost loop of the anti-aliasing pass**, reached once per span per sub-scanline -- so
+ * four times a row at `samples=4`, and the whole-pixel run in the middle is per pixel. The sidebar
+ * rectangle alone is 240 pixels x 4 samples x 756 rows of it.
+ *
+ * Transcribed statement for statement from `raster.zm`'s version, including the order of the three
+ * writes and the `floor`-then-clamp on each end. The arithmetic is where exactness lives: coverage
+ * is accumulated, so a difference of one ulp in a partial pixel survives into the composite and
+ * then into a byte. `tests/lang/graphics_raster.zm` asserts anti-aliased edges and distinct alpha
+ * levels, which is what would catch it. */
+static Value native_raster_add_span(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    size_t n = 0;
+    double *row = ziman_mutable_array_float_data(args[0], &n);
+    if (row == NULL) return value_unit();
+    int64_t width = args[1].as.i;
+    if (width > (int64_t)n) width = (int64_t)n;
+    if (width <= 0) return value_unit();
+    double xa = args[2].as.f;
+    double xb = args[3].as.f;
+    double weight = args[4].as.f;
+
+    if (xa < 0.0) xa = 0.0;
+    if (xb > (double)width) xb = (double)width;
+    if (xb <= xa) return value_unit();
+
+    int64_t ia = (int64_t)floor(xa);
+    int64_t ib = (int64_t)floor(xb);
+    if (ia < 0) ia = 0;
+    if (ia > width - 1) ia = width - 1;
+    if (ib < 0) ib = 0;
+    if (ib > width - 1) ib = width - 1;
+
+    if (ia == ib) {
+        row[ia] += (xb - xa) * weight;
+        return value_unit();
+    }
+    row[ia] += ((double)(ia + 1) - xa) * weight;
+    for (int64_t i = ia + 1; i < ib; i++) row[i] += weight;
+    row[ib] += (xb - (double)ib) * weight;
+    return value_unit();
+}
+
 void native_raster_register(void) {
     native_register("raster::clear_premul", native_raster_clear_premul);
     native_register("raster::to_bytes_premul", native_raster_to_bytes_premul);
     native_register("raster::composite_row_flat", native_raster_composite_row_flat);
     native_register("raster::composite_span_flat", native_raster_composite_span_flat);
+    native_register("raster::clear_range", native_raster_clear_range);
+    native_register("raster::add_span", native_raster_add_span);
 }

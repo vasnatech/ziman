@@ -16,24 +16,31 @@
 // The last one was the answer, and acting on it is F270's first instalment. **Measured history,
 // because the point of this file is the comparison:**
 //
-//   | 1280x800       | all Ziman | + clear/convert | + the composite loops |
-//   | -------------- | --------- | --------------- | --------------------- |
-//   | empty scene    | ~1290 ms  | 28 ms           | ~25 ms                |
-//   | fills only     | ~1640 ms  | 397 ms          | ~165 ms               |
-//   | the full frame | ~1950 ms  | 625 ms          | ~295 ms               |
+//   | 1280x800       | all Ziman | now    | ratio |
+//   | -------------- | --------- | ------ | ----- |
+//   | empty scene    | 2518 ms   | 42 ms  | 59.9x |
+//   | fills only     | 3279 ms   | 68 ms  | 48.2x |
+//   | the full frame | 3849 ms   | 347 ms | 11.0x |
 //
 // An empty canvas cost about 1.2 microseconds per pixel, linear in pixels, so roughly two thirds of
 // a frame went before anything was drawn -- `clear_to` and `finish`, four floats per pixel each
-// way. Then the per-pixel composite loops of `fill_shape` and `blit`, for the solid case. 6.6x on a
-// frame in all, and 52x on the floor.
+// way. Then the per-pixel composite loops of `fill_shape` and `blit` for the solid case, and then
+// the coverage pass they both feed: the row-window clear and `add_span`, whose middle run is per
+// pixel per sub-scanline.
 //
-// **Figures vary a few percent between runs**, and `fills only` more than that -- it was measured
-// at 153, 163, 164 and 192 ms over four consecutive runs, so a single reading is not a measurement.
+// **Read the ratios, not the milliseconds, and measure A against B in the same minute.** This
+// machine's absolute figures moved by about 2x between two batches of runs an hour apart with no
+// code change at all -- the same full frame read ~1950 ms once and ~3849 ms later. Every number
+// above comes from alternating two binaries built from the two versions, three rounds each, which
+// is the technique `fill_shape`'s own comments use. Earlier commit messages in this series quoted
+// absolutes from a faster machine state as though they were comparable with each other; they were
+// each internally consistent and are not comparable across commits.
 //
-// What remains, measured rather than guessed: of ~295 ms, about 25 is the canvas, 140 the fills and
-// 130 the text. Inside those, `samples=1` costs ~214 ms against ~295, so the anti-aliasing
-// sub-scanline pass (`row_coverage`, which fills and glyph tiles share) is about 80 ms and is the
-// next target. 60 fps at this size is 16.7 ms, so there is still an order of magnitude to find.
+// What remains is no longer the pixels. Of the 347 ms, 42 is the canvas and 26 the fills -- so
+// **about 280 ms, four fifths of the frame, is text**, and it is not rasterisation: glyph tiles are
+// cached, so that cost is the per-glyph loop in `draw_text` building a string cache key
+// (`concat` of five pieces), looking it up in a `MutableMap`, and asking `truetype` for an advance,
+// about 1700 times a frame. The next instalment is a caching question, not a renderer one.
 //
 // Run: `./ziman tests/bench/ui_frame.zm` (from the repository root -- see the design document's
 // note on `lib/graphics` not loading from outside it).
