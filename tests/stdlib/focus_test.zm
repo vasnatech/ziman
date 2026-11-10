@@ -1,0 +1,212 @@
+// `lib/ui/focus` and `widget`'s hit testing: what a click lands on, and where Tab goes.
+//
+// **These are the checks a rendered scene cannot make.** A window whose Tab order skips a field, or
+// whose button is one pixel short on its right edge, renders identically to one that is correct --
+// so every assertion here is about a name or a position, and none is about pixels.
+use geom
+use focus
+use paint
+use test
+use widget
+
+fn metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+}
+
+fn button(name: string, w: float, h: float) -> widget.Widget {
+    return widget.focusable_of(name, widget.fixed_of(w, h, widget.label_of(name, 8.0, paint.black())))
+}
+
+fn laid(root: widget.Widget, w: float, h: float) -> widget.Laid {
+    return widget.layout(root, geom.rect_of(0.0, 0.0, w, h), metrics())
+}
+
+fn names_of(l: widget.Laid) -> string {
+    val out = mutable_array_new<string>()
+    for one in focus.controls(l) {
+        push(out, one.name)
+    }
+    return join(separator: " ", pieces: snapshot(out))
+}
+
+// A row of three buttons, 20 wide each, no spacing: 0..20, 20..40, 40..60.
+fn three() -> widget.Laid {
+    return laid(widget.row_of(0.0, [button("a", 20.0, 10.0), button("b", 20.0, 10.0), button("c", 20.0, 10.0)]), 60.0, 10.0)
+}
+
+// --- the control list
+
+#[test]
+fn controls_come_out_in_tree_order() {
+    test.assert_eq(names_of(three()), "a b c")
+}
+
+// A nested window: tree order is a row's children left to right and a column's top to bottom, which
+// for an ordinary nesting is the visual order -- the point of choosing it.
+#[test]
+fn nesting_does_not_reorder_them() {
+    val l = laid(
+        widget.column_of(
+            0.0,
+            [
+                widget.row_of(0.0, [button("top-left", 10.0, 10.0), button("top-right", 10.0, 10.0)]),
+                widget.row_of(0.0, [button("bottom-left", 10.0, 10.0), button("bottom-right", 10.0, 10.0)])
+            ]
+        ),
+        40.0,
+        40.0
+    )
+    test.assert_eq(names_of(l), "top-left top-right bottom-left bottom-right")
+}
+
+// A window of labels has nothing to focus, which is a real state rather than an error.
+#[test]
+fn a_tree_with_no_controls_has_no_focus() {
+    val l = laid(widget.row_of(0.0, [widget.label_of("hi", 8.0, paint.black())]), 40.0, 20.0)
+    test.assert_len(0, focus.controls(l))
+    test.assert_eq(focus.first(l), "")
+    test.assert_eq(focus.next(l, ""), "")
+}
+
+// --- Tab order
+
+#[test]
+fn tab_moves_forward_and_wraps() {
+    val l = three()
+    test.assert_eq(focus.first(l), "a")
+    test.assert_eq(focus.next(l, "a"), "b")
+    test.assert_eq(focus.next(l, "b"), "c")
+    test.assert_eq(focus.next(l, "c"), "a")
+}
+
+#[test]
+fn shift_tab_moves_back_and_wraps() {
+    val l = three()
+    test.assert_eq(focus.last(l), "c")
+    test.assert_eq(focus.previous(l, "c"), "b")
+    test.assert_eq(focus.previous(l, "a"), "c")
+}
+
+// **A focus the tree no longer holds starts over rather than answering nothing.** A control can
+// disappear between layouts -- a row removed, a panel collapsed -- and focus stranded on it must
+// still let Tab continue, or the keyboard stops working until the user clicks.
+#[test]
+fn a_focus_that_no_longer_exists_restarts() {
+    val l = three()
+    test.assert_false(focus.holds(l, "deleted"))
+    test.assert_eq(focus.next(l, "deleted"), "a")
+    test.assert_eq(focus.previous(l, "deleted"), "c")
+}
+
+#[test]
+fn holds_says_whether_a_name_is_still_there() {
+    val l = three()
+    test.assert(focus.holds(l, "b"))
+    test.assert_false(focus.holds(l, "z"))
+}
+
+#[test]
+fn a_single_control_is_its_own_next_and_previous() {
+    val l = laid(widget.row_of(0.0, [button("only", 10.0, 10.0)]), 10.0, 10.0)
+    test.assert_eq(focus.next(l, "only"), "only")
+    test.assert_eq(focus.previous(l, "only"), "only")
+}
+
+// --- hit testing
+
+fn hit(l: widget.Laid, x: float, y: float) -> string {
+    return switch focus.control_at(l, geom.point_of(x, y)) {
+        Some(one) { one.name }
+        None { "(none)" }
+    }
+}
+
+#[test]
+fn a_point_lands_on_the_control_under_it() {
+    val l = three()
+    test.assert_eq(hit(l, 5.0, 5.0), "a")
+    test.assert_eq(hit(l, 25.0, 5.0), "b")
+    test.assert_eq(hit(l, 55.0, 5.0), "c")
+}
+
+// **Half-open bounds**: a point on the boundary between two controls belongs to the second, not to
+// both. A click on the line between two list rows has to select one of them, and which one must not
+// depend on the order they were searched in.
+#[test]
+fn a_boundary_point_belongs_to_exactly_one_control() {
+    val l = three()
+    test.assert_eq(hit(l, 19.999, 5.0), "a")
+    test.assert_eq(hit(l, 20.0, 5.0), "b")
+    test.assert_eq(hit(l, 39.999, 5.0), "b")
+    test.assert_eq(hit(l, 40.0, 5.0), "c")
+}
+
+#[test]
+fn a_point_outside_every_control_lands_on_nothing() {
+    val l = three()
+    test.assert_eq(hit(l, 61.0, 5.0), "(none)")
+    test.assert_eq(hit(l, 5.0, 11.0), "(none)")
+    test.assert_eq(hit(l, 0.0 - 1.0, 5.0), "(none)")
+}
+
+// **A click on a control's own label reports the control**, which is why `Control` passes its name
+// down to its children. Without that, clicking a button's text and clicking its padding would be
+// two different events, and only one of them would work.
+#[test]
+fn clicking_a_controls_label_reports_the_control() {
+    val l = three()
+    val deepest = switch widget.at(l, geom.point_of(5.0, 5.0)) {
+        Some(one) { one.name }
+        None { "(none)" }
+    }
+    // The deepest node at that point is the label inside the button, and it answers the button's
+    // name -- so a caller that used `widget.at` directly still gets a usable answer.
+    test.assert_eq(deepest, "a")
+    test.assert_eq(hit(l, 5.0, 5.0), "a")
+}
+
+// Controls nest, and the innermost one wins: a click on a button inside a panel is a click on the
+// button.
+#[test]
+fn the_innermost_control_wins() {
+    val inner = button("inner", 10.0, 10.0)
+    val outer = widget.focusable_of("outer", widget.fixed_of(40.0, 20.0, widget.row_of(0.0, [inner])))
+    val l = laid(outer, 40.0, 20.0)
+    // Inside the inner button.
+    test.assert_eq(hit(l, 5.0, 5.0), "inner")
+    // Inside the outer control but outside the inner one.
+    test.assert_eq(hit(l, 30.0, 5.0), "outer")
+}
+
+// --- what a click does to the focus
+
+#[test]
+fn a_click_moves_the_focus_to_what_it_hit() {
+    val l = three()
+    test.assert_eq(focus.clicked(l, geom.point_of(25.0, 5.0), "a"), "b")
+}
+
+// **A click on nothing leaves the focus alone**, which is what every desktop toolkit does: clearing
+// it would silently disarm the keyboard, and the user's next keystroke would go nowhere.
+#[test]
+fn a_click_on_nothing_keeps_the_focus() {
+    val l = three()
+    test.assert_eq(focus.clicked(l, geom.point_of(100.0, 100.0), "b"), "b")
+}
+
+#[test]
+fn the_focused_node_can_be_found_for_drawing_it() {
+    val l = three()
+    switch focus.node_of(l, "b") {
+        Some(one) {
+            test.assert_eq(one.name, "b")
+            test.assert_eq(one.bounds.x, 20.0)
+        }
+        None { test.fail("the focused control should have been found") }
+    }
+    test.assert(Option.is_None(focus.node_of(l, "nope")))
+    test.assert(Option.is_None(focus.node_of(l, "")))
+}

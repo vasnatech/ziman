@@ -1,0 +1,11 @@
+first:    open
+after it: save
+wraps to: open
+back from the first: quit
+at x=5:   open
+at x=30:  save
+at x=120: nothing
+click on save:    save
+click on nothing: open
+holds a deleted control: false
+tab from it:             open

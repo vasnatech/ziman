@@ -1,0 +1,160 @@
+// Which control has the keyboard, what a click lands on, and where Tab goes next.
+//
+// docs/reviews/tasks/f269-f277.md F272. **Small in code and the part that decides whether a toolkit
+// feels broken**: focus order that does not follow the visual order, or a click that lands on the
+// wrong widget by a pixel, are both immediately obvious to a user and invisible to a test that only
+// compares rendered scenes. So all of it is pure functions over a `Laid` tree, and all of it is
+// asserted against positions and names rather than looked at.
+//
+// **Focus is held by name, never by path or by node.** A path changes when a sibling is inserted
+// above it, and a node is a value that is rebuilt every layout -- so either would move focus when
+// an unrelated part of the window changed, which a user sees as the cursor jumping for no reason.
+// `widget.Focusable` requires a name for exactly this.
+use geom.Point
+use widget
+use widget.Laid
+
+// Every control in the tree, in **tree order**: a row's children left to right, a column's top to
+// bottom, parents before children.
+//
+// Tree order rather than geometric order, and that is a decision. Sorting by position reads as the
+// obvious answer and is worse: it is ambiguous for anything not on a grid (two boxes at the same y
+// but different heights have no natural order), it changes when a window is resized and a wrapped
+// row reflows, and it means a programmer cannot see the Tab order by reading the code that builds
+// the window. For an ordinary nesting the two agree, which is why tree order is the one to pick.
+pub fn controls(l: Laid) -> [Laid] {
+    val out = mutable_array_new<Laid>()
+    gather(l, out)
+    return snapshot(out)
+}
+
+fn gather(l: Laid, out: MutableArray<Laid>) {
+    if widget.is_control(l) {
+        push(out, l)
+    }
+    for child in l.children {
+        gather(child, out)
+    }
+}
+
+// The name of the first control, or "" when the tree has none -- which is a real state, not an
+// error: a window of labels has nothing to focus and must not pretend otherwise.
+pub fn first(l: Laid) -> string {
+    val all = controls(l)
+    if len(all) == 0 {
+        return ""
+    }
+    return all[0].name
+}
+
+pub fn last(l: Laid) -> string {
+    val all = controls(l)
+    if len(all) == 0 {
+        return ""
+    }
+    return all[len(all) - 1].name
+}
+
+// The control after `current`, wrapping at the end.
+//
+// **A `current` the tree no longer contains starts from the beginning** rather than answering "".
+// A control can disappear between one layout and the next -- a row removed, a panel collapsed --
+// and focus that was on it must land somewhere a Tab can continue from, or the keyboard stops
+// working until the user clicks.
+pub fn next(l: Laid, current: string) -> string {
+    return step(l, current, 1)
+}
+
+pub fn previous(l: Laid, current: string) -> string {
+    return step(l, current, 0 - 1)
+}
+
+fn step(l: Laid, current: string, by: int) -> string {
+    val all = controls(l)
+    val n = len(all)
+    if n == 0 {
+        return ""
+    }
+    var at = 0 - 1
+    var i = 0
+    while i < n {
+        if all[i].name == current {
+            at = i
+        }
+        i = i + 1
+    }
+    if at < 0 {
+        return if by > 0 { all[0].name } else { all[n - 1].name }
+    }
+    // Wrapping both ways, written with a `+ n` so that `-1 % n` cannot be negative, which it is in
+    // every language that borrowed C's remainder.
+    return all[((at + by) % n + n) % n].name
+}
+
+// Whether `name` is a control this tree still contains. What a caller checks before trusting a
+// focus it has been holding across layouts.
+pub fn holds(l: Laid, name: string) -> bool {
+    for one in controls(l) {
+        if one.name == name {
+            return true
+        }
+    }
+    return false
+}
+
+// The laid node of the focused control, or `None`.
+pub fn node_of(l: Laid, name: string) -> Option<Laid> {
+    if name == "" {
+        return Option<Laid>.None
+    }
+    for one in controls(l) {
+        if one.name == name {
+            return Option<Laid>.Some(one)
+        }
+    }
+    return Option<Laid>.None
+}
+
+// The control a point lands on: the **innermost** one containing it, or `None` for a point that is
+// outside every control.
+//
+// Innermost rather than outermost, because controls nest -- a button inside a toolbar inside a
+// panel -- and a click on the button is a click on the button. `widget.at` finds the deepest node
+// of any kind; this walks back up from there to the nearest control, which is what makes clicking
+// a button's *label* report the button.
+pub fn control_at(l: Laid, p: Point) -> Option<Laid> {
+    return deepest_control(l, p, Option<Laid>.None)
+}
+
+fn deepest_control(l: Laid, p: Point, best: Option<Laid>) -> Option<Laid> {
+    if !widget.contains(l.bounds, p) {
+        return best
+    }
+    var found = best
+    if widget.is_control(l) {
+        found = Option<Laid>.Some(l)
+    }
+    // Later siblings are painted on top, so the last one that contains the point wins -- the same
+    // rule `widget.at` follows, and for the same reason.
+    var i = prelude.len(l.children) - 1
+    while i >= 0 {
+        if widget.contains(l.children[i].bounds, p) {
+            return deepest_control(l.children[i], p, found)
+        }
+        i = i - 1
+    }
+    return found
+}
+
+// What a click does to the focus: moves it to the control under the pointer, or leaves it alone
+// when the click landed on nothing focusable.
+//
+// **Leaves it alone rather than clearing it**, which is the behaviour every desktop toolkit has: a
+// click on a panel's background should not silently disarm the keyboard, because the user's next
+// keystroke would then go nowhere and they would not know why.
+pub fn clicked(l: Laid, p: Point, current: string) -> string {
+    return switch control_at(l, p) {
+        Some(one) { one.name }
+        None { current }
+    }
+}

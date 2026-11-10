@@ -163,6 +163,24 @@ pub fn expand(child: Widget) -> Widget {
     return Widget.Expand(Expanded { weight: 1.0, child: child })
 }
 
+// A subtree that can take keyboard focus, under a name.
+//
+// **Focus is a property of the tree, not of a widget kind.** There are no controls yet -- F277 adds
+// buttons and entries -- and when there are, a button will *be* a `Focusable` wrapping a group with
+// a label in it rather than a new kind that happens to be focusable. Marking it here means focus,
+// hit testing and (F275) accessibility all agree on what a control is, from one declaration.
+//
+// The name is required rather than optional: an unnamed focusable cannot be focused, since focus is
+// held by name so that inserting a sibling above a control does not move it.
+pub struct Focusable {
+    name: string
+    child: Widget
+}
+
+pub fn focusable_of(name: string, child: Widget) -> Widget {
+    return Widget.Control(Focusable { name: name, child: child })
+}
+
 pub enum Widget {
     // Occupies nothing and paints nothing. The honest answer for "no child here", rather than an
     // `Option<Widget>` at every site that holds one.
@@ -176,6 +194,9 @@ pub enum Widget {
     Flex(float)
     // A subtree that is flexible rather than its natural size -- see `Expanded`.
     Expand(Expanded)
+    // A subtree that can take keyboard focus -- see `Focusable`. Transparent to layout: it
+    // occupies exactly what its child does.
+    Control(Focusable)
 }
 
 pub fn flex() -> Widget {
@@ -243,6 +264,7 @@ pub fn measure(w: Widget, m: Metrics) -> Size {
         // Its child's natural size: the *cross* axis still comes from here, and only the axis its
         // parent distributes along is replaced by the share it is given.
         Expand(it) { measure(it.child, m) }
+        Control(it) { measure(it.child, m) }
     }
 }
 
@@ -289,7 +311,13 @@ pub struct Laid {
     // The position in the tree: "" for the root, then "0", "0/1", "0/1/2". Stable for a tree whose
     // shape does not change, and the thing to use when no `name` was given.
     path: string
-    // The widget's own `name`, or "" -- see `Label.name`.
+    // The widget's own `name`, or the **nearest named ancestor's**, or "".
+    //
+    // Inherited rather than per node, and that is what makes a click on a button's *label* report
+    // the button: a `Control` wraps a group that wraps a label, so without inheritance the only
+    // node carrying the name would be the outermost one, and the two or three nodes a pointer
+    // actually lands on would all answer "". A descendant with a name of its own overrides it, so
+    // a control nested inside a named panel still answers for itself.
     name: string
     widget: Widget
     children: [Laid]
@@ -317,7 +345,7 @@ fn place(w: Widget, within: Rect, m: Metrics, path: string, parent_name: string)
                 path: path,
                 name: name,
                 widget: w,
-                children: [place(it.child, within, m, join_path(path, 0), "")]
+                children: [place(it.child, within, m, join_path(path, 0), name)]
             }
         }
         Expand(it) {
@@ -326,7 +354,19 @@ fn place(w: Widget, within: Rect, m: Metrics, path: string, parent_name: string)
                 path: path,
                 name: name,
                 widget: w,
-                children: [place(it.child, within, m, join_path(path, 0), "")]
+                children: [place(it.child, within, m, join_path(path, 0), name)]
+            }
+        }
+        Control(it) {
+            Laid {
+                bounds: within,
+                path: path,
+                name: name,
+                widget: w,
+                // **The name is passed down**, so a label inside a button answers the button's
+                // name and a hit on either reports the same control. Without it, clicking the text
+                // of a button and clicking its padding would be two different events.
+                children: [place(it.child, within, m, join_path(path, 0), name)]
             }
         }
         Nothing { leaf(w, within, path, name) }
@@ -379,7 +419,7 @@ fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, path: string, name
             Row { geom.rect_of(inner.x + offset, inner.y, extent, inner.height) }
             Column { geom.rect_of(inner.x, inner.y + offset, inner.width, extent) }
         }
-        push(placed, place(child, child_rect, m, join_path(path, index), ""))
+        push(placed, place(child, child_rect, m, join_path(path, index), name))
         offset = offset + extent + s.spacing
         index = index + 1
     }
@@ -401,6 +441,7 @@ fn flex_weight(w: Widget) -> Option<float> {
     return switch w {
         Flex(weight) { Option<float>.Some(weight) }
         Expand(it) { Option<float>.Some(it.weight) }
+        Control(_) { Option<float>.None }
         Nothing { Option<float>.None }
         Text(_) { Option<float>.None }
         Group(_) { Option<float>.None }
@@ -427,9 +468,51 @@ fn name_of(w: Widget) -> string {
         Nothing { "" }
         Flex(_) { "" }
         Expand(_) { "" }
+        Control(it) { it.name }
         Text(it) { it.name }
         Group(it) { it.name }
         Sized(it) { it.name }
+    }
+}
+
+// ---------------------------------------------------------------- hit testing
+
+// The deepest node whose bounds contain `p`, or `None` when the point is outside the tree.
+//
+// **Later siblings win, because they are painted later and so are on top.** Searching in tree order
+// and keeping the first match would report the node *underneath* an overlapping one, which is the
+// bug that makes a dialog's buttons unclickable while looking perfectly correct in a screenshot.
+pub fn at(l: Laid, p: Point) -> Option<Laid> {
+    if !contains(l.bounds, p) {
+        return Option<Laid>.None
+    }
+    var i = prelude.len(l.children) - 1
+    while i >= 0 {
+        if Some(found) = at(l.children[i], p) {
+            return Option<Laid>.Some(found)
+        }
+        i = i - 1
+    }
+    return Option<Laid>.Some(l)
+}
+
+// **Half-open on the right and bottom**, so two boxes that share an edge do not both contain the
+// point on it -- a click on the boundary between two list rows must select one of them, and which
+// one it is should not depend on which was searched first.
+pub fn contains(r: Rect, p: Point) -> bool {
+    return p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height
+}
+
+// Whether a laid node is a control: its own widget takes focus.
+pub fn is_control(l: Laid) -> bool {
+    return switch l.widget {
+        Control(_) { true }
+        Nothing { false }
+        Text(_) { false }
+        Group(_) { false }
+        Sized(_) { false }
+        Flex(_) { false }
+        Expand(_) { false }
     }
 }
 

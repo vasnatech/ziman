@@ -238,6 +238,38 @@ fn a_name_is_carried_onto_the_laid_node() {
     test.assert_eq(l.name, "save-button")
 }
 
+// **A name is inherited by descendants that have none**, which is what makes a click on a
+// button's label report the button: a control wraps a group that wraps a label, and the nodes a
+// pointer actually lands on are the inner ones. The first version passed the name down only one
+// level, and a two-level nesting answered "" -- found by a hit test, not by reading it.
+#[test]
+fn a_name_is_inherited_through_intermediate_nodes() {
+    val deep = widget.focusable_of(
+        "save",
+        widget.fixed_of(40.0, 20.0, widget.row_of(0.0, [a_label("Save")]))
+    )
+    val l = laid(deep, 40.0, 20.0)
+    test.assert_eq(l.name, "save")
+    test.assert_eq(l.children[0].name, "save")
+    test.assert_eq(l.children[0].children[0].name, "save")
+    test.assert_eq(l.children[0].children[0].children[0].name, "save")
+}
+
+// A descendant with a name of its own overrides the inherited one, so a control inside a named
+// panel still answers for itself.
+#[test]
+fn a_nested_name_overrides_the_inherited_one() {
+    val l = laid(
+        widget.focusable_of("panel", widget.row_of(0.0, [widget.focusable_of("inner", a_label("x"))])),
+        40.0,
+        20.0
+    )
+    test.assert_eq(l.name, "panel")
+    // `children[0]` is the row, which inherits "panel"; its child is the inner control.
+    test.assert_eq(l.children[0].name, "panel")
+    test.assert_eq(l.children[0].children[0].name, "inner")
+}
+
 #[test]
 fn a_widget_with_no_name_has_an_empty_one() {
     test.assert_eq(laid(a_label("x"), 10.0, 10.0).name, "")

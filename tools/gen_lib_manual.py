@@ -69,7 +69,7 @@ GROUPS = [
     # `widget` is a layer *above* the 2D model rather than part of it: it produces a `Scene` and
     # knows nothing about how one is rasterised. Its own group, in `lib/ui/`, because F272-F277 add
     # focus, text editing and accessibility beside it and none of those are graphics either.
-    ("User interface", "ui", ["widget"]),
+    ("User interface", "ui", ["widget", "focus"]),
 ]
 
 

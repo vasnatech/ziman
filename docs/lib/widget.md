@@ -283,6 +283,31 @@ pub fn expand_of(weight: float, child: Widget) -> Widget
 pub fn expand(child: Widget) -> Widget
 ```
 
+### `Focusable`
+
+```
+pub struct Focusable {
+    name: string
+    child: Widget
+}
+```
+
+A subtree that can take keyboard focus, under a name.
+
+**Focus is a property of the tree, not of a widget kind.** There are no controls yet -- F277 adds
+buttons and entries -- and when there are, a button will *be* a `Focusable` wrapping a group with
+a label in it rather than a new kind that happens to be focusable. Marking it here means focus,
+hit testing and (F275) accessibility all agree on what a control is, from one declaration.
+
+The name is required rather than optional: an unnamed focusable cannot be focused, since focus is
+held by name so that inserting a sibling above a control does not move it.
+
+### `focusable_of`
+
+```
+pub fn focusable_of(name: string, child: Widget) -> Widget
+```
+
 ### `Widget`
 
 ```
@@ -299,6 +324,9 @@ pub enum Widget {
     Flex(float)
     // A subtree that is flexible rather than its natural size -- see `Expanded`.
     Expand(Expanded)
+    // A subtree that can take keyboard focus -- see `Focusable`. Transparent to layout: it
+    // occupies exactly what its child does.
+    Control(Focusable)
 }
 ```
 
@@ -374,7 +402,13 @@ pub struct Laid {
     // The position in the tree: "" for the root, then "0", "0/1", "0/1/2". Stable for a tree whose
     // shape does not change, and the thing to use when no `name` was given.
     path: string
-    // The widget's own `name`, or "" -- see `Label.name`.
+    // The widget's own `name`, or the **nearest named ancestor's**, or "".
+    //
+    // Inherited rather than per node, and that is what makes a click on a button's *label* report
+    // the button: a `Control` wraps a group that wraps a label, so without inheritance the only
+    // node carrying the name would be the outermost one, and the two or three nodes a pointer
+    // actually lands on would all answer "". A descendant with a name of its own overrides it, so
+    // a control nested inside a named panel still answers for itself.
     name: string
     widget: Widget
     children: [Laid]
@@ -401,6 +435,38 @@ measured to decide how to divide the room, but a child wider than its share is n
 and not shrunk: it is laid out at its share and overflows, which `paint` then draws outside the
 parent. Clipping is a decision for a scroll container (F277) and silently shrinking would hide
 a layout mistake rather than show it.
+
+## Hit testing
+
+### `at`
+
+```
+pub fn at(l: Laid, p: Point) -> Option<Laid>
+```
+
+The deepest node whose bounds contain `p`, or `None` when the point is outside the tree.
+
+**Later siblings win, because they are painted later and so are on top.** Searching in tree order
+and keeping the first match would report the node *underneath* an overlapping one, which is the
+bug that makes a dialog's buttons unclickable while looking perfectly correct in a screenshot.
+
+### `contains`
+
+```
+pub fn contains(r: Rect, p: Point) -> bool
+```
+
+**Half-open on the right and bottom**, so two boxes that share an edge do not both contain the
+point on it -- a click on the boundary between two list rows must select one of them, and which
+one it is should not depend on which was searched first.
+
+### `is_control`
+
+```
+pub fn is_control(l: Laid) -> bool
+```
+
+Whether a laid node is a control: its own widget takes focus.
 
 ## Painting
 

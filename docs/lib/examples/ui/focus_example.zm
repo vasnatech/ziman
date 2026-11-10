@@ -1,0 +1,56 @@
+use focus
+use geom
+use paint
+use widget
+
+// Measurement is injected, so a window's layout -- and therefore its focus order and its hit
+// testing -- can be computed with no font and no screen.
+fn m() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+}
+
+// **A control is a `focusable_of`, not a widget kind.** When F277 adds buttons, a button *is* this
+// wrapping a group with a label in it -- so focus, hit testing and accessibility all agree on what
+// a control is from one declaration.
+fn button(name: string) -> widget.Widget {
+    return widget.focusable_of(name, widget.fixed_of(30.0, 10.0, widget.label_of(name, 8.0, paint.black())))
+}
+
+fn hit(l: widget.Laid, x: float) -> string {
+    return switch focus.control_at(l, geom.point_of(x, 5.0)) {
+        Some(one) { one.name }
+        None { "nothing" }
+    }
+}
+
+fn main() {
+    val window = widget.row_of(0.0, [button("open"), button("save"), button("quit")])
+    val laid = widget.layout(window, geom.rect_of(0.0, 0.0, 90.0, 10.0), m())
+
+    // **Tab order is tree order**, which for an ordinary nesting is the visual order -- and unlike
+    // sorting by position it is readable from the code that builds the window, unambiguous for
+    // anything not on a grid, and stable when a resize reflows a row.
+    print(concat("first:    ", focus.first(laid)))
+    print(concat("after it: ", focus.next(laid, focus.first(laid))))
+    print(concat("wraps to: ", focus.next(laid, focus.last(laid))))
+    print(concat("back from the first: ", focus.previous(laid, focus.first(laid))))
+
+    // Bounds are half-open, so a point on the line between two controls belongs to exactly one of
+    // them. A click on the boundary between two list rows has to pick one.
+    print(concat("at x=5:   ", hit(laid, 5.0)))
+    print(concat("at x=30:  ", hit(laid, 30.0)))
+    print(concat("at x=120: ", hit(laid, 120.0)))
+
+    // A click moves the focus to what it hit, and a click on nothing **leaves it alone** -- which
+    // is what every desktop toolkit does, because clearing it would silently disarm the keyboard.
+    print(concat("click on save:    ", focus.clicked(laid, geom.point_of(35.0, 5.0), "open")))
+    print(concat("click on nothing: ", focus.clicked(laid, geom.point_of(200.0, 5.0), "open")))
+
+    // A focus the tree no longer holds restarts rather than answering nothing: a control can
+    // disappear between layouts, and the keyboard has to keep working.
+    print(concat("holds a deleted control: ", str(focus.holds(laid, "deleted"))))
+    print(concat("tab from it:             ", focus.next(laid, "deleted")))
+}

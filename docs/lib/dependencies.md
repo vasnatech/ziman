@@ -143,6 +143,8 @@ flowchart LR
     eql --> uuid
     expr --> json
     expr --> regex
+    focus --> geom
+    focus --> widget
     font --> truetype
     fs --> io
     fs --> os
@@ -328,7 +330,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `template`, `time`, `uuid` |
 | 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml`, `widget` |
-| 6 | `codec`, `derive_repository` |
+| 6 | `codec`, `derive_repository`, `focus` |
 | 7 | `paging`, `server` |
 | 8 | `rest` |
 
@@ -359,9 +361,10 @@ otherwise: everything on a layer depends only on lower layers.
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `expr` | `json`, `regex` | `template` |
+| `focus` | `geom`, `widget` | - |
 | `font` | `truetype` | `layout`, `pdf`, `raster`, `widget` |
 | `fs` | `io`, `os` | `csv`, `http`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
-| `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype`, `widget` |
+| `geom` | `math` | `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype`, `widget` |
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
 | `io` | - | `client`, `csv`, `fs`, `http`, `rest`, `server`, `terminal`, `xml` |
@@ -411,7 +414,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `url` | `locale`, `number` | `db`, `http`, `rest` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | `batch`, `eql`, `rest`, `server` |
 | `validate` | `regex` | - |
-| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | - |
+| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `focus` |
 | `window` | - | - |
 | `xml` | `io`, `locale` | `codec` |
 | `yaml` | `json`, `locale`, `number` | `codec` |
