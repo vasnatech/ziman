@@ -103,6 +103,7 @@ flowchart LR
     codec --> toml
     codec --> xml
     codec --> yaml
+    controls --> edit
     controls --> focus
     controls --> geom
     controls --> paint
@@ -352,7 +353,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
-| `controls` | `focus`, `geom`, `paint`, `widget`, `window` | - |
+| `controls` | `edit`, `focus`, `geom`, `paint`, `widget`, `window` | - |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `io`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `batch`, `eql`, `migrate` |
@@ -367,7 +368,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `derive_row` | `meta`, `template` | `derive_repository` |
 | `derive_validate` | `meta`, `template` | - |
 | `derive_xml` | `meta`, `template` | - |
-| `edit` | - | - |
+| `edit` | - | `controls` |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `expr` | `json`, `regex` | `template` |

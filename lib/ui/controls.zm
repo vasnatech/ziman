@@ -18,6 +18,7 @@
 // widgets here and there cannot be one -- no shared mutable state exists to hold it -- so the
 // application holds whatever its window needs, routes an input with `target`, and calls the update
 // for the control that input was for.
+use edit
 use focus
 use geom.Point
 use geom.Rect
@@ -53,6 +54,12 @@ pub enum Input {
     // The text the keyboard composed, which is a separate event from the key that composed it --
     // see `window.Event`, where the same split is explained at length.
     Text(string)
+    // Text from the system clipboard, **handed in rather than read**: nothing in this module can
+    // reach a clipboard, and F273 left owning an X11 selection as platform work beside
+    // `native_window.c`. It is a separate variant from `Text` because the two differ in a way a
+    // user feels -- a paste is one undo step whatever its length, where typing coalesces a run of
+    // keystrokes into one.
+    Paste(string)
     Press(Point)
     Release(Point)
     Move(Point)
@@ -82,6 +89,7 @@ pub fn target(l: Laid, input: Input, focused: string) -> string {
         KeyDown(_) { focused }
         KeyUp(_) { focused }
         Text(_) { focused }
+        Paste(_) { focused }
         Press(p) { focus.clicked(l, p, focused) }
         Release(_) { focused }
         Move(_) { focused }
@@ -161,6 +169,7 @@ pub fn button_input(b: Button, input: Input, bounds: Rect) -> ButtonStep {
             }
         }
         Text(_) { still(b) }
+        Paste(_) { still(b) }
         Move(_) { still(b) }
         Wheel(_) { still(b) }
     }
@@ -290,6 +299,309 @@ fn mark(t: Toggle) -> string {
     }
 }
 
+// ------------------------------------------------------------------ the entry
+
+// A single-line text field.
+//
+// The editing itself is `lib/ui/edit`: this holds an `Editor` and a `History` and decides which
+// input means which edit. Keeping the two apart is what let the grapheme and word rules be tested
+// against 32 cases with no widget, no layout and no font in sight.
+pub struct Entry {
+    name: string
+    // What a reader calls the field. **Declared, not taken from the text inside**, because the text
+    // inside a field is its *value* -- a field announced by its contents would introduce itself as
+    // whatever the user last typed.
+    label: string
+    editor: edit.Editor
+    history: edit.History
+    disabled: bool
+    // Readable but not editable. The caret still moves and text can still be selected and copied,
+    // which is the difference from disabled and the reason both exist.
+    readonly: bool
+    // A press has happened and the pointer has not come up: a move extends the selection.
+    dragging: bool
+    // Whether the last change was a typed character, so that a run of them is **one** undo step.
+    //
+    // Without this, Ctrl-Z after typing a word steps back one letter at a time, which is not what
+    // undo means to anyone. The rule is the one editors use: consecutive `Text` inserts coalesce,
+    // and anything else -- a delete, a paste, a caret move, a click -- ends the run.
+    typing: bool
+}
+
+pub fn entry_of(name: string, label: string, text: string) -> Entry {
+    return Entry {
+        name: name,
+        label: label,
+        editor: edit.editor_of(text),
+        history: edit.history_of(100),
+        disabled: false,
+        readonly: false,
+        dragging: false,
+        typing: false
+    }
+}
+
+pub struct EntryStep {
+    entry: Entry
+    // Text the field is asking to be put on the system clipboard, or "". **An output, because this
+    // module cannot reach a clipboard** -- the same seam `Input.Paste` is the other half of. An
+    // application keeps it in a value of its own until the platform side of F273 exists.
+    copied: string
+    // Whether the text changed -- not the caret, not the selection. What a form watches to know it
+    // is dirty, and the reason it is separate from the new state rather than something a caller
+    // works out by comparing two strings.
+    changed: bool
+}
+
+// What an input does to a field.
+//
+// `bounds`, `style` and `m` are all here for one reason: a press carries a pixel and a caret is an
+// index, so placing the caret where the user clicked needs the same measurement the layout used.
+pub fn entry_input(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metrics) -> EntryStep {
+    if e.disabled {
+        return kept(with e { dragging: false })
+    }
+    return switch input {
+        Text(what) { typed(e, what) }
+        Paste(what) { pasted(e, what) }
+        KeyDown(k) { entry_key(e, k) }
+        KeyUp(_) { kept(e) }
+        Press(p) {
+            kept(with e {
+                editor: edit.place_caret(
+                    e.editor,
+                    caret_at_x(e.editor.text, style.text_size, m, p.x - text_left(bounds, style)),
+                    false
+                ),
+                dragging: true,
+                typing: false
+            })
+        }
+        Move(p) {
+            if e.dragging {
+                kept(with e {
+                    editor: edit.place_caret(
+                        e.editor,
+                        caret_at_x(e.editor.text, style.text_size, m, p.x - text_left(bounds, style)),
+                        true
+                    )
+                })
+            } else {
+                kept(e)
+            }
+        }
+        Release(_) { kept(with e { dragging: false }) }
+        Wheel(_) { kept(e) }
+    }
+}
+
+fn kept(e: Entry) -> EntryStep {
+    return EntryStep { entry: e, copied: "", changed: false }
+}
+
+fn edited(e: Entry, editor: edit.Editor, history: edit.History, typing: bool) -> EntryStep {
+    return EntryStep {
+        entry: with e { editor: editor, history: history, typing: typing },
+        copied: "",
+        changed: true
+    }
+}
+
+fn typed(e: Entry, what: string) -> EntryStep {
+    if e.readonly {
+        return kept(e)
+    }
+    // Recorded only at the start of a run, which is what makes the run one undo step.
+    val history = if e.typing { e.history } else { edit.record(e.history, e.editor) }
+    return edited(e, edit.insert(e.editor, what), history, true)
+}
+
+fn pasted(e: Entry, what: string) -> EntryStep {
+    if e.readonly {
+        return kept(e)
+    }
+    return edited(e, edit.paste(e.editor, what), edit.record(e.history, e.editor), false)
+}
+
+// Which edit a keystroke means.
+//
+// Dispatched on `window.key_name` rather than on a table of keysyms of its own, so that the numbers
+// live in exactly one place in the tree -- `lib/core/window` -- and a fourth copy of them cannot
+// drift from the other three.
+fn entry_key(e: Entry, k: KeyPress) -> EntryStep {
+    val name = window.key_name(k)
+    val extend = k.shift
+    if k.control {
+        if name == "a" { return kept(with e { editor: edit.select_all(e.editor), typing: false }) }
+        if name == "c" { return copied_from(e) }
+        if name == "x" { return cut_from(e) }
+        if name == "z" { return undone(e) }
+        if name == "y" { return redone(e) }
+        if name == "Left" { return moved(e, edit.move_word_left(e.editor, extend)) }
+        if name == "Right" { return moved(e, edit.move_word_right(e.editor, extend)) }
+        if name == "Backspace" { return changed_by(e, edit.delete_word_back(e.editor)) }
+    }
+    if name == "Left" { return moved(e, edit.move_left(e.editor, extend)) }
+    if name == "Right" { return moved(e, edit.move_right(e.editor, extend)) }
+    if name == "Home" { return moved(e, edit.move_home(e.editor, extend)) }
+    if name == "End" { return moved(e, edit.move_end(e.editor, extend)) }
+    if name == "Backspace" { return changed_by(e, edit.delete_back(e.editor)) }
+    if name == "Delete" { return changed_by(e, edit.delete_forward(e.editor)) }
+    return kept(e)
+}
+
+// A caret move ends a typing run but is not a change: a form is not dirty because the user pressed
+// an arrow key.
+fn moved(e: Entry, editor: edit.Editor) -> EntryStep {
+    return kept(with e { editor: editor, typing: false })
+}
+
+fn changed_by(e: Entry, editor: edit.Editor) -> EntryStep {
+    if e.readonly {
+        return kept(e)
+    }
+    return edited(e, editor, edit.record(e.history, e.editor), false)
+}
+
+// Copying changes nothing, which is why it answers the text and the same field back.
+fn copied_from(e: Entry) -> EntryStep {
+    return EntryStep { entry: with e { typing: false }, copied: edit.copy(e.editor), changed: false }
+}
+
+fn cut_from(e: Entry) -> EntryStep {
+    val text = edit.copy(e.editor)
+    if e.readonly || text == "" {
+        // **A read-only field still copies**, and cutting from one is a copy rather than nothing:
+        // the user asked for the text, and refusing to give it is not what read-only means.
+        return EntryStep { entry: with e { typing: false }, copied: text, changed: false }
+    }
+    return EntryStep {
+        entry: with e {
+            editor: edit.cut(e.editor),
+            history: edit.record(e.history, e.editor),
+            typing: false
+        },
+        copied: text,
+        changed: true
+    }
+}
+
+fn undone(e: Entry) -> EntryStep {
+    val step = edit.undo(e.history, e.editor)
+    return EntryStep {
+        entry: with e { editor: step.editor, history: step.history, typing: false },
+        copied: "",
+        changed: step.editor.text != e.editor.text
+    }
+}
+
+fn redone(e: Entry) -> EntryStep {
+    val step = edit.redo(e.history, e.editor)
+    return EntryStep {
+        entry: with e { editor: step.editor, history: step.history, typing: false },
+        copied: "",
+        changed: step.editor.text != e.editor.text
+    }
+}
+
+// Where the text starts inside the field, which is what a click's x has to be measured from.
+fn text_left(bounds: Rect, style: Style) -> float {
+    return bounds.x + style.padding.left
+}
+
+// The caret index a pixel offset into the text means.
+//
+// **The nearest boundary, not the character the pixel is inside.** Clicking the left half of a
+// character puts the caret before it and the right half after it, which is what every text field
+// does and what a user means by clicking "between" two letters. Taking the character the pixel
+// landed in instead makes the caret feel one place behind the pointer, which is the kind of thing
+// nobody reports and everybody notices.
+//
+// Measured as prefixes rather than as a sum of per-character widths, because a sum ignores kerning
+// and would disagree with the layout that drew the text. That makes this O(n^2) in the length of
+// the field, which is the right trade for one line of text and the wrong one for a document.
+pub fn caret_at_x(text: string, size: float, m: widget.Metrics, x: float) -> int {
+    if x <= 0.0 {
+        return 0
+    }
+    val width = m.text_width
+    val n = len(text)
+    var i = 0
+    while i < n {
+        val before = width(substring(text, 0, i), size)
+        val after = width(substring(text, 0, i + 1), size)
+        if x < (before + after) / 2.0 {
+            return i
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// The name the caret's box carries in the laid-out tree, so that a test can find it and an
+// application can draw attention to it.
+pub val caret_name = "caret"
+
+// The field as a widget.
+//
+// **The caret is placed by the layout rather than computed.** The row is the text before the caret,
+// then a one-unit box, then the text after it -- so the same metrics that measure the text place the
+// caret, and the two cannot drift apart. Computing a caret's x separately is how a caret ends up
+// half a character off in one font and right in another.
+//
+// A selection is the same trick: the selected run is its own label with a background behind it.
+//
+// Takes a `Metrics` where `button_widget` does not, because a caret's height is a text measurement
+// and guessing it from the em size is wrong for any face whose line height is not 1.2.
+pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget {
+    val ink = if e.disabled { style.disabled_ink } else { style.ink }
+    val height = m.line_height
+    val line = height(style.text_size)
+    val text = e.editor.text
+    val from = edit.selection_start(e.editor)
+    val to = edit.selection_end(e.editor)
+    val before = widget.label_of(substring(text, 0, from), style.text_size, ink)
+    val after = widget.label_of(substring(text, to, len(text)), style.text_size, ink)
+    val middle = if edit.has_selection(e.editor) {
+        widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            background: Option<Color>.Some(style.pressed_face),
+            children: [widget.label_of(substring(text, from, to), style.text_size, ink)],
+            name: "selection"
+        })
+    } else {
+        widget.fixed_of(1.0, line, widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            background: Option<Color>.Some(ink),
+            children: [],
+            name: caret_name
+        }))
+    }
+    val inside = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        // Zero, and it has to be: any spacing here would push the caret off the boundary it marks.
+        spacing: 0.0,
+        padding: style.padding,
+        background: Option<Color>.Some(style.face),
+        children: [before, middle, after],
+        name: ""
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: e.name,
+        role: widget.Role.TextField,
+        label: e.label,
+        description: "",
+        // The field's content, which is what a reader says after the name.
+        value: text,
+        state: with widget.no_state() { disabled: e.disabled, readonly: e.readonly },
+        child: inside
+    })
+}
+
 // ------------------------------------------------------------------- the style
 
 // How a control is drawn. Injected rather than global, for the reason `widget.Metrics` is: a module
@@ -333,6 +645,7 @@ fn is_enter(k: KeyPress) -> bool {
 pub fn is_text_input(input: Input) -> bool {
     return switch input {
         Text(_) { true }
+        Paste(_) { true }
         KeyDown(_) { true }
         KeyUp(_) { false }
         Press(_) { false }

@@ -17,10 +17,15 @@ fn metrics() -> widget.Metrics {
 // lambda mutate what it captured -- so there is nowhere for a callback to put anything, and the
 // window's state has to be a value the program threads through. That is not a style choice here.
 struct Window {
+    email: controls.Entry
     save: controls.Button
     notify: controls.CheckBox
     focused: string
     saves: int
+    // The clipboard, which this layer cannot reach: a control asks for text to be put somewhere and
+    // the application is what has somewhere to put it. On a desktop this is the X11 selection, which
+    // F273 left as platform work.
+    clipboard: string
 }
 
 fn view(w: Window) -> widget.Widget {
@@ -28,6 +33,7 @@ fn view(w: Window) -> widget.Widget {
     return widget.column_of(
         6.0,
         [
+            controls.entry_widget(w.email, style, metrics()),
             controls.check_box_widget(w.notify, style),
             controls.button_widget(w.save, style)
         ]
@@ -36,11 +42,16 @@ fn view(w: Window) -> widget.Widget {
 
 // One input, applied: route it, hand it to the control it was for, and keep what came back.
 fn step(w: Window, input: controls.Input) -> Window {
-    val laid = widget.layout(view(w), geom.rect_of(0.0, 0.0, 200.0, 80.0), metrics())
+    val laid = widget.layout(view(w), geom.rect_of(0.0, 0.0, 200.0, 110.0), metrics())
     val name = controls.target(laid, input, w.focused)
     val bounds = switch focus.node_of(laid, name) {
         Some(one) { one.bounds }
         None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
+    }
+    if name == "email" {
+        val done = controls.entry_input(w.email, input, bounds, controls.default_style(), metrics())
+        val board = if done.copied == "" { w.clipboard } else { done.copied }
+        return with w { email: done.entry, focused: name, clipboard: board }
     }
     if name == "save" {
         val done = controls.button_input(w.save, input, bounds)
@@ -54,8 +65,24 @@ fn step(w: Window, input: controls.Input) -> Window {
     return with w { focused: name }
 }
 
+// The middle of a control, found rather than guessed: the layout decides where a row lands, so an
+// example with hard-coded coordinates is an example that breaks when a padding changes.
+fn centre(w: Window, name: string) -> geom.Point {
+    val laid = widget.layout(view(w), geom.rect_of(0.0, 0.0, 200.0, 110.0), metrics())
+    return switch focus.node_of(laid, name) {
+        Some(one) { geom.point_of(one.bounds.x + one.bounds.width / 2.0, one.bounds.y + one.bounds.height / 2.0) }
+        None { geom.point_of(0.0, 0.0) }
+    }
+}
+
+// A whole click on one control.
+fn click(w: Window, name: string) -> Window {
+    val at = centre(w, name)
+    return step(step(w, controls.Input.Press(at)), controls.Input.Release(at))
+}
+
 fn report(w: Window, what: string) {
-    val laid = widget.layout(view(w), geom.rect_of(0.0, 0.0, 200.0, 80.0), metrics())
+    val laid = widget.layout(view(w), geom.rect_of(0.0, 0.0, 200.0, 110.0), metrics())
     val tree = a11y.tree_of(laid, "Settings", w.focused)
     val said = switch a11y.node_of(tree, w.focused) {
         Some(one) { a11y.announce(one) }
@@ -66,25 +93,46 @@ fn report(w: Window, what: string) {
 
 fn main() {
     var w = Window {
+        email: controls.entry_of("email", "Email", ""),
         save: controls.button_of("save", "Save"),
         notify: controls.check_box_of("notify", "Notify me", widget.Toggle.Off),
         focused: "",
-        saves: 0
+        saves: 0,
+        clipboard: ""
     }
 
+    // Click into the field, then type.
+    w = click(w, "email")
+    w = step(w, controls.Input.Text("a"))
+    w = step(w, controls.Input.Text("d"))
+    w = step(w, controls.Input.Text("a"))
+    report(w, "typed into the field")
+
+    // **One Ctrl-Z, and the whole run goes.** A run of typed characters is one undo step; a delete,
+    // a paste or a caret move between them would have ended the run.
+    w = step(w, controls.Input.KeyDown(with window_key(122) { control: true }))
+    report(w, "undid the typing")
+
+    // A paste is one step whatever its length, which is why it is its own input.
+    w = step(w, controls.Input.Paste("ada@example.org"))
+    report(w, "pasted an address")
+
+    // Select all and copy: the text comes *out*, because nothing here can reach a clipboard.
+    w = step(w, controls.Input.KeyDown(with window_key(97) { control: true }))
+    w = step(w, controls.Input.KeyDown(with window_key(99) { control: true }))
+    printf("the clipboard now holds: {}\n", w.clipboard)
+
     // The check box is the top row; a press and a release on it toggles it.
-    w = step(w, controls.Input.Press(geom.point_of(20.0, 10.0)))
-    w = step(w, controls.Input.Release(geom.point_of(20.0, 10.0)))
+    w = click(w, "notify")
     report(w, "clicked the check box")
 
     // The button is below it. Pressed and released inside, it fires.
-    w = step(w, controls.Input.Press(geom.point_of(20.0, 50.0)))
-    w = step(w, controls.Input.Release(geom.point_of(20.0, 50.0)))
+    w = click(w, "save")
     report(w, "clicked Save")
 
     // **Pressed and released outside, it does not.** Dragging off a button cancels it, which is why
     // `held` is state: a user who changed their mind has not saved anything.
-    w = step(w, controls.Input.Press(geom.point_of(20.0, 50.0)))
+    w = step(w, controls.Input.Press(centre(w, "save")))
     w = step(w, controls.Input.Release(geom.point_of(400.0, 400.0)))
     report(w, "dragged off Save")
 

@@ -336,3 +336,313 @@ fn only_a_key_or_text_could_change_a_field() {
     test.assert_false(controls.is_text_input(controls.Input.Press(inside())))
     test.assert_false(controls.is_text_input(controls.Input.KeyUp(key(letter_a))))
 }
+
+// --- the text entry
+
+use controls.caret_name
+use edit
+
+// Ten units per character, from `metrics()` above, so a caret after three characters sits at 30
+// plus the field's left padding.
+val char_width = 10.0
+
+fn field() -> controls.Entry {
+    return controls.entry_of("email", "Email", "ada@example.org")
+}
+
+fn style() -> controls.Style {
+    return controls.default_style()
+}
+
+fn entry_box() -> geom.Rect {
+    return geom.rect_of(0.0, 0.0, 300.0, 24.0)
+}
+
+fn give(e: controls.Entry, input: controls.Input) -> controls.EntryStep {
+    return controls.entry_input(e, input, entry_box(), style(), metrics())
+}
+
+fn typing(e: controls.Entry, what: string) -> controls.EntryStep {
+    return give(e, controls.Input.Text(what))
+}
+
+fn pressing(e: controls.Entry, name: string, keysym: int, control: bool, shift: bool) -> controls.EntryStep {
+    val k = window.KeyPress { keysym: keysym, shift: shift, control: control, alt: false, meta: false }
+    val _ = name
+    return give(e, controls.Input.KeyDown(k))
+}
+
+val key_left = 65361
+val key_right = 65363
+val key_home = 65360
+val key_backspace = 65288
+val letter_c = 99
+val letter_x = 120
+val letter_z = 122
+
+#[test]
+fn typing_inserts_at_the_caret_and_reports_a_change() {
+    val step = typing(controls.entry_of("n", "Name", "ab"), "c")
+    test.assert_eq(step.entry.editor.text, "abc")
+    test.assert(step.changed)
+}
+
+// **A caret move is not a change**, which is what a form watches to know it is dirty: a user who
+// pressed an arrow key has not edited anything.
+#[test]
+fn moving_the_caret_is_not_a_change() {
+    val step = pressing(field(), "Left", key_left, false, false)
+    test.assert_false(step.changed)
+    test.assert_eq(step.entry.editor.caret, 14)
+}
+
+#[test]
+fn shift_with_an_arrow_selects() {
+    val step = pressing(field(), "Left", key_left, false, true)
+    test.assert(edit.has_selection(step.entry.editor))
+    test.assert_eq(edit.selected_text(step.entry.editor), "g")
+}
+
+#[test]
+fn control_with_an_arrow_moves_by_word() {
+    val at_start = controls.entry_of("n", "Name", "one two")
+    val start = with at_start { editor: edit.editor_of("one two") }
+    test.assert_eq(pressing(start, "Left", key_left, true, false).entry.editor.caret, 4)
+}
+
+#[test]
+fn backspace_deletes_and_control_backspace_takes_the_word() {
+    test.assert_eq(pressing(field(), "Backspace", key_backspace, false, false).entry.editor.text, "ada@example.or")
+    test.assert_eq(pressing(field(), "Backspace", key_backspace, true, false).entry.editor.text, "ada@example.")
+}
+
+// --- undo, and the run that makes it useful
+
+// **A run of typed characters is one undo step.** Without this, Ctrl-Z after typing a word steps
+// back a letter at a time, which is not what undo means to anyone. The rule is the one editors use:
+// consecutive `Text` inserts coalesce and anything else ends the run.
+#[test]
+fn a_run_of_typing_undoes_as_one_word() {
+    var e = controls.entry_of("n", "Name", "")
+    e = typing(e, "a").entry
+    e = typing(e, "d").entry
+    e = typing(e, "a").entry
+    test.assert_eq(e.editor.text, "ada")
+
+    val back = pressing(e, "z", letter_z, true, false)
+    test.assert_eq(back.entry.editor.text, "")
+    test.assert(back.changed)
+}
+
+// And a caret move between two typed characters splits the run, which is the other half of the rule
+// -- a user who moved the caret and typed again has made two edits, and one undo must not take
+// both.
+#[test]
+fn a_caret_move_splits_a_typing_run() {
+    var e = controls.entry_of("n", "Name", "")
+    e = typing(e, "a").entry
+    e = typing(e, "b").entry
+    e = pressing(e, "Home", key_home, false, false).entry
+    e = typing(e, "x").entry
+    test.assert_eq(e.editor.text, "xab")
+
+    val back = pressing(e, "z", letter_z, true, false)
+    test.assert_eq(back.entry.editor.text, "ab")
+}
+
+// A paste is one step whatever its length, which is why it is its own input and not a `Text`.
+#[test]
+fn a_paste_is_one_undo_step() {
+    var e = controls.entry_of("n", "Name", "")
+    e = give(e, controls.Input.Paste("a long pasted string")).entry
+    test.assert_eq(e.editor.text, "a long pasted string")
+    test.assert_eq(pressing(e, "z", letter_z, true, false).entry.editor.text, "")
+}
+
+#[test]
+fn an_undo_with_nothing_recorded_reports_no_change() {
+    test.assert_false(pressing(field(), "z", letter_z, true, false).changed)
+}
+
+// --- the clipboard, which this layer cannot reach
+
+// **Copy answers the text and changes nothing**: the module has no clipboard and must not pretend
+// to, so the text comes out as an output and the application puts it somewhere.
+#[test]
+fn copy_answers_the_selection_and_changes_nothing() {
+    val all = with field() { editor: edit.select_all(field().editor) }
+    val step = pressing(all, "c", letter_c, true, false)
+    test.assert_eq(step.copied, "ada@example.org")
+    test.assert_false(step.changed)
+    test.assert_eq(step.entry.editor.text, "ada@example.org")
+}
+
+#[test]
+fn cut_answers_the_selection_and_removes_it() {
+    val all = with field() { editor: edit.select_all(field().editor) }
+    val step = pressing(all, "x", letter_x, true, false)
+    test.assert_eq(step.copied, "ada@example.org")
+    test.assert(step.changed)
+    test.assert_eq(step.entry.editor.text, "")
+}
+
+// **Cutting from a read-only field is a copy rather than nothing.** The user asked for the text;
+// refusing to hand it over is not what read-only means.
+#[test]
+fn cutting_from_a_read_only_field_still_copies() {
+    val locked = with field() { editor: edit.select_all(field().editor), readonly: true }
+    val step = pressing(locked, "x", letter_x, true, false)
+    test.assert_eq(step.copied, "ada@example.org")
+    test.assert_false(step.changed)
+    test.assert_eq(step.entry.editor.text, "ada@example.org")
+}
+
+#[test]
+fn a_read_only_field_moves_its_caret_but_does_not_change() {
+    val locked = with field() { readonly: true }
+    test.assert_false(typing(locked, "x").changed)
+    test.assert_eq(typing(locked, "x").entry.editor.text, "ada@example.org")
+    test.assert_eq(pressing(locked, "Left", key_left, false, false).entry.editor.caret, 14)
+}
+
+#[test]
+fn a_disabled_field_does_nothing_at_all() {
+    val off = with field() { disabled: true }
+    test.assert_false(typing(off, "x").changed)
+    test.assert_eq(give(off, controls.Input.Press(geom.point_of(50.0, 10.0))).entry.editor.caret, 15)
+}
+
+// --- the caret and the pointer
+
+// **The nearest boundary, not the character the pixel is inside.** Clicking the left half of a
+// character puts the caret before it and the right half after it, which is what a user means by
+// clicking between two letters. Taking the character the pixel landed in makes the caret feel one
+// place behind the pointer.
+#[test]
+fn a_click_puts_the_caret_at_the_nearest_boundary() {
+    val m = metrics()
+    val text = "abcd"
+    test.assert_eq(controls.caret_at_x(text, 12.0, m, 0.0), 0)
+    // Just inside the first character: still before it.
+    test.assert_eq(controls.caret_at_x(text, 12.0, m, char_width * 0.4), 0)
+    // Past its middle: after it.
+    test.assert_eq(controls.caret_at_x(text, 12.0, m, char_width * 0.6), 1)
+    test.assert_eq(controls.caret_at_x(text, 12.0, m, char_width * 2.5), 3)
+    // Beyond the end clamps rather than failing.
+    test.assert_eq(controls.caret_at_x(text, 12.0, m, 10000.0), 4)
+    test.assert_eq(controls.caret_at_x(text, 12.0, m, 0.0 - 50.0), 0)
+}
+
+#[test]
+fn a_press_places_the_caret_and_a_drag_selects() {
+    val e = field()
+    val left = style().padding.left
+    val placed = give(e, controls.Input.Press(geom.point_of(left + char_width * 3.0, 10.0)))
+    test.assert_eq(placed.entry.editor.caret, 3)
+    test.assert(placed.entry.dragging)
+
+    val dragged = give(placed.entry, controls.Input.Move(geom.point_of(left + char_width * 6.0, 10.0)))
+    test.assert_eq(edit.selected_text(dragged.entry.editor), "@ex")
+
+    val done = give(dragged.entry, controls.Input.Release(geom.point_of(left + char_width * 6.0, 10.0)))
+    test.assert_false(done.entry.dragging)
+}
+
+// A move with no press before it changes nothing: the pointer crossing a field must not select.
+#[test]
+fn moving_without_a_press_selects_nothing() {
+    val step = give(field(), controls.Input.Move(geom.point_of(50.0, 10.0)))
+    test.assert_false(edit.has_selection(step.entry.editor))
+}
+
+// --- the caret in the laid-out tree
+
+// Finds the caret's box by the name it carries.
+fn caret_x(e: controls.Entry) -> float {
+    val w = controls.entry_widget(e, style(), metrics())
+    val l = widget.layout(w, geom.rect_of(0.0, 0.0, 300.0, 24.0), metrics())
+    return found_x(l)
+}
+
+fn found_x(l: widget.Laid) -> float {
+    if l.name == caret_name {
+        return l.bounds.x
+    }
+    for child in l.children {
+        val x = found_x(child)
+        if x >= 0.0 {
+            return x
+        }
+    }
+    return 0.0 - 1.0
+}
+
+// **The caret is placed by the layout, and this is the check that the two directions agree.** The
+// widget puts a one-unit box between the text before the caret and the text after it, so the same
+// metrics that measure the text place the caret; `caret_at_x` then has to answer the same index
+// from that x. Computing a caret's position separately from the text is how a caret ends up half a
+// character off in one font and right in another -- and a round trip is the only test that catches
+// a disagreement rather than restating one side of it.
+#[test]
+fn the_drawn_caret_and_the_clicked_caret_agree() {
+    val e = field()
+    val width = metrics().text_width
+    var at = 0
+    while at <= len(e.editor.text) {
+        val placed = with e { editor: edit.place_caret(e.editor, at, false) }
+        val x = caret_x(placed)
+        // **Exactly where the measured text ends, with no tolerance.** The round trip below is the
+        // weaker half of this and on its own it is nearly useless: `caret_at_x` snaps to the
+        // nearest boundary, so it answers the right index for anything within half a character --
+        // which is precisely the drift this case exists to catch. Adding two units of spacing to
+        // the widget's row left the round trip passing and fails this line, which is how that was
+        // found.
+        test.assert_eq(x, style().padding.left + width(substring(e.editor.text, 0, at), style().text_size))
+        // And the inverse agrees, which is the direction a click travels.
+        test.assert_eq(controls.caret_at_x(e.editor.text, style().text_size, metrics(), x - style().padding.left), at)
+        at = at + 1
+    }
+}
+
+#[test]
+fn a_selection_is_drawn_instead_of_a_caret() {
+    val selected = with field() { editor: edit.select_all(field().editor) }
+    val w = controls.entry_widget(selected, style(), metrics())
+    val l = widget.layout(w, geom.rect_of(0.0, 0.0, 300.0, 24.0), metrics())
+    // No caret box at all when there is a selection: the selected run carries a background instead.
+    test.assert_eq(found_x(l), 0.0 - 1.0)
+}
+
+// --- what a reader is told about a field
+
+// **A field's label is declared and its text is its value**, so a reader says the name and then the
+// contents. A field that took its name from the text inside would introduce itself as whatever the
+// user last typed.
+#[test]
+fn a_field_announces_its_label_then_its_value() {
+    val l = widget.layout(
+        controls.entry_widget(field(), style(), metrics()),
+        geom.rect_of(0.0, 0.0, 300.0, 24.0),
+        metrics()
+    )
+    val said = switch a11y.node_of(a11y.tree_of(l, "Contacts", ""), "email") {
+        Some(one) { a11y.announce(one) }
+        None { "(no node)" }
+    }
+    test.assert_eq(said, "text field, Email, ada@example.org")
+}
+
+#[test]
+fn a_read_only_field_says_so() {
+    val locked = with field() { readonly: true }
+    val l = widget.layout(
+        controls.entry_widget(locked, style(), metrics()),
+        geom.rect_of(0.0, 0.0, 300.0, 24.0),
+        metrics()
+    )
+    val said = switch a11y.node_of(a11y.tree_of(l, "Contacts", ""), "email") {
+        Some(one) { a11y.announce(one) }
+        None { "(no node)" }
+    }
+    test.assert_eq(said, "text field, Email, ada@example.org, read only")
+}

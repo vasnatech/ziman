@@ -1,3 +1,7 @@
+typed into the field: saves=0 focus=email -> text field, Email, ada
+undid the typing: saves=0 focus=email -> text field, Email
+pasted an address: saves=0 focus=email -> text field, Email, ada@example.org
+the clipboard now holds: ada@example.org
 clicked the check box: saves=0 focus=notify -> check box, Notify me, checked
 clicked Save: saves=1 focus=save -> button, Save
 dragged off Save: saves=1 focus=save -> button, Save
