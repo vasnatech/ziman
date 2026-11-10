@@ -100,6 +100,7 @@
 #include "focus_source.h"
 #include "edit_source.h"
 #include "a11y_source.h"
+#include "controls_source.h"
 #include "stroker_source.h"
 #include "zone_source.h"
 #include "ndjson_source.h"
@@ -206,6 +207,7 @@ static const CoreModule CORE_MODULES[] = {
     {"focus", FOCUS_SOURCE, FOCUS_SOURCE_PATH},
     {"edit", EDIT_SOURCE, EDIT_SOURCE_PATH},
     {"a11y", A11Y_SOURCE, A11Y_SOURCE_PATH},
+    {"controls", CONTROLS_SOURCE, CONTROLS_SOURCE_PATH},
     {"zone", ZONE_SOURCE, ZONE_SOURCE_PATH},
     {"ndjson", NDJSON_SOURCE, NDJSON_SOURCE_PATH},
     {"csv", CSV_SOURCE, CSV_SOURCE_PATH},

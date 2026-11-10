@@ -1,0 +1,343 @@
+// The widget set: what an input does to a control, and what a control looks like.
+//
+// docs/reviews/tasks/f269-f277.md F277, first instalment. `widget` builds and places a tree,
+// `focus` says what a click lands on, `edit` is a text field's model and `a11y` describes all of it
+// -- and none of them turns an event into a new state. That is this module, and the two controls
+// here are the ones that need neither text editing nor scrolling, so the model is the subject and
+// they are the proof of it.
+//
+// **The architecture is forced by the language, not chosen.** The usual widget set hands a widget a
+// callback -- `on_click: fn()` -- which mutates the application's state. Ziman will not compile
+// that: "a lambda cannot capture 'count' because it is a 'var' ... captures are by value, so the
+// lambda and the enclosing function never share mutable state". So a control cannot act; it can
+// only *answer*. Every update here takes a state and an input and returns a new state together with
+// what happened, and the application keeps the state and acts on what happened. `focus.clicked`
+// already had exactly that shape, so this is the existing grain of the thing rather than a new idea.
+//
+// **An application owns its controls' states; this module owns none.** There is no registry of
+// widgets here and there cannot be one -- no shared mutable state exists to hold it -- so the
+// application holds whatever its window needs, routes an input with `target`, and calls the update
+// for the control that input was for.
+use focus
+use geom.Point
+use geom.Rect
+use paint
+use paint.Color
+use widget
+use widget.Insets
+use widget.Laid
+use widget.Toggle
+use window
+use window.KeyPress
+
+// ----------------------------------------------------------------- the inputs
+
+pub struct Wheel {
+    at: Point
+    // Lines, signed: positive is away from the user. The same convention `window.ScrollStep` uses,
+    // because converting between two sign conventions is a bug waiting to be written.
+    vertical: int
+    horizontal: int
+}
+
+// One thing the user did.
+//
+// **Keys arrive as `window.KeyPress`, which is a plain struct of a keysym and four flags and not a
+// platform handle.** A third key vocabulary was the alternative -- `terminal` has one and `window`
+// has keysyms -- and a third copy of fifteen magic numbers is worse than a dependency on a module
+// whose types are data. A driver that is not X11 builds `KeyPress` values itself; X11's keysym
+// numbering is the de facto standard for exactly this.
+pub enum Input {
+    KeyDown(KeyPress)
+    KeyUp(KeyPress)
+    // The text the keyboard composed, which is a separate event from the key that composed it --
+    // see `window.Event`, where the same split is explained at length.
+    Text(string)
+    Press(Point)
+    Release(Point)
+    Move(Point)
+    Wheel(Wheel)
+}
+
+// Which control an input is for: the name, or "" for nobody.
+//
+// **The three rules here are each one a home-grown toolkit gets wrong.**
+//
+// A key goes to the focus, which is the easy one.
+//
+// A press goes to whatever is under the pointer *and moves the focus there* -- `focus.clicked`
+// already decides that, including leaving the focus alone when the press landed on nothing.
+//
+// **A release goes to the focus, not to what is under the pointer**, which looks wrong and is
+// right: the press moved the focus to the control being pressed, so routing the release to the
+// focus delivers it to the control that was pressed even when the pointer has since moved off. A
+// release routed by position instead would never reach a button the user dragged off, and the
+// button would stay drawn pressed for ever. The same reasoning covers a move.
+//
+// **A wheel goes to the control under the pointer and ignores the focus entirely**, because that is
+// what a user means: scrolling the list they are pointing at, not the one that happens to have the
+// keyboard. Over nothing it goes nowhere rather than to the focus.
+pub fn target(l: Laid, input: Input, focused: string) -> string {
+    return switch input {
+        KeyDown(_) { focused }
+        KeyUp(_) { focused }
+        Text(_) { focused }
+        Press(p) { focus.clicked(l, p, focused) }
+        Release(_) { focused }
+        Move(_) { focused }
+        Wheel(w) { under_pointer(l, w.at) }
+    }
+}
+
+fn under_pointer(l: Laid, p: Point) -> string {
+    return switch focus.control_at(l, p) {
+        Some(one) { one.name }
+        None { "" }
+    }
+}
+
+// ------------------------------------------------------------------ the button
+
+// A button, and whether it is being held down.
+//
+// `held` is state and `ButtonStep.activated` is not, which is the distinction the whole model rests
+// on: being held is something a user can see and the next frame has to draw, while having fired is
+// something that happened once and that the application acts on rather than stores.
+pub struct Button {
+    name: string
+    label: string
+    disabled: bool
+    held: bool
+}
+
+pub fn button_of(name: string, label: string) -> Button {
+    return Button { name: name, label: label, disabled: false, held: false }
+}
+
+pub struct ButtonStep {
+    button: Button
+    activated: bool
+}
+
+// What an input does to a button.
+//
+// `bounds` is the rectangle the layout gave it -- `focus.node_of` answers that -- and it is needed
+// for one rule: **a press inside followed by a release outside does not fire.** Dragging off a
+// button cancels it, which every toolkit does and which is the reason `held` exists at all rather
+// than the button simply reporting each click. A button that fired on any release would fire when
+// the user changed their mind.
+//
+// The keyboard mirrors the pointer rather than firing on the way down: **Space arms and fires on
+// release**, so it can be cancelled the same way, while **Enter fires immediately**, because Enter
+// is the key a default button answers and a user pressing it has already decided. That split is the
+// platforms' own and is deliberate here.
+pub fn button_input(b: Button, input: Input, bounds: Rect) -> ButtonStep {
+    if b.disabled {
+        // A disabled button does not even take a press, so it cannot be left held when it is
+        // enabled again.
+        return still(with b { held: false })
+    }
+    return switch input {
+        Press(p) { still(with b { held: widget.contains(bounds, p) }) }
+        Release(p) {
+            if b.held && widget.contains(bounds, p) {
+                ButtonStep { button: with b { held: false }, activated: true }
+            } else {
+                still(with b { held: false })
+            }
+        }
+        KeyDown(k) {
+            if is_enter(k) {
+                ButtonStep { button: b, activated: true }
+            } else {
+                still(with b { held: b.held || is_space(k) })
+            }
+        }
+        KeyUp(k) {
+            if b.held && is_space(k) {
+                ButtonStep { button: with b { held: false }, activated: true }
+            } else {
+                still(b)
+            }
+        }
+        Text(_) { still(b) }
+        Move(_) { still(b) }
+        Wheel(_) { still(b) }
+    }
+}
+
+fn still(b: Button) -> ButtonStep {
+    return ButtonStep { button: b, activated: false }
+}
+
+// The button as a widget: a control declaring its role, around a background and its label.
+//
+// The role and the label are declared here, which is what F275 is for -- a reader announces
+// "button, Save" from this one call, and nothing downstream has to guess that a group of rectangles
+// was a button.
+pub fn button_widget(b: Button, style: Style) -> widget.Widget {
+    val ink = if b.disabled { style.disabled_ink } else { style.ink }
+    val face = if b.held { style.pressed_face } else { style.face }
+    val inside = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: style.padding,
+        background: Option<Color>.Some(face),
+        children: [widget.label_of(b.label, style.text_size, ink)],
+        name: ""
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: b.name,
+        role: widget.Role.Button,
+        label: "",
+        description: "",
+        value: "",
+        state: with widget.no_state() { disabled: b.disabled },
+        child: inside
+    })
+}
+
+// --------------------------------------------------------------- the check box
+
+pub struct CheckBox {
+    name: string
+    label: string
+    disabled: bool
+    checked: Toggle
+    held: bool
+}
+
+pub fn check_box_of(name: string, label: string, checked: Toggle) -> CheckBox {
+    return CheckBox { name: name, label: label, disabled: false, checked: checked, held: false }
+}
+
+pub struct CheckStep {
+    check_box: CheckBox
+    toggled: bool
+}
+
+// What an input does to a check box: the button's rules, and then the toggle.
+//
+// **A mixed box becomes checked, never unchecked**, which is not what "toggle" suggests and is what
+// every platform does: a mixed box means some of the things under it are on, and a user clicking it
+// is asking for all of them, not none. Going to unchecked would throw away the choices that were
+// already made.
+pub fn check_box_input(c: CheckBox, input: Input, bounds: Rect) -> CheckStep {
+    val step = button_input(as_button(c), input, bounds)
+    val moved = with c { held: step.button.held }
+    if !step.activated {
+        return CheckStep { check_box: moved, toggled: false }
+    }
+    return CheckStep { check_box: with moved { checked: next(c.checked) }, toggled: true }
+}
+
+fn as_button(c: CheckBox) -> Button {
+    return Button { name: c.name, label: c.label, disabled: c.disabled, held: c.held }
+}
+
+fn next(t: Toggle) -> Toggle {
+    return switch t {
+        Off { Toggle.On }
+        On { Toggle.Off }
+        Mixed { Toggle.On }
+    }
+}
+
+// The check box as a widget: the mark, then the label, and the state declared so that a reader says
+// "check box, Notify me, partly checked" without anything else being told.
+pub fn check_box_widget(c: CheckBox, style: Style) -> widget.Widget {
+    val ink = if c.disabled { style.disabled_ink } else { style.ink }
+    val face = if c.held { style.pressed_face } else { style.face }
+    val box = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.insets_all(1.0),
+        background: Option<Color>.Some(face),
+        children: [widget.label_of(mark(c.checked), style.text_size, ink)],
+        name: ""
+    })
+    val inside = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: style.text_size * 0.5,
+        padding: style.padding,
+        background: Option<Color>.None,
+        children: [box, widget.label_of(c.label, style.text_size, ink)],
+        name: ""
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: c.name,
+        role: widget.Role.CheckBox,
+        // Declared rather than taken from the text inside, because the text inside is the mark as
+        // well as the label: a reader must not announce "check box, x Notify me".
+        label: c.label,
+        description: "",
+        value: "",
+        state: with widget.no_state() {
+            disabled: c.disabled,
+            checked: Option<Toggle>.Some(c.checked)
+        },
+        child: inside
+    })
+}
+
+// What the box draws. Text rather than a drawn glyph, so that a check box needs no icon set and no
+// second rendering path -- F277's later instalments can replace it without the model changing.
+fn mark(t: Toggle) -> string {
+    return switch t {
+        Off { " " }
+        On { "x" }
+        Mixed { "-" }
+    }
+}
+
+// ------------------------------------------------------------------- the style
+
+// How a control is drawn. Injected rather than global, for the reason `widget.Metrics` is: a module
+// that reads a theme from somewhere cannot be tested against two themes, and an application with
+// two panels cannot style them differently.
+pub struct Style {
+    text_size: float
+    padding: Insets
+    ink: Color
+    face: Color
+    pressed_face: Color
+    disabled_ink: Color
+}
+
+// A plain light style. **Not a theme and not a design** -- F277 says in as many words that pixel
+// parity with a platform's widgets is not a goal, so this is a legible default and the thing an
+// application replaces.
+pub fn default_style() -> Style {
+    return Style {
+        text_size: 12.0,
+        padding: widget.insets_of(8.0, 4.0, 8.0, 4.0),
+        ink: paint.rgb(0.1, 0.1, 0.1),
+        face: paint.rgb(0.9, 0.9, 0.9),
+        pressed_face: paint.rgb(0.75, 0.75, 0.78),
+        disabled_ink: paint.rgb(0.6, 0.6, 0.6)
+    }
+}
+
+// ------------------------------------------------------------------ the keys
+
+fn is_space(k: KeyPress) -> bool {
+    return window.key_name(k) == "Space"
+}
+
+fn is_enter(k: KeyPress) -> bool {
+    return window.key_name(k) == "Enter"
+}
+
+// Whether this input could move a caret or change text -- what the next instalment's entry asks
+// before handing an input to `edit`, and here rather than there because the answer is about `Input`.
+pub fn is_text_input(input: Input) -> bool {
+    return switch input {
+        Text(_) { true }
+        KeyDown(_) { true }
+        KeyUp(_) { false }
+        Press(_) { false }
+        Release(_) { false }
+        Move(_) { false }
+        Wheel(_) { false }
+    }
+}

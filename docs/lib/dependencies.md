@@ -103,6 +103,11 @@ flowchart LR
     codec --> toml
     codec --> xml
     codec --> yaml
+    controls --> focus
+    controls --> geom
+    controls --> paint
+    controls --> widget
+    controls --> window
     crypto --> encoding
     crypto --> random
     csv --> fs
@@ -333,7 +338,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `template`, `time`, `uuid` |
 | 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml`, `widget` |
 | 6 | `a11y`, `codec`, `derive_repository`, `focus` |
-| 7 | `paging`, `server` |
+| 7 | `controls`, `paging`, `server` |
 | 8 | `rest` |
 
 ## Each module
@@ -347,6 +352,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
+| `controls` | `focus`, `geom`, `paint`, `widget`, `window` | - |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `io`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `batch`, `eql`, `migrate` |
@@ -365,10 +371,10 @@ otherwise: everything on a layer depends only on lower layers.
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `expr` | `json`, `regex` | `template` |
-| `focus` | `geom`, `widget` | - |
+| `focus` | `geom`, `widget` | `controls` |
 | `font` | `truetype` | `layout`, `pdf`, `raster`, `widget` |
 | `fs` | `io`, `os` | `csv`, `http`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
-| `geom` | `math` | `a11y`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype`, `widget` |
+| `geom` | `math` | `a11y`, `controls`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype`, `widget` |
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
 | `io` | - | `client`, `csv`, `fs`, `http`, `rest`, `server`, `terminal`, `xml` |
@@ -391,7 +397,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `encoding`, `random` | - |
 | `paging` | `codec`, `json`, `mime` | - |
-| `paint` | `geom`, `locale` | `image`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `widget` |
+| `paint` | `geom`, `locale` | `controls`, `image`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `widget` |
 | `pdf` | `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
 | `pdfobj` | `compress` | `pdf` |
 | `pg` | `crypto`, `db`, `encoding`, `locale`, `net`, `number`, `random` | - |
@@ -418,8 +424,8 @@ otherwise: everything on a layer depends only on lower layers.
 | `url` | `locale`, `number` | `db`, `http`, `rest` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | `batch`, `eql`, `rest`, `server` |
 | `validate` | `regex` | - |
-| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `focus` |
-| `window` | - | - |
+| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `controls`, `focus` |
+| `window` | - | `controls` |
 | `xml` | `io`, `locale` | `codec` |
 | `yaml` | `json`, `locale`, `number` | `codec` |
 | `zone` | `fs`, `number`, `os` | `time` |

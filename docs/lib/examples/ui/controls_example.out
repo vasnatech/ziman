@@ -1,0 +1,4 @@
+clicked the check box: saves=0 focus=notify -> check box, Notify me, checked
+clicked Save: saves=1 focus=save -> button, Save
+dragged off Save: saves=1 focus=save -> button, Save
+pressed Space: saves=2 focus=save -> button, Save

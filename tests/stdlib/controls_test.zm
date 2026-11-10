@@ -1,0 +1,338 @@
+// `lib/ui/controls`: what an input does to a control.
+//
+// **These are the cases a rendered frame cannot show.** A button that fires when the user drags off
+// it, a check box that clears a mixed state, a wheel event that goes to the focused list instead of
+// the one under the pointer -- all three draw identically to the correct thing, every frame, and
+// are only visible in what the state becomes.
+use a11y
+use controls
+use geom
+use paint
+use test
+use widget
+use window
+
+fn metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+}
+
+// A button's bounds, for the rules that need to know where it is.
+val box = geom.rect_of(0.0, 0.0, 40.0, 20.0)
+
+fn inside() -> geom.Point {
+    return geom.point_of(10.0, 10.0)
+}
+
+fn outside() -> geom.Point {
+    return geom.point_of(100.0, 10.0)
+}
+
+fn key(keysym: int) -> window.KeyPress {
+    return window.KeyPress { keysym: keysym, shift: false, control: false, alt: false, meta: false }
+}
+
+val space = 32
+val enter = 65293
+val letter_a = 97
+
+fn press(b: controls.Button, p: geom.Point) -> controls.ButtonStep {
+    return controls.button_input(b, controls.Input.Press(p), box)
+}
+
+fn release(b: controls.Button, p: geom.Point) -> controls.ButtonStep {
+    return controls.button_input(b, controls.Input.Release(p), box)
+}
+
+// --- the button
+
+#[test]
+fn a_press_holds_it_and_a_release_inside_fires_it() {
+    val held = press(controls.button_of("save", "Save"), inside())
+    test.assert(held.button.held)
+    test.assert_false(held.activated)
+
+    val fired = release(held.button, inside())
+    test.assert(fired.activated)
+    test.assert_false(fired.button.held)
+}
+
+// **A press inside and a release outside does not fire**, which is every toolkit's behaviour and
+// the reason `held` is state rather than the button simply reporting each click: a user who presses
+// a button, thinks again and drags off it has cancelled, and a button that fired anyway would be
+// the kind of defect a person does not report because they assume they misclicked.
+#[test]
+fn dragging_off_a_button_cancels_it() {
+    val held = press(controls.button_of("save", "Save"), inside())
+    val gone = release(held.button, outside())
+    test.assert_false(gone.activated)
+    test.assert_false(gone.button.held)
+}
+
+// And a release with no press before it fires nothing: a button under the pointer when the mouse
+// comes up over it, having been pressed somewhere else, must not activate.
+#[test]
+fn a_release_without_a_press_fires_nothing() {
+    val step = release(controls.button_of("save", "Save"), inside())
+    test.assert_false(step.activated)
+}
+
+// A press that lands outside does not hold it either, which matters because `target` routes by hit
+// test and a caller may still hand an input to the wrong control.
+#[test]
+fn a_press_outside_does_not_hold_it() {
+    test.assert_false(press(controls.button_of("save", "Save"), outside()).button.held)
+}
+
+// **Space mirrors the pointer and Enter does not.** Space arms on the way down and fires on the way
+// up, so it can be cancelled the way a drag can; Enter fires at once, because it is the key a
+// default button answers and the user has already decided. Both are the platforms' own behaviour.
+#[test]
+fn space_fires_on_the_way_up_and_enter_on_the_way_down() {
+    val b = controls.button_of("save", "Save")
+    val armed = controls.button_input(b, controls.Input.KeyDown(key(space)), box)
+    test.assert(armed.button.held)
+    test.assert_false(armed.activated)
+    test.assert(controls.button_input(armed.button, controls.Input.KeyUp(key(space)), box).activated)
+
+    test.assert(controls.button_input(b, controls.Input.KeyDown(key(enter)), box).activated)
+}
+
+#[test]
+fn an_ordinary_letter_does_nothing_to_a_button() {
+    val b = controls.button_of("save", "Save")
+    val step = controls.button_input(b, controls.Input.KeyDown(key(letter_a)), box)
+    test.assert_false(step.activated)
+    test.assert_false(step.button.held)
+}
+
+// A key up with nothing armed fires nothing -- the keyboard's version of a release without a press.
+#[test]
+fn a_space_release_with_nothing_armed_fires_nothing() {
+    val b = controls.button_of("save", "Save")
+    test.assert_false(controls.button_input(b, controls.Input.KeyUp(key(space)), box).activated)
+}
+
+// **A disabled button takes no input at all, and a disabled button is released.** The second half
+// is the one worth a test: a button held down and then disabled must not still be held when it is
+// enabled again, or it is drawn pressed by a frame nobody pressed.
+#[test]
+fn a_disabled_button_neither_fires_nor_stays_held() {
+    val held = press(controls.button_of("save", "Save"), inside())
+    val off = with held.button { disabled: true }
+    val step = release(off, inside())
+    test.assert_false(step.activated)
+    test.assert_false(step.button.held)
+    test.assert_false(press(off, inside()).button.held)
+}
+
+// --- the check box
+
+fn click(c: controls.CheckBox) -> controls.CheckStep {
+    val held = controls.check_box_input(c, controls.Input.Press(inside()), box)
+    return controls.check_box_input(held.check_box, controls.Input.Release(inside()), box)
+}
+
+#[test]
+fn a_click_toggles_an_unchecked_box_on_and_a_checked_box_off() {
+    val off = controls.check_box_of("notify", "Notify me", widget.Toggle.Off)
+    val on = click(off)
+    test.assert(on.toggled)
+    test.assert_eq(
+        said_of(controls.check_box_widget(on.check_box, controls.default_style()), "notify"),
+        "check box, Notify me, checked"
+    )
+
+    val back = click(on.check_box)
+    test.assert(back.toggled)
+    test.assert_eq(
+        said_of(controls.check_box_widget(back.check_box, controls.default_style()), "notify"),
+        "check box, Notify me, unchecked"
+    )
+}
+
+// **A mixed box becomes checked, never unchecked.** "Toggle" suggests otherwise, and every platform
+// does this: a mixed box means some of the things under it are on, and a user clicking it is asking
+// for all of them. Going to unchecked would throw away choices that were already made.
+#[test]
+fn a_mixed_box_becomes_checked() {
+    val mixed = controls.check_box_of("all", "Select all", widget.Toggle.Mixed)
+    val after = click(mixed)
+    test.assert(after.toggled)
+    test.assert_eq(
+        said_of(controls.check_box_widget(after.check_box, controls.default_style()), "all"),
+        "check box, Select all, checked"
+    )
+}
+
+// The button's cancel rule applies to it, because it is the button's rule and not a copy of it.
+#[test]
+fn dragging_off_a_check_box_leaves_it_alone() {
+    val mixed = controls.check_box_of("all", "Select all", widget.Toggle.Mixed)
+    val held = controls.check_box_input(mixed, controls.Input.Press(inside()), box)
+    val gone = controls.check_box_input(held.check_box, controls.Input.Release(outside()), box)
+    test.assert_false(gone.toggled)
+    test.assert_false(gone.check_box.held)
+}
+
+#[test]
+fn a_disabled_check_box_does_not_toggle() {
+    val off = with controls.check_box_of("notify", "Notify me", widget.Toggle.Off) { disabled: true }
+    test.assert_false(click(off).toggled)
+}
+
+// --- routing
+
+fn laid_pair() -> widget.Laid {
+    val style = controls.default_style()
+    val row = widget.row_of(
+        0.0,
+        [
+            widget.fixed_of(60.0, 20.0, controls.button_widget(controls.button_of("a", "A"), style)),
+            widget.fixed_of(60.0, 20.0, controls.button_widget(controls.button_of("b", "B"), style))
+        ]
+    )
+    return widget.layout(row, geom.rect_of(0.0, 0.0, 120.0, 20.0), metrics())
+}
+
+#[test]
+fn a_key_goes_to_the_focus() {
+    test.assert_eq(controls.target(laid_pair(), controls.Input.KeyDown(key(space)), "b"), "b")
+    test.assert_eq(controls.target(laid_pair(), controls.Input.Text("x"), "b"), "b")
+}
+
+#[test]
+fn a_press_goes_to_what_is_under_the_pointer() {
+    test.assert_eq(controls.target(laid_pair(), controls.Input.Press(geom.point_of(70.0, 10.0)), "a"), "b")
+}
+
+// **A release goes to the focus, not to what is under the pointer**, which looks wrong and is what
+// makes a cancelled drag work at all: the press moved the focus to the button, so the release
+// reaches that button even though the pointer has left it -- and the button is the only thing that
+// can decide the drag was a cancel. Routed by position instead, the release would go nowhere and
+// the button would stay drawn pressed for ever.
+#[test]
+fn a_release_follows_the_focus_so_a_cancelled_drag_still_arrives() {
+    val l = laid_pair()
+    val focused = controls.target(l, controls.Input.Press(geom.point_of(70.0, 10.0)), "a")
+    test.assert_eq(focused, "b")
+    test.assert_eq(controls.target(l, controls.Input.Release(geom.point_of(300.0, 300.0)), focused), "b")
+}
+
+// **A wheel goes to the control under the pointer and ignores the focus**, because that is what a
+// user means: scrolling the list they are pointing at, not the one that has the keyboard.
+#[test]
+fn a_wheel_goes_under_the_pointer_and_not_to_the_focus() {
+    val l = laid_pair()
+    val over_b = controls.Input.Wheel(controls.Wheel { at: geom.point_of(70.0, 10.0), vertical: 1, horizontal: 0 })
+    test.assert_eq(controls.target(l, over_b, "a"), "b")
+}
+
+// Over nothing a wheel goes nowhere rather than to the focus, which is the same choice and the case
+// that proves the focus is not a fallback.
+#[test]
+fn a_wheel_over_nothing_goes_nowhere() {
+    val away = controls.Input.Wheel(controls.Wheel { at: geom.point_of(500.0, 500.0), vertical: 1, horizontal: 0 })
+    test.assert_eq(controls.target(laid_pair(), away, "a"), "")
+}
+
+#[test]
+fn a_press_on_nothing_leaves_the_focus_where_it_was() {
+    test.assert_eq(controls.target(laid_pair(), controls.Input.Press(geom.point_of(500.0, 500.0)), "a"), "a")
+}
+
+// --- what a reader is told, which is the reason F275 came first
+
+// What a reader would say about the control named `name` in a tree built from `w`. A sentinel
+// rather than a failure for a missing node, because `test.fail` answers nothing and so cannot be a
+// switch arm's value -- and a sentinel reads better in the diff anyway.
+fn said_of(w: widget.Widget, name: string) -> string {
+    val l = widget.layout(w, geom.rect_of(0.0, 0.0, 200.0, 40.0), metrics())
+    return switch a11y.node_of(a11y.tree_of(l, "Records", ""), name) {
+        Some(one) { a11y.announce(one) }
+        None { concat("(no node named ", name, ")") }
+    }
+}
+
+// The accessible name alone, for the one case that is about the name rather than the whole line.
+fn name_of(w: widget.Widget, name: string) -> string {
+    val l = widget.layout(w, geom.rect_of(0.0, 0.0, 200.0, 40.0), metrics())
+    return switch a11y.node_of(a11y.tree_of(l, "Records", ""), name) {
+        Some(one) { one.name }
+        None { concat("(no node named ", name, ")") }
+    }
+}
+
+// **A button built here announces itself correctly with nothing else declared**, which is the whole
+// return on F275 being ordered before F277: the role is a field of the widget, so a control cannot
+// be built without one.
+#[test]
+fn a_button_announces_itself_as_a_button() {
+    test.assert_eq(
+        said_of(controls.button_widget(controls.button_of("save", "Save"), controls.default_style()), "save"),
+        "button, Save"
+    )
+}
+
+#[test]
+fn a_disabled_button_announces_that_it_is_dimmed() {
+    val off = with controls.button_of("save", "Save") { disabled: true }
+    test.assert_eq(
+        said_of(controls.button_widget(off, controls.default_style()), "save"),
+        "button, Save, dimmed"
+    )
+}
+
+// **A check box declares its label rather than taking it from the text inside**, because the text
+// inside is the mark as well as the label: without the declaration a reader would say
+// "check box, x Notify me".
+#[test]
+fn a_check_box_does_not_read_its_own_mark_aloud() {
+    val on = controls.check_box_of("notify", "Notify me", widget.Toggle.On)
+    val style = controls.default_style()
+    // The name is the label exactly. Were the label not declared, `a11y` would take the name from
+    // the text inside -- which is the mark and then the label -- and this would read "x Notify me".
+    test.assert_eq(name_of(controls.check_box_widget(on, style), "notify"), "Notify me")
+    test.assert_eq(said_of(controls.check_box_widget(on, style), "notify"), "check box, Notify me, checked")
+
+    // The contrast, built by hand around the same children, which is what makes the line above an
+    // assertion about the declaration rather than about the fixture: without it, the mark is read.
+    val undeclared = widget.Widget.Control(widget.Focusable {
+        name: "loud",
+        role: widget.Role.CheckBox,
+        label: "",
+        description: "",
+        value: "",
+        state: widget.no_state(),
+        child: widget.row_of(2.0, [words("x"), words("Notify me")])
+    })
+    test.assert_eq(name_of(undeclared, "loud"), "x Notify me")
+}
+
+fn words(text: string) -> widget.Widget {
+    return widget.label_of(text, 12.0, paint.black())
+}
+
+// A held button is a different tree from an unheld one -- the pressed face -- but the *same*
+// announcement, because being held is not something a reader says.
+#[test]
+fn being_held_changes_nothing_a_reader_is_told() {
+    val held = press(controls.button_of("save", "Save"), inside()).button
+    test.assert(held.held)
+    test.assert_eq(
+        said_of(controls.button_widget(held, controls.default_style()), "save"),
+        "button, Save"
+    )
+}
+
+// --- the input predicate
+
+#[test]
+fn only_a_key_or_text_could_change_a_field() {
+    test.assert(controls.is_text_input(controls.Input.Text("a")))
+    test.assert(controls.is_text_input(controls.Input.KeyDown(key(letter_a))))
+    test.assert_false(controls.is_text_input(controls.Input.Press(inside())))
+    test.assert_false(controls.is_text_input(controls.Input.KeyUp(key(letter_a))))
+}
