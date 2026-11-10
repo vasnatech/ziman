@@ -1,4 +1,4 @@
-// What a gradient costs against the solid fill beside it.
+// What each kind of paint costs, against the solid fill beside it.
 //
 // **Written because the ui_frame benchmark could not see this.** Every fill there is a solid
 // colour, which goes through `composite_row_flat`; a gradient is evaluated per covered pixel -- an
@@ -13,7 +13,9 @@
 //   | --------------------- | --------- | ------ | ----- |
 //   | linear gradient       | 2524 ms   | 67 ms  | 37.6x |
 //   | radial gradient       | 2481 ms   | 52 ms  | 47.7x |
-//   | solid, for comparison | 43 ms     | 49 ms  | --    |
+//   | tiled pattern         | 2871 ms   | 55 ms  | 52.2x |
+//   | placed image          | 2632 ms   | 54 ms  | 48.7x |
+//   | solid, for comparison | 51 ms     | 47 ms  | 1.0x  |
 //
 // The solid column is why it is here as well as the gradients: a fast path for one ink must not
 // cost the other anything, and the once-per-fill spec call that decides which path to take was
@@ -22,9 +24,10 @@
 // The `x20` cases say whether the cost is per fill or per pixel: twenty bands covering the same
 // canvas cost the same as one, so it is per pixel, which is what a row-level native can fix.
 //
-// Run: `./ziman tests/bench/gradient_fill.zm` (from the repository root).
+// Run: `./ziman tests/bench/paint_fill.zm` (from the repository root).
 use clock
 use geom
+use image
 use paint
 use raster
 use scene
@@ -39,6 +42,22 @@ fn bench(label: string, s: scene.Scene, o: raster.Options) {
         }
         Err(why) { print(concat("refused: ", why)) }
     }
+}
+
+// A small RGBA tile with varying alpha, so the premultiply path is exercised.
+fn tile(n: int) -> image.Image {
+    val c = unwrap(image.canvas(n, n, image.Pixels.Rgba8))
+    for y in 0..n {
+        for x in 0..n {
+            val _ = image.set(c, x, y, paint.rgba(
+                (x as float) / (n as float),
+                (y as float) / (n as float),
+                0.5,
+                if (x + y) % 2 == 0 { 1.0 } else { 0.5 }
+            ))
+        }
+    }
+    return image.snapshot_image(c)
 }
 
 fn panels(width: float, height: float, ink: paint.Paint, count: int) -> scene.Scene {
@@ -76,4 +95,13 @@ fn main() {
     bench("1280x800 radial  ", panels(1280.0, 800.0, radial, 1), o)
     bench("1280x800 solid x20 ", panels(1280.0, 800.0, solid, 20), o)
     bench("1280x800 linear x20", panels(1280.0, 800.0, linear, 20), o)
+    // The two image inks, which need an image in `Options`.
+    val with_image = with o { images: [tile(16)] }
+    bench("1280x800 pattern ", panels(1280.0, 800.0, paint.Paint.Pattern(paint.Tiled {
+        image: 0,
+        transform: geom.identity()
+    }), 1), with_image)
+    bench("1280x800 placed  ", scene.with_ops(scene.scene_of(1280.0, 800.0), [
+        scene.image(0, geom.rect_of(0.0, 0.0, 1280.0, 800.0))
+    ]), with_image)
 }

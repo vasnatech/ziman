@@ -13,6 +13,8 @@ radial centre vs corner:   0.9294 0.0000
 ramp under a transform:    0.0471 0.5137 0.9843
 clip centre vs corner:     1.0000 0.0000
 clipped ink == disc ink:   312.2980 and 312.2980
+strip across the rect:     1.0,0.0,0.0 0.0,1.0,0.0 0.0,0.0,1.0 1.0,1.0,1.0
+outside the rect is clear: 0.0000
 group moved the fill:      0.0000 then 1.0000
 image top-left  is red:    1.0,0.0,0.0
 image top-right is green:  0.0,1.0,0.0

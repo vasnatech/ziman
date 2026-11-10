@@ -296,6 +296,38 @@ fn main() {
         round4(ink_sum(disc_direct))
     )))
 
+    // **A non-square image, placed into a rect that is not at the origin.** Two things only this
+    // shape can see: `four` above is 2x2 and every destination so far has been at (0,0), so an
+    // implementation that swapped the image's width and height, or dropped the destination's
+    // origin, drew the same pixels as a correct one. Both are arithmetic the sampling does per
+    // pixel.
+    //
+    // A 4x1 strip of distinct colours into rect(4, 2, 8, 4) on a 16x8 canvas: each source column
+    // covers two device columns, so x=5 is the first, x=7 the second, x=9 the third, x=11 the
+    // fourth, and (1, 1) is outside the destination and stays background.
+    val strip = unwrap(image.canvas(4, 1, image.Pixels.Rgb8))
+    val _ = unwrap(image.set(strip, 0, 0, paint.rgb(1.0, 0.0, 0.0)))
+    val _ = unwrap(image.set(strip, 1, 0, paint.rgb(0.0, 1.0, 0.0)))
+    val _ = unwrap(image.set(strip, 2, 0, paint.rgb(0.0, 0.0, 1.0)))
+    val _ = unwrap(image.set(strip, 3, 0, paint.white()))
+    val offset = unwrap(raster.render(
+        scene.with_ops(
+            scene.scene_of(16.0, 8.0),
+            [scene.image(0, geom.rect_of(4.0, 2.0, 8.0, 4.0))]
+        ),
+        with raster.options() { images: [image.snapshot_image(strip)] }
+    ))
+    print(concat("strip across the rect:     ", concat(
+        triple(offset, 5, 4),
+        " ",
+        triple(offset, 7, 4),
+        " ",
+        triple(offset, 9, 4),
+        " ",
+        triple(offset, 11, 4)
+    )))
+    print(concat("outside the rect is clear: ", round4(unwrap(image.pixel_at(offset, 1, 1)).alpha)))
+
     // ---- a group's transform composes
     val moved = unwrap(raster.render(
         scene.with_ops(scene.scene_of(32.0, 32.0), [scene.group(

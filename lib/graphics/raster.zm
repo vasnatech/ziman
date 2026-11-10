@@ -256,6 +256,22 @@ native fn composite_row_gradient(
     has_mask: bool
 )
 
+// One scanline of a tiled pattern or a placed image. The spec is `composite_row_gradient`'s,
+// extended; the pixels are a separate argument because an image's bytes cannot live in a
+// `[float]`, which is the only reason this is not two more `kind` values on that one.
+native fn composite_row_image(
+    data: MutableArray<float>,
+    coverage: MutableArray<float>,
+    row_base: int,
+    first_col: int,
+    last_col: int,
+    row_y: float,
+    spec: [float],
+    pixels: [byte],
+    mask: [float],
+    has_mask: bool
+)
+
 native fn clear_range(row: MutableArray<float>, from_x: int, to_x: int)
 
 native fn add_span(row: MutableArray<float>, width: int, from: float, to: float, weight: float)
@@ -681,6 +697,20 @@ fn fill_shape(
         Some(_) { true }
         None { false }
     }
+    val ink_image = image_spec(ready, inv)
+    val no_pixels: [byte] = []
+    val image_spec_values = switch ink_image {
+        Some(v) { v.spec }
+        None { no_spec }
+    }
+    val image_pixels = switch ink_image {
+        Some(v) { v.pixels }
+        None { no_pixels }
+    }
+    val is_image = switch ink_image {
+        Some(_) { true }
+        None { false }
+    }
     var y = first_row
     while y <= last_row {
         cursor = advance_active(plan, live, cursor, y)
@@ -697,6 +727,19 @@ fn fill_shape(
                 flat_ink_value.green,
                 flat_ink_value.blue,
                 flat_ink_value.alpha,
+                mask,
+                clipped
+            )
+        } else if is_image {
+            composite_row_image(
+                t.data,
+                row,
+                row_base,
+                first_col,
+                last_col,
+                (y as float) + 0.5,
+                image_spec_values,
+                image_pixels,
                 mask,
                 clipped
             )
@@ -1177,6 +1220,57 @@ fn gradient_spec(r: Ready, inv: Matrix) -> Option<[float]> {
         push(out, one.colour.alpha)
     }
     return Option<[float]>.Some(snapshot(out))
+}
+
+// An image ink flattened the same way, plus the pixels it samples. `None` for anything that is
+// not one, so the per-pixel Ziman path below stays the general case.
+struct ImageInk {
+    spec: [float]
+    pixels: [byte]
+}
+
+fn image_spec(r: Ready, inv: Matrix) -> Option<ImageInk> {
+    val out = mutable_array_new<float>()
+    val img = switch r {
+        Tiled(tile) {
+            push(out, 2.0)
+            push_matrix(out, inv)
+            push_image_shape(out, tile.img)
+            push_matrix(out, tile.inverse)
+            tile.img
+        }
+        Placed(tile) {
+            push(out, 3.0)
+            push_matrix(out, inv)
+            push_image_shape(out, tile.img)
+            push(out, tile.into.x)
+            push(out, tile.into.y)
+            push(out, tile.into.width)
+            push(out, tile.into.height)
+            tile.img
+        }
+        Flat(_) { return Option<ImageInk>.None }
+        Axial(_) { return Option<ImageInk>.None }
+        Radial(_) { return Option<ImageInk>.None }
+    }
+    // A degenerate destination would divide by zero per pixel; the Ziman path produces an infinity
+    // that `sample_image` then clamps, and reproducing that in C is not worth the argument -- so it
+    // stays on the general path instead.
+    if img.width < 1 || img.height < 1 {
+        return Option<ImageInk>.None
+    }
+    if Placed(tile) = r {
+        if tile.into.width == 0.0 || tile.into.height == 0.0 {
+            return Option<ImageInk>.None
+        }
+    }
+    return Option<ImageInk>.Some(ImageInk { spec: snapshot(out), pixels: img.data })
+}
+
+fn push_image_shape(out: MutableArray<float>, img: image.Image) {
+    push(out, img.width as float)
+    push(out, img.height as float)
+    push(out, image.channels_of(img.format) as float)
 }
 
 fn push_matrix(out: MutableArray<float>, m: Matrix) {

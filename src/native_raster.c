@@ -446,6 +446,124 @@ static Value native_raster_composite_row_gradient(Value *args, int argc, int lin
     return value_unit();
 }
 
+/* raster.composite_row_image(canvas, coverage, row_base, first_col, last_col, row_y, spec, pixels,
+ * mask, has_mask): one scanline of a tiled pattern or a placed image.
+ *
+ * The last two inks that were still evaluated per pixel in the interpreter. Measured over a
+ * 1280x800 canvas against the 46 ms a solid fill of the same shape takes: a pattern 2889 ms, a
+ * placed image 2677 ms.
+ *
+ * **The spec is the gradient one extended, and the pixels are a separate argument** -- an image's
+ * bytes cannot live in a `[float]`, which is the only reason this is a second function rather than
+ * two more `kind` values on `composite_row_gradient`:
+ *
+ *     [0]      kind: 2 tiled, 3 placed
+ *     [1..6]   the group's inverse matrix a, b, c, d, e, f
+ *     [7..9]   the image's width, height and channel count
+ *     tiled:   [10..15] the pattern's own inverse matrix
+ *     placed:  [10..13] the destination rect x, y, width, height
+ *
+ * `sample_image` is transcribed exactly, including that the sampling is nearest-neighbour --
+ * `raster.zm` calls that "honest and obviously improvable, where a half-finished bilinear would be
+ * neither", and improving it here would make the two implementations disagree. The 1- and
+ * 3-channel cases answer opaque; the 4-channel case premultiplies, because `image.Image` stores
+ * un-premultiplied RGBA and the canvas is premultiplied. */
+static Value native_raster_composite_row_image(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    size_t canvas_len = 0;
+    double *data = ziman_mutable_array_float_data(args[0], &canvas_len);
+    size_t cov_len = 0;
+    const double *coverage = ziman_mutable_array_float_data(args[1], &cov_len);
+    const ArrayObj *spec_arr = args[6].as.arr;
+    const double *spec = spec_arr == NULL ? NULL : spec_arr->floats;
+    const ArrayObj *px_arr = args[7].as.arr;
+    const uint8_t *pixels = px_arr == NULL ? NULL : px_arr->bytes;
+    if (data == NULL || coverage == NULL || spec == NULL || pixels == NULL) return value_unit();
+    if ((spec_arr->count < 0 ? 0 : (size_t)spec_arr->count) < 14) return value_unit();
+    size_t px_len = px_arr->count < 0 ? 0 : (size_t)px_arr->count;
+
+    int64_t row_base = args[2].as.i;
+    int64_t first_col = args[3].as.i;
+    int64_t last_col = args[4].as.i;
+    double row_y = args[5].as.f;
+    const ArrayObj *mask_arr = args[8].as.arr;
+    const double *mask = mask_arr == NULL ? NULL : mask_arr->floats;
+    int has_mask = args[9].as.b != 0;
+    if (has_mask && mask == NULL) return value_unit();
+    size_t mask_len = (has_mask && mask_arr != NULL && mask_arr->count > 0)
+                          ? (size_t)mask_arr->count : 0;
+
+    int placed = spec[0] == 3.0;
+    double ia = spec[1], ib = spec[2], ic = spec[3], id = spec[4], ie = spec[5], iff = spec[6];
+    int64_t iw = (int64_t)spec[7], ih = (int64_t)spec[8], chan = (int64_t)spec[9];
+    if (iw < 1 || ih < 1 || (chan != 1 && chan != 3 && chan != 4)) return value_unit();
+
+    for (int64_t x = first_col; x <= last_col; x++) {
+        if (x < 0 || (size_t)x >= cov_len) continue;
+        double cov = coverage[x];
+        if (cov <= 0.002) continue;
+        int64_t pi = row_base + x;
+        if (pi < 0) continue;
+        double through = 1.0;
+        if (has_mask) {
+            if ((size_t)pi >= mask_len) continue;
+            through = mask[pi];
+        }
+        if (through <= 0.002) continue;
+
+        double px = (double)x + 0.5;
+        double ux = ia * px + ic * row_y + ie;
+        double uy = ib * px + id * row_y + iff;
+
+        double u, v;
+        if (placed) {
+            u = (ux - spec[10]) / spec[12];
+            v = (uy - spec[11]) / spec[13];
+        } else {
+            /* A pattern has its own transform as well as the group's, applied after it. */
+            double lx = spec[10] * ux + spec[12] * uy + spec[14];
+            double ly = spec[11] * ux + spec[13] * uy + spec[15];
+            u = lx / (double)iw;
+            v = ly / (double)ih;
+        }
+
+        int64_t sx = (int64_t)floor(u * (double)iw);
+        int64_t sy = (int64_t)floor(v * (double)ih);
+        if (sx < 0) sx = 0;
+        if (sx > iw - 1) sx = iw - 1;
+        if (sy < 0) sy = 0;
+        if (sy > ih - 1) sy = ih - 1;
+        size_t at = (size_t)((sy * iw + sx) * chan);
+        if (at + (size_t)chan > px_len) continue;
+
+        double r, g, b, a;
+        if (chan == 1) {
+            double grey = (double)pixels[at] / 255.0;
+            r = grey; g = grey; b = grey; a = 1.0;
+        } else if (chan == 3) {
+            r = (double)pixels[at] / 255.0;
+            g = (double)pixels[at + 1] / 255.0;
+            b = (double)pixels[at + 2] / 255.0;
+            a = 1.0;
+        } else {
+            a = (double)pixels[at + 3] / 255.0;
+            r = (double)pixels[at] / 255.0 * a;
+            g = (double)pixels[at + 1] / 255.0 * a;
+            b = (double)pixels[at + 2] / 255.0 * a;
+        }
+
+        double weight = cov * through;
+        size_t to = (size_t)pi * CHANNELS;
+        if (to + 3 >= canvas_len) continue;
+        double keep = 1.0 - a * weight;
+        data[to + 0] = r * weight + data[to + 0] * keep;
+        data[to + 1] = g * weight + data[to + 1] * keep;
+        data[to + 2] = b * weight + data[to + 2] * keep;
+        data[to + 3] = a * weight + data[to + 3] * keep;
+    }
+    return value_unit();
+}
+
 void native_raster_register(void) {
     native_register("raster::clear_premul", native_raster_clear_premul);
     native_register("raster::to_bytes_premul", native_raster_to_bytes_premul);
@@ -454,4 +572,5 @@ void native_raster_register(void) {
     native_register("raster::clear_range", native_raster_clear_range);
     native_register("raster::add_span", native_raster_add_span);
     native_register("raster::composite_row_gradient", native_raster_composite_row_gradient);
+    native_register("raster::composite_row_image", native_raster_composite_row_image);
 }
