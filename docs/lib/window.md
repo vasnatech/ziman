@@ -3,11 +3,13 @@
 A window, the pixels in it, and what the user did -- the platform floor under a graphical
 application.
 
-**This module draws nothing.** `lib/graphics` describes a drawing as a `Scene` and renders one to
-an `image.Image`; this takes the bytes of such an image and puts them on screen. The two meet at
-`present`, which takes `width * height * 4` bytes of RGBA and knows nothing about where they came
-from -- so the same program works against a renderer that takes two seconds a frame and against
-one that takes two milliseconds, which is the whole reason the seam is that narrow.
+**This module draws nothing.** `lib/graphics` describes a drawing as a `Scene` and rasterises it;
+this puts the resulting pixels on screen. The two meet at `present`, which takes a flat buffer of
+premultiplied RGBA floats and **knows nothing about where it came from** -- not a `raster.Surface`,
+not an `image.Image`, so this module does not depend on `lib/graphics` at all and the same program
+works against a renderer that takes two seconds a frame and one that takes two milliseconds. That
+is the whole reason the seam is this narrow, and it is why `present` takes three primitives
+instead of one type that would have coupled the two.
 
 **Everything about events is in Ziman, not in C.** The native hands over a flat array of integers
 and `decode_events` turns it into `Event`s, exactly as `terminal` reads bytes in C and decodes
@@ -77,14 +79,21 @@ fn forward_compatible() {
 // answers an error. `make gui` produces `ziman-gui`, which has one.
 //
 // The shape, for when you have that build: `with_window` is a scope, so the window is closed
-// however the body ends, and `present` takes `width * height * 4` bytes of RGBA -- the layout
-// `image.Pixels.Rgba8` already has, so a `raster.render` result goes straight to the screen.
+// however the body ends, and `present` takes `width * height * 4` **premultiplied RGBA floats** --
+// what a renderer's canvas already holds, which is why it takes that and not bytes. A repaint loop
+// keeps one `raster.Surface` and draws into it, so nothing is allocated per frame:
 //
+//     val surface = try raster.surface_of(320.0, 240.0, 1.0)
 //     window.with_window<unit>("title", 320, 240, fn(w) -> Result<unit, string> {
-//         try window.present(w, pixels, 320, 240)
+//         try raster.draw_into(surface, scene, options)
+//         val px = raster.premultiplied_of(surface)
+//         try window.present(w, px.data, px.width, px.height)
 //         for event in try window.poll(w) { ... }
 //         return ok(unit)
 //     })
+//
+// `present_bytes` is the one to use for pixels that are already bytes -- a decoded PNG, or a buffer
+// built a pixel at a time.
 fn main() {
     decoding()
     forward_compatible()
@@ -253,14 +262,47 @@ none is missing.
 ### `present`
 
 ```
-pub fn present(w: Window, pixels: [byte], width: int, height: int) -> Result<unit, string>
+pub fn present(
+    w: Window,
+    pixels: MutableArray<float>,
+    width: int,
+    height: int
+) -> Result<unit, string>
+```
+
+Puts a frame on the window: `width * height * 4` **premultiplied** RGBA floats, row-major, four
+per pixel -- the layout a renderer's canvas already holds, which `raster.premultiplied_of` hands
+over for a `raster.Surface`.
+
+**Floats rather than bytes, because the bytes were pure cost.** A repaint used to convert the
+canvas into `width * height * 4` fresh bytes, which this function then copied out again to pack
+into the display's own format: three passes over 4 MB a frame at 1280x800, for an intermediate
+nothing else read. The profile put that conversion at the largest single item of a repaint once
+the canvas stopped being reallocated, and the collector complained about it unprompted. Now the
+floats reach the display's packing in one pass with nothing allocated.
+
+`present_bytes` is still there for a caller holding an `image.Image` -- a decoded PNG, or a
+pattern built by hand. This one is for the repaint loop.
+
+Alpha is ignored rather than blended. A window has no backdrop to blend against, and compositing
+is the job of whatever produced the pixels. **Ignored, not multiplied in**: the premultiplication
+is undone first, so a half-transparent shape shows at its own colour rather than dimmed towards
+black, which is what the byte path has always done and what this stays identical to.
+
+### `present_bytes`
+
+```
+pub fn present_bytes(w: Window, pixels: [byte], width: int, height: int) -> Result<unit, string>
 ```
 
 Puts `pixels` on the window: `width * height * 4` bytes, RGBA, row-major, no padding -- the layout
-`image.Pixels.Rgba8` already has, so a `raster.render` result needs no conversion.
+`image.Pixels.Rgba8` already has, so an `image.Image`'s `data` needs no conversion.
 
-Alpha is ignored rather than blended. A window has no backdrop to blend against, and compositing
-is the job of whatever produced the pixels.
+For a frame a renderer just drew, prefer `present`: this form costs a 4 MB conversion and a copy
+per frame that `present` does not. This is the one to use when the pixels are *already* bytes --
+a decoded image, or a buffer built a pixel at a time.
+
+Alpha is ignored rather than blended, as in `present`.
 
 ### `size`
 

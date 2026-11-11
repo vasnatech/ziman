@@ -15,7 +15,22 @@
 // code can press a key -- so `tests/tools/x11_inject.c` presses them through the X server and these
 // lines are what the harness reads back. A `Close` is obeyed rather than counted, which is also the
 // check that `with_window` gives the window back when its body returns normally.
+//
+// **Both present paths are gated here, chosen by `WINDOW_PRESENT_MODE`.** `present` takes
+// premultiplied floats and `present_bytes` takes bytes, and the harness runs this program once for
+// each and asserts the *same* four sRGB triples -- which is the only way to check the claim in
+// `native_window.c` that the two agree. Presenting floats was added for the repaint loop, where it
+// removes a 4 MB conversion and a 4 MB copy per frame; without a case like this it would have had
+// its own pixel path and no screenshot of it, which is how a renderer gets a channel order wrong in
+// one of two functions and passes.
+//
+// The floats are built premultiplied *by hand* rather than by `lib/graphics`, deliberately: this
+// file tests `window`, and reaching for the renderer to produce its input would make a window
+// failure and a rasteriser failure look the same. Every quadrant here is opaque, so premultiplied
+// and straight are the same numbers -- which is the normal case for a window and the one the fast
+// path in the native takes.
 use clock
+use os
 use window
 
 val width = 320
@@ -75,7 +90,13 @@ fn report(e: window.Event) {
         PointerUp(p) { printf("event PointerUp button={} at {},{}\n", str(p.button), str(p.x), str(p.y)) }
         PointerMove(p) { printf("event PointerMove {},{}\n", str(p.x), str(p.y)) }
         Scroll(s) {
-            printf("event Scroll vertical={} horizontal={} at {},{}\n", str(s.vertical), str(s.horizontal), str(s.x), str(s.y))
+            printf(
+                "event Scroll vertical={} horizontal={} at {},{}\n",
+                str(s.vertical),
+                str(s.horizontal),
+                str(s.x),
+                str(s.y)
+            )
         }
         Resize(size) { printf("event Resize {}x{}\n", str(size.width), str(size.height)) }
         Close { print("event Close") }
@@ -105,6 +126,54 @@ fn is_close(e: window.Event) -> bool {
     }
 }
 
+fn quadrant_floats() -> MutableArray<float> {
+    val out = mutable_array_new<float>()
+    for y in 0..height {
+        for x in 0..width {
+            val left = x < width / 2
+            val top = y < height / 2
+            if top && left {
+                push(out, 1.0)
+                push(out, 0.0)
+                push(out, 0.0)
+            } else {
+                if top {
+                    push(out, 0.0)
+                    push(out, 1.0)
+                    push(out, 0.0)
+                } else {
+                    if left {
+                        push(out, 0.0)
+                        push(out, 0.0)
+                        push(out, 1.0)
+                    } else {
+                        push(out, 1.0)
+                        push(out, 1.0)
+                        push(out, 1.0)
+                    }
+                }
+            }
+            push(out, 1.0)
+        }
+    }
+    return out
+}
+
+// Which `present` to exercise. Defaults to the float one, because that is the path a repaint uses.
+fn use_floats() -> bool {
+    return switch os.get_env("WINDOW_PRESENT_MODE") {
+        Some(mode) { mode != "bytes" }
+        None { true }
+    }
+}
+
+fn paint_window(w: window.Window, floats: bool) -> Result<unit, string> {
+    if floats {
+        return window.present(w, quadrant_floats(), width, height)
+    }
+    return window.present_bytes(w, quadrants(), width, height)
+}
+
 fn main() {
     val outcome = window.with_window<unit>(
         "ziman window test",
@@ -115,14 +184,15 @@ fn main() {
             val size = try window.size(w)
             printf("window-id {}\n", str(id))
             printf("size {}x{}\n", str(size.width), str(size.height))
-            try window.present(w, quadrants(), width, height)
-            print("presented")
+            val floats = use_floats()
+            try paint_window(w, floats)
+            printf("presented {}\n", if floats { "floats" } else { "bytes" })
             // **Re-presented every pass, not once.** A compositor can show the window before its
             // first contents arrive, and a screenshot taken in that gap reads black -- which is
             // what the harness saw the first time it ran under a loaded `make check-fast`. Painting
             // every pass costs nothing here and means any capture after "presented" sees the
             // pattern. A real application does this too: it is what an `Exposed` event asks for.
-            val frame = quadrants()
+            // Rebuilt once, outside the loop, as the byte version was.
             // **A backstop, not a duration.** The run ends when the harness sends a close, which
             // is the last thing it does; this only bounds a run where that never arrives, so a
             // failing case cannot hang `make check`.
@@ -135,7 +205,7 @@ fn main() {
                         closing = true
                     }
                 }
-                try window.present(w, frame, width, height)
+                try paint_window(w, floats)
                 clock.sleep_millis(50)
             }
             return ok(unit)

@@ -250,6 +250,52 @@ A scene onto a surface the caller owns, reusing its pixels and its glyph cache.
 cropped: a window whose scene and surface disagree has a bug in its resize handling, and quietly
 drawing the wrong thing would hide it. The message names both sizes.
 
+### `draw_into`
+
+```
+pub fn draw_into(c: Surface, s: Scene, o: Options) -> Result<unit, string>
+```
+
+Draws into the surface and **stops there**, leaving the pixels as premultiplied floats.
+
+This is `render_into` without the conversion to bytes, and it exists for the repaint loop.
+`render_into` answers an `image.Image`, which means `width * height * channels` fresh bytes every
+call -- 4 MB a frame at 1280x800, which the profile put at the largest single item of a repaint
+once the canvas itself stopped being reallocated, and which the collector complained about by
+itself (`Repeated allocation of very large block`). A window does not want an `Image`: it wants
+those pixels on the screen, and `window.present` takes them in this form, so the bytes were
+allocated, filled, copied and dropped every frame for nobody.
+
+A caller that wants an encodable image still calls `render_into`; this is for one that is going
+to hand the pixels straight to a display. Pair it with `premultiplied_of`.
+
+### `Premultiplied`
+
+```
+pub struct Premultiplied {
+    width: int
+    height: int
+    data: MutableArray<float>
+}
+```
+
+A surface's pixels as they are held: **premultiplied** RGBA floats, four per pixel, row-major.
+
+The width and height come with the buffer rather than being asked for separately, because a flat
+array has no shape of its own and a caller that computed the pixel size itself would be deriving
+`surface_of`'s arithmetic a second time -- which is the mistake `surface_of` takes scene units
+and a ratio to prevent.
+
+**Premultiplied is a promise about the contents, not an implementation detail**, which is why the
+type says so: red at half alpha is `(0.5, 0, 0, 0.5)` here and `(1, 0, 0, 0.5)` in an
+`image.Image`. Anything reading this buffer has to know which it is holding.
+
+### `premultiplied_of`
+
+```
+pub fn premultiplied_of(c: Surface) -> Premultiplied
+```
+
 ### `render`
 
 ```

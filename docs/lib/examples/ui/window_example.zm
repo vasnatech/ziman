@@ -52,14 +52,21 @@ fn forward_compatible() {
 // answers an error. `make gui` produces `ziman-gui`, which has one.
 //
 // The shape, for when you have that build: `with_window` is a scope, so the window is closed
-// however the body ends, and `present` takes `width * height * 4` bytes of RGBA -- the layout
-// `image.Pixels.Rgba8` already has, so a `raster.render` result goes straight to the screen.
+// however the body ends, and `present` takes `width * height * 4` **premultiplied RGBA floats** --
+// what a renderer's canvas already holds, which is why it takes that and not bytes. A repaint loop
+// keeps one `raster.Surface` and draws into it, so nothing is allocated per frame:
 //
+//     val surface = try raster.surface_of(320.0, 240.0, 1.0)
 //     window.with_window<unit>("title", 320, 240, fn(w) -> Result<unit, string> {
-//         try window.present(w, pixels, 320, 240)
+//         try raster.draw_into(surface, scene, options)
+//         val px = raster.premultiplied_of(surface)
+//         try window.present(w, px.data, px.width, px.height)
 //         for event in try window.poll(w) { ... }
 //         return ok(unit)
 //     })
+//
+// `present_bytes` is the one to use for pixels that are already bytes -- a decoded PNG, or a buffer
+// built a pixel at a time.
 fn main() {
     decoding()
     forward_compatible()

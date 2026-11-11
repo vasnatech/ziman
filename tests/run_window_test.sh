@@ -33,7 +33,7 @@ command -v xprop >/dev/null || skip "no xprop"
 command -v import >/dev/null || skip "no ImageMagick import"
 
 work="$(mktemp -d)"
-trap 'rm -rf "$work"; [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null' EXIT
+trap 'rm -rf "$work"; for p in ${pid:-} ${bytes_pid:-}; do kill "$p" 2>/dev/null; done' EXIT
 
 "$BIN" "$PROGRAM" > "$work/out.txt" 2>&1 &
 pid=$!
@@ -76,10 +76,13 @@ else
     echo "PASS window_mapped"
 fi
 
-if ! import -window "$id" "$work/shot.png" 2>/dev/null; then
-    echo "FAIL window_present (could not screenshot window $id)"
-    exit 1
-fi
+# **There was a one-shot `import` to a file here, and it was deleted rather than retried.** Nothing
+# ever read the file: `read_pixel` below captures the window for itself, and *retries*, for the
+# documented reason that a compositor may not have the contents ready the instant a window is
+# mapped. So this capture tested nothing the four checks below do not test better, and could only
+# fail -- which it duly did, once, inside a `make check` under full load, having passed ten runs on
+# an idle machine. A gate whose failure mode is "the machine was busy" costs more than it proves.
+# Whether `import` exists at all is already checked at the top of this file.
 
 # The four quadrant centres. Compared as exact sRGB triples: these are flat fills, so anything but
 # an exact match is a real difference rather than a rounding one.
@@ -117,6 +120,47 @@ check_pixel 80 60 "srgb(255,0,0)" top_left_red
 check_pixel 240 60 "srgb(0,255,0)" top_right_green
 check_pixel 80 180 "srgb(0,0,255)" bottom_left_blue
 check_pixel 240 180 "srgb(255,255,255)" bottom_right_white
+
+# --- the other present path, against the same four triples
+#
+# `window.present` takes premultiplied floats and `present_bytes` takes bytes, and both repack into
+# the visual's own masks in their own loop in `src/native_window.c`. The float one exists because a
+# repaint was paying a 4 MB conversion and a 4 MB copy per frame for an intermediate nothing read --
+# but adding it meant a second pixel path, and **a second pixel path with no screenshot of it is how
+# a renderer gets the channel order wrong in one of two functions and passes everything.** The run
+# above is the float path (the program's default, being the one a repaint uses); this is the byte
+# one, asserted against the identical expected triples, which is also the only check of
+# `native_window.c`'s claim that the two agree.
+#
+# A second short-lived window rather than a second mode of the first, so a failure says which path
+# it was. `check_pixel` reads the global `id`, so it is lent to this window and given back.
+WINDOW_PRESENT_MODE=bytes "$BIN" "$PROGRAM" > "$work/bytes.txt" 2>&1 &
+bytes_pid=$!
+bytes_id=""
+for _ in $(seq 1 60); do
+    bytes_id="$(grep -o 'window-id [0-9]*' "$work/bytes.txt" 2>/dev/null | awk '{print $2}')"
+    [ -n "$bytes_id" ] && break
+    sleep 0.1
+done
+bytes_drawn=0
+for _ in $(seq 1 100); do
+    if grep -q '^presented bytes' "$work/bytes.txt" 2>/dev/null; then bytes_drawn=1; break; fi
+    sleep 0.1
+done
+if [ -z "$bytes_id" ] || [ "$bytes_drawn" -eq 0 ]; then
+    echo "FAIL window_present_bytes (no window or never presented: $(head -3 "$work/bytes.txt" | tr '\n' ' '))"
+    fail=1
+else
+    float_id="$id"
+    id="$bytes_id"
+    check_pixel 80 60 "srgb(255,0,0)" bytes_top_left_red
+    check_pixel 240 60 "srgb(0,255,0)" bytes_top_right_green
+    check_pixel 80 180 "srgb(0,0,255)" bytes_bottom_left_blue
+    check_pixel 240 180 "srgb(255,255,255)" bytes_bottom_right_white
+    id="$float_id"
+fi
+kill "$bytes_pid" 2>/dev/null
+bytes_pid=""
 
 # --- input, which is the half no Ziman code can reach
 #

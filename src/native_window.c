@@ -41,6 +41,7 @@
 #include <string.h>
 
 #include "native.h"
+#include "prelude.h"
 #include "value.h"
 #include "xalloc.h"
 
@@ -571,9 +572,90 @@ static Value native_window_display_scale_raw(Value *args, int argc, int line, in
 #endif
 }
 
+/* window.present_premul_raw(handle, pixels, width, height): a frame of PREMULTIPLIED RGBA floats
+ * straight onto the window, four doubles a pixel.
+ *
+ * **Why this exists beside the byte one.** The renderer holds its canvas as premultiplied floats,
+ * so presenting a frame used to mean `raster.to_bytes_premul` allocating `width * height * 4` fresh
+ * bytes, copying them into a Ziman array, and this function copying them out again -- three passes
+ * over 4 MB at 1280x800, for a buffer whose only reader was the loop below. The profile put that
+ * conversion at the largest single item of a repaint, and the collector named it unprompted
+ * (`Repeated allocation of very large block (appr. size 4004 KiB)`). Here the floats go to the
+ * visual's packing in one pass with nothing allocated at all.
+ *
+ * **The arithmetic follows `to_bytes_premul`'s four-channel branch**, un-premultiplying before the
+ * `+ 0.5`. That is deliberate and not obviously right: simply ignoring alpha on a premultiplied
+ * buffer would be cheaper -- no divide at all -- but it composites against black, so a window that
+ * drew a half-transparent shape would show it dimmed. Alpha is *ignored* here, as `present` has
+ * always promised, and for the normal case of a scene with an `Options.background` that is the
+ * identity because every pixel is opaque.
+ *
+ * The opaque case is also why `scale` is branched rather than computed: skipping the divide where
+ * `a >= 1.0` measured 1.06x-1.09x of a present over three interleaved passes, which is small but
+ * consistent in all three -- where two of F270's Ziman-level attempts read 1.00x and were reverted.
+ * For an opaque pixel it is *exactly* `to_bytes_premul`'s answer. For a translucent one `255.0 / a`
+ * may differ from `(1.0 / a) * 255.0` by an ULP, so a channel sitting precisely on a rounding
+ * boundary could land a byte either side of it -- which is not worth a divide per pixel to avoid on
+ * a path that discards alpha anyway, but is worth not claiming to be bit-identical. */
+static Value native_window_present_premul_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type ok = type_scalar(TY_UNIT);
+#ifndef ZIMAN_X11
+    (void)args;
+    return window_err(ok, "this build of ziman has no window backend (build with `make gui`)");
+#else
+    Slot *s = slot_of(args[0].as.i);
+    if (s == NULL) return window_err(ok, "no such window (already closed?)");
+    int64_t width = args[2].as.i;
+    int64_t height = args[3].as.i;
+    if (width < 1 || height < 1) return window_err(ok, "the pixel buffer's width and height must be positive");
+
+    size_t n = 0;
+    const double *px = ziman_mutable_array_float_data(args[1], &n);
+    size_t needed = (size_t)width * (size_t)height * 4u;
+    if (n != needed) {
+        char message[176];
+        snprintf(message, sizeof message,
+                 "the pixel buffer is %zu floats but %lldx%lld premultiplied RGBA needs %zu", n,
+                 (long long)width, (long long)height, needed);
+        return window_err(ok, message);
+    }
+
+    const char *failed = ensure_image(s, (int)width, (int)height);
+    if (failed != NULL) return window_err(ok, failed);
+
+    uint32_t *out = (uint32_t *)s->pixels;
+    size_t pixels = (size_t)width * (size_t)height;
+    for (size_t i = 0; i < pixels; i++) {
+        const double *p = px + i * 4u;
+        const double a = p[3];
+        /* An opaque pixel needs no un-premultiplying, and a window's frame is normally opaque
+         * throughout -- a scene with an `Options.background` has alpha 1 everywhere. Measured
+         * before being kept. */
+        const double scale = a >= 1.0 ? 255.0 : (a > 0.0 ? 255.0 / a : 0.0);
+        double r = p[0] * scale + 0.5;
+        double g = p[1] * scale + 0.5;
+        double b = p[2] * scale + 0.5;
+        if (r > 255.0) r = 255.0;
+        if (g > 255.0) g = 255.0;
+        if (b > 255.0) b = 255.0;
+        if (r < 0.0) r = 0.0;
+        if (g < 0.0) g = 0.0;
+        if (b < 0.0) b = 0.0;
+        out[i] = ((uint32_t)(int64_t)r << g_red_shift) | ((uint32_t)(int64_t)g << g_green_shift)
+                 | ((uint32_t)(int64_t)b << g_blue_shift);
+    }
+
+    XPutImage(g_display, s->win, s->gc, s->image, 0, 0, 0, 0, (unsigned)width, (unsigned)height);
+    XFlush(g_display);
+    return window_ok(ok, value_unit());
+#endif
+}
+
 void native_window_register(void) {
     native_register("window::open_raw", native_window_open_raw);
     native_register("window::present_raw", native_window_present_raw);
+    native_register("window::present_premul_raw", native_window_present_premul_raw);
     native_register("window::poll_raw", native_window_poll_raw);
     native_register("window::size_raw", native_window_size_raw);
     native_register("window::id_raw", native_window_id_raw);

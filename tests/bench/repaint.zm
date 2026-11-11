@@ -45,9 +45,28 @@
 //   | 2    | 701 ms         | 627 ms  | 1.12x |
 //   | 3    | 701 ms         | 651 ms  | 1.08x |
 //
-// What is left in a repaint is `to_bytes_premul`, which converts 32 MB of floats into a fresh 4 MB
-// of bytes every frame, then `blit`, then the edge walk -- F270's items 5 and 2, and a new one:
-// letting the surface own its output buffer, or handing `window.present` the floats directly.
+// **Then the edge walk went to C** (F270 item 5), which took `crossings_at` and `spans_from` out of
+// the profile entirely: 519/433, 513/422, 520/419 over 20 repaints, 1.20x to 1.24x.
+//
+// **And then `to_bytes_premul` stopped happening at all**, which is what the third column here
+// measures. `draw_into` is `render_into` without the conversion, so the gap between those two *is*
+// the 4 MB of bytes allocated, filled and dropped per frame:
+//
+//   | pass | render_into | draw_into | ratio |
+//   | ---- | ----------- | --------- | ----- |
+//   | 0    | 237 ms      | 176 ms    | 1.35x |
+//   | 1    | 235 ms      | 167 ms    | 1.41x |
+//   | 2    | 229 ms      | 177 ms    | 1.29x |
+//
+// **The end-to-end number is much smaller, and that is the honest one to quote.** Against a real
+// 1280x800 window, `render_into` + `present_bytes` against `draw_into` + `present` read 616/534,
+// 555/519 and 565/539 -- 1.15x, 1.07x, 1.05x -- because `XPutImage` pushing 4 MB to the display
+// dominates a present, and the conversion this removes was a smaller share of that total than it was
+// of a render. So the profile was right that it was the largest item *inside* `render_into`, and
+// that is not the same as the largest item in putting a frame on screen. Worth remembering before
+// the next item is picked from a profile of the wrong span.
+//
+// What is left in a repaint is `blit`, then the character map -- F270's items 2 and 4.
 use clock
 use font
 use fs
@@ -137,11 +156,34 @@ fn main() {
             b = b + 1
         }
         val into_ms = clock.monotonic_millis() - t1
+
+        // **`draw_into` is `render_into` minus the conversion to bytes**, so the gap between these
+        // two *is* `to_bytes_premul`: 4 MB allocated, filled and dropped per frame. A fresh surface
+        // of its own, so both loops pay the same glyph-cache fill on their first frame rather than
+        // this one inheriting a warm cache.
+        val direct = switch raster.surface_of(1280.0, 800.0, 1.0) {
+            Ok(c) { c }
+            Err(why) {
+                printf("canvas: {}\n", why)
+                return
+            }
+        }
+        var c = 0
+        val t2 = clock.monotonic_millis()
+        while c < rounds {
+            switch raster.draw_into(direct, s, o) {
+                Ok(_) { unit }
+                Err(why) { printf("draw_into: {}\n", why) }
+            }
+            c = c + 1
+        }
+        val direct_ms = clock.monotonic_millis() - t2
         printf(
-            "pass {}: render {} ms  render_into {} ms  ({} frames each, {} glyphs cached)\n",
+            "pass {}: render {} ms  render_into {} ms  draw_into {} ms  ({} frames each, {} glyphs cached)\n",
             str(pass),
             str(render_ms),
             str(into_ms),
+            str(direct_ms),
             str(rounds),
             str(raster.cached_glyphs(canvas))
         )
