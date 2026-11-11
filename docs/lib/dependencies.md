@@ -106,6 +106,7 @@ flowchart LR
     controls --> edit
     controls --> focus
     controls --> geom
+    controls --> math
     controls --> paint
     controls --> widget
     controls --> window
@@ -353,7 +354,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
-| `controls` | `edit`, `focus`, `geom`, `paint`, `widget`, `window` | - |
+| `controls` | `edit`, `focus`, `geom`, `math`, `paint`, `widget`, `window` | - |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `io`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `batch`, `eql`, `migrate` |
@@ -385,7 +386,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `locale` | - | `client`, `encoding`, `eql`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
-| `math` | - | `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
+| `math` | - | `controls`, `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
 | `memdb` | `db`, `locale`, `sql` | - |
 | `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `metrics` | `os` | `rest`, `server` |

@@ -98,8 +98,12 @@ tab from it:             open
 pub fn controls(l: Laid) -> [Laid]
 ```
 
-Every control in the tree, in **tree order**: a row's children left to right, a column's top to
+Every control **Tab can reach**, in tree order: a row's children left to right, a column's top to
 bottom, parents before children.
+
+Tab stops, not every control -- the two differ wherever a container holds parts of itself. A list
+of two hundred rows is one stop here and two hundred nodes to a screen reader, and `control_at`
+below still reports the row a click landed on. See `widget.Focusable.tab_stop`.
 
 Tree order rather than geometric order, and that is a decision. Sorting by position reads as the
 obvious answer and is worse: it is ambiguous for anything not on a grid (two boxes at the same y
@@ -184,3 +188,16 @@ when the click landed on nothing focusable.
 **Leaves it alone rather than clearing it**, which is the behaviour every desktop toolkit has: a
 click on a panel's background should not silently disarm the keyboard, because the user's next
 keystroke would then go nowhere and they would not know why.
+
+### `tab_stop_at`
+
+```
+pub fn tab_stop_at(l: Laid, p: Point) -> Option<Laid>
+```
+
+The innermost **tab stop** containing a point, which is not the same as the innermost control.
+
+**A click focuses the nearest thing Tab could have reached.** Clicking a list row must leave the
+focus on the list -- the row is not a tab stop, so focusing it would put the focus somewhere Tab
+could never return to, and the next Tab would have to guess where it had been. `control_at` still
+answers the row, which is what tells a list which row was clicked.

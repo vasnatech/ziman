@@ -55,9 +55,9 @@ pub struct Node {
     state: State
     // Computed here, from the focus passed to `tree_of`, which is why it is not in `State`.
     focused: bool
-    // Whether a Tab could reach it: a control, unless it is disabled. Not declarable, because it is
-    // implied by being a control and by `state.disabled`, and a third copy of that fact could
-    // disagree with the other two.
+    // Whether a Tab could reach it: a control that is a tab stop and is not disabled. Not
+    // declarable here, because it is implied by `widget.Focusable.tab_stop` and `state.disabled`,
+    // and a third copy of that fact could disagree with the other two.
     focusable: bool
     // In the same coordinates the layout used, so an adapter can answer "what is at this point" and
     // "scroll this into view" without a second tree.
@@ -242,6 +242,10 @@ fn emit_control(l: Laid, f: widget.Focusable, focus: string, nodes: MutableArray
         concat(inner, collect_inside(child, focus, subtree))
     }
     val disabled = f.state.disabled
+    // **Tab-reachable, not merely "a control".** A list row is a control and a node here, and Tab
+    // cannot land on it -- see `widget.Focusable.tab_stop`. A reader that was told a row is
+    // focusable would offer the user a key that does nothing.
+    val reachable_here = f.tab_stop && !disabled
     push(nodes, Node {
         key: key,
         role: f.role,
@@ -250,7 +254,7 @@ fn emit_control(l: Laid, f: widget.Focusable, focus: string, nodes: MutableArray
         value: f.value,
         state: f.state,
         focused: f.name != "" && f.name == focus,
-        focusable: !disabled,
+        focusable: reachable_here,
         bounds: l.bounds,
         children: snapshot(inner)
     })

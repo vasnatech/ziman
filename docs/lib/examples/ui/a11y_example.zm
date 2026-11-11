@@ -28,6 +28,7 @@ fn form() -> widget.Widget {
         description: "",
         value: "ada@example.org",
         state: with widget.no_state() { required: true },
+        tab_stop: true,
         child: widget.fixed_of(120.0, 20.0, widget.Widget.Nothing)
     })
     val notify = widget.Widget.Control(widget.Focusable {
@@ -37,6 +38,7 @@ fn form() -> widget.Widget {
         description: "",
         value: "",
         state: with widget.no_state() { checked: Option<widget.Toggle>.Some(widget.Toggle.On) },
+        tab_stop: true,
         child: widget.fixed_of(120.0, 20.0, words("Notify me"))
     })
     val save = widget.control_of("save", widget.Role.Button, widget.fixed_of(60.0, 20.0, words("Save")))
@@ -47,6 +49,7 @@ fn form() -> widget.Widget {
         description: "nothing to undo yet",
         value: "",
         state: with widget.no_state() { disabled: true },
+        tab_stop: true,
         child: widget.fixed_of(60.0, 20.0, words("Revert"))
     })
     return widget.column_of(

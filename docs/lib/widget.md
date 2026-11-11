@@ -455,6 +455,19 @@ pub struct Focusable {
     // The control's content: a field's text, a slider's reading. Not its label.
     value: string
     state: State
+    // Whether **Tab** can land here, as opposed to whether this is a control at all.
+    //
+    // **The two are not the same thing, and a list is what proves it.** A list of two hundred rows
+    // is one stop in the tab order, and the arrow keys move within it -- but every row still has to
+    // be a node a screen reader can reach and announce as selected or not, and a click still has to
+    // report the row it landed on rather than the list. So a row is a control for hit testing and
+    // for accessibility, and not for Tab.
+    //
+    // This was not in the first version of this struct. Building the list found it: without the
+    // distinction a row is either a tab stop (so Tab walks two hundred of them) or not a control at
+    // all (so `a11y` takes every row's text as the list's own name, and a reader announces the whole
+    // list as one string -- which `tests/stdlib/a11y_test.zm` already had a case against).
+    tab_stop: bool
     child: Widget
 }
 ```
@@ -495,6 +508,15 @@ pub fn control_of(name: string, role: Role, child: Widget) -> Widget
 
 A control that says what it is. The label is left empty to take it from the text inside, which is
 what a button or a list item wants.
+
+### `part_of`
+
+```
+pub fn part_of(name: string, role: Role, label: string, state: State, child: Widget) -> Widget
+```
+
+A control a click and a screen reader can reach but **Tab cannot** -- a row of a list, a cell of a
+table. Its container is the tab stop and its own keys are the arrows.
 
 ### `labelled_control`
 
@@ -664,6 +686,15 @@ pub fn contains(r: Rect, p: Point) -> bool
 **Half-open on the right and bottom**, so two boxes that share an edge do not both contain the
 point on it -- a click on the boundary between two list rows must select one of them, and which
 one it is should not depend on which was searched first.
+
+### `is_tab_stop`
+
+```
+pub fn is_tab_stop(l: Laid) -> bool
+```
+
+Whether a laid node is a control **Tab can land on**. See `Focusable.tab_stop`: a list row is a
+control and not a tab stop.
 
 ### `is_control`
 

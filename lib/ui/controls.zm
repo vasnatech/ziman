@@ -22,6 +22,7 @@ use edit
 use focus
 use geom.Point
 use geom.Rect
+use math.floor
 use paint
 use paint.Color
 use widget
@@ -202,6 +203,7 @@ pub fn button_widget(b: Button, style: Style) -> widget.Widget {
         description: "",
         value: "",
         state: with widget.no_state() { disabled: b.disabled },
+        tab_stop: true,
         child: inside
     })
 }
@@ -285,6 +287,7 @@ pub fn check_box_widget(c: CheckBox, style: Style) -> widget.Widget {
             disabled: c.disabled,
             checked: Option<Toggle>.Some(c.checked)
         },
+        tab_stop: true,
         child: inside
     })
 }
@@ -598,8 +601,196 @@ pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget 
         // The field's content, which is what a reader says after the name.
         value: text,
         state: with widget.no_state() { disabled: e.disabled, readonly: e.readonly },
+        tab_stop: true,
         child: inside
     })
+}
+
+// -------------------------------------------------------------------- the list
+
+// A list of rows, one of them selected, scrolled by itself.
+//
+// **One tab stop with two hundred accessibility nodes.** The list takes the focus; the arrow keys
+// move the selection inside it; each row is a `widget.part_of` -- a control a click and a reader can
+// reach and Tab cannot. That distinction did not exist before this widget needed it, and the
+// alternative was a list that either put two hundred stops in the tab order or announced all two
+// hundred rows as its own name.
+pub struct List {
+    name: string
+    label: string
+    items: [string]
+    // The selected row, or -1 for none -- which is a real state, not an error: an empty list has no
+    // selection, and neither does one the user has not touched.
+    selected: int
+    // How far the rows have scrolled, in the same units the layout uses. Not a row index: a list
+    // scrolled by whole rows cannot show half of one, and half of one is what tells a user there is
+    // more below.
+    offset: float
+    row_height: float
+    disabled: bool
+}
+
+pub fn list_of(name: string, label: string, items: [string]) -> List {
+    return List {
+        name: name,
+        label: label,
+        items: items,
+        selected: if len(items) == 0 { 0 - 1 } else { 0 },
+        offset: 0.0,
+        row_height: 20.0,
+        disabled: false
+    }
+}
+
+pub struct ListStep {
+    list: List
+    // The selection changed. An output, as `ButtonStep.activated` is: the application acts on it
+    // and stores the list.
+    moved: bool
+    // A row was chosen -- Enter on the selection. Separate from `moved`, because selecting a row and
+    // opening it are different intentions and a list that conflated them would open on every arrow
+    // key.
+    activated: bool
+}
+
+// What an input does to a list.
+//
+// `bounds` is the box the layout gave it, needed for two things: turning a click's y into a row,
+// and knowing how far one page is.
+pub fn list_input(l: List, input: Input, bounds: Rect) -> ListStep {
+    if l.disabled {
+        return held_still(l)
+    }
+    val last = len(l.items) - 1
+    return switch input {
+        // **The wheel scrolls and does not move the selection.** Every list does this and it is
+        // easy to get wrong by routing a wheel to whatever has the keyboard: a user scrolling to
+        // look at something further down has not asked to select it, and a list that moved the
+        // selection under them would lose the row they were about to act on.
+        Wheel(w) { scrolled(l, l.offset - (w.vertical as float) * l.row_height, bounds) }
+        Press(p) {
+            val row = floor((p.y - bounds.y + l.offset) / l.row_height)
+            if row < 0 || row > last {
+                held_still(l)
+            } else {
+                ListStep { list: with l { selected: row }, moved: row != l.selected, activated: false }
+            }
+        }
+        KeyDown(k) { list_key(l, k, bounds) }
+        KeyUp(_) { held_still(l) }
+        Text(_) { held_still(l) }
+        Paste(_) { held_still(l) }
+        Release(_) { held_still(l) }
+        Move(_) { held_still(l) }
+    }
+}
+
+fn list_key(l: List, k: KeyPress, bounds: Rect) -> ListStep {
+    val last = len(l.items) - 1
+    if last < 0 {
+        return held_still(l)
+    }
+    val name = window.key_name(k)
+    val per_page = page_rows(l, bounds)
+    if name == "Down" { return selected_to(l, l.selected + 1, bounds) }
+    if name == "Up" { return selected_to(l, l.selected - 1, bounds) }
+    if name == "PageDown" { return selected_to(l, l.selected + per_page, bounds) }
+    if name == "PageUp" { return selected_to(l, l.selected - per_page, bounds) }
+    if name == "Home" { return selected_to(l, 0, bounds) }
+    if name == "End" { return selected_to(l, last, bounds) }
+    if name == "Enter" || name == "Space" {
+        if l.selected >= 0 {
+            return ListStep { list: l, moved: false, activated: true }
+        }
+    }
+    return held_still(l)
+}
+
+// At least one row a page, so a list shorter than one row still moves rather than sticking.
+fn page_rows(l: List, bounds: Rect) -> int {
+    val fits = floor(bounds.height / l.row_height)
+    return if fits < 1 { 1 } else { fits }
+}
+
+// Moves the selection and **brings it into view by the least that works**, which is what makes
+// arrowing down a long list creep by a row at the bottom edge instead of jumping a page at a time.
+fn selected_to(l: List, want: int, bounds: Rect) -> ListStep {
+    val last = len(l.items) - 1
+    val row = if want < 0 { 0 } else { if want > last { last } else { want } }
+    val revealed = widget.scroll_to_reveal(
+        bounds.height,
+        l.offset,
+        (row as float) * l.row_height,
+        l.row_height
+    )
+    return ListStep {
+        list: with l { selected: row, offset: clamped(l, revealed, bounds) },
+        moved: row != l.selected,
+        activated: false
+    }
+}
+
+fn scrolled(l: List, offset: float, bounds: Rect) -> ListStep {
+    return ListStep { list: with l { offset: clamped(l, offset, bounds) }, moved: false, activated: false }
+}
+
+fn clamped(l: List, offset: float, bounds: Rect) -> float {
+    return widget.clamp_offset(offset, bounds.height, (len(l.items) as float) * l.row_height)
+}
+
+fn held_still(l: List) -> ListStep {
+    return ListStep { list: l, moved: false, activated: false }
+}
+
+// The list as a widget: a control holding a viewport of rows, each row a part of the list.
+//
+// **The rows carry `selected` rather than the list carrying an index**, because that is what a
+// reader reads: it announces "list item, Ada, selected", and an index on the container would make
+// every adapter work out for itself which child the number meant.
+pub fn list_widget(l: List, style: Style) -> widget.Widget {
+    val ink = if l.disabled { style.disabled_ink } else { style.ink }
+    val rows = mutable_array_new<widget.Widget>()
+    var i = 0
+    while i < len(l.items) {
+        val chosen = i == l.selected
+        val face = if chosen { style.pressed_face } else { style.face }
+        val row = widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.insets_of(4.0, 2.0, 4.0, 2.0),
+            background: Option<Color>.Some(face),
+            children: [widget.label_of(l.items[i], style.text_size, ink)],
+            name: ""
+        })
+        push(rows, widget.fixed_of(
+            0.0,
+            l.row_height,
+            widget.part_of(
+                row_name(l, i),
+                widget.Role.ListItem,
+                l.items[i],
+                with widget.no_state() { selected: chosen, disabled: l.disabled },
+                row
+            )
+        ))
+        i = i + 1
+    }
+    return widget.Widget.Control(widget.Focusable {
+        name: l.name,
+        role: widget.Role.List,
+        label: l.label,
+        description: "",
+        value: "",
+        state: with widget.no_state() { disabled: l.disabled },
+        tab_stop: true,
+        child: widget.named_scroll("", 0.0, l.offset, widget.column_of(0.0, snapshot(rows)))
+    })
+}
+
+// A row's name, which focus and accessibility both address it by. The list's name and the index,
+// because a row has no name of its own and an index alone would collide with another list's.
+pub fn row_name(l: List, index: int) -> string {
+    return concat(l.name, "/", str(index))
 }
 
 // ------------------------------------------------------------------- the style

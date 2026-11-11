@@ -42,6 +42,7 @@ fn control(name: string, role: widget.Role, label: string, state: widget.State, 
         description: "",
         value: value,
         state: state,
+        tab_stop: true,
         child: widget.fixed_of(40.0, 20.0, widget.Widget.Nothing)
     })
 }

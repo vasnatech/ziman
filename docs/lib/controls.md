@@ -487,6 +487,88 @@ A selection is the same trick: the selected run is its own label with a backgrou
 Takes a `Metrics` where `button_widget` does not, because a caret's height is a text measurement
 and guessing it from the em size is wrong for any face whose line height is not 1.2.
 
+## The list
+
+### `List`
+
+```
+pub struct List {
+    name: string
+    label: string
+    items: [string]
+    // The selected row, or -1 for none -- which is a real state, not an error: an empty list has no
+    // selection, and neither does one the user has not touched.
+    selected: int
+    // How far the rows have scrolled, in the same units the layout uses. Not a row index: a list
+    // scrolled by whole rows cannot show half of one, and half of one is what tells a user there is
+    // more below.
+    offset: float
+    row_height: float
+    disabled: bool
+}
+```
+
+A list of rows, one of them selected, scrolled by itself.
+
+**One tab stop with two hundred accessibility nodes.** The list takes the focus; the arrow keys
+move the selection inside it; each row is a `widget.part_of` -- a control a click and a reader can
+reach and Tab cannot. That distinction did not exist before this widget needed it, and the
+alternative was a list that either put two hundred stops in the tab order or announced all two
+hundred rows as its own name.
+
+### `list_of`
+
+```
+pub fn list_of(name: string, label: string, items: [string]) -> List
+```
+
+### `ListStep`
+
+```
+pub struct ListStep {
+    list: List
+    // The selection changed. An output, as `ButtonStep.activated` is: the application acts on it
+    // and stores the list.
+    moved: bool
+    // A row was chosen -- Enter on the selection. Separate from `moved`, because selecting a row and
+    // opening it are different intentions and a list that conflated them would open on every arrow
+    // key.
+    activated: bool
+}
+```
+
+### `list_input`
+
+```
+pub fn list_input(l: List, input: Input, bounds: Rect) -> ListStep
+```
+
+What an input does to a list.
+
+`bounds` is the box the layout gave it, needed for two things: turning a click's y into a row,
+and knowing how far one page is.
+
+### `list_widget`
+
+```
+pub fn list_widget(l: List, style: Style) -> widget.Widget
+```
+
+The list as a widget: a control holding a viewport of rows, each row a part of the list.
+
+**The rows carry `selected` rather than the list carrying an index**, because that is what a
+reader reads: it announces "list item, Ada, selected", and an index on the container would make
+every adapter work out for itself which child the number meant.
+
+### `row_name`
+
+```
+pub fn row_name(l: List, index: int) -> string
+```
+
+A row's name, which focus and accessibility both address it by. The list's name and the index,
+because a row has no name of its own and an index alone would collide with another list's.
+
 ## The style
 
 ### `Style`

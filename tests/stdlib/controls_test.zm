@@ -6,6 +6,7 @@
 // are only visible in what the state becomes.
 use a11y
 use controls
+use focus
 use geom
 use paint
 use test
@@ -306,6 +307,7 @@ fn a_check_box_does_not_read_its_own_mark_aloud() {
         description: "",
         value: "",
         state: widget.no_state(),
+        tab_stop: true,
         child: widget.row_of(2.0, [words("x"), words("Notify me")])
     })
     test.assert_eq(name_of(undeclared, "loud"), "x Notify me")
@@ -645,4 +647,210 @@ fn a_read_only_field_says_so() {
         None { "(no node)" }
     }
     test.assert_eq(said, "text field, Email, ada@example.org, read only")
+}
+
+// --- the list
+
+// Five rows of 20 in a box 60 tall: three rows visible, two below.
+fn five() -> controls.List {
+    return controls.list_of("people", "People", ["Ada", "Grace", "Alan", "Edsger", "Barbara"])
+}
+
+fn list_box() -> geom.Rect {
+    return geom.rect_of(0.0, 0.0, 120.0, 60.0)
+}
+
+fn to_list(l: controls.List, input: controls.Input) -> controls.ListStep {
+    return controls.list_input(l, input, list_box())
+}
+
+fn arrow(l: controls.List, keysym: int) -> controls.ListStep {
+    return to_list(l, controls.Input.KeyDown(key(keysym)))
+}
+
+val key_down = 65364
+val key_up = 65362
+val key_page_down = 65366
+val key_end = 65367
+
+#[test]
+fn a_new_list_selects_its_first_row_and_an_empty_one_selects_nothing() {
+    test.assert_eq(five().selected, 0)
+    test.assert_eq(controls.list_of("empty", "Nothing", []).selected, 0 - 1)
+}
+
+#[test]
+fn the_arrows_move_the_selection_and_stop_at_both_ends() {
+    val down = arrow(five(), key_down)
+    test.assert_eq(down.list.selected, 1)
+    test.assert(down.moved)
+    // Up from the first row stays, and reports that nothing moved.
+    val stuck = arrow(five(), key_up)
+    test.assert_eq(stuck.list.selected, 0)
+    test.assert_false(stuck.moved)
+    test.assert_eq(arrow(with five() { selected: 4 }, key_down).list.selected, 4)
+}
+
+// **The view follows the selection by the least that works.** Three rows of 20 fit in 60, so the
+// first three arrows move the selection with the list still at the top, and only the fourth scrolls
+// -- by one row, not by a page.
+#[test]
+fn arrowing_down_creeps_the_view_rather_than_jumping() {
+    var l = five()
+    l = arrow(l, key_down).list
+    l = arrow(l, key_down).list
+    test.assert_eq(l.selected, 2)
+    test.assert_eq(l.offset, 0.0)
+    l = arrow(l, key_down).list
+    test.assert_eq(l.selected, 3)
+    test.assert_eq(l.offset, 20.0)
+    l = arrow(l, key_down).list
+    test.assert_eq(l.selected, 4)
+    test.assert_eq(l.offset, 40.0)
+}
+
+#[test]
+fn end_and_page_down_also_bring_the_selection_into_view() {
+    val ended = arrow(five(), key_end)
+    test.assert_eq(ended.list.selected, 4)
+    test.assert_eq(ended.list.offset, 40.0)
+    // A page is three rows here, so one PageDown lands on row 3 and scrolls by one.
+    val paged = arrow(five(), key_page_down)
+    test.assert_eq(paged.list.selected, 3)
+    test.assert_eq(paged.list.offset, 20.0)
+}
+
+// **The wheel scrolls and does not move the selection.** Routing a wheel to whatever has the
+// keyboard is the easy mistake: a user scrolling to look further down has not asked to select
+// anything, and moving the selection under them loses the row they were about to act on.
+#[test]
+fn the_wheel_scrolls_without_moving_the_selection() {
+    val step = to_list(five(), controls.Input.Wheel(controls.Wheel {
+        at: geom.point_of(10.0, 10.0),
+        vertical: 0 - 1,
+        horizontal: 0
+    }))
+    test.assert_eq(step.list.offset, 20.0)
+    test.assert_eq(step.list.selected, 0)
+    test.assert_false(step.moved)
+}
+
+// And it stops at both ends: 5 rows of 20 is 100, in a view of 60, so 40 is as far as it goes.
+#[test]
+fn the_wheel_stops_at_both_ends() {
+    var l = five()
+    var i = 0
+    while i < 20 {
+        l = to_list(l, controls.Input.Wheel(controls.Wheel {
+            at: geom.point_of(10.0, 10.0),
+            vertical: 0 - 1,
+            horizontal: 0
+        })).list
+        i = i + 1
+    }
+    test.assert_eq(l.offset, 40.0)
+    var j = 0
+    while j < 20 {
+        l = to_list(l, controls.Input.Wheel(controls.Wheel {
+            at: geom.point_of(10.0, 10.0),
+            vertical: 1,
+            horizontal: 0
+        })).list
+        j = j + 1
+    }
+    test.assert_eq(l.offset, 0.0)
+}
+
+// A click selects the row under the pointer, **through the scroll offset**: with the list scrolled
+// by two rows, the top of the box is row 2.
+#[test]
+fn a_click_selects_the_row_under_the_pointer_through_the_offset() {
+    test.assert_eq(to_list(five(), controls.Input.Press(geom.point_of(10.0, 30.0))).list.selected, 1)
+    val scrolled = with five() { offset: 40.0 }
+    test.assert_eq(to_list(scrolled, controls.Input.Press(geom.point_of(10.0, 10.0))).list.selected, 2)
+}
+
+#[test]
+fn a_click_past_the_last_row_changes_nothing() {
+    val step = to_list(with five() { items: ["Ada"] }, controls.Input.Press(geom.point_of(10.0, 50.0)))
+    test.assert_eq(step.list.selected, 0)
+    test.assert_false(step.moved)
+}
+
+// **Selecting a row and opening it are different intentions.** A list that reported them as one
+// would open a record on every arrow key.
+#[test]
+fn enter_activates_and_an_arrow_does_not() {
+    test.assert(arrow(five(), 65293).activated)
+    test.assert_false(arrow(five(), key_down).activated)
+    test.assert_false(arrow(five(), 65293).moved)
+}
+
+#[test]
+fn a_disabled_list_ignores_everything() {
+    val off = with five() { disabled: true }
+    test.assert_eq(arrow(off, key_down).list.selected, 0)
+    test.assert_false(to_list(off, controls.Input.Press(geom.point_of(10.0, 30.0))).moved)
+}
+
+// --- one tab stop, five nodes
+
+fn laid_list(l: controls.List) -> widget.Laid {
+    return widget.layout(controls.list_widget(l, controls.default_style()), list_box(), metrics())
+}
+
+// **The whole reason `tab_stop` exists.** Tab sees one control; a reader sees the list and every
+// row. Before the distinction, a list was either five stops in the tab order or a single node whose
+// name was all five rows run together.
+#[test]
+fn a_list_is_one_tab_stop_and_five_accessibility_nodes() {
+    val l = laid_list(five())
+    test.assert_len(1, focus.controls(l))
+    test.assert_eq(focus.controls(l)[0].name, "people")
+
+    val t = a11y.tree_of(l, "Records", "people")
+    // The window, the list, and one node per row.
+    test.assert_len(7, t.nodes)
+    test.assert_len(1, a11y.reachable(t))
+}
+
+#[test]
+fn the_selected_row_says_so_and_the_others_do_not() {
+    val t = a11y.tree_of(laid_list(with five() { selected: 1 }), "Records", "people")
+    test.assert_eq(said_in(t, "people/1"), "list item, Grace, selected")
+    test.assert_eq(said_in(t, "people/0"), "list item, Ada")
+}
+
+fn said_in(t: a11y.Tree, key: string) -> string {
+    return switch a11y.node_of(t, key) {
+        Some(one) { a11y.announce(one) }
+        None { concat("(no node ", key, ")") }
+    }
+}
+
+// **A click on a row leaves the focus on the list**, because the row is not a tab stop and focusing
+// it would put the focus somewhere Tab could never return to. `focus.control_at` still answers the
+// row, which is what tells the list which row was clicked.
+#[test]
+fn clicking_a_row_focuses_the_list_and_reports_the_row() {
+    val l = laid_list(five())
+    val at = geom.point_of(10.0, 30.0)
+    test.assert_eq(focus.clicked(l, at, ""), "people")
+    test.assert_eq(switch focus.control_at(l, at) {
+        Some(one) { one.name }
+        None { "(none)" }
+    }, "people/1")
+}
+
+// A row scrolled out of the list's own viewport cannot be clicked, which is the viewport's rule
+// arriving here for free.
+#[test]
+fn a_row_scrolled_out_of_the_list_cannot_be_clicked() {
+    val l = laid_list(with five() { offset: 40.0 })
+    // Rows 2, 3 and 4 are visible; row 0 is two rows above the top.
+    test.assert_eq(switch focus.control_at(l, geom.point_of(10.0, 10.0)) {
+        Some(one) { one.name }
+        None { "(none)" }
+    }, "people/2")
+    test.assert(Option.is_None(a11y.node_of(a11y.tree_of(l, "R", ""), "people/9")))
 }
