@@ -2477,6 +2477,20 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
         if (!deferred) actual = check_expr(module, env, arg);
 
         keep = 0;
+        /* **Two passes: an exact match beats a coerced one.**
+         *
+         * The second pass allows the bare-value auto-wrap an `Option<T>` parameter gives a bare
+         * `T`, and it runs only when the first pass left nothing -- because allowing it in one pass
+         * makes a coercion compete with an exact match. `validate.not_blank` is the set that says
+         * so: it declares both `(value: string)` and `(value: Option<string>)`, and `not_blank("")`
+         * matches the first exactly and the second through the wrap. One pass reported 25 calls in
+         * the suite as ambiguous between a declaration written for that argument and one that would
+         * have to convert it.
+         *
+         * The strict pass writes nothing when it keeps nothing -- `live` and `matched` are only
+         * touched on a match -- so the second pass re-scans the same candidates safely. */
+        for (int attempt = 0; attempt < 2 && keep == 0; attempt++) {
+        int allow_wrap = attempt == 1;
         for (int i = 0; i < r->live_count; i++) {
             FunctionDecl *f = r->live[i];
             Type pattern;
@@ -2509,8 +2523,31 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
                     memset(bound, 0, (size_t)n * sizeof bound[0]);
                     ok = param_accepts(type_array(pattern), actual, &f->type_params, binds, bound);
                 }
+                /* **The bare-value auto-wrap, which selection has to model for the same reason the
+                 * spread above does: the call path applies it, so a filter that does not will
+                 * eliminate a declaration the call would have accepted.**
+                 *
+                 * An `Option<T>` parameter takes a bare `T` and `wrap_bare_in_some` rewrites it --
+                 * which is how `join(separator: ",", pieces: xs)` names one of four parameters and
+                 * omits three. Hidden for exactly as long as the spread case was, and by the same
+                 * mechanism: this loop runs only `while (live_count > 1)`, so a name with one
+                 * declaration never reaches here and `check_arg_against_param` does the wrapping
+                 * unaided. Give a name two declarations and the filter runs, and every call that
+                 * passed a bare value for an optional parameter stops resolving -- reported as
+                 * `no declaration of 'f' accepts its argument 1`, for an argument both
+                 * declarations accept perfectly well (F278).
+                 *
+                 * Only the un-nested case, matching `check_arg_against_param`: a bare `T` for an
+                 * `Option<T>`. An already-wrapped `Option<T>` is accepted by `param_accepts`
+                 * above, and `Option<Option<T>>` is left alone there too. */
+                if (!ok && allow_wrap && is_option_type(pattern)) {
+                    memset(binds, 0, sizeof binds);
+                    memset(bound, 0, (size_t)n * sizeof bound[0]);
+                    ok = param_accepts(option_elem_type(pattern), actual, &f->type_params, binds, bound);
+                }
             }
             if (ok) { r->matched[keep] = r->matched[i] + 1; r->live[keep++] = f; }
+        }
         }
         if (keep == 0) {
             r->live_count = 0;

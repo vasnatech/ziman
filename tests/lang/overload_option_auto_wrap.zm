@@ -1,0 +1,72 @@
+// An `Option<T>` parameter takes a bare `T`, and keeps doing so when the name is overloaded.
+//
+// **The auto-wrap is applied by the call path and has to be modelled by overload selection too.**
+// Selection's per-argument filter runs only `while (live_count > 1)`, so a name with one
+// declaration never reaches it and the wrapping happens unaided -- which hid this for as long as no
+// overloaded set had an optional parameter. Give a name two declarations and every call that passed
+// a bare value for an `Option` parameter stopped resolving: `no declaration of 'f' accepts its
+// argument 1`, for an argument both declarations accept perfectly well (F278).
+//
+// **And a coerced match must lose to an exact one.** `validate.not_blank` declares both
+// `(value: string)` and `(value: Option<string>)`, so `not_blank("")` matches the first exactly and
+// the second through the wrap: allowing the wrap in the same pass reported 25 calls in the suite as
+// ambiguous. The filter tries the strict reading first and the wrap only when nothing survives.
+fn label(prefix: Option<string>, items: [int]) -> string {
+    return concat(shown(prefix), "arr", str(len(items)))
+}
+
+fn label(prefix: Option<string>, items: MutableArray<int>) -> string {
+    return concat(shown(prefix), "mut", str(len(items)))
+}
+
+fn shown(prefix: Option<string>) -> string {
+    return switch prefix {
+        Some(p) { p }
+        None { "-" }
+    }
+}
+
+// The pair that F279 needs: a variadic and a builder under one name.
+fn gather(separator: Option<string>, parts: variadic string) -> string {
+    return concat(shown(separator), "var", str(len(parts)))
+}
+
+fn gather(separator: Option<string>, parts: MutableArray<string>) -> string {
+    return concat(shown(separator), "mut", str(len(parts)))
+}
+
+// An exact match beats the wrap: a bare string here must choose the first, not the Option one.
+fn exact(value: string) -> string {
+    return "string"
+}
+
+fn exact(value: Option<string>) -> string {
+    return "option"
+}
+
+fn main() {
+    val ints: [int] = [1, 2]
+    val built = mutable_array_new<int>()
+    push(built, 7)
+
+    // A bare value for the optional parameter, both worlds.
+    print(label(prefix: ">", items: ints))
+    print(label(prefix: ">", items: built))
+    // Explicitly wrapped, and omitted: both worked before and must still.
+    print(label(prefix: Option<string>.Some(">"), items: ints))
+    print(label(items: ints))
+    print(label(items: built))
+
+    // A variadic and a builder under one name, which is what the builtins need.
+    val words = mutable_array_new<string>()
+    push(words, "x")
+    val list: [string] = ["x", "y"]
+    print(gather(separator: ",", parts: list))
+    print(gather(separator: ",", parts: words))
+    print(gather(separator: ",", parts: ["a", "b", "c"]))
+
+    // **The tier, which is the half that is easy to get wrong.** A bare string matches `string`
+    // exactly and `Option<string>` through the wrap; the exact reading wins.
+    print(exact("x"))
+    print(exact(Option<string>.Some("x")))
+}
