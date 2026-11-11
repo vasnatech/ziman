@@ -1173,3 +1173,29 @@ fn choosing_from_a_choice_changes_what_it_shows() {
     test.assert_eq(1, taken.chosen)
     test.assert_eq("staging", controls.chosen_value(taken.menu))
 }
+
+// **Choosing with the mouse**, which was keyboard-only until a real application tried it: a press
+// on a row moved the selection and nothing turned that into a choice, so a menu could be opened,
+// an item clicked, and the menu would sit there with the item highlighted.
+#[test]
+fn a_release_over_a_row_chooses_it() {
+    val open_menu = with file_menu() { open: true }
+    val on_row = geom.point_of(10.0, 50.0)
+    val pressed = to_menu(open_menu, controls.Input.Press(on_row))
+    // The press selects and does not choose, which is what lets a press-drag-release land elsewhere.
+    test.assert_eq(0 - 1, pressed.chosen)
+    test.assert(pressed.menu.open)
+    val released = to_menu(pressed.menu, controls.Input.Release(on_row))
+    test.assert_eq(pressed.menu.items.selected, released.chosen)
+    test.assert_false(released.menu.open)
+}
+
+// A release outside the popup is not a choice -- which is the case that matters for the press that
+// opened the menu in the first place, since its release lands on the title.
+#[test]
+fn a_release_off_the_popup_chooses_nothing() {
+    val open_menu = with file_menu() { open: true }
+    val released = to_menu(open_menu, controls.Input.Release(geom.point_of(10.0, 10.0)))
+    test.assert_eq(0 - 1, released.chosen)
+    test.assert(released.menu.open)
+}

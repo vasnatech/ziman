@@ -1180,7 +1180,23 @@ fn open_menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect
             return dismissed_menu(m)
         }
     }
-    // Everything else is the list's: arrows, Home, End, the wheel, and a click on a row.
+    // **A release over a row chooses it, which is what makes a menu usable with a mouse at all.**
+    //
+    // Until this, choosing was keyboard-only: a press on a row fell through to the list below and
+    // moved the selection, and nothing ever turned that into a choice -- so a user could open a
+    // menu, click an item, and watch the item highlight and the menu stay open. Found by a real
+    // application rather than by a test, because every test here chose with Enter.
+    //
+    // **On the release rather than the press**, which makes both gestures work with one rule: a
+    // menu-bar press-drag-release lands its release on the item it ended over, and an ordinary
+    // click is a press and a release on the same row. It also means a press that opened the menu
+    // cannot immediately choose, since that release lands on the title.
+    if Release(p) = input {
+        if widget.contains(popup_bounds, p) && m.items.selected >= 0 {
+            return MenuStep { menu: with m { open: false }, chosen: m.items.selected, dismissed: false }
+        }
+    }
+    // Everything else is the list's: arrows, Home, End, the wheel, and a press on a row.
     val step = list_input(m.items, input, popup_bounds)
     return MenuStep { menu: with m { items: step.list }, chosen: 0 - 1, dismissed: false }
 }
