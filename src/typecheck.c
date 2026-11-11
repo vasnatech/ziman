@@ -2416,7 +2416,18 @@ static int ovl_arity_fits(const FunctionDecl *fn, int argc, int named) {
      * left on this arm because no overloaded set had a variadic member with omittable parameters
      * until `join` gained a second declaration. `ovl_min_named_arity` already skips a variadic
      * parameter unless it demands at least one, so it needed nothing. */
-    if (variadic && !named) return argc >= n - 1;
+    if (variadic) {
+        if (!named) return argc >= n - 1;
+        /* The variadic parameter is **not** counted here even when it demands at least one value:
+         * that demand is checked later by a rule that names it, and counting it at the arity gate
+         * eliminates the declaration before the rule can speak -- which turned `merge()`'s
+         * "needs at least one value for its variadic parameter 'maps'" into a generic no-match. */
+        int required = 0;
+        for (int i = 0; i < n - 1; i++) {
+            if (!is_option_type(fn->params.items[i].type)) required++;
+        }
+        return argc <= n && argc >= required;
+    }
     if (named) return argc <= n && argc >= ovl_min_named_arity(fn);
     return argc == n;
 }
@@ -2528,7 +2539,15 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
                  * was refused as "expects Map<K, V> or a builder, found [Map<string, int>]" the
                  * moment `merge`'s in-place members became variadic (2026-10-22), for an argument
                  * the chosen declaration then accepted perfectly well. */
-                if (!ok && pidx == f->params.count - 1 && pos == argc - 1
+                /* **`pos == argc - 1` only when the call is positional.** A named argument
+                 * supplies exactly one value for its parameter, so a named `pieces:` *is* the whole
+                 * tail wherever it was written -- and `lib/http/client/send.zm` writes
+                 * `join(pieces: snapshot(out), separator: "")`, the variadic first. Requiring it
+                 * last eliminated the variadic declaration there and left a call that had worked
+                 * for months with no declaration to resolve to. Latent until a variadic name had a
+                 * second declaration, like everything else in this function. */
+                if (!ok && pidx == f->params.count - 1
+                    && (named || pos == argc - 1)
                     && f->params.items[pidx].is_variadic) {
                     memset(binds, 0, sizeof binds);
                     memset(bound, 0, (size_t)n * sizeof bound[0]);

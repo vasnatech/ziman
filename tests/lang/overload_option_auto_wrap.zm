@@ -69,4 +69,19 @@ fn main() {
     // exactly and `Option<string>` through the wrap; the exact reading wins.
     print(exact("x"))
     print(exact(Option<string>.Some("x")))
+
+    // **A named variadic argument need not be written last.** A named argument supplies exactly one
+    // value for its parameter, so `parts:` is the whole tail wherever it appears -- and the filter
+    // that recognises a lone array as a spread required it to be the last *argument*, which is only
+    // true of a positional call. `lib/http/client/send.zm` writes
+    // `join(pieces: snapshot(out), separator: "")`, and that call had worked for months before
+    // `join` gained a second declaration and this gate started running.
+    // A separator that is not the "omitted" marker, so the case below is distinguishable from
+    // these two -- with "-" for both, an omitted optional and a supplied one printed the same thing
+    // and the last assertion proved nothing.
+    print(gather(parts: list, separator: "+"))
+    print(gather(parts: words, separator: "+"))
+
+    // And omitting the optional entirely, with the variadic first.
+    print(gather(parts: list))
 }

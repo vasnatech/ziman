@@ -8,3 +8,6 @@
 ,var3
 string
 option
++var2
++mut1
+-var2
