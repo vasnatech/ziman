@@ -78,7 +78,7 @@ pub fn histogram(name: string, help: string, buckets: [float]) -> bool {
     for b in buckets {
         push(parts, str(b))
     }
-    return declare_raw(name, "histogram", help, join(separator: ",", pieces: snapshot(parts)))
+    return declare_raw(name, "histogram", help, join(separator: ",", pieces: parts))
 }
 
 // A label value goes inside double quotes in the rendered line, so the three characters that
@@ -102,7 +102,7 @@ fn labels_key(labels: Map<string, string>) -> string {
     for name in names {
         push(parts, concat(name, "=\"", escape(get_or(labels, name, "")), "\""))
     }
-    return join(separator: ",", pieces: snapshot(parts))
+    return join(separator: ",", pieces: parts)
 }
 
 // **Each of the five operations is one name over three forms**, told apart by the arguments: a

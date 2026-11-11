@@ -475,7 +475,7 @@ fn names_of(ctx: Json) -> string {
             push(out, key)
         }
     }
-    return join(separator: ", ", pieces: snapshot(out))
+    return join(separator: ", ", pieces: out)
 }
 
 // A kind with its article, because every message that uses it reads "is bound to <kind>".
@@ -558,7 +558,7 @@ fn indented(block: string, indent: string) -> string {
             push(out, concat(indent, line))
         }
     }
-    return join(separator: "\n", pieces: snapshot(out))
+    return join(separator: "\n", pieces: out)
 }
 
 fn emit(nodes: [Node], ctx: Json, out: MutableArray<string>) -> Result<unit, string> {
@@ -647,7 +647,7 @@ fn sheet_names(sheet: Sheet) -> string {
     for t in sheet.templates {
         push(out, t.name)
     }
-    return join(separator: ", ", pieces: snapshot(out))
+    return join(separator: ", ", pieces: out)
 }
 
 // One of the sheet's templates, with its holes filled.

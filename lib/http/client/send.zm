@@ -172,7 +172,7 @@ fn write_request(
         }
     }
     push(out, "\r\n")
-    try lift<int>(net.write_text(s, join(pieces: snapshot(out), separator: "")))
+    try lift<int>(net.write_text(s, join(pieces: out, separator: "")))
     if Some(body) = body && len(body) > 0 {
         try lift<int>(net.write(s, body))
     }

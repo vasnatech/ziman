@@ -377,7 +377,7 @@ pub fn attr_text(a: Attr) -> string {
             one.value
         }))
     }
-    return concat(a.name, "(", join(separator: ", ", pieces: snapshot(parts)), ")")
+    return concat(a.name, "(", join(separator: ", ", pieces: parts), ")")
 }
 
 pub fn unit_variant(name: string) -> Variant {
@@ -446,7 +446,7 @@ pub fn type_text(t: Type) -> string {
             for p in f.params {
                 push(ps, type_text(p))
             }
-            return concat("fn(", join(separator: ", ", pieces: snapshot(ps)), ") -> ", type_text(f.returns))
+            return concat("fn(", join(separator: ", ", pieces: ps), ") -> ", type_text(f.returns))
         }
         Named(n) {
             if prelude.len(n.args) == 0 {
@@ -456,7 +456,7 @@ pub fn type_text(t: Type) -> string {
             for a in n.args {
                 push(rendered, type_text(a))
             }
-            return concat(n.name, "<", join(separator: ", ", pieces: snapshot(rendered)), ">")
+            return concat(n.name, "<", join(separator: ", ", pieces: rendered), ">")
         }
     }
 }
@@ -518,7 +518,7 @@ pub fn type_params_bounded(d: Decl, bound: string) -> string {
     for p in d.type_params {
         push(out, concat(p, bound))
     }
-    return concat("<", join(separator: ", ", pieces: snapshot(out)), ">")
+    return concat("<", join(separator: ", ", pieces: out), ">")
 }
 
 // `Box<T, U>` for a generic declaration and `Point` for a plain one: the type as a parameter list

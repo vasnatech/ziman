@@ -235,6 +235,6 @@ fn keys(d: meta.Decl, members: [meta.Field]) -> Result<string, string> {
     }
     return template.render(sheet, "keys", [
         template.text("snake", d.snake_name),
-        template.text("entries", join(separator: ", ", pieces: snapshot(entries)))
+        template.text("entries", join(separator: ", ", pieces: entries))
     ])
 }

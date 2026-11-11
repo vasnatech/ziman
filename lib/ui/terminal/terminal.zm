@@ -484,7 +484,7 @@ fn byte_list(bytes: [byte]) -> string {
     for b in bytes {
         push(parts, str(b as int))
     }
-    return concat("[", concat(join(separator: " ", pieces: snapshot(parts)), "]"))
+    return concat("[", concat(join(separator: " ", pieces: parts), "]"))
 }
 
 // ------------------------------------------------------------------ painting

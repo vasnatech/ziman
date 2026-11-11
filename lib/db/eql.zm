@@ -533,7 +533,7 @@ fn expanded(b: Bound) -> string {
     for c in b.entity.columns {
         push(out, prelude.format("{}.{} AS {}", b.alias, c, c))
     }
-    return join(separator: ", ", pieces: snapshot(out))
+    return join(separator: ", ", pieces: out)
 }
 
 // A token written back as SQL text. Only the shapes `sql.tokenize` produces need a case here, and
@@ -607,7 +607,7 @@ fn deletable(binds: [Bound], tokens: [Token]) -> Result<unit, DbError> {
         return err(problem(prelude.format(
             "a DELETE names one entity and this names {} ({}) -- a multi-table delete has no portable SQL, so it is not translated here",
             prelude.len(binds),
-            join(separator: ", ", pieces: snapshot(names))
+            join(separator: ", ", pieces: names)
         )))
     }
     for t in tokens {
@@ -789,7 +789,7 @@ fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Res
                 return err(problem(prelude.format(
                     "nothing in this query binds the alias '{}' (it binds: {})",
                     t.text,
-                    join(separator: ", ", pieces: snapshot(aliases))
+                    join(separator: ", ", pieces: aliases)
                 )))
             }
         }
@@ -846,7 +846,7 @@ fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Res
                 for k in 0..width {
                     push(holes, concat("$", str(number + k)))
                 }
-                append(out, "(", join(separator: ", ", pieces: snapshot(holes)), ")")
+                append(out, "(", join(separator: ", ", pieces: holes), ")")
             } else {
                 append(out, "$", str(number))
             }
@@ -933,7 +933,7 @@ fn arrange_names(names: [string], bound: [Binding]) -> Result<[SqlValue], DbErro
                 "the query names :{} and nothing was bound to it (bound: {})",
                 name,
                 if prelude.len(bound) == 0 { "nothing" } else {
-                    join(separator: ", ", pieces: snapshot(given))
+                    join(separator: ", ", pieces: given)
                 }
             )))
         }
@@ -1118,7 +1118,7 @@ fn where_of(columns: [string], from: int) -> string {
     for i in 0..prelude.len(columns) {
         push(parts, prelude.format("{} = ${}", columns[i], from + i))
     }
-    return join(separator: " AND ", pieces: snapshot(parts))
+    return join(separator: " AND ", pieces: parts)
 }
 
 // Without a key there is no predicate that names one row, so every one of these refuses before it
@@ -1228,7 +1228,7 @@ pub fn insert_one<E>(
         "INSERT INTO {} ({}) VALUES ({})",
         e.table,
         join(separator: ", ", pieces: e.columns),
-        join(separator: ", ", pieces: snapshot(holes))
+        join(separator: ", ", pieces: holes)
     ), values)
     return find_by_key<E>(conn, e, try key_values(e, values), from_row)
 }
@@ -1290,7 +1290,7 @@ pub fn update_one<E>(
     try datasource.execute(conn, prelude.format(
         "UPDATE {} SET {} WHERE {}",
         e.table,
-        join(separator: ", ", pieces: snapshot(assigns)),
+        join(separator: ", ", pieces: assigns),
         where_of(predicate, prelude.len(assigns) + 1)
     ), snapshot(sent))
     return only_row<E>(conn, e, predicate, matched, from_row)
@@ -1397,7 +1397,7 @@ fn where_bound(matching: [Binding]) -> Result<string, DbError> {
     for i in 0..prelude.len(matching) {
         push(parts, prelude.format("{} = ${}", matching[i].name, i + 1))
     }
-    return ok(join(separator: " AND ", pieces: snapshot(parts)))
+    return ok(join(separator: " AND ", pieces: parts))
 }
 
 fn bound_values(matching: [Binding]) -> [SqlValue] {

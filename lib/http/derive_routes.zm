@@ -376,7 +376,7 @@ fn header_name(param: string) -> string {
     for one in parts {
         push(out, capitalise(one))
     }
-    return join(separator: "-", pieces: snapshot(out))
+    return join(separator: "-", pieces: out)
 }
 
 // **The check that is the reason to do this in a compiler.** A `{doseLogId}` the signature does not
@@ -685,7 +685,7 @@ fn wiring_for(f: meta.Function, module_name: string) -> Result<Wiring, string> {
             template.text("build", concat(
                 holder,
                 " {\n        ",
-                join(separator: ",\n        ", pieces: snapshot(fields)),
+                join(separator: ",\n        ", pieces: fields),
                 "\n    }"
             ))
         ]))
@@ -783,7 +783,7 @@ fn holder_name(fn_name: string, kind: string) -> string {
     for part in split(concat(fn_name, "_", kind), "_") {
         push(out, capitalise(part))
     }
-    return join(separator: "", pieces: snapshot(out))
+    return join(separator: "", pieces: out)
 }
 
 fn concat_bindings(a: [Binding], b: [Binding]) -> [Binding] {
@@ -833,7 +833,7 @@ fn query_reader_fn(name: string, holds: string, bs: [Binding], scalar: bool) -> 
     val build = if scalar {
         bs[0].param
     } else {
-        concat(holds, " {\n        ", join(separator: ",\n        ", pieces: snapshot(fields)), "\n    }")
+        concat(holds, " {\n        ", join(separator: ",\n        ", pieces: fields), "\n    }")
     }
     return template.render(sheet, "query_reader_fn", [
         template.text("name", name),
@@ -856,7 +856,7 @@ fn form_reader_fn(name: string, holds: string, bs: [Binding], scalar: bool) -> R
     val build = if scalar {
         bs[0].param
     } else {
-        concat(holds, " {\n        ", join(separator: ",\n        ", pieces: snapshot(fields)), "\n    }")
+        concat(holds, " {\n        ", join(separator: ",\n        ", pieces: fields), "\n    }")
     }
     return template.render(sheet, "form_reader_fn", [
         template.text("name", name),
@@ -1044,12 +1044,12 @@ fn adapter(
     }
     return template.render(sheet, "adapter", [
         template.text("name", name),
-        template.text("params", join(separator: ", ", pieces: snapshot(params))),
+        template.text("params", join(separator: ", ", pieces: params)),
         template.text("returns", meta.type_text(f.returns)),
         template.flag("validated", Option.is_Some(validated)),
         template.text("violations", violations),
         template.text("body_param", body_param),
-        template.text("call", concat(f.name, "(", join(separator: ", ", pieces: snapshot(call_args)), ")"))
+        template.text("call", concat(f.name, "(", join(separator: ", ", pieces: call_args), ")"))
     ])
 }
 
@@ -1634,7 +1634,7 @@ fn flavour(
         push(parts, "redirect")
     }
     push(parts, "handler")
-    return join(separator: "_", pieces: snapshot(parts))
+    return join(separator: "_", pieces: parts)
 }
 
 // Whether this route answers a `rest.Redirect`, which is the one answer with no body to encode and
@@ -1695,7 +1695,7 @@ fn redirect_shape_text(secured: bool, w: Wiring) -> string {
     if w.has_form {
         push(said, "given a form")
     }
-    return join(separator: " and ", pieces: snapshot(said))
+    return join(separator: " and ", pieces: said)
 }
 
 // **`attachment:` wraps the handler rather than being passed to it.** `rest.as_attachment` takes a

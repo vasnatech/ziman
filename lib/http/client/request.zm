@@ -206,7 +206,7 @@ pub fn form_encode(fields: Map<string, string>) -> string {
     for name, value in fields {
         push(parts, format("{}={}", percent_encode(name, true), percent_encode(value, true)))
     }
-    return join(separator: "&", pieces: snapshot(parts))
+    return join(separator: "&", pieces: parts)
 }
 
 // POST an HTML-form-style body built from `fields` (`Content-Type: application/x-www-form-urlencoded`).

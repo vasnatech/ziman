@@ -1094,7 +1094,7 @@ fn qualified_columns(t: Table, columns: [string]) -> string {
     for name in columns {
         push(out, concat(t.name, ".", name))
     }
-    return join(separator: ", ", pieces: snapshot(out))
+    return join(separator: ", ", pieces: out)
 }
 
 // The index of a single-column `INTEGER PRIMARY KEY`, or -1.

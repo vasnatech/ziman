@@ -1246,7 +1246,7 @@ fn parse_column_tail(c: Cursor, name: string, type_name: string) -> Result<Colum
         unique: unique,
         default_value: default_value,
         constraints: snapshot(constraints),
-        extra: join(separator: " ", pieces: snapshot(extra))
+        extra: join(separator: " ", pieces: extra)
     })
 }
 
@@ -2543,7 +2543,7 @@ pub fn format(s: Statement) -> string {
             for ic in q.columns {
                 push(pieces, format_index_column(ic))
             }
-            append(out, q.name, " ON ", q.table, " (", join(separator: ", ", pieces: snapshot(pieces)), ")")
+            append(out, q.name, " ON ", q.table, " (", join(separator: ", ", pieces: pieces), ")")
             if Some(predicate) = q.predicate {
                 append(out, " WHERE ", format_expr(predicate))
             }

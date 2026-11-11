@@ -387,7 +387,7 @@ fn type_args_text(args: [meta.Type]) -> string {
     for a in args {
         push(out, meta.type_text(a))
     }
-    return concat("<", join(separator: ", ", pieces: snapshot(out)), ">")
+    return concat("<", join(separator: ", ", pieces: out), ">")
 }
 
 // A value to `Json`, recursively. The shapes are the sheet's; the recursion, the temporary
@@ -463,7 +463,7 @@ fn emit_to_json(t: meta.Type, src: string, dst: string, n: Mutable<int>) -> Resu
             return one(
                 dst,
                 concat(snake_case(named.name), "_to_json", type_args_text(named.args)),
-                concat(src, ", ", join(separator: ", ", pieces: snapshot(convs)))
+                concat(src, ", ", join(separator: ", ", pieces: convs))
             )
         }
         if contains(flat_names, meta.bare_name(named.name)) {
@@ -705,7 +705,7 @@ fn emit_from_json(
                 "(",
                 src,
                 ", ",
-                join(separator: ", ", pieces: snapshot(convs)),
+                join(separator: ", ", pieces: convs),
                 ")"
             ), ctx, n)
         }

@@ -204,7 +204,7 @@ fn wrong_shape(a: meta.Attr, f: meta.Field, shape: string) -> Result<unit, strin
         return err(prelude.format(
             "'#[{}]' needs {} and '{}' is {}",
             a.name,
-            join(separator: " or ", pieces: snapshot(words)),
+            join(separator: " or ", pieces: words),
             f.name,
             meta.type_text(f.type)
         ))

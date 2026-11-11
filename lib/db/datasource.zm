@@ -112,7 +112,7 @@ fn driver_for(reg: Registry, url: string) -> Result<Driver, DbError> {
     return err(DbError.Connection(format(
         "no registered driver handles '{}' (registered: {})",
         url,
-        join(separator: ", ", pieces: snapshot(names))
+        join(separator: ", ", pieces: names)
     )))
 }
 

@@ -185,7 +185,7 @@ pub fn announce(n: Node) -> string {
     if n.description != "" {
         push(parts, n.description)
     }
-    return join(separator: ", ", pieces: snapshot(parts))
+    return join(separator: ", ", pieces: parts)
 }
 
 // ------------------------------------------------------------------- the walk
@@ -298,7 +298,7 @@ fn name_from_text(l: Laid) -> string {
     for child in l.children {
         gather_text(child, parts)
     }
-    return trim(join(separator: " ", pieces: snapshot(parts)))
+    return trim(join(separator: " ", pieces: parts))
 }
 
 fn gather_text(l: Laid, out: MutableArray<string>) {

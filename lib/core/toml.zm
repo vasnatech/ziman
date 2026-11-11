@@ -1130,7 +1130,7 @@ fn path_text(path: [string]) -> string {
     for k in path {
         push(parts, key_text(k))
     }
-    return join(separator: ".", pieces: snapshot(parts))
+    return join(separator: ".", pieces: parts)
 }
 
 fn float_text(f: float) -> string {
@@ -1165,7 +1165,7 @@ fn inline_value(j: Json) -> Result<string, string> {
                 val text = try inline_value(item)
                 push(parts, text)
             }
-            ok(concat("[", join(separator: ", ", pieces: snapshot(parts)), "]"))
+            ok(concat("[", join(separator: ", ", pieces: parts), "]"))
         }
         JObject(fields) {
             val parts = mutable_array_new<string>()
@@ -1179,7 +1179,7 @@ fn inline_value(j: Json) -> Result<string, string> {
             if len(parts) == 0 {
                 ok("{}")
             } else {
-                ok(concat("{ ", join(separator: ", ", pieces: snapshot(parts)), " }"))
+                ok(concat("{ ", join(separator: ", ", pieces: parts), " }"))
             }
         }
     }

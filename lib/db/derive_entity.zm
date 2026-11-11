@@ -83,7 +83,7 @@ fn quoted(names: [string]) -> string {
     for n in names {
         push(out, concat("\"", n, "\""))
     }
-    return join(separator: ", ", pieces: snapshot(out))
+    return join(separator: ", ", pieces: out)
 }
 
 pub fn generate(d: meta.Decl) -> Result<string, string> {

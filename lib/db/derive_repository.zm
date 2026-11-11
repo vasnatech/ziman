@@ -164,7 +164,7 @@ fn key_pieces(entity: string, keys: [meta.Field]) -> Result<Keys, string> {
         block: concat(
             concat(pieces: snapshot(lines)),
             "    val keys: [SqlValue] = [",
-            join(separator: ", ", pieces: snapshot(names)),
+            join(separator: ", ", pieces: names),
             "]\n"
         )
     })
@@ -449,7 +449,7 @@ fn field_list(fields: [meta.Field]) -> string {
     for f in fields {
         push(names, f.name)
     }
-    return join(separator: ", ", pieces: snapshot(names))
+    return join(separator: ", ", pieces: names)
 }
 
 fn longest_column(fields: [meta.Field], text: string) -> Option<string> {
@@ -970,7 +970,7 @@ fn bindings_text(expected: [Expected]) -> Result<string, string> {
     }
     push(out, concat(
         "    val __bindings: [eql.Binding] = [",
-        join(separator: ", ", pieces: snapshot(binds)),
+        join(separator: ", ", pieces: binds),
         "]\n"
     ))
     return ok(concat(pieces: snapshot(out)))
@@ -1214,7 +1214,7 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
         template.text("snake", snake),
         template.text("sql", build_sql(entity, verb, shape)),
         template.text("fname", f.name),
-        template.text("params", join(separator: ", ", pieces: snapshot(params))),
+        template.text("params", join(separator: ", ", pieces: params)),
         template.text("returns", meta.type_text(f.returns)),
         template.text("bindings", without_newline(try bindings_text(expected))),
         template.text("tail", without_newline(try tail_text(t, shape, verb, rk, conn, val_name)))

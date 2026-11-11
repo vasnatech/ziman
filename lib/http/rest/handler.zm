@@ -66,7 +66,7 @@ fn consumed_types<I>(decoders: [codec.Decoder<I>]) -> string {
     for r in decoders {
         push(names, mime.essence(r.media))
     }
-    return join(separator: " or ", pieces: snapshot(names))
+    return join(separator: " or ", pieces: names)
 }
 
 fn produced_types<O>(encoders: [codec.Encoder<O>]) -> string {
@@ -74,7 +74,7 @@ fn produced_types<O>(encoders: [codec.Encoder<O>]) -> string {
     for w in encoders {
         push(names, mime.essence(w.media))
     }
-    return join(separator: ", ", pieces: snapshot(names))
+    return join(separator: ", ", pieces: names)
 }
 
 // The answer for `result`: written with `encoder` when there is one, or an empty body when the endpoint has no encoders

@@ -4075,7 +4075,7 @@ rather than written.
 
 A builtin can do better, which is why this declaration exists: it walks the builder's elements
 and returns a string, retaining nothing, so there is no copy at all.
-`join(separator: ", ", pieces: snapshot(parts))` was 67 sites in `lib/`, each paying for a copy
+`join(separator: ", ", pieces: parts)` was 67 sites in `lib/`, each paying for a copy
 to satisfy a signature.
 
 ### `split_once`

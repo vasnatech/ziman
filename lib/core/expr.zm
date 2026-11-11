@@ -623,7 +623,7 @@ fn key_list(fields: Map<string, Json>) -> string {
     for k, ignored in fields {
         push(names, k)
     }
-    return join(separator: ", ", pieces: snapshot(names))
+    return join(separator: ", ", pieces: names)
 }
 
 fn index(target: Json, key: Json) -> Result<Json, string> {

@@ -104,7 +104,7 @@ pub fn generate(d: meta.Decl) -> Result<string, string> {
     for one in d.args {
         push(written, concat(one.name, "=", one.value, ":", one.kind))
     }
-    push(out, concat("//   args=[", join(separator: ", ", pieces: snapshot(written)), "]\n"))
+    push(out, concat("//   args=[", join(separator: ", ", pieces: written), "]\n"))
     switch d.body {
         Struct(fields) {
             push(out, concat("//   struct, fields=", str(prelude.len(fields)), "\n"))
