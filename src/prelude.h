@@ -159,6 +159,7 @@ Value ziman_slice_mutable_array(Value b, int64_t start, int64_t end, int line, i
  * representation once it has an element to adopt it from. The pointer is valid until the builder is
  * next grown or snapshotted, so a caller uses it and returns -- it must not be kept. */
 double *ziman_mutable_array_float_data(Value ab, size_t *out_len);
+int64_t *ziman_mutable_array_int_data(Value ab, size_t *out_len);
 Value ziman_narrow_mutable_array(Value b, int64_t start, int64_t end, int line, int col);
 Value ziman_swap_mutable_array(Value b, int64_t i, int64_t j, int line, int col);
 Value ziman_concat_strings(const ArrayObj *pieces);

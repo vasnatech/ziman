@@ -29,6 +29,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "error.h"
 #include "native.h"
 #include "prelude.h"
 #include "value.h"
@@ -564,6 +565,142 @@ static Value native_raster_composite_row_image(Value *args, int argc, int line, 
     return value_unit();
 }
 
+/* raster.row_coverage_raw(row, width, edges, live, winding, samples, y, from_x, to_x, shift): one
+ * scanline's anti-aliased coverage, the whole of it.
+ *
+ * **The item F270 measured its way to.** Two Ziman-level attempts on this loop -- one removing a
+ * divide and three comparisons per crossing, one removing 1,600 builder allocations per fill --
+ * each measured at 1.00x over three interleaved passes. In a tree-walking interpreter the work here
+ * is not the arithmetic or the allocation, it is the per-operation overhead of doing anything at
+ * all a few million times, and the only way to remove that is to stop interpreting. Which is also
+ * why this takes the *whole* row rather than a piece of it: `crossings_at`, the insertion sort,
+ * `spans_from` and the `add_span` per span were four interpreted calls deep per sub-scanline, and
+ * splitting them differently would have left the dispatch in place.
+ *
+ * `edges` is four floats an edge (x0, y0, x1, y1) and `live` the indices of the edges this row can
+ * touch, rebuilt per row by `advance_active` and read in place here -- a copy per row would cost
+ * more than the walk. `winding` is 0 for non-zero and 1 for even-odd, because an enum does not
+ * cross.
+ *
+ * The crossings are insertion-sorted into a fixed buffer. A scanline crosses a handful of edges
+ * even on a complex path, so the cap is generous -- but it is **checked and raised as an error**,
+ * not clamped. The Ziman implementation this replaces built the crossing list in a growable array
+ * and so had no limit at all; dropping the crossings past the cap would silently draw a wrong
+ * shape, which is the one outcome worse than refusing, because no fixture and no reader would see
+ * it. A path that genuinely needs more wants this number raised, and the error says so by name. */
+#define ROW_MAX_CROSSINGS 1024
+
+static Value native_raster_row_coverage_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    size_t row_len = 0;
+    double *row = ziman_mutable_array_float_data(args[0], &row_len);
+    if (row == NULL) return value_unit();
+    int64_t width = args[1].as.i;
+    if (width > (int64_t)row_len) width = (int64_t)row_len;
+    if (width <= 0) return value_unit();
+
+    const ArrayObj *edge_arr = args[2].as.arr;
+    const double *edges = edge_arr == NULL ? NULL : edge_arr->floats;
+    int64_t edge_floats = edge_arr == NULL ? 0 : (int64_t)edge_arr->count;
+
+    size_t live_len = 0;
+    const int64_t *live = ziman_mutable_array_int_data(args[3], &live_len);
+
+    int64_t winding = args[4].as.i;
+    int64_t samples = args[5].as.i;
+    int64_t y = args[6].as.i;
+    int64_t from_x = args[7].as.i;
+    int64_t to_x = args[8].as.i;
+    int64_t shift = args[9].as.i;
+
+    /* The window the shape can touch, cleared exactly as `clear_range` does: every crossing comes
+     * from an edge and every edge lies within the list's own x extent, so no span can write
+     * outside it. */
+    if (from_x < 0) from_x = 0;
+    if (to_x > width - 1) to_x = width - 1;
+    for (int64_t i = from_x; i <= to_x; i++) row[i] = 0.0;
+
+    if (edges == NULL || live == NULL || samples <= 0) return value_unit();
+
+    const double weight = 1.0 / (double)samples;
+    double xs[ROW_MAX_CROSSINGS];
+    int dirs[ROW_MAX_CROSSINGS];
+
+    for (int64_t s = 0; s < samples; s++) {
+        const double sy = (double)y + ((double)s + 0.5) * weight;
+        int n = 0;
+        for (size_t at = 0; at < live_len; at++) {
+            const int64_t e = live[at] * 4;
+            if (e < 0 || e + 3 >= edge_floats) continue;
+            const double x0 = edges[e], y0 = edges[e + 1], x1 = edges[e + 2], y1 = edges[e + 3];
+            const double low = y0 < y1 ? y0 : y1;
+            const double high = y0 < y1 ? y1 : y0;
+            /* **Half-open on purpose: `low <= sy < high`.** It is what stops a vertex shared by
+             * two edges being counted twice, and getting it wrong produces a one-pixel seam along
+             * every shared boundary -- which looks like a rounding problem and is not one. This
+             * sentence was the doc comment of the Ziman `crossings_at` that this replaced; it is
+             * repeated here because the reasoning is the part a port loses, and because
+             * `tests/lang/graphics_text.zm` is the *only* fixture that catches `<` becoming `<=`
+             * (glyph outlines are the only contours here that meet on a scanline). */
+            if (!(sy >= low && sy < high)) continue;
+            const double x = x0 + (sy - y0) * (x1 - x0) / (y1 - y0);
+            const int dir = y1 > y0 ? 1 : -1;
+            if (n >= ROW_MAX_CROSSINGS) {
+                ziman_error("runtime", line, col,
+                            "raster.row_coverage_raw: more than %d edge crossings on one "
+                            "sub-scanline (y=%lld); raise ROW_MAX_CROSSINGS in src/native_raster.c",
+                            ROW_MAX_CROSSINGS, (long long)y);
+            }
+            /* Insertion sort, keeping the two arrays parallel -- as the Ziman original did, and for
+             * the same reason: a handful of crossings beats a comparator over a struct. */
+            int k = n;
+            while (k > 0 && xs[k - 1] > x) {
+                xs[k] = xs[k - 1];
+                dirs[k] = dirs[k - 1];
+                k--;
+            }
+            xs[k] = x;
+            dirs[k] = dir;
+            n++;
+        }
+
+        /* Both winding rules out of the one crossing list, which is why they are together: they
+         * differ only in the predicate that opens and closes a span. */
+        int inside = 0;
+        double start = 0.0;
+        for (int i = 0; i < n; i++) {
+            const int was_inside = winding == 0 ? (inside != 0) : (inside % 2 != 0);
+            inside = winding == 0 ? inside + dirs[i] : inside + 1;
+            const int now_inside = winding == 0 ? (inside != 0) : (inside % 2 != 0);
+            if (!was_inside && now_inside) {
+                start = xs[i];
+            } else if (was_inside && !now_inside) {
+                /* `add_span`'s body, inlined: it was a native call per span, and a span is the unit
+                 * this loop produces most of. */
+                double xa = start - (double)shift;
+                double xb = xs[i] - (double)shift;
+                if (xa < 0.0) xa = 0.0;
+                if (xb > (double)width) xb = (double)width;
+                if (xb <= xa) continue;
+                int64_t ia = (int64_t)floor(xa);
+                int64_t ib = (int64_t)floor(xb);
+                if (ia < 0) ia = 0;
+                if (ia > width - 1) ia = width - 1;
+                if (ib < 0) ib = 0;
+                if (ib > width - 1) ib = width - 1;
+                if (ia == ib) {
+                    row[ia] += (xb - xa) * weight;
+                    continue;
+                }
+                row[ia] += ((double)(ia + 1) - xa) * weight;
+                for (int64_t k = ia + 1; k < ib; k++) row[k] += weight;
+                row[ib] += (xb - (double)ib) * weight;
+            }
+        }
+    }
+    return value_unit();
+}
+
 void native_raster_register(void) {
     native_register("raster::clear_premul", native_raster_clear_premul);
     native_register("raster::to_bytes_premul", native_raster_to_bytes_premul);
@@ -571,6 +708,7 @@ void native_raster_register(void) {
     native_register("raster::composite_span_flat", native_raster_composite_span_flat);
     native_register("raster::clear_range", native_raster_clear_range);
     native_register("raster::add_span", native_raster_add_span);
+    native_register("raster::row_coverage_raw", native_raster_row_coverage_raw);
     native_register("raster::composite_row_gradient", native_raster_composite_row_gradient);
     native_register("raster::composite_row_image", native_raster_composite_row_image);
 }

@@ -470,6 +470,31 @@ native fn clear_range(row: MutableArray<float>, from_x: int, to_x: int)
 
 native fn add_span(row: MutableArray<float>, width: int, from: float, to: float, weight: float)
 
+// One scanline's coverage, the whole of it: the crossings, their order, the winding rule and every
+// span, in C.
+//
+// **The item F270 measured its way to rather than guessed at.** Two attempts at this loop in Ziman
+// -- one removing a divide and three comparisons per crossing, one removing 1,600 builder
+// allocations per fill -- each measured 1.00x over three interleaved passes. The cost here is not
+// the arithmetic or the allocation, it is the per-operation overhead of doing anything a few
+// million times, and the only way to remove that is to stop interpreting.
+//
+// Takes the *whole* row for the same reason: `crossings_at`, the insertion sort, `spans_from` and
+// an `add_span` per span were four interpreted calls deep per sub-scanline, and a narrower boundary
+// would have left the dispatch in place. `winding` crosses as an int because an enum does not.
+native fn row_coverage_raw(
+    row: MutableArray<float>,
+    width: int,
+    edges: [float],
+    live: MutableArray<int>,
+    winding: int,
+    samples: int,
+    y: int,
+    from_x: int,
+    to_x: int,
+    shift: int
+)
+
 native fn composite_span_flat(
     data: MutableArray<float>,
     cover: [float],
@@ -1163,99 +1188,46 @@ fn row_coverage_at(
     to_x: int,
     shift: int
 ) {
-    // Only the window the shape can touch is cleared. Every crossing comes from an edge, and every
-    // edge lies within `[min_x, max_x]`, so no span can write outside it.
-    clear_range(row, from_x, to_x)
-    val weight = 1.0 / (samples as float)
-    val xs = mutable_array_new<float>()
-    val dirs = mutable_array_new<int>()
-    var s = 0
-    while s < samples {
-        val sy = (y as float) + ((s as float) + 0.5) * weight
-        clear(xs)
-        clear(dirs)
-        crossings_at(e, live, sy, xs, dirs)
-        spans_from(xs, dirs, winding, row, width, weight, shift)
-        s = s + 1
-    }
+    // **The whole row in one native**, including the window clear: see `row_coverage_raw` for why
+    // the boundary is here and not narrower.
+    //
+    // **The Ziman implementation of this loop is gone, and that is a real loss worth naming.**
+    // Every earlier instalment of F270 could be checked against a slow correct version of the same
+    // thing; from here the oracle is a fixture oracle. Keeping the Ziman version would have meant
+    // dead code no test could reach, since it and the two functions only it called are private and
+    // a fixture can only see `pub`.
+    //
+    // So the oracle was measured rather than assumed, by breaking the native eight ways and seeing
+    // which fixture noticed. **Three fixtures do all the work** -- `graphics_raster.zm`,
+    // `graphics_stroke.zm`, `graphics_text.zm` -- and two of the eight were caught by exactly one
+    // fixture each, which is the part worth knowing before deleting a case that looks redundant:
+    //
+    //   - the even-odd predicate, by `graphics_raster` alone;
+    //   - the half-open `sy < high` becoming `<=` -- the shared-vertex rule -- by `graphics_text`
+    //     alone, because only glyph outlines here have contours that meet at a scanline.
+    //
+    // The other six (sample centre, the first and last partial pixel, edge direction, the crossing
+    // sort, and the window clear) were each caught by three or four. `graphics_pdf`,
+    // `graphics_geometry` and `graphics_image` were byte-identical across the port but caught none
+    // of the eight, so they are not the gate here whatever their names suggest.
+    row_coverage_raw(
+        row,
+        width,
+        e.xy,
+        live,
+        winding_code(winding),
+        samples,
+        y,
+        from_x,
+        to_x,
+        shift
+    )
 }
 
-// Where the edge list crosses one horizontal line, inserted in x order as they are found.
-//
-// The half-open rule -- `y0 <= sy < y1` -- is what stops a vertex shared by two edges being counted
-// twice. Getting it wrong produces a one-pixel seam along every shared boundary, which looks like a
-// rounding problem and is not one.
-fn crossings_at(
-    e: Edges,
-    live: MutableArray<int>,
-    sy: float,
-    xs: MutableArray<float>,
-    dirs: MutableArray<int>
-) {
-    var at = 0
-    while at < len(live) {
-        val i = live[at] * 4
-        val x0 = e.xy[i]
-        val y0 = e.xy[i + 1]
-        val x1 = e.xy[i + 2]
-        val y1 = e.xy[i + 3]
-        val low = if y0 < y1 { y0 } else { y1 }
-        val high = if y0 < y1 { y1 } else { y0 }
-        if sy >= low && sy < high {
-            val x = x0 + (sy - y0) * (x1 - x0) / (y1 - y0)
-            val dir = if y1 > y0 { 1 } else { 0 - 1 }
-            // Insertion sort: a scanline crosses a handful of edges even on a complex path, and
-            // this keeps the two arrays parallel without a comparator over a struct.
-            var at = len(xs)
-            push(xs, x)
-            push(dirs, dir)
-            while at > 0 && xs[at - 1] > x {
-                xs[at] = xs[at - 1]
-                dirs[at] = dirs[at - 1]
-                xs[at - 1] = x
-                dirs[at - 1] = dir
-                at = at - 1
-            }
-        }
-        at = at + 1
-    }
-}
-
-// **Both winding rules out of the same crossing list**, which is the whole reason to keep them
-// together: they differ only in the predicate that decides where a span opens and closes. Writing
-// one and adding the other later would mean rewriting this loop.
-fn spans_from(
-    xs: MutableArray<float>,
-    dirs: MutableArray<int>,
-    winding: Winding,
-    row: MutableArray<float>,
-    width: int,
-    weight: float,
-    shift: int
-) {
-    val n = len(xs)
-    var inside = 0
-    var start = 0.0
-    var i = 0
-    while i < n {
-        val was_inside = switch winding {
-            NonZero { inside != 0 }
-            EvenOdd { inside % 2 != 0 }
-        }
-        inside = switch winding {
-            NonZero { inside + dirs[i] }
-            EvenOdd { inside + 1 }
-        }
-        val now_inside = switch winding {
-            NonZero { inside != 0 }
-            EvenOdd { inside % 2 != 0 }
-        }
-        if !was_inside && now_inside {
-            start = xs[i]
-        } else if was_inside && !now_inside {
-            add_span(row, width, start - (shift as float), xs[i] - (shift as float), weight)
-        }
-        i = i + 1
+fn winding_code(w: Winding) -> int {
+    return switch w {
+        NonZero { 0 }
+        EvenOdd { 1 }
     }
 }
 

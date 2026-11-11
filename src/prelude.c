@@ -1284,6 +1284,24 @@ double *ziman_mutable_array_float_data(Value ab, size_t *out_len) {
     return (double *)buf->pdata;
 }
 
+/* A `MutableArray<int>`'s packed buffer, as `ziman_mutable_array_float_data` gives a
+ * `MutableArray<float>`'s -- and added for the same reason F270 added that one: so a native can
+ * read a builder in place rather than take a copy. The edge walk's live-edge list is rebuilt per
+ * row by `advance_active` and read per sub-scanline, so a copy per row would cost more than the
+ * walk it feeds.
+ *
+ * NULL with a zero length for an empty builder or one packed as something else, so a caller tests
+ * the pointer rather than trusting the type. */
+int64_t *ziman_mutable_array_int_data(Value ab, size_t *out_len) {
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(ab));
+    if (buf->pkind != PK_INT || buf->pdata == NULL || buf->length == 0) {
+        *out_len = 0;
+        return NULL;
+    }
+    *out_len = buf->length;
+    return (int64_t *)buf->pdata;
+}
+
 static void mutable_array_ensure_capacity(MutableArrayBuf *buf, size_t additional) {
     size_t needed = buf->length + additional;
     if (needed <= buf->capacity) {
