@@ -283,6 +283,98 @@ pub fn expand_of(weight: float, child: Widget) -> Widget
 pub fn expand(child: Widget) -> Widget
 ```
 
+## The unit
+
+### `Density`
+
+```
+pub struct Density {
+    px_per_pt: float
+}
+```
+
+How many device pixels one point is.
+
+**Every length in this layer is a point, and `float` is all a point is.** A distinct type is what
+the argument wants -- mixing points and pixels would then be a compile error rather than a
+convention -- and this language will not have it: `Pt + Pt` is a type error with no way to define
+one, and a box model is nothing but arithmetic, so the strong version would turn every layout
+line into `pt_add(pt_mul(x, 2.0), y)`. The convention is enforced at the two edges instead, which
+is this type: points go out through `raster.Options.px_per_pt`, and pixels come in through
+`to_pt` below.
+
+### `Source`
+
+```
+pub enum Source {
+    UserSetting
+    Display
+    Default
+}
+```
+
+Which of the three inputs decided a density.
+
+Reported rather than discarded **so that a setting being ignored is visible**. A caller who passed
+a user setting and reads back `Display` knows their number was out of range; without this the only
+symptom is a UI that is the wrong size for a reason nothing explains.
+
+### `Resolved`
+
+```
+pub struct Resolved {
+    density: Density
+    from: Source
+}
+```
+
+### `resolve_density`
+
+```
+pub fn resolve_density(user: Option<float>, display: Option<float>) -> Resolved
+```
+
+A user's setting, what the display reports, or 1.0 -- in that order.
+
+**The user wins, because they are the one looking at it.** A display's reported density is a guess
+about a person's eyes and desk from the number of pixels on a panel; it is right often enough to
+be the default and wrong often enough that overriding it must always be possible. `None` for the
+user is the normal case, not an error.
+
+A value outside `(0, 64]` is treated as absent rather than refused, so a mistyped setting leaves a
+usable UI instead of no UI -- and `Resolved.from` is what tells the caller it was dropped.
+
+### `density_of`
+
+```
+pub fn density_of(px_per_pt: float) -> Density
+```
+
+### `to_px`
+
+```
+pub fn to_px(d: Density, pt: float) -> float
+```
+
+Points to pixels, for handing a size to something that counts pixels.
+
+### `to_pt`
+
+```
+pub fn to_pt(d: Density, px: float) -> float
+```
+
+Pixels to points, which is **the one conversion the input path needs**: a pointer position arrives
+from the window system in pixels and every function in this layer expects points.
+
+### `point_in_pt`
+
+```
+pub fn point_in_pt(d: Density, x: float, y: float) -> Point
+```
+
+A pointer position in points, which is what `focus` and `controls` take.
+
 ### `Viewport`
 
 ```

@@ -2604,6 +2604,8 @@ pub struct Window {
     handle: int
 }
 
+pub fn display_scale() -> Option<float>
+
 pub fn with_window<T>(
 
 pub fn present(w: Window, pixels: [byte], width: int, height: int) -> Result<unit, string>

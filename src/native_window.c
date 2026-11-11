@@ -526,6 +526,51 @@ static Value native_window_close_raw(Value *args, int argc, int line, int col) {
     return value_unit();
 }
 
+/* window.display_scale_raw() -> float: how many pixels the display says a point is, or **0.0 when it
+ * will not say**, which the Ziman half turns into `None`.
+ *
+ * A sentinel rather than an Option because a native returning one is more machinery than this
+ * deserves, and 0.0 is not a ratio any display could mean. The public `window.display_scale` hands
+ * back an `Option<float>`, so the sentinel never leaves this file.
+ *
+ * **Read from `Xft.dpi` in the X resource database, over 96.** That is the number every X toolkit
+ * has agreed to look at for thirty years -- GTK, Qt and Xft itself -- and 96 is the nominal density
+ * it is quoted against, so `Xft.dpi: 144` is a ratio of 1.5. It is not read from `GDK_SCALE` or
+ * `QT_SCALE_FACTOR`: those belong to other toolkits and reading another toolkit's setting is how a
+ * program ends up scaled differently from everything else on the desktop for reasons nobody can
+ * find.
+ *
+ * **What this cannot tell you**, written down because the gap is not visible from the answer: the
+ * resource database is per *display*, not per monitor, so a laptop beside a HiDPI screen reports one
+ * number for both, and a window dragged between them does not change it. Per-monitor density needs
+ * RandR and the window's position, which is a larger piece of work and a different function.
+ *
+ * Opens the display if nothing has yet, because the resource database is a property of the
+ * connection -- so this costs a connection on a machine that has one, and answers 0.0 on one that
+ * does not. */
+static Value native_window_display_scale_raw(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+#ifndef ZIMAN_X11
+    return value_float(0.0);
+#else
+    if (ensure_display() != NULL) return value_float(0.0);
+    char *db = XResourceManagerString(g_display);
+    if (db == NULL) return value_float(0.0);
+    const char *key = "Xft.dpi:";
+    const char *at = strstr(db, key);
+    if (at == NULL) return value_float(0.0);
+    at += strlen(key);
+    while (*at == ' ' || *at == '\t') at++;
+    char *end = NULL;
+    double dpi = strtod(at, &end);
+    /* A ratio outside this range is a misconfigured database rather than a display anyone has: the
+     * Ziman half would refuse it anyway, and answering 0.0 lets the caller fall through to its own
+     * default instead of to an error. */
+    if (end == at || dpi < 24.0 || dpi > 1536.0) return value_float(0.0);
+    return value_float(dpi / 96.0);
+#endif
+}
+
 void native_window_register(void) {
     native_register("window::open_raw", native_window_open_raw);
     native_register("window::present_raw", native_window_present_raw);
@@ -533,4 +578,5 @@ void native_window_register(void) {
     native_register("window::size_raw", native_window_size_raw);
     native_register("window::id_raw", native_window_id_raw);
     native_register("window::close_raw", native_window_close_raw);
+    native_register("window::display_scale_raw", native_window_display_scale_raw);
 }

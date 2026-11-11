@@ -210,6 +210,26 @@ pub struct Window {
 
 A window, which is only a handle: the pixels and the connection live in C.
 
+### `display_scale`
+
+```
+pub fn display_scale() -> Option<float>
+```
+
+How many pixels the display says a point is, or `None` when it will not say.
+
+**One of the three inputs to that ratio, not the answer**: a user's own setting outranks it, and
+1.0 is the fallback when neither speaks. The arbitration is `widget.resolve_density`, which is
+pure and knows nothing about X11; this is only the part that has to ask the platform.
+
+Read from `Xft.dpi` over 96, the number every X toolkit has looked at for thirty years. `None`
+covers three cases a caller treats identically -- no display, no such setting, and a build with
+no window backend -- because in all three the answer is "fall through to the next input".
+
+**Per display, not per monitor.** A laptop beside a HiDPI screen reports one number for both, and
+a window dragged between them does not change it. Per-monitor density needs RandR and the
+window's position, and is a different function that does not exist yet.
+
 ### `with_window`
 
 ```

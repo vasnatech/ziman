@@ -101,6 +101,7 @@ native fn poll_raw(handle: int) -> Result<[int], string>
 native fn size_raw(handle: int) -> Result<[int], string>
 native fn id_raw(handle: int) -> Result<int, string>
 native fn close_raw(handle: int)
+native fn display_scale_raw() -> float
 
 // Five ints per event, matching src/native_window.c's EVENT_FIELDS.
 val fields_per_event = 5
@@ -123,6 +124,27 @@ val mod_shift = 1
 val mod_control = 4
 val mod_alt = 8
 val mod_meta = 64
+
+// How many pixels the display says a point is, or `None` when it will not say.
+//
+// **One of the three inputs to that ratio, not the answer**: a user's own setting outranks it, and
+// 1.0 is the fallback when neither speaks. The arbitration is `widget.resolve_density`, which is
+// pure and knows nothing about X11; this is only the part that has to ask the platform.
+//
+// Read from `Xft.dpi` over 96, the number every X toolkit has looked at for thirty years. `None`
+// covers three cases a caller treats identically -- no display, no such setting, and a build with
+// no window backend -- because in all three the answer is "fall through to the next input".
+//
+// **Per display, not per monitor.** A laptop beside a HiDPI screen reports one number for both, and
+// a window dragged between them does not change it. Per-monitor density needs RandR and the
+// window's position, and is a different function that does not exist yet.
+pub fn display_scale() -> Option<float> {
+    val reported = display_scale_raw()
+    if reported <= 0.0 {
+        return Option<float>.None
+    }
+    return Option<float>.Some(reported)
+}
 
 // **Opens a window, runs `body`, and closes it however `body` ends** -- answers, fails, or dies.
 //

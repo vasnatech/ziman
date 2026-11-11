@@ -444,3 +444,78 @@ fn is_clipped(op: scene.Op) -> bool {
         DrawImage(_) { false }
     }
 }
+
+// --- the density, and which input wins
+
+fn source_name(r: widget.Resolved) -> string {
+    return switch r.from {
+        UserSetting { "user" }
+        Display { "display" }
+        Default { "default" }
+    }
+}
+
+// **The user wins, because they are the one looking at it.** A display's reported density is a
+// guess about a person's eyes and desk from the number of pixels on a panel: right often enough to
+// be the default, wrong often enough that overriding it has to be possible.
+#[test]
+fn a_user_setting_outranks_the_display() {
+    val r = widget.resolve_density(Option<float>.Some(1.25), Option<float>.Some(2.0))
+    test.assert_eq(r.density.px_per_pt, 1.25)
+    test.assert_eq(source_name(r), "user")
+}
+
+#[test]
+fn the_display_decides_when_the_user_has_not() {
+    val r = widget.resolve_density(Option<float>.None, Option<float>.Some(1.5))
+    test.assert_eq(r.density.px_per_pt, 1.5)
+    test.assert_eq(source_name(r), "display")
+}
+
+#[test]
+fn a_point_is_a_pixel_when_nothing_says_otherwise() {
+    val r = widget.resolve_density(Option<float>.None, Option<float>.None)
+    test.assert_eq(r.density.px_per_pt, 1.0)
+    test.assert_eq(source_name(r), "default")
+}
+
+// **A mistyped setting is dropped rather than refused**, so the UI still renders -- and `from` is
+// what makes the dropping visible. Without it the only symptom is a window of the wrong size for a
+// reason nothing explains.
+#[test]
+fn a_nonsense_setting_falls_through_and_says_so() {
+    val zero = widget.resolve_density(Option<float>.Some(0.0), Option<float>.Some(2.0))
+    test.assert_eq(zero.density.px_per_pt, 2.0)
+    test.assert_eq(source_name(zero), "display")
+
+    val enormous = widget.resolve_density(Option<float>.Some(500.0), Option<float>.None)
+    test.assert_eq(enormous.density.px_per_pt, 1.0)
+    test.assert_eq(source_name(enormous), "default")
+
+    val negative = widget.resolve_density(Option<float>.Some(0.0 - 2.0), Option<float>.Some(0.0))
+    test.assert_eq(negative.density.px_per_pt, 1.0)
+    test.assert_eq(source_name(negative), "default")
+}
+
+// **Whatever this answers, the renderer must accept**, which is why the bound here is the bound
+// `raster` refuses at. A resolver that could produce a density the renderer rejects would turn a
+// bad setting into a failed render instead of a fallback.
+#[test]
+fn a_resolved_density_is_always_one_the_renderer_takes() {
+    val widest = widget.resolve_density(Option<float>.Some(64.0), Option<float>.None)
+    test.assert_eq(widest.density.px_per_pt, 64.0)
+    test.assert_eq(source_name(widest), "user")
+    val past = widget.resolve_density(Option<float>.Some(64.1), Option<float>.None)
+    test.assert_eq(source_name(past), "default")
+}
+
+// The two edges: a size goes out in pixels, a pointer comes in as points.
+#[test]
+fn the_two_conversions_are_inverses() {
+    val d = widget.density_of(1.5)
+    test.assert_eq(widget.to_px(d, 100.0), 150.0)
+    test.assert_eq(widget.to_pt(d, 150.0), 100.0)
+    val p = widget.point_in_pt(d, 30.0, 60.0)
+    test.assert_eq(p.x, 20.0)
+    test.assert_eq(p.y, 40.0)
+}
