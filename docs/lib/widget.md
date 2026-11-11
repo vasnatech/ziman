@@ -283,6 +283,68 @@ pub fn expand_of(weight: float, child: Widget) -> Widget
 pub fn expand(child: Widget) -> Widget
 ```
 
+### `Viewport`
+
+```
+pub struct Viewport {
+    offset_x: float
+    offset_y: float
+    child: Widget
+    name: string
+}
+```
+
+A window onto a child larger than itself.
+
+**A viewport has no natural size, and that is the whole point of it.** `measure` answers nothing
+for one, so a viewport must be given its size by a `Sized` or an `Expand` around it. Answering
+the child's size instead would make a viewport in a column exactly as tall as its content, which
+is a viewport that can never scroll -- a bug that looks right in a screenshot and is invisible in
+a layout test that only checks the content fits. Nothing appearing at all is the better failure.
+
+`offset` is how far the content has moved, in content units, **positive meaning the content has
+gone up and left**: a scrollbar at the top reads zero. The child is laid out at its natural size
+in that direction and the viewport's size across, so a column of rows scrolls vertically and a
+wide row scrolls sideways, from the same structure.
+
+### `scroll_of`
+
+```
+pub fn scroll_of(offset_y: float, child: Widget) -> Widget
+```
+
+### `named_scroll`
+
+```
+pub fn named_scroll(name: string, offset_x: float, offset_y: float, child: Widget) -> Widget
+```
+
+### `scroll_to_reveal`
+
+```
+pub fn scroll_to_reveal(view_extent: float, offset: float, target_start: float, target_extent: float) -> float
+```
+
+The offset that brings a target into view, given the one in force now.
+
+**Scrolls by the least that works, and does nothing when the target is already visible**, which
+is what makes arrowing through a list feel like a list rather than a slideshow: the selection
+walks to the bottom edge and then the content creeps by one row at a time. Re-centring on every
+move is the common alternative and it makes the whole page jump under a user who moved one step.
+
+A target taller than the view is aligned to its start, because showing its top is more useful
+than showing its middle and there is no offset that shows all of it.
+
+### `clamp_offset`
+
+```
+pub fn clamp_offset(offset: float, view_extent: float, content_extent: float) -> float
+```
+
+What `offset` may be, so a caller cannot scroll past either end: never below zero, and never
+further than the content's overhang. A content smaller than its view clamps to zero, which is why
+this is a `max` of zero and not just a `min`.
+
 ## Semantics
 
 ### `Role`
@@ -467,6 +529,9 @@ pub enum Widget {
     // A subtree that can take keyboard focus -- see `Focusable`. Transparent to layout: it
     // occupies exactly what its child does.
     Control(Focusable)
+    // A window onto a child larger than itself -- see `Viewport`. **Not transparent to layout**,
+    // which is what separates it from every other wrapper here.
+    Scroll(Viewport)
 }
 ```
 

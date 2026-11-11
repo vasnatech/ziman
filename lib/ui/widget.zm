@@ -163,6 +163,73 @@ pub fn expand(child: Widget) -> Widget {
     return Widget.Expand(Expanded { weight: 1.0, child: child })
 }
 
+// A window onto a child larger than itself.
+//
+// **A viewport has no natural size, and that is the whole point of it.** `measure` answers nothing
+// for one, so a viewport must be given its size by a `Sized` or an `Expand` around it. Answering
+// the child's size instead would make a viewport in a column exactly as tall as its content, which
+// is a viewport that can never scroll -- a bug that looks right in a screenshot and is invisible in
+// a layout test that only checks the content fits. Nothing appearing at all is the better failure.
+//
+// `offset` is how far the content has moved, in content units, **positive meaning the content has
+// gone up and left**: a scrollbar at the top reads zero. The child is laid out at its natural size
+// in that direction and the viewport's size across, so a column of rows scrolls vertically and a
+// wide row scrolls sideways, from the same structure.
+pub struct Viewport {
+    offset_x: float
+    offset_y: float
+    child: Widget
+    name: string
+}
+
+pub fn scroll_of(offset_y: float, child: Widget) -> Widget {
+    return Widget.Scroll(Viewport { offset_x: 0.0, offset_y: offset_y, child: child, name: "" })
+}
+
+pub fn named_scroll(name: string, offset_x: float, offset_y: float, child: Widget) -> Widget {
+    return Widget.Scroll(Viewport { offset_x: offset_x, offset_y: offset_y, child: child, name: name })
+}
+
+// The offset that brings a target into view, given the one in force now.
+//
+// **Scrolls by the least that works, and does nothing when the target is already visible**, which
+// is what makes arrowing through a list feel like a list rather than a slideshow: the selection
+// walks to the bottom edge and then the content creeps by one row at a time. Re-centring on every
+// move is the common alternative and it makes the whole page jump under a user who moved one step.
+//
+// A target taller than the view is aligned to its start, because showing its top is more useful
+// than showing its middle and there is no offset that shows all of it.
+pub fn scroll_to_reveal(view_extent: float, offset: float, target_start: float, target_extent: float) -> float {
+    if target_extent >= view_extent {
+        return target_start
+    }
+    if target_start < offset {
+        return target_start
+    }
+    val target_end = target_start + target_extent
+    if target_end > offset + view_extent {
+        return target_end - view_extent
+    }
+    return offset
+}
+
+// What `offset` may be, so a caller cannot scroll past either end: never below zero, and never
+// further than the content's overhang. A content smaller than its view clamps to zero, which is why
+// this is a `max` of zero and not just a `min`.
+pub fn clamp_offset(offset: float, view_extent: float, content_extent: float) -> float {
+    val most = content_extent - view_extent
+    if most <= 0.0 {
+        return 0.0
+    }
+    if offset < 0.0 {
+        return 0.0
+    }
+    if offset > most {
+        return most
+    }
+    return offset
+}
+
 // ------------------------------------------------------------------- semantics
 
 // What kind of control this is -- the first thing a screen reader says, before the name: "button,
@@ -342,6 +409,9 @@ pub enum Widget {
     // A subtree that can take keyboard focus -- see `Focusable`. Transparent to layout: it
     // occupies exactly what its child does.
     Control(Focusable)
+    // A window onto a child larger than itself -- see `Viewport`. **Not transparent to layout**,
+    // which is what separates it from every other wrapper here.
+    Scroll(Viewport)
 }
 
 pub fn flex() -> Widget {
@@ -410,6 +480,8 @@ pub fn measure(w: Widget, m: Metrics) -> Size {
         // parent distributes along is replaced by the share it is given.
         Expand(it) { measure(it.child, m) }
         Control(it) { measure(it.child, m) }
+        // Nothing, deliberately -- see `Viewport`. A viewport takes the size it is given.
+        Scroll(_) { size_of(0.0, 0.0) }
     }
 }
 
@@ -514,6 +586,28 @@ fn place(w: Widget, within: Rect, m: Metrics, path: string, parent_name: string)
                 children: [place(it.child, within, m, join_path(path, 0), name)]
             }
         }
+        Scroll(it) {
+            // **The content is laid out larger than the viewport and shifted by the offset**, so
+            // every bound inside it is already in the same coordinates as everything else on the
+            // screen. That is what lets hit testing, focus and the accessibility tree keep working
+            // through a viewport without any of them knowing one is there: a row scrolled out of
+            // sight has bounds outside the viewport's, and `at` rejects the viewport before it ever
+            // looks at the row.
+            val natural = measure(it.child, m)
+            val content = geom.rect_of(
+                within.x - it.offset_x,
+                within.y - it.offset_y,
+                if natural.width > within.width { natural.width } else { within.width },
+                if natural.height > within.height { natural.height } else { within.height }
+            )
+            Laid {
+                bounds: within,
+                path: path,
+                name: name,
+                widget: w,
+                children: [place(it.child, content, m, join_path(path, 0), name)]
+            }
+        }
         Nothing { leaf(w, within, path, name) }
         Text(_) { leaf(w, within, path, name) }
         Flex(_) { leaf(w, within, path, name) }
@@ -587,6 +681,7 @@ fn flex_weight(w: Widget) -> Option<float> {
         Flex(weight) { Option<float>.Some(weight) }
         Expand(it) { Option<float>.Some(it.weight) }
         Control(_) { Option<float>.None }
+        Scroll(_) { Option<float>.None }
         Nothing { Option<float>.None }
         Text(_) { Option<float>.None }
         Group(_) { Option<float>.None }
@@ -614,6 +709,7 @@ fn name_of(w: Widget) -> string {
         Flex(_) { "" }
         Expand(_) { "" }
         Control(it) { it.name }
+        Scroll(it) { it.name }
         Text(it) { it.name }
         Group(it) { it.name }
         Sized(it) { it.name }
@@ -652,6 +748,7 @@ pub fn contains(r: Rect, p: Point) -> bool {
 pub fn is_control(l: Laid) -> bool {
     return switch l.widget {
         Control(_) { true }
+        Scroll(_) { false }
         Nothing { false }
         Text(_) { false }
         Group(_) { false }
@@ -703,6 +800,20 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>) {
                 Paint.Solid(it.colour)
             )
         )
+    }
+    // **The clip, and the one place a new `Widget` case was not forced on me.** The seven switches
+    // over `Widget` all failed to compile until this case was handled, which is the argument for
+    // exhaustiveness paying for itself -- but `collect` tests its cases with `if` rather than a
+    // switch, so a viewport that painted nothing special would have compiled and drawn its content
+    // straight through the window with no clip at all. Written down because the next case added
+    // here will have the same hole.
+    if Scroll(_) = l.widget {
+        val inner = mutable_array_new<Op>()
+        for child in l.children {
+            collect(child, m, inner)
+        }
+        push(ops, scene.clipped(shape.rect_path(l.bounds), snapshot(inner)))
+        return
     }
     for child in l.children {
         collect(child, m, ops)

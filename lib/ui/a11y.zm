@@ -316,6 +316,11 @@ fn path_key(path: string) -> string {
 fn focusable_in(l: Laid) -> Option<widget.Focusable> {
     return switch l.widget {
         Control(f) { Option<widget.Focusable>.Some(f) }
+        // A viewport is not a control: it scrolls, and what a reader navigates to are the things
+        // inside it. **Its children stay in the tree even when they are scrolled out of sight**,
+        // which is right -- a reader reaches a row by name and the application scrolls to it, the
+        // same way Tab reaches a control the window is not showing.
+        Scroll(_) { Option<widget.Focusable>.None }
         Nothing { Option<widget.Focusable>.None }
         Text(_) { Option<widget.Focusable>.None }
         Group(_) { Option<widget.Focusable>.None }
@@ -328,6 +333,7 @@ fn focusable_in(l: Laid) -> Option<widget.Focusable> {
 fn text_of(l: Laid) -> string {
     return switch l.widget {
         Text(label) { label.text }
+        Scroll(_) { "" }
         Nothing { "" }
         Group(_) { "" }
         Sized(_) { "" }

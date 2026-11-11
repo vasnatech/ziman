@@ -314,3 +314,133 @@ fn a_container_without_a_background_paints_nothing_itself() {
     val ops = widget.paint_ops(laid(widget.row_of(0.0, [a_label("hi")]), 100.0, 20.0), fake_metrics())
     test.assert_len(1, ops)
 }
+
+// --- the scroll viewport
+
+use focus
+
+// Four rows of 50, inside a viewport 50 tall: one row visible at a time.
+fn rows() -> widget.Widget {
+    return widget.column_of(
+        0.0,
+        [
+            widget.focusable_of("r0", box(80.0, 50.0)),
+            widget.focusable_of("r1", box(80.0, 50.0)),
+            widget.focusable_of("r2", box(80.0, 50.0)),
+            widget.focusable_of("r3", box(80.0, 50.0))
+        ]
+    )
+}
+
+fn scrolled(offset: float) -> widget.Laid {
+    return widget.layout(
+        widget.scroll_of(offset, rows()),
+        geom.rect_of(0.0, 0.0, 80.0, 50.0),
+        fake_metrics()
+    )
+}
+
+// **A viewport measures nothing**, so it must be given its size. Answering the content's size
+// instead would make a viewport in a column exactly as tall as its content, and a viewport that
+// cannot scroll looks right in every screenshot.
+#[test]
+fn a_viewport_has_no_natural_size() {
+    val size = widget.measure(widget.scroll_of(0.0, rows()), fake_metrics())
+    test.assert_eq(size.width, 0.0)
+    test.assert_eq(size.height, 0.0)
+}
+
+// The content is laid out at its full height and shifted up by the offset, so every box inside it
+// is in the same coordinates as everything else on screen.
+#[test]
+fn the_content_is_laid_out_whole_and_shifted() {
+    val l = scrolled(100.0)
+    test.assert_eq(rect_text(l.bounds), "0.0,0.0 80.0x50.0")
+    val content = l.children[0]
+    test.assert_eq(rect_text(content.bounds), "0.0,-100.0 80.0x200.0")
+}
+
+// **A row scrolled out of sight is not hit, and nothing had to be taught about clipping.** `at`
+// rejects the viewport before it ever looks at a row, because the viewport's own bounds do not
+// contain the point -- so hit testing agrees with the clip for free. This is the case that says the
+// coordinate choice above was the right one.
+#[test]
+fn a_row_scrolled_out_of_sight_cannot_be_clicked() {
+    val l = scrolled(100.0)
+    // Row 2 occupies 0..50 after the shift, which is exactly the visible window.
+    test.assert_eq(hit_name(l, 10.0, 25.0), "r2")
+    // Row 3 sits at 50..100 -- inside the content, outside the viewport.
+    test.assert_eq(hit_name(l, 10.0, 75.0), "(none)")
+    // Rows 0 and 1 are above it, at negative y, which no click can reach.
+    test.assert_eq(hit_name(l, 10.0, 0.0 - 25.0), "(none)")
+}
+
+fn hit_name(l: widget.Laid, x: float, y: float) -> string {
+    return switch focus.control_at(l, geom.point_of(x, y)) {
+        Some(one) { one.name }
+        None { "(none)" }
+    }
+}
+
+// **Tab still reaches a row the window is not showing**, which is deliberate and is why the
+// children stay in the tree: a keyboard user arrows into a row, and the application scrolls to it.
+// A viewport that pruned what it could not show would strand the keyboard at the bottom edge.
+#[test]
+fn every_row_is_still_reachable_by_name() {
+    val l = scrolled(100.0)
+    test.assert_len(4, focus.controls(l))
+    test.assert_eq(focus.first(l), "r0")
+    test.assert(focus.holds(l, "r0"))
+    test.assert(focus.holds(l, "r3"))
+}
+
+// --- scrolling arithmetic
+
+// **Scrolls by the least that works, and not at all when the target is already visible**, which is
+// what makes arrowing through a list creep by one row instead of re-centring and jumping.
+#[test]
+fn revealing_a_target_scrolls_the_least_that_works() {
+    // View 50 tall, offset 0, target the row at 50..100: just past the bottom edge.
+    test.assert_eq(widget.scroll_to_reveal(50.0, 0.0, 50.0, 50.0), 50.0)
+    // Already visible: unchanged.
+    test.assert_eq(widget.scroll_to_reveal(50.0, 0.0, 0.0, 50.0), 0.0)
+    test.assert_eq(widget.scroll_to_reveal(50.0, 50.0, 60.0, 20.0), 50.0)
+    // Above the view: align to its start.
+    test.assert_eq(widget.scroll_to_reveal(50.0, 100.0, 50.0, 50.0), 50.0)
+    // Taller than the view: show its top, since no offset shows all of it.
+    test.assert_eq(widget.scroll_to_reveal(50.0, 0.0, 20.0, 200.0), 20.0)
+}
+
+#[test]
+fn an_offset_cannot_pass_either_end() {
+    // Content 200 in a view of 50: the furthest is 150.
+    test.assert_eq(widget.clamp_offset(400.0, 50.0, 200.0), 150.0)
+    test.assert_eq(widget.clamp_offset(0.0 - 10.0, 50.0, 200.0), 0.0)
+    test.assert_eq(widget.clamp_offset(75.0, 50.0, 200.0), 75.0)
+    // **Content smaller than its view clamps to zero, not to a negative.** Without the zero floor
+    // a short list would scroll upward off the top of its own box.
+    test.assert_eq(widget.clamp_offset(30.0, 200.0, 50.0), 0.0)
+}
+
+// --- painting
+
+// **The viewport's children are painted inside a clip**, which is the one thing adding this case
+// did not force: the seven switches over `Widget` all refused to compile until it was handled, but
+// `collect` tests its cases with `if`, so a viewport that forgot to clip would have drawn its
+// content straight across the window and compiled cleanly.
+#[test]
+fn a_viewport_paints_its_content_inside_a_clip() {
+    val s = widget.paint(scrolled(100.0), fake_metrics())
+    test.assert_len(1, s.ops)
+    test.assert(is_clipped(s.ops[0]))
+}
+
+fn is_clipped(op: scene.Op) -> bool {
+    return switch op {
+        Nested(g) { !Option.is_None(g.clip) }
+        Fill(_) { false }
+        StrokePath(_) { false }
+        Text(_) { false }
+        DrawImage(_) { false }
+    }
+}
