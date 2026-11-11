@@ -11,7 +11,6 @@ use geom
 use paint
 use test
 use widget
-use window
 
 fn metrics() -> widget.Metrics {
     return widget.metrics_of(
@@ -31,13 +30,16 @@ fn outside() -> geom.Point {
     return geom.point_of(100.0, 10.0)
 }
 
-fn key(keysym: int) -> window.KeyPress {
-    return window.KeyPress { keysym: keysym, shift: false, control: false, alt: false, meta: false }
+// Keys are named now rather than numbered -- `controls.Key.Left` where this used to say 65361 --
+// which is the point of the control set owning its own vocabulary: a test reads as the gesture it
+// describes, and a mistyped name is a compile error instead of a key that silently never arrives.
+fn key(k: controls.Key) -> controls.Keystroke {
+    return controls.keystroke_of(k)
 }
 
-val space = 32
-val enter = 65293
-val letter_a = 97
+val space = controls.Key.Space
+val enter = controls.Key.Enter
+val letter_a = controls.Key.Char("a")
 
 fn press(b: controls.Button, p: geom.Point) -> controls.ButtonStep {
     return controls.button_input(b, controls.Input.Press(p), box)
@@ -368,19 +370,19 @@ fn typing(e: controls.Entry, what: string) -> controls.EntryStep {
     return give(e, controls.Input.Text(what))
 }
 
-fn pressing(e: controls.Entry, name: string, keysym: int, control: bool, shift: bool) -> controls.EntryStep {
-    val k = window.KeyPress { keysym: keysym, shift: shift, control: control, alt: false, meta: false }
+fn pressing(e: controls.Entry, name: string, k: controls.Key, control: bool, shift: bool) -> controls.EntryStep {
+    val stroke = controls.Keystroke { key: k, shift: shift, control: control, alt: false, meta: false }
     val _ = name
-    return give(e, controls.Input.KeyDown(k))
+    return give(e, controls.Input.KeyDown(stroke))
 }
 
-val key_left = 65361
-val key_right = 65363
-val key_home = 65360
-val key_backspace = 65288
-val letter_c = 99
-val letter_x = 120
-val letter_z = 122
+val key_left = controls.Key.Left
+val key_right = controls.Key.Right
+val key_home = controls.Key.Home
+val key_backspace = controls.Key.Backspace
+val letter_c = controls.Key.Char("c")
+val letter_x = controls.Key.Char("x")
+val letter_z = controls.Key.Char("z")
 
 #[test]
 fn typing_inserts_at_the_caret_and_reports_a_change() {
@@ -664,14 +666,14 @@ fn to_list(l: controls.List, input: controls.Input) -> controls.ListStep {
     return controls.list_input(l, input, list_box())
 }
 
-fn arrow(l: controls.List, keysym: int) -> controls.ListStep {
-    return to_list(l, controls.Input.KeyDown(key(keysym)))
+fn arrow(l: controls.List, k: controls.Key) -> controls.ListStep {
+    return to_list(l, controls.Input.KeyDown(key(k)))
 }
 
-val key_down = 65364
-val key_up = 65362
-val key_page_down = 65366
-val key_end = 65367
+val key_down = controls.Key.Down
+val key_up = controls.Key.Up
+val key_page_down = controls.Key.PageDown
+val key_end = controls.Key.End
 
 #[test]
 fn a_new_list_selects_its_first_row_and_an_empty_one_selects_nothing() {
@@ -781,9 +783,9 @@ fn a_click_past_the_last_row_changes_nothing() {
 // would open a record on every arrow key.
 #[test]
 fn enter_activates_and_an_arrow_does_not() {
-    test.assert(arrow(five(), 65293).activated)
+    test.assert(arrow(five(), enter).activated)
     test.assert_false(arrow(five(), key_down).activated)
-    test.assert_false(arrow(five(), 65293).moved)
+    test.assert_false(arrow(five(), enter).moved)
 }
 
 #[test]
@@ -871,11 +873,11 @@ fn to_menu(m: controls.Menu, input: controls.Input) -> controls.MenuStep {
     return controls.menu_input(m, input, title_box, popup_box())
 }
 
-fn menu_key(m: controls.Menu, keysym: int) -> controls.MenuStep {
-    return to_menu(m, controls.Input.KeyDown(key(keysym)))
+fn menu_key(m: controls.Menu, k: controls.Key) -> controls.MenuStep {
+    return to_menu(m, controls.Input.KeyDown(key(k)))
 }
 
-val key_escape = 65307
+val key_escape = controls.Key.Escape
 
 // **A menu bar opens on the way down**, which is what lets a user press and drag onto an item in
 // one gesture rather than having to click twice.
@@ -906,7 +908,7 @@ fn the_arrows_move_within_an_open_menu() {
 fn enter_chooses_the_highlighted_item_and_closes() {
     var m = menu_key(file_menu(), key_down).menu
     m = menu_key(m, key_down).menu
-    val step = menu_key(m, 65293)
+    val step = menu_key(m, enter)
     test.assert_eq(step.chosen, 1)
     test.assert_false(step.menu.open)
     test.assert_false(step.dismissed)
@@ -999,11 +1001,11 @@ fn answer(input: controls.Input) -> string {
 #[test]
 fn a_dialog_answers_escape_and_enter() {
     test.assert_eq(answer(controls.Input.KeyDown(key(key_escape))), "cancel")
-    test.assert_eq(answer(controls.Input.KeyDown(key(65293))), "confirm")
+    test.assert_eq(answer(controls.Input.KeyDown(key(enter))), "confirm")
     test.assert_eq(answer(controls.Input.KeyDown(key(letter_a))), "nothing")
     test.assert_eq(answer(controls.Input.Press(inside())), "nothing")
     // On the way down only: a key *up* must not confirm a dialog the keystroke opened.
-    test.assert_eq(answer(controls.Input.KeyUp(key(65293))), "nothing")
+    test.assert_eq(answer(controls.Input.KeyUp(key(enter))), "nothing")
 }
 
 // **A dialog shuts the window out of the keyboard and the pointer both.** The geometry does the

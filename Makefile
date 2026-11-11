@@ -101,7 +101,7 @@ install-hooks:
 # -MMD/-MP header tracking only kicks in from the second build onward,
 # once a .d file already mentions it. Add a new core module by adding
 # its name here and one line to corelib.c's CORE_MODULES table.
-CORELIB_MODULES := meta template batch derive_ord derive_row derive_properties derive_json derive_reflect derive_entity derive_repository derive_validate derive_xml expr validate process url fs log metrics regex random uuid clock time schedule json codec paging number math bits encoding thread datasource sqlite mysql memdb sql eql db net crypto pg http derive_routes os properties io terminal window ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp locale test geom shape paint scene pdfobj pdf truetype font image stroker raster layout widget focus edit a11y controls
+CORELIB_MODULES := meta template batch derive_ord derive_row derive_properties derive_json derive_reflect derive_entity derive_repository derive_validate derive_xml expr validate process url fs log metrics regex random uuid clock time schedule json codec paging number math bits encoding thread datasource sqlite mysql memdb sql eql db net crypto pg http derive_routes os properties io terminal window ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp locale test geom shape paint scene pdfobj pdf truetype font image stroker raster layout widget focus edit a11y controls desktop
 
 # The prelude is not a module and is deliberately NOT in CORELIB_MODULES: it has
 # no line in corelib.c's CORE_MODULES table, nothing can `use` it, and
@@ -131,8 +131,12 @@ REST_PARTS := rest handler route table dispatch
 # Bundled modules live in lib/core (general-purpose), lib/db (SQL drivers, and the three
 # generators that write SQL: derive_row, derive_entity, derive_repository), lib/http (http,
 # server, client), lib/time (time, zone, schedule) and lib/graphics (the 2D model and its
-# backends); `use` names are flat either way, which is what `vpath` below is for.
-vpath %.zm lib lib/core lib/db lib/graphics lib/http lib/time lib/ui
+# backends), and lib/ui with a folder per backend under it -- lib/ui itself holds what every
+# backend shares (the widget tree, focus, text editing, accessibility and the control set) and
+# lib/ui/desktop, lib/ui/terminal and in time lib/ui/browser hold what only one of them does.
+# `use` names are flat either way, which is what `vpath` below is for -- so a module moving between
+# these folders changes no import anywhere.
+vpath %.zm lib lib/core lib/db lib/graphics lib/http lib/time lib/ui lib/ui/desktop lib/ui/terminal
 
 CORELIB_HEADERS := $(CORELIB_MODULES:%=$(BUILD)/%_source.h) $(PRELUDE_PARTS:%=$(BUILD)/prelude_%_source.h) \
                    $(SERVER_PARTS:%=$(BUILD)/server_%_source.h) $(CLIENT_PARTS:%=$(BUILD)/client_%_source.h) \

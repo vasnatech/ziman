@@ -1,0 +1,100 @@
+// The desktop backend's adapter: a `window.Event` as a `controls.Input`.
+//
+// **This module exists so that `lib/ui/` need not know what X11 is.** The control set -- buttons,
+// fields, lists, menus, dialogs -- is the same logic whatever is drawing it, and the thing that
+// differs between a desktop, a terminal and a browser is only how an event arrives. So the shared
+// half names keys (`controls.Key`), each backend has an adapter like this one, and `lib/ui/browser`
+// will be another of these rather than another copy of the controls.
+//
+// It was not always so. `controls.Input` used to carry `window.KeyPress` directly, on the argument
+// that a key vocabulary of its own would be a third copy of fifteen magic numbers. That held with
+// one backend. With more than one it inverts: a vocabulary in the shared layer is the *one* copy,
+// and this file is where the numbers stop.
+//
+// **The keysym numbers are still in exactly one place**, and it is not here: this maps
+// `window.key_name`'s output, which is the name X11 already agreed on, so adding a key means
+// touching `window.zm` and this table and nothing else.
+use controls
+use widget
+use widget.Density
+use window
+use window.KeyPress
+
+// What a window event means to the control layer, or `None` for one it has no use for.
+//
+// **Pixels become points here**, which is the input half of the unit: a pointer position arrives
+// from the display in device pixels and every function in `lib/ui/` expects points. One conversion,
+// at the edge, for the reason `widget.Density` gives.
+//
+// `Resize`, `Close`, `FocusIn`, `FocusOut` and `Exposed` answer `None` -- not because they do not
+// matter, but because they are the *application's* business: a control cannot decide whether a
+// window should close.
+pub fn input_of(e: window.Event, d: Density) -> Option<controls.Input> {
+    return switch e {
+        KeyDown(k) { Option<controls.Input>.Some(controls.Input.KeyDown(stroke_of(k))) }
+        KeyUp(k) { Option<controls.Input>.Some(controls.Input.KeyUp(stroke_of(k))) }
+        Char(text) { Option<controls.Input>.Some(controls.Input.Text(text)) }
+        PointerDown(p) { Option<controls.Input>.Some(controls.Input.Press(widget.point_in_pt(
+            d,
+            p.x as float,
+            p.y as float
+        ))) }
+        PointerUp(p) { Option<controls.Input>.Some(controls.Input.Release(widget.point_in_pt(
+            d,
+            p.x as float,
+            p.y as float
+        ))) }
+        PointerMove(p) { Option<controls.Input>.Some(controls.Input.Move(widget.point_in_pt(
+            d,
+            p.x as float,
+            p.y as float
+        ))) }
+        Scroll(s) {
+            Option<controls.Input>.Some(controls.Input.Wheel(controls.Wheel {
+                at: widget.point_in_pt(d, s.x as float, s.y as float),
+                vertical: s.vertical,
+                horizontal: s.horizontal
+            }))
+        }
+        Resize(_) { Option<controls.Input>.None }
+        Close { Option<controls.Input>.None }
+        FocusIn { Option<controls.Input>.None }
+        FocusOut { Option<controls.Input>.None }
+        Exposed { Option<controls.Input>.None }
+    }
+}
+
+// A keystroke with its modifiers, from the platform's own.
+pub fn stroke_of(k: KeyPress) -> controls.Keystroke {
+    return controls.Keystroke {
+        key: key_of(window.key_name(k)),
+        shift: k.shift,
+        control: k.control,
+        alt: k.alt,
+        meta: k.meta
+    }
+}
+
+// A named key from the name `window.key_name` gives it.
+//
+// A one-character name is the character the key sits on, which is what `window.key_name` answers
+// for printable ASCII -- so `Char` needs no table. Everything it does not recognise keeps its name
+// in `Other`, so an unhandled key can be logged instead of disappearing.
+fn key_of(name: string) -> controls.Key {
+    if name == "Enter" { return controls.Key.Enter }
+    if name == "Backspace" { return controls.Key.Backspace }
+    if name == "Delete" { return controls.Key.Delete }
+    if name == "Tab" { return controls.Key.Tab }
+    if name == "Escape" { return controls.Key.Escape }
+    if name == "Space" { return controls.Key.Space }
+    if name == "Left" { return controls.Key.Left }
+    if name == "Up" { return controls.Key.Up }
+    if name == "Right" { return controls.Key.Right }
+    if name == "Down" { return controls.Key.Down }
+    if name == "PageUp" { return controls.Key.PageUp }
+    if name == "PageDown" { return controls.Key.PageDown }
+    if name == "Home" { return controls.Key.Home }
+    if name == "End" { return controls.Key.End }
+    if len(name) == 1 { return controls.Key.Char(name) }
+    return controls.Key.Other(name)
+}

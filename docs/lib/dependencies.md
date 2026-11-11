@@ -45,14 +45,12 @@ flowchart LR
         random["random"]
         regex["regex"]
         template["template"]
-        terminal["terminal"]
         test["test"]
         thread["thread"]
         toml["toml"]
         url["url"]
         uuid["uuid"]
         validate["validate"]
-        window["window"]
         xml["xml"]
         yaml["yaml"]
     end
@@ -109,7 +107,6 @@ flowchart LR
     controls --> math
     controls --> paint
     controls --> widget
-    controls --> window
     crypto --> encoding
     crypto --> random
     csv --> fs
@@ -142,6 +139,8 @@ flowchart LR
     derive_validate --> template
     derive_xml --> meta
     derive_xml --> template
+    desktop --> controls
+    desktop --> widget
     encoding --> locale
     encoding --> number
     eql --> datasource
@@ -333,7 +332,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `edit`, `io`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread`, `window` |
+| 0 | `bits`, `clock`, `compress`, `edit`, `io`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
 | 1 | `derive_reflect`, `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `terminal`, `test`, `validate`, `xml` |
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
@@ -341,7 +340,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml`, `widget` |
 | 6 | `a11y`, `codec`, `derive_repository`, `focus` |
 | 7 | `controls`, `paging`, `server` |
-| 8 | `rest` |
+| 8 | `desktop`, `rest` |
 
 ## Each module
 
@@ -354,7 +353,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
-| `controls` | `edit`, `focus`, `geom`, `math`, `paint`, `widget`, `window` | - |
+| `controls` | `edit`, `focus`, `geom`, `math`, `paint`, `widget` | `desktop` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `io`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `batch`, `eql`, `migrate` |
@@ -369,6 +368,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `derive_row` | `meta`, `template` | `derive_repository` |
 | `derive_validate` | `meta`, `template` | - |
 | `derive_xml` | `meta`, `template` | - |
+| `desktop` | `controls`, `widget` | - |
 | `edit` | - | `controls` |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
@@ -426,8 +426,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `url` | `locale`, `number` | `db`, `http`, `rest` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | `batch`, `eql`, `rest`, `server` |
 | `validate` | `regex` | - |
-| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `controls`, `focus` |
-| `window` | - | `controls` |
+| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `controls`, `desktop`, `focus` |
 | `xml` | `io`, `locale` | `codec` |
 | `yaml` | `json`, `locale`, `number` | `codec` |
 | `zone` | `fs`, `number`, `os` | `time` |

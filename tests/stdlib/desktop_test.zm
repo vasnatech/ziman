@@ -1,0 +1,131 @@
+// `lib/ui/desktop`: a window event as a control input.
+//
+// **The seam that lets `lib/ui/` not know what X11 is.** The control set is the same logic whatever
+// draws it; only how an event arrives differs. So every assertion here is about a translation --
+// which key, which modifier, which coordinate space -- and none about a widget.
+use controls
+use desktop
+use geom
+use test
+use widget
+use window
+
+fn press(keysym: int, shift: bool, control: bool) -> window.KeyPress {
+    return window.KeyPress { keysym: keysym, shift: shift, control: control, alt: false, meta: false }
+}
+
+fn one_to_one() -> widget.Density {
+    return widget.density_of(1.0)
+}
+
+fn key_name_of(e: window.Event, d: widget.Density) -> string {
+    return switch desktop.input_of(e, d) {
+        Some(input) {
+            switch input {
+                KeyDown(k) { named(k.key) }
+                KeyUp(k) { concat("up:", named(k.key)) }
+                Text(t) { concat("text:", t) }
+                Paste(_) { "paste" }
+                Press(p) { prelude.format("press {},{}", str(p.x), str(p.y)) }
+                Release(p) { prelude.format("release {},{}", str(p.x), str(p.y)) }
+                Move(p) { prelude.format("move {},{}", str(p.x), str(p.y)) }
+                Wheel(w) { prelude.format("wheel {} at {},{}", str(w.vertical), str(w.at.x), str(w.at.y)) }
+            }
+        }
+        None { "(nothing)" }
+    }
+}
+
+fn named(k: controls.Key) -> string {
+    if controls.Key.is_Char(k) {
+        return concat("char:", controls.char_of(k))
+    }
+    if controls.Key.is_Enter(k) { return "Enter" }
+    if controls.Key.is_Space(k) { return "Space" }
+    if controls.Key.is_Left(k) { return "Left" }
+    if controls.Key.is_Escape(k) { return "Escape" }
+    if controls.Key.is_PageDown(k) { return "PageDown" }
+    if controls.Key.is_Other(k) { return "other" }
+    return "(unnamed)"
+}
+
+// The named keys come through as names, not numbers.
+#[test]
+fn the_named_keys_translate() {
+    val d = one_to_one()
+    test.assert_eq(key_name_of(window.Event.KeyDown(press(65293, false, false)), d), "Enter")
+    test.assert_eq(key_name_of(window.Event.KeyDown(press(32, false, false)), d), "Space")
+    test.assert_eq(key_name_of(window.Event.KeyDown(press(65361, false, false)), d), "Left")
+    test.assert_eq(key_name_of(window.Event.KeyDown(press(65307, false, false)), d), "Escape")
+    test.assert_eq(key_name_of(window.Event.KeyDown(press(65366, false, false)), d), "PageDown")
+}
+
+// **A printable key is the character it sits on, and Shift does not change which key it is.** A
+// program dispatching Ctrl-C wants `Char("c")` whether or not Shift is down; the text that a
+// keystroke *composed* arrives separately, as it does from the window itself.
+#[test]
+fn a_printable_key_is_its_unshifted_character() {
+    val d = one_to_one()
+    test.assert_eq(key_name_of(window.Event.KeyDown(press(99, false, true)), d), "char:c")
+    test.assert_eq(key_name_of(window.Event.KeyDown(press(99, true, true)), d), "char:c")
+}
+
+#[test]
+fn the_modifiers_come_across() {
+    val step = desktop.stroke_of(press(99, true, true))
+    test.assert(step.shift)
+    test.assert(step.control)
+    test.assert_false(step.alt)
+    test.assert_eq(named(step.key), "char:c")
+}
+
+// A key the adapter does not name keeps its name rather than vanishing, so an unhandled key can be
+// logged instead of disappearing.
+#[test]
+fn an_unknown_key_keeps_its_name() {
+    test.assert_eq(key_name_of(window.Event.KeyDown(press(65470, false, false)), one_to_one()), "other")
+}
+
+// Composed text is its own input, as it is its own event.
+#[test]
+fn composed_text_arrives_as_text() {
+    test.assert_eq(key_name_of(window.Event.Char("a"), one_to_one()), "text:a")
+}
+
+// **Pixels become points here**, which is the input half of the unit: a pointer position arrives in
+// device pixels and everything in `lib/ui/` expects points.
+#[test]
+fn a_pointer_position_is_converted_to_points() {
+    val at_one = one_to_one()
+    test.assert_eq(
+        key_name_of(window.Event.PointerDown(window.PointerPress { x: 30, y: 60, button: 1 }), at_one),
+        "press 30.0,60.0"
+    )
+    // At a ratio of 1.5, the same 30 pixels is 20 points.
+    val dense = widget.density_of(1.5)
+    test.assert_eq(
+        key_name_of(window.Event.PointerDown(window.PointerPress { x: 30, y: 60, button: 1 }), dense),
+        "press 20.0,40.0"
+    )
+    test.assert_eq(key_name_of(window.Event.PointerMove(window.Position { x: 30, y: 60 }), dense), "move 20.0,40.0")
+}
+
+#[test]
+fn a_wheel_keeps_its_sign_and_converts_its_position() {
+    val dense = widget.density_of(1.5)
+    val e = window.Event.Scroll(window.ScrollStep { x: 30, y: 60, horizontal: 0, vertical: 0 - 1 })
+    test.assert_eq(key_name_of(e, dense), "wheel -1 at 20.0,40.0")
+}
+
+// **The events a control cannot answer are `None`, not an input of their own.** A control cannot
+// decide whether a window should close, so a resize, a close, a focus change and an expose belong
+// to the application and stop here.
+#[test]
+fn the_window_s_own_events_are_not_control_inputs() {
+    val d = one_to_one()
+    test.assert_eq(key_name_of(window.Event.Close, d), "(nothing)")
+    test.assert_eq(key_name_of(window.Event.Resize(window.Size { width: 10, height: 10 }), d), "(nothing)")
+    test.assert_eq(key_name_of(window.Event.FocusIn, d), "(nothing)")
+    test.assert_eq(key_name_of(window.Event.FocusOut, d), "(nothing)")
+    test.assert_eq(key_name_of(window.Event.Exposed, d), "(nothing)")
+}

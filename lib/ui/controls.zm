@@ -29,8 +29,6 @@ use widget
 use widget.Insets
 use widget.Laid
 use widget.Toggle
-use window
-use window.KeyPress
 
 // ----------------------------------------------------------------- the inputs
 
@@ -42,16 +40,77 @@ pub struct Wheel {
     horizontal: int
 }
 
-// One thing the user did.
+// A key, as this layer names it.
 //
-// **Keys arrive as `window.KeyPress`, which is a plain struct of a keysym and four flags and not a
-// platform handle.** A third key vocabulary was the alternative -- `terminal` has one and `window`
-// has keysyms -- and a third copy of fifteen magic numbers is worse than a dependency on a module
-// whose types are data. A driver that is not X11 builds `KeyPress` values itself; X11's keysym
-// numbering is the de facto standard for exactly this.
+// **Named rather than numbered, and owned here rather than borrowed from a backend.** The first
+// version of this took `window.KeyPress` -- a keysym and four flags -- on the argument that a third
+// key vocabulary was worse than depending on a module whose types are plain data. That was right
+// with one backend and wrong with four: a shared control set cannot import X11, so this is not a
+// third copy, it is the one copy, and each backend converts into it.
+//
+// `Char` carries the character the key sits on unshifted, so a shortcut is `Char("c")` whether or
+// not Shift is down -- which is what a program dispatching Ctrl-C wants. `Other` keeps a name the
+// backend chose, so an unhandled key can be logged rather than silently dropped.
+pub enum Key {
+    Enter
+    Backspace
+    Delete
+    Tab
+    Escape
+    Space
+    Left
+    Up
+    Right
+    Down
+    PageUp
+    PageDown
+    Home
+    End
+    Char(string)
+    Other(string)
+}
+
+// A key with the modifiers that were down with it.
+pub struct Keystroke {
+    key: Key
+    shift: bool
+    control: bool
+    alt: bool
+    meta: bool
+}
+
+// A keystroke with nothing held down.
+pub fn keystroke_of(key: Key) -> Keystroke {
+    return Keystroke { key: key, shift: false, control: false, alt: false, meta: false }
+}
+
+// The character a `Char` key sits on, or "" for every other key -- so a dispatch on a shortcut
+// letter needs no nested pattern.
+pub fn char_of(k: Key) -> string {
+    return switch k {
+        Char(c) { c }
+        Other(_) { "" }
+        Enter { "" }
+        Backspace { "" }
+        Delete { "" }
+        Tab { "" }
+        Escape { "" }
+        Space { "" }
+        Left { "" }
+        Up { "" }
+        Right { "" }
+        Down { "" }
+        PageUp { "" }
+        PageDown { "" }
+        Home { "" }
+        End { "" }
+    }
+}
+
+// One thing the user did.
 pub enum Input {
-    KeyDown(KeyPress)
-    KeyUp(KeyPress)
+    KeyDown(Keystroke)
+    KeyUp(Keystroke)
     // The text the keyboard composed, which is a separate event from the key that composed it --
     // see `window.Event`, where the same split is explained at length.
     Text(string)
@@ -428,28 +487,28 @@ fn pasted(e: Entry, what: string) -> EntryStep {
 
 // Which edit a keystroke means.
 //
-// Dispatched on `window.key_name` rather than on a table of keysyms of its own, so that the numbers
-// live in exactly one place in the tree -- `lib/core/window` -- and a fourth copy of them cannot
-// drift from the other three.
-fn entry_key(e: Entry, k: KeyPress) -> EntryStep {
-    val name = window.key_name(k)
+// Dispatched on `Key` rather than on a name, so a mistyped case is a compile error instead of a
+// shortcut that quietly never fires. The shortcut *letters* are still compared as text, because a
+// letter is what they are: `Char("c")` whatever the layout puts on that key.
+fn entry_key(e: Entry, k: Keystroke) -> EntryStep {
     val extend = k.shift
     if k.control {
-        if name == "a" { return kept(with e { editor: edit.select_all(e.editor), typing: false }) }
-        if name == "c" { return copied_from(e) }
-        if name == "x" { return cut_from(e) }
-        if name == "z" { return undone(e) }
-        if name == "y" { return redone(e) }
-        if name == "Left" { return moved(e, edit.move_word_left(e.editor, extend)) }
-        if name == "Right" { return moved(e, edit.move_word_right(e.editor, extend)) }
-        if name == "Backspace" { return changed_by(e, edit.delete_word_back(e.editor)) }
+        val letter = char_of(k.key)
+        if letter == "a" { return kept(with e { editor: edit.select_all(e.editor), typing: false }) }
+        if letter == "c" { return copied_from(e) }
+        if letter == "x" { return cut_from(e) }
+        if letter == "z" { return undone(e) }
+        if letter == "y" { return redone(e) }
+        if Key.is_Left(k.key) { return moved(e, edit.move_word_left(e.editor, extend)) }
+        if Key.is_Right(k.key) { return moved(e, edit.move_word_right(e.editor, extend)) }
+        if Key.is_Backspace(k.key) { return changed_by(e, edit.delete_word_back(e.editor)) }
     }
-    if name == "Left" { return moved(e, edit.move_left(e.editor, extend)) }
-    if name == "Right" { return moved(e, edit.move_right(e.editor, extend)) }
-    if name == "Home" { return moved(e, edit.move_home(e.editor, extend)) }
-    if name == "End" { return moved(e, edit.move_end(e.editor, extend)) }
-    if name == "Backspace" { return changed_by(e, edit.delete_back(e.editor)) }
-    if name == "Delete" { return changed_by(e, edit.delete_forward(e.editor)) }
+    if Key.is_Left(k.key) { return moved(e, edit.move_left(e.editor, extend)) }
+    if Key.is_Right(k.key) { return moved(e, edit.move_right(e.editor, extend)) }
+    if Key.is_Home(k.key) { return moved(e, edit.move_home(e.editor, extend)) }
+    if Key.is_End(k.key) { return moved(e, edit.move_end(e.editor, extend)) }
+    if Key.is_Backspace(k.key) { return changed_by(e, edit.delete_back(e.editor)) }
+    if Key.is_Delete(k.key) { return changed_by(e, edit.delete_forward(e.editor)) }
     return kept(e)
 }
 
@@ -696,20 +755,19 @@ pub fn list_input(l: List, input: Input, bounds: Rect) -> ListStep {
     }
 }
 
-fn list_key(l: List, k: KeyPress, bounds: Rect) -> ListStep {
+fn list_key(l: List, k: Keystroke, bounds: Rect) -> ListStep {
     val last = len(l.items) - 1
     if last < 0 {
         return held_still(l)
     }
-    val name = window.key_name(k)
     val per_page = page_rows(l, bounds)
-    if name == "Down" { return selected_to(l, l.selected + 1, bounds) }
-    if name == "Up" { return selected_to(l, l.selected - 1, bounds) }
-    if name == "PageDown" { return selected_to(l, l.selected + per_page, bounds) }
-    if name == "PageUp" { return selected_to(l, l.selected - per_page, bounds) }
-    if name == "Home" { return selected_to(l, 0, bounds) }
-    if name == "End" { return selected_to(l, last, bounds) }
-    if name == "Enter" || name == "Space" {
+    if Key.is_Down(k.key) { return selected_to(l, l.selected + 1, bounds) }
+    if Key.is_Up(k.key) { return selected_to(l, l.selected - 1, bounds) }
+    if Key.is_PageDown(k.key) { return selected_to(l, l.selected + per_page, bounds) }
+    if Key.is_PageUp(k.key) { return selected_to(l, l.selected - per_page, bounds) }
+    if Key.is_Home(k.key) { return selected_to(l, 0, bounds) }
+    if Key.is_End(k.key) { return selected_to(l, last, bounds) }
+    if Key.is_Enter(k.key) || Key.is_Space(k.key) {
         if l.selected >= 0 {
             return ListStep { list: l, moved: false, activated: true }
         }
@@ -867,8 +925,7 @@ fn closed_menu_input(m: Menu, input: Input, title_bounds: Rect) -> MenuStep {
             }
         }
         KeyDown(k) {
-            val name = window.key_name(k)
-            if name == "Down" || name == "Enter" || name == "Space" {
+            if Key.is_Down(k.key) || Key.is_Enter(k.key) || Key.is_Space(k.key) {
                 opened(m)
             } else {
                 menu_unchanged(m)
@@ -884,21 +941,23 @@ fn closed_menu_input(m: Menu, input: Input, title_bounds: Rect) -> MenuStep {
 }
 
 fn open_menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect) -> MenuStep {
-    val name = switch input {
-        KeyDown(k) { window.key_name(k) }
-        KeyUp(_) { "" }
-        Text(_) { "" }
-        Paste(_) { "" }
-        Press(_) { "" }
-        Release(_) { "" }
-        Move(_) { "" }
-        Wheel(_) { "" }
+    // `Other("")` for an input that is not a keystroke, so the tests below read as one list rather
+    // than as a key check wrapped in an input check.
+    val pressed = switch input {
+        KeyDown(k) { k.key }
+        KeyUp(_) { Key.Other("") }
+        Text(_) { Key.Other("") }
+        Paste(_) { Key.Other("") }
+        Press(_) { Key.Other("") }
+        Release(_) { Key.Other("") }
+        Move(_) { Key.Other("") }
+        Wheel(_) { Key.Other("") }
     }
     // **Escape closes without choosing, and that is a dismissal rather than a choice of nothing.**
-    if name == "Escape" {
+    if Key.is_Escape(pressed) {
         return dismissed_menu(m)
     }
-    if name == "Enter" || name == "Space" {
+    if Key.is_Enter(pressed) || Key.is_Space(pressed) {
         if m.items.selected >= 0 {
             return MenuStep { menu: with m { open: false }, chosen: m.items.selected, dismissed: false }
         }
@@ -994,11 +1053,10 @@ pub enum DialogAnswer {
 // focus's, or tabbing to Cancel and pressing Enter would confirm.
 pub fn dialog_keys(input: Input) -> DialogAnswer {
     if KeyDown(k) = input {
-        val name = window.key_name(k)
-        if name == "Escape" {
+        if Key.is_Escape(k.key) {
             return DialogAnswer.Cancel
         }
-        if name == "Enter" {
+        if Key.is_Enter(k.key) {
             return DialogAnswer.Confirm
         }
     }
@@ -1070,12 +1128,12 @@ pub fn default_style() -> Style {
 
 // ------------------------------------------------------------------ the keys
 
-fn is_space(k: KeyPress) -> bool {
-    return window.key_name(k) == "Space"
+fn is_space(k: Keystroke) -> bool {
+    return Key.is_Space(k.key)
 }
 
-fn is_enter(k: KeyPress) -> bool {
-    return window.key_name(k) == "Enter"
+fn is_enter(k: Keystroke) -> bool {
+    return Key.is_Enter(k.key)
 }
 
 // Whether this input could move a caret or change text -- what the next instalment's entry asks

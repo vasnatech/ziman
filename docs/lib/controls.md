@@ -31,7 +31,6 @@ use controls
 use focus
 use geom
 use widget
-use window
 
 // A fake metrics, so the example needs no font: ten units per character.
 fn metrics() -> widget.Metrics {
@@ -138,7 +137,7 @@ fn main() {
 
     // **One Ctrl-Z, and the whole run goes.** A run of typed characters is one undo step; a delete,
     // a paste or a caret move between them would have ended the run.
-    w = step(w, controls.Input.KeyDown(with window_key(122) { control: true }))
+    w = step(w, controls.Input.KeyDown(held(controls.Key.Char("z"), true)))
     report(w, "undid the typing")
 
     // A paste is one step whatever its length, which is why it is its own input.
@@ -146,8 +145,8 @@ fn main() {
     report(w, "pasted an address")
 
     // Select all and copy: the text comes *out*, because nothing here can reach a clipboard.
-    w = step(w, controls.Input.KeyDown(with window_key(97) { control: true }))
-    w = step(w, controls.Input.KeyDown(with window_key(99) { control: true }))
+    w = step(w, controls.Input.KeyDown(held(controls.Key.Char("a"), true)))
+    w = step(w, controls.Input.KeyDown(held(controls.Key.Char("c"), true)))
     printf("the clipboard now holds: {}\n", w.clipboard)
 
     // The check box is the top row; a press and a release on it toggles it.
@@ -166,14 +165,17 @@ fn main() {
 
     // The keyboard, on whatever has the focus. Space arms on the way down and fires on the way up,
     // exactly as the pointer does.
-    val space = window_key(32)
+    val space = held(controls.Key.Space, false)
     w = step(w, controls.Input.KeyDown(space))
     w = step(w, controls.Input.KeyUp(space))
     report(w, "pressed Space")
 }
 
-fn window_key(keysym: int) -> window.KeyPress {
-    return window.KeyPress { keysym: keysym, shift: false, control: false, alt: false, meta: false }
+// A keystroke with modifiers. Keys are named here, not numbered: the control set owns its own
+// vocabulary so that the same buttons and fields work over a desktop window, a terminal or a
+// browser, each of which has an adapter of its own -- `lib/ui/desktop` is the one for X11.
+fn held(k: controls.Key, control: bool) -> controls.Keystroke {
+    return controls.Keystroke { key: k, shift: false, control: control, alt: false, meta: false }
 }
 ```
 
@@ -204,12 +206,78 @@ pub struct Wheel {
 }
 ```
 
+### `Key`
+
+```
+pub enum Key {
+    Enter
+    Backspace
+    Delete
+    Tab
+    Escape
+    Space
+    Left
+    Up
+    Right
+    Down
+    PageUp
+    PageDown
+    Home
+    End
+    Char(string)
+    Other(string)
+}
+```
+
+A key, as this layer names it.
+
+**Named rather than numbered, and owned here rather than borrowed from a backend.** The first
+version of this took `window.KeyPress` -- a keysym and four flags -- on the argument that a third
+key vocabulary was worse than depending on a module whose types are plain data. That was right
+with one backend and wrong with four: a shared control set cannot import X11, so this is not a
+third copy, it is the one copy, and each backend converts into it.
+
+`Char` carries the character the key sits on unshifted, so a shortcut is `Char("c")` whether or
+not Shift is down -- which is what a program dispatching Ctrl-C wants. `Other` keeps a name the
+backend chose, so an unhandled key can be logged rather than silently dropped.
+
+### `Keystroke`
+
+```
+pub struct Keystroke {
+    key: Key
+    shift: bool
+    control: bool
+    alt: bool
+    meta: bool
+}
+```
+
+A key with the modifiers that were down with it.
+
+### `keystroke_of`
+
+```
+pub fn keystroke_of(key: Key) -> Keystroke
+```
+
+A keystroke with nothing held down.
+
+### `char_of`
+
+```
+pub fn char_of(k: Key) -> string
+```
+
+The character a `Char` key sits on, or "" for every other key -- so a dispatch on a shortcut
+letter needs no nested pattern.
+
 ### `Input`
 
 ```
 pub enum Input {
-    KeyDown(KeyPress)
-    KeyUp(KeyPress)
+    KeyDown(Keystroke)
+    KeyUp(Keystroke)
     // The text the keyboard composed, which is a separate event from the key that composed it --
     // see `window.Event`, where the same split is explained at length.
     Text(string)
@@ -227,12 +295,6 @@ pub enum Input {
 ```
 
 One thing the user did.
-
-**Keys arrive as `window.KeyPress`, which is a plain struct of a keysym and four flags and not a
-platform handle.** A third key vocabulary was the alternative -- `terminal` has one and `window`
-has keysyms -- and a third copy of fifteen magic numbers is worse than a dependency on a module
-whose types are data. A driver that is not X11 builds `KeyPress` values itself; X11's keysym
-numbering is the de facto standard for exactly this.
 
 ### `target`
 

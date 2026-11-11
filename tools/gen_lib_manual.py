@@ -25,10 +25,13 @@ GROUPS = [
     # as part of that family; `clock` stays under System with `random` and `uuid`, the other thin
     # wrappers over a native primitive.
     ("Time", "time", ["time", "zone", "schedule"]),
+    # `terminal` and `window` used to be here and are now under User interface, where they went when
+    # lib/ui gained a folder per backend: both are a way of putting an interface on a screen.
+    # The old note, kept because the reasoning still applies to `io` and `os`:
     # `terminal` is under System with `io` and `os`, not a group of its own: it is a wrapper over a
     # native primitive (termios) in the same way `clock` and `random` are, and a reader meets it by
     # wanting to read a key rather than by writing a kind of application.
-    ("System", "core", ["io", "terminal", "window", "fs", "os", "process", "thread", "log", "metrics", "random", "clock", "locale"]),
+    ("System", "core", ["io", "fs", "os", "process", "thread", "log", "metrics", "random", "clock", "locale"]),
     ("Networking", "core", ["net", "url"]),
     ("HTTP", "http", ["http", "server", "client"]),
     # **`rest` is its own group, not a line under HTTP**: it is the framework over the server --
@@ -70,6 +73,11 @@ GROUPS = [
     # knows nothing about how one is rasterised. Its own group, in `lib/ui/`, because F272-F277 add
     # focus, text editing and accessibility beside it and none of those are graphics either.
     ("User interface", "ui", ["widget", "focus", "edit", "a11y", "controls"]),
+    # A folder per backend under lib/ui: what only one of them does. `terminal` moved here from
+    # lib/core and `window` from lib/core too -- both are a way of putting a user interface on a
+    # screen, which is what this group is.
+    ("User interface: desktop", "ui", ["window", "desktop"]),
+    ("User interface: terminal", "ui", ["terminal"]),
 ]
 
 
@@ -364,6 +372,27 @@ def page(name, path, kind):
     return "\n".join(out).rstrip("\n") + "\n", summary_of(intro(header, name))
 
 
+def has_parts(name):
+    """Whether the Makefile declares this module as several files."""
+    key = name.upper() + "_PARTS :="
+    for line in read_lines(os.path.join(ROOT, "Makefile")):
+        if line.startswith(key):
+            return True
+    return False
+
+
+def find_module(folder, name):
+    """The file for one module anywhere under lib/<folder>, or None if there is no single file.
+
+    Recursive because lib/ui holds a folder per backend -- lib/ui/desktop, lib/ui/terminal -- and a
+    module is no longer always one level down."""
+    base = os.path.join(ROOT, "lib", folder)
+    for root, _dirs, files in os.walk(base):
+        if name + ".zm" in files:
+            return os.path.join(root, name + ".zm")
+    return None
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     index = ["# Bundled library manual", "",
@@ -385,15 +414,27 @@ def main():
             # module in several files, merged by the loader. The page is built from all of them,
             # the first part first, which is the order src/corelib.c's MODULE_PARTS has and the
             # order the module comment and the types are in.
-            folded = os.path.join(ROOT, "lib", folder, name)
-            if os.path.isdir(folded):
+            # **A module is several files exactly when the Makefile says so.** The test used to be
+            # "is there a directory of this name", which was right until lib/ui gained a folder per
+            # backend: `lib/ui/terminal/terminal.zm` makes `lib/ui/terminal` a directory with a
+            # module's name, and the directory test claimed it as a folder module. Asking the
+            # Makefile for a `<NAME>_PARTS` line is exact, and it is the same source of truth
+            # `module_parts` already reads for the same reason -- a part not in that list is not in
+            # the binary.
+            #
+            # Otherwise the file is searched for recursively, because a module is no longer always
+            # one level under `lib/<folder>`.
+            if has_parts(name):
                 parts = module_parts(name)
                 text, summary = page(name, parts, folder)
                 seen.update(parts)
             else:
-                path = os.path.join(ROOT, "lib", folder, name + ".zm")
-                text, summary = page(name, path, folder)
-                seen.add(path)
+                found = find_module(folder, name)
+                if found is None:
+                    sys.exit("gen_lib_manual.py: no lib/%s/**/%s.zm for the module named in GROUPS"
+                             % (folder, name))
+                text, summary = page(name, found, folder)
+                seen.add(found)
             with open(os.path.join(OUT, name + ".md"), "w") as f:
                 f.write(text)
             index.append("| [`%s`](%s.md) | %s |" % (name, name, summary.replace("|", "\\|")))
@@ -405,7 +446,11 @@ def main():
     index += ["## Always available", "", "| Module | What it is |", "|---|---|",
               "| [`prelude`](prelude.md) | %s |" % summary.replace("|", "\\|"), ""]
     seen.update(path)
-    for folder in ("core", "db", "http", "time"):
+    # **lib/ui is swept too, and was not before.** `desktop` was added to lib/ui/desktop and to the
+    # Makefile and to corelib.c and the docs build said nothing, because this walk did not look at
+    # lib/ui at all -- the module simply had no page. A module that is in no group should fail here,
+    # whichever folder it is in.
+    for folder in ("core", "db", "http", "time", "ui"):
         for root, _dirs, files in os.walk(os.path.join(ROOT, "lib", folder)):
             for fn in sorted(files):
                 p = os.path.join(root, fn)
