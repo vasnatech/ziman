@@ -36,7 +36,11 @@ fn gather(l: Laid, out: MutableArray<Laid>) {
     if widget.is_tab_stop(l) {
         push(out, l)
     }
-    for child in l.children {
+    // **Not `l.children`.** A modal layer shuts the rest of the window out of the tab order, and
+    // `widget.keyboard_children` is the one place that rule lives -- shared with `a11y`, because a
+    // dialog that trapped Tab while a screen reader still described the window behind it would be
+    // worse than one that trapped neither.
+    for child in widget.keyboard_children(l) {
         gather(child, out)
     }
 }

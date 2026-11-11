@@ -375,6 +375,97 @@ pub fn point_in_pt(d: Density, x: float, y: float) -> Point
 
 A pointer position in points, which is what `focus` and `controls` take.
 
+### `Layer`
+
+```
+pub struct Layer {
+    at: Option<Rect>
+    // Whether the keyboard belongs to this layer alone while it is present.
+    takes_keys: bool
+    content: Widget
+}
+```
+
+One layer of an overlay -- a menu's popup, a dialog, a tooltip.
+
+**Pointer capture is geometry and keyboard capture is declared, and that asymmetry is deliberate.**
+A layer given the whole box is the last sibling containing any point, so `widget.at` stops there:
+a click beside a centred dialog lands on the layer, finds no control, and goes nowhere. That *is*
+modality for the pointer, and it needs no flag because a rectangle already says it. Nothing about
+a rectangle says where Tab may go, so the keyboard half has to be said out loud.
+
+`at` is `None` for a layer that covers its parent, which is what a dialog wants, and `Some` for
+one placed explicitly, which is what a popup under a menu title wants -- and a popup must be able
+to overhang its parent, so a layered node does **not** clip. That is the difference from
+`Viewport`, which exists to clip.
+
+### `Stacked`
+
+```
+pub struct Stacked {
+    layers: [Layer]
+    name: string
+}
+```
+
+### `base_layer`
+
+```
+pub fn base_layer(content: Widget) -> Layer
+```
+
+The layer everything else sits over: the parent's whole box, and **it does not claim the
+keyboard**.
+
+Named apart from `modal_layer` rather than being one constructor with a flag, because the flag's
+default is a trap either way round. A base layer that claimed the keyboard would shut every layer
+above it out of the tab order -- which is what the first version of this did, and the test for a
+tooltip is what found it.
+
+### `modal_layer`
+
+```
+pub fn modal_layer(content: Widget) -> Layer
+```
+
+A layer over the parent's whole box that **takes the keyboard**: a dialog. The pointer is shut out
+by the geometry -- it covers everything -- and the keyboard by this.
+
+### `layer_at`
+
+```
+pub fn layer_at(where_: Rect, takes_keys: bool, content: Widget) -> Layer
+```
+
+A layer at an explicit rect: a menu's popup, a tooltip. Clicks outside the rect fall through to
+what is beneath, which is what lets a menu be dismissed by clicking away from it.
+
+**A layer is only reachable where its ancestors are.** `widget.at` rejects a node whose bounds
+exclude the point before it looks at any child, so a popup placed past the edge of the group that
+holds it is painted and not clickable. An overlay therefore belongs in the **root's** layer list,
+positioned from its anchor's laid bounds -- which is where every toolkit puts popups, for this
+reason rather than by convention.
+
+### `layered_of`
+
+```
+pub fn layered_of(layers: [Layer]) -> Widget
+```
+
+### `keyboard_children`
+
+```
+pub fn keyboard_children(l: Laid) -> [Laid]
+```
+
+Which of a node's children the **keyboard** may reach: every child, except at a layered node
+whose topmost key-taking layer shuts the rest out.
+
+**One function, used by both `focus.controls` and `a11y.tree_of`.** The rule could as easily have
+been written into each of those walks, and then a dialog that trapped Tab correctly could still
+have been described to a screen reader as though the window behind it were available. A modal
+that is modal for one of them and not the other is worse than one that is modal for neither.
+
 ### `Viewport`
 
 ```
@@ -646,6 +737,9 @@ pub enum Widget {
     // A window onto a child larger than itself -- see `Viewport`. **Not transparent to layout**,
     // which is what separates it from every other wrapper here.
     Scroll(Viewport)
+    // Children stacked over one another, later ones on top -- see `Layer`. A menu's popup and a
+    // modal dialog are both this.
+    Layered(Stacked)
 }
 ```
 

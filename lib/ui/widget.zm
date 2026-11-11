@@ -245,6 +245,85 @@ pub fn point_in_pt(d: Density, x: float, y: float) -> Point {
     return geom.point_of(x / d.px_per_pt, y / d.px_per_pt)
 }
 
+// One layer of an overlay -- a menu's popup, a dialog, a tooltip.
+//
+// **Pointer capture is geometry and keyboard capture is declared, and that asymmetry is deliberate.**
+// A layer given the whole box is the last sibling containing any point, so `widget.at` stops there:
+// a click beside a centred dialog lands on the layer, finds no control, and goes nowhere. That *is*
+// modality for the pointer, and it needs no flag because a rectangle already says it. Nothing about
+// a rectangle says where Tab may go, so the keyboard half has to be said out loud.
+//
+// `at` is `None` for a layer that covers its parent, which is what a dialog wants, and `Some` for
+// one placed explicitly, which is what a popup under a menu title wants -- and a popup must be able
+// to overhang its parent, so a layered node does **not** clip. That is the difference from
+// `Viewport`, which exists to clip.
+pub struct Layer {
+    at: Option<Rect>
+    // Whether the keyboard belongs to this layer alone while it is present.
+    takes_keys: bool
+    content: Widget
+}
+
+pub struct Stacked {
+    layers: [Layer]
+    name: string
+}
+
+// The layer everything else sits over: the parent's whole box, and **it does not claim the
+// keyboard**.
+//
+// Named apart from `modal_layer` rather than being one constructor with a flag, because the flag's
+// default is a trap either way round. A base layer that claimed the keyboard would shut every layer
+// above it out of the tab order -- which is what the first version of this did, and the test for a
+// tooltip is what found it.
+pub fn base_layer(content: Widget) -> Layer {
+    return Layer { at: Option<Rect>.None, takes_keys: false, content: content }
+}
+
+// A layer over the parent's whole box that **takes the keyboard**: a dialog. The pointer is shut out
+// by the geometry -- it covers everything -- and the keyboard by this.
+pub fn modal_layer(content: Widget) -> Layer {
+    return Layer { at: Option<Rect>.None, takes_keys: true, content: content }
+}
+
+// A layer at an explicit rect: a menu's popup, a tooltip. Clicks outside the rect fall through to
+// what is beneath, which is what lets a menu be dismissed by clicking away from it.
+//
+// **A layer is only reachable where its ancestors are.** `widget.at` rejects a node whose bounds
+// exclude the point before it looks at any child, so a popup placed past the edge of the group that
+// holds it is painted and not clickable. An overlay therefore belongs in the **root's** layer list,
+// positioned from its anchor's laid bounds -- which is where every toolkit puts popups, for this
+// reason rather than by convention.
+pub fn layer_at(where_: Rect, takes_keys: bool, content: Widget) -> Layer {
+    return Layer { at: Option<Rect>.Some(where_), takes_keys: takes_keys, content: content }
+}
+
+pub fn layered_of(layers: [Layer]) -> Widget {
+    return Widget.Layered(Stacked { layers: layers, name: "" })
+}
+
+// Which of a node's children the **keyboard** may reach: every child, except at a layered node
+// whose topmost key-taking layer shuts the rest out.
+//
+// **One function, used by both `focus.controls` and `a11y.tree_of`.** The rule could as easily have
+// been written into each of those walks, and then a dialog that trapped Tab correctly could still
+// have been described to a screen reader as though the window behind it were available. A modal
+// that is modal for one of them and not the other is worse than one that is modal for neither.
+pub fn keyboard_children(l: Laid) -> [Laid] {
+    if Layered(it) = l.widget {
+        var i = prelude.len(it.layers) - 1
+        while i >= 0 {
+            if it.layers[i].takes_keys {
+                if i < prelude.len(l.children) {
+                    return [l.children[i]]
+                }
+            }
+            i = i - 1
+        }
+    }
+    return l.children
+}
+
 // A window onto a child larger than itself.
 //
 // **A viewport has no natural size, and that is the whole point of it.** `measure` answers nothing
@@ -525,6 +604,9 @@ pub enum Widget {
     // A window onto a child larger than itself -- see `Viewport`. **Not transparent to layout**,
     // which is what separates it from every other wrapper here.
     Scroll(Viewport)
+    // Children stacked over one another, later ones on top -- see `Layer`. A menu's popup and a
+    // modal dialog are both this.
+    Layered(Stacked)
 }
 
 pub fn flex() -> Widget {
@@ -595,6 +677,10 @@ pub fn measure(w: Widget, m: Metrics) -> Size {
         Control(it) { measure(it.child, m) }
         // Nothing, deliberately -- see `Viewport`. A viewport takes the size it is given.
         Scroll(_) { size_of(0.0, 0.0) }
+        // The largest of its layers, so a layered node in a column is as big as the biggest thing
+        // it holds. A layer placed at an explicit rect contributes nothing, because it is not asking
+        // to be given room -- it has already said where it goes.
+        Layered(it) { largest_layer(it, m) }
     }
 }
 
@@ -664,6 +750,23 @@ pub fn layout(w: Widget, within: Rect, m: Metrics) -> Laid {
     return place(w, within, m, "", "")
 }
 
+fn largest_layer(it: Stacked, m: Metrics) -> Size {
+    var width = 0.0
+    var height = 0.0
+    for one in it.layers {
+        if Option.is_None(one.at) {
+            val size = measure(one.content, m)
+            if size.width > width {
+                width = size.width
+            }
+            if size.height > height {
+                height = size.height
+            }
+        }
+    }
+    return size_of(width, height)
+}
+
 fn place(w: Widget, within: Rect, m: Metrics, path: string, parent_name: string) -> Laid {
     val own_name = name_of(w)
     val name = if own_name == "" { parent_name } else { own_name }
@@ -720,6 +823,19 @@ fn place(w: Widget, within: Rect, m: Metrics, path: string, parent_name: string)
                 widget: w,
                 children: [place(it.child, content, m, join_path(path, 0), name)]
             }
+        }
+        Layered(it) {
+            val placed = mutable_array_new<Laid>()
+            var i = 0
+            while i < prelude.len(it.layers) {
+                val box = switch it.layers[i].at {
+                    Some(r) { r }
+                    None { within }
+                }
+                push(placed, place(it.layers[i].content, box, m, join_path(path, i), name))
+                i = i + 1
+            }
+            Laid { bounds: within, path: path, name: name, widget: w, children: snapshot(placed) }
         }
         Nothing { leaf(w, within, path, name) }
         Text(_) { leaf(w, within, path, name) }
@@ -795,6 +911,7 @@ fn flex_weight(w: Widget) -> Option<float> {
         Expand(it) { Option<float>.Some(it.weight) }
         Control(_) { Option<float>.None }
         Scroll(_) { Option<float>.None }
+        Layered(_) { Option<float>.None }
         Nothing { Option<float>.None }
         Text(_) { Option<float>.None }
         Group(_) { Option<float>.None }
@@ -823,6 +940,7 @@ fn name_of(w: Widget) -> string {
         Expand(_) { "" }
         Control(it) { it.name }
         Scroll(it) { it.name }
+        Layered(it) { it.name }
         Text(it) { it.name }
         Group(it) { it.name }
         Sized(it) { it.name }
@@ -862,6 +980,7 @@ pub fn contains(r: Rect, p: Point) -> bool {
 pub fn is_tab_stop(l: Laid) -> bool {
     return switch l.widget {
         Control(it) { it.tab_stop }
+        Layered(_) { false }
         Nothing { false }
         Text(_) { false }
         Group(_) { false }
@@ -877,6 +996,7 @@ pub fn is_control(l: Laid) -> bool {
     return switch l.widget {
         Control(_) { true }
         Scroll(_) { false }
+        Layered(_) { false }
         Nothing { false }
         Text(_) { false }
         Group(_) { false }

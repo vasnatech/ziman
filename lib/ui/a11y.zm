@@ -224,7 +224,10 @@ fn collect_plain(l: Laid, focus: string, nodes: MutableArray<Node>) -> [string] 
         return [path_key(l.path)]
     }
     val out = mutable_array_new<string>()
-    for child in l.children {
+    // The keyboard's children, not every child: a modal layer is the only thing a reader should be
+    // offered while it is up, and that rule is `widget.keyboard_children` so that it cannot differ
+    // from the one Tab follows.
+    for child in widget.keyboard_children(l) {
         concat(out, collect(child, focus, nodes))
     }
     return snapshot(out)
@@ -325,6 +328,7 @@ fn focusable_in(l: Laid) -> Option<widget.Focusable> {
         // which is right -- a reader reaches a row by name and the application scrolls to it, the
         // same way Tab reaches a control the window is not showing.
         Scroll(_) { Option<widget.Focusable>.None }
+        Layered(_) { Option<widget.Focusable>.None }
         Nothing { Option<widget.Focusable>.None }
         Text(_) { Option<widget.Focusable>.None }
         Group(_) { Option<widget.Focusable>.None }
@@ -338,6 +342,7 @@ fn text_of(l: Laid) -> string {
     return switch l.widget {
         Text(label) { label.text }
         Scroll(_) { "" }
+        Layered(_) { "" }
         Nothing { "" }
         Group(_) { "" }
         Sized(_) { "" }

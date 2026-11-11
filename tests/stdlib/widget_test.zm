@@ -519,3 +519,173 @@ fn the_two_conversions_are_inverses() {
     test.assert_eq(p.x, 20.0)
     test.assert_eq(p.y, 40.0)
 }
+
+// --- overlays: a popup and a dialog
+
+use a11y
+
+fn behind() -> widget.Widget {
+    return widget.row_of(
+        0.0,
+        [widget.focusable_of("open", box(40.0, 20.0)), widget.focusable_of("other", box(40.0, 20.0))]
+    )
+}
+
+fn dialog_content() -> widget.Widget {
+    return widget.column_of(
+        0.0,
+        [widget.focusable_of("ok", box(30.0, 10.0)), widget.focusable_of("cancel", box(30.0, 10.0))]
+    )
+}
+
+fn with_dialog() -> widget.Laid {
+    return widget.layout(
+        widget.layered_of([widget.base_layer(behind()), widget.modal_layer(dialog_content())]),
+        geom.rect_of(0.0, 0.0, 80.0, 40.0),
+        fake_metrics()
+    )
+}
+
+// A popup placed at a rect, not covering the window: the menu bar beneath stays reachable.
+fn with_popup() -> widget.Laid {
+    return widget.layout(
+        widget.layered_of([
+            widget.base_layer(behind()),
+            widget.layer_at(geom.rect_of(0.0, 20.0, 40.0, 20.0), true, widget.focusable_of("item", box(40.0, 20.0)))
+        ]),
+        geom.rect_of(0.0, 0.0, 80.0, 40.0),
+        fake_metrics()
+    )
+}
+
+// **Pointer capture is geometry.** A layer given the whole box is the last sibling containing any
+// point, so a click beside the dialog's buttons lands on the layer, finds no control, and goes
+// nowhere. No flag says so; the rectangle does.
+#[test]
+fn a_full_box_layer_swallows_clicks_that_miss_it() {
+    val l = with_dialog()
+    // On the dialog's first button.
+    test.assert_eq(hit_name(l, 5.0, 5.0), "ok")
+    // Beside the buttons but inside the window: the layer covers it, and nothing there is a control.
+    test.assert_eq(hit_name(l, 70.0, 35.0), "(none)")
+}
+
+// **And a layer with a rect does not.** A click above the popup reaches the menu bar under it,
+// which is what makes a menu dismissible by clicking away from it.
+#[test]
+fn a_placed_layer_lets_clicks_past_it() {
+    val l = with_popup()
+    // Inside the popup.
+    test.assert_eq(hit_name(l, 10.0, 30.0), "item")
+    // Above it, where the row behind is.
+    test.assert_eq(hit_name(l, 10.0, 5.0), "open")
+    test.assert_eq(hit_name(l, 50.0, 5.0), "other")
+}
+
+// **Keyboard capture is declared, because no rectangle says where Tab may go.** The dialog's layer
+// claims it, so Tab sees two controls and not four.
+#[test]
+fn a_layer_that_claims_the_keyboard_traps_tab() {
+    val l = with_dialog()
+    test.assert_eq(names_in(l), "ok cancel")
+    test.assert_eq(focus.first(l), "ok")
+    test.assert_eq(focus.next(l, "cancel"), "ok")
+    test.assert_false(focus.holds(l, "open"))
+}
+
+fn names_in(l: widget.Laid) -> string {
+    val out = mutable_array_new<string>()
+    for one in focus.controls(l) {
+        push(out, one.name)
+    }
+    return join(separator: " ", pieces: snapshot(out))
+}
+
+// A layer that does not claim it leaves the whole window in the tab order -- a tooltip must not
+// steal the keyboard.
+#[test]
+fn a_layer_that_does_not_claim_the_keyboard_leaves_tab_alone() {
+    val l = widget.layout(
+        widget.layered_of([
+            widget.base_layer(behind()),
+            widget.layer_at(geom.rect_of(0.0, 20.0, 40.0, 20.0), false, widget.focusable_of("tip", box(40.0, 20.0)))
+        ]),
+        geom.rect_of(0.0, 0.0, 80.0, 40.0),
+        fake_metrics()
+    )
+    test.assert_eq(names_in(l), "open other tip")
+}
+
+// **The reader is trapped by the same rule Tab is, from the same function.** A dialog that caught
+// Tab while a screen reader still described the window behind it would be worse than one that
+// caught neither, because the sighted user would see it working.
+#[test]
+fn a_modal_layer_hides_the_window_from_a_reader_too() {
+    val t = a11y.tree_of(with_dialog(), "Records", "ok")
+    val keys = mutable_array_new<string>()
+    for one in t.nodes {
+        push(keys, one.key)
+    }
+    test.assert_eq(join(separator: " ", pieces: snapshot(keys)), "@ ok cancel")
+    test.assert_len(2, a11y.reachable(t))
+}
+
+// Later layers paint over earlier ones, which is the whole point of the order.
+#[test]
+fn layers_paint_in_order() {
+    val over = widget.layout(
+        widget.layered_of([
+            widget.base_layer(widget.Widget.Group(widget.Stack {
+                direction: widget.Direction.Row,
+                spacing: 0.0,
+                padding: widget.no_insets(),
+                background: Option<paint.Color>.Some(black()),
+                children: [],
+                name: "under"
+            })),
+            widget.base_layer(widget.Widget.Group(widget.Stack {
+                direction: widget.Direction.Row,
+                spacing: 0.0,
+                padding: widget.no_insets(),
+                background: Option<paint.Color>.Some(black()),
+                children: [],
+                name: "over"
+            }))
+        ]),
+        geom.rect_of(0.0, 0.0, 10.0, 10.0),
+        fake_metrics()
+    )
+    val s = widget.paint(over, fake_metrics())
+    test.assert_len(2, s.ops)
+    test.assert_eq(over.children[0].name, "under")
+    test.assert_eq(over.children[1].name, "over")
+}
+
+// **A layered node does not clip**, which is the opposite of a viewport: a layer keeps the rect it
+// was given even where that exceeds its parent, so a popup can overhang.
+//
+// And the limit of that, which this case exists to state: **painting past an ancestor is not the
+// same as being clickable past one.** `widget.at` rejects a node whose bounds exclude the point
+// before it looks at any child, so a layer hanging outside the group that holds it draws and cannot
+// be hit. The first version of this case asserted the opposite and failed, which is how the rule
+// got written down -- and it is why an overlay belongs in the *root's* layer list rather than beside
+// the thing it is anchored to.
+#[test]
+fn a_layer_keeps_a_rect_that_overhangs_its_parent() {
+    val inner = widget.layered_of([
+        widget.base_layer(behind()),
+        widget.layer_at(geom.rect_of(0.0, 10.0, 40.0, 40.0), true, widget.focusable_of("tall", box(40.0, 40.0)))
+    ])
+    val l = widget.layout(
+        widget.column_of(0.0, [widget.fixed_of(80.0, 20.0, inner)]),
+        geom.rect_of(0.0, 0.0, 80.0, 60.0),
+        fake_metrics()
+    )
+    val layered = l.children[0].children[0]
+    // The layer kept its rect, 30 units past the 20-tall box holding it.
+    test.assert_eq(rect_text(layered.children[1].bounds), "0.0,10.0 40.0x40.0")
+    // Inside both: reachable.
+    test.assert_eq(hit_name(l, 10.0, 15.0), "tall")
+    // Past the holding box, inside the window: painted there, and not reachable.
+    test.assert_eq(hit_name(l, 10.0, 40.0), "(none)")
+}
