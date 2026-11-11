@@ -175,7 +175,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | Module | What it is |
 |---|---|
 | [`window`](window.md) | A window, the pixels in it, and what the user did. |
-| [`desktop`](desktop.md) | The desktop backend's adapter: a `window.Event` as a `controls.Input`. |
+| [`desktop`](desktop.md) | The desktop backend's adapter, both ways. |
 
 ## User interface: terminal
 

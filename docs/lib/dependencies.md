@@ -140,6 +140,9 @@ flowchart LR
     derive_xml --> meta
     derive_xml --> template
     desktop --> controls
+    desktop --> geom
+    desktop --> raster
+    desktop --> scene
     desktop --> widget
     encoding --> locale
     encoding --> number
@@ -368,7 +371,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `derive_row` | `meta`, `template` | `derive_repository` |
 | `derive_validate` | `meta`, `template` | - |
 | `derive_xml` | `meta`, `template` | - |
-| `desktop` | `controls`, `widget` | - |
+| `desktop` | `controls`, `geom`, `raster`, `scene`, `widget` | - |
 | `edit` | - | `controls` |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
@@ -376,7 +379,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `focus` | `geom`, `widget` | `controls` |
 | `font` | `truetype` | `layout`, `pdf`, `raster`, `widget` |
 | `fs` | `io`, `os` | `csv`, `http`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
-| `geom` | `math` | `a11y`, `controls`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype`, `widget` |
+| `geom` | `math` | `a11y`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype`, `widget` |
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
 | `io` | - | `client`, `csv`, `fs`, `http`, `rest`, `server`, `terminal`, `xml` |
@@ -406,10 +409,10 @@ otherwise: everything on a layer depends only on lower layers.
 | `process` | `encoding`, `fs`, `os`, `random` | - |
 | `properties` | `fs`, `locale`, `math`, `os` | `derive_properties` |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `process`, `uuid` |
-| `raster` | `font`, `geom`, `image`, `math`, `paint`, `scene`, `shape`, `stroker`, `truetype` | - |
+| `raster` | `font`, `geom`, `image`, `math`, `paint`, `scene`, `shape`, `stroker`, `truetype` | `desktop` |
 | `regex` | - | `expr`, `test`, `validate` |
 | `rest` | `clock`, `codec`, `http`, `io`, `metrics`, `mime`, `server`, `url`, `uuid` | - |
-| `scene` | `geom`, `paint`, `shape` | `layout`, `pdf`, `raster`, `widget` |
+| `scene` | `geom`, `paint`, `shape` | `desktop`, `layout`, `pdf`, `raster`, `widget` |
 | `schedule` | `clock`, `locale`, `time` | - |
 | `server` | `clock`, `codec`, `compress`, `fs`, `http`, `io`, `json`, `locale`, `metrics`, `mime`, `net`, `number`, `os`, `uuid` | `rest` |
 | `shape` | `geom`, `math` | `layout`, `pdf`, `raster`, `scene`, `stroker`, `truetype`, `widget` |

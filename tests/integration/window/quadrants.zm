@@ -30,7 +30,13 @@
 // and straight are the same numbers -- which is the normal case for a window and the one the fast
 // path in the native takes.
 use clock
+use desktop
+use geom
 use os
+use paint
+use raster
+use scene
+use shape
 use window
 
 val width = 320
@@ -109,6 +115,28 @@ fn report(e: window.Event) {
 // Whether the window manager -- or the harness standing in for it -- asked this window to go away.
 // Written out arm by arm because this language has no wildcard arm for a variant, which is the
 // trade for a switch that fails to compile when a case is added to `Event`.
+// **`Exposed` is the event a damage-driven loop cannot ignore.** A compositor may show a window
+// before its first contents arrive, or lose them later, and in neither case has the *scene* changed
+// -- so `desktop.repaint` would correctly answer "nothing to do" and the window would stay blank.
+// The first version of the repaint mode here did exactly that and the harness read four black
+// pixels. `desktop.forget` is the answer, and this is the event that calls for it.
+fn is_exposed(e: window.Event) -> bool {
+    return switch e {
+        Exposed { true }
+        Close { false }
+        KeyDown(_) { false }
+        KeyUp(_) { false }
+        Char(_) { false }
+        PointerDown(_) { false }
+        PointerUp(_) { false }
+        PointerMove(_) { false }
+        Scroll(_) { false }
+        Resize(_) { false }
+        FocusIn { false }
+        FocusOut { false }
+    }
+}
+
 fn is_close(e: window.Event) -> bool {
     return switch e {
         Close { true }
@@ -171,6 +199,53 @@ fn flood(buffer: MutableArray<float>, r: float, g: float, b: float) {
     }
 }
 
+// **The same pattern as a `Scene`, for the damage-driven repaint path.**
+//
+// `desktop.repaint` is the join between the renderer and the window: it asks what changed since the
+// scene it last showed, redraws that rectangle and sends that rectangle. Testing it needs a real
+// window, so it is tested here rather than in `tests/lang`, and it is tested on *this* pattern
+// because the four quadrants are exactly what the harness already knows how to read -- the
+// boundaries sit on whole pixels at 320x240, so the fills are flat and the colours are exact rather
+// than anti-aliased.
+fn quadrant_scene(label: int) -> scene.Scene {
+    val w = width as float
+    val h = height as float
+    val half_w = w * 0.5
+    val half_h = h * 0.5
+    val ops = mutable_array_new<scene.Op>()
+    // The fourth quadrant's colour is the one that moves, so a second scene differs in one corner
+    // and the damage should be that corner alone.
+    val fourth = if label == 0 { paint.rgb(1.0, 1.0, 1.0) } else { paint.rgb(1.0, 1.0, 0.0) }
+    push(
+        ops,
+        scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, half_w, half_h)), paint.Paint.Solid(paint.rgb(1.0, 0.0, 0.0)))
+    )
+    push(
+        ops,
+        scene.fill(
+            shape.rect_path(geom.rect_of(half_w, 0.0, half_w, half_h)),
+            paint.Paint.Solid(paint.rgb(0.0, 1.0, 0.0))
+        )
+    )
+    push(
+        ops,
+        scene.fill(
+            shape.rect_path(geom.rect_of(0.0, half_h, half_w, half_h)),
+            paint.Paint.Solid(paint.rgb(0.0, 0.0, 1.0))
+        )
+    )
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(half_w, half_h, half_w, half_h)), paint.Paint.Solid(fourth)))
+    return scene.with_ops(scene.scene_of(w, h), snapshot(ops))
+}
+
+fn repaint_options() -> raster.Options {
+    return with raster.options() {
+        samples: 1,
+        background: Option<paint.Color>.Some(paint.white()),
+        max_pixels: 200000
+    }
+}
+
 // Which `present` to exercise. Defaults to the float one, because that is the path a repaint uses.
 fn use_floats() -> bool {
     return switch os.get_env("WINDOW_PRESENT_MODE") {
@@ -184,6 +259,52 @@ fn use_region() -> bool {
         Some(mode) { mode == "region" }
         None { false }
     }
+}
+
+fn use_repaint() -> bool {
+    return switch os.get_env("WINDOW_PRESENT_MODE") {
+        Some(mode) { mode == "repaint" }
+        None { false }
+    }
+}
+
+// Drives `desktop.repaint` through the three cases a loop actually meets, reporting each so the
+// harness can read them: a first frame that must draw everything, a second with the same scene that
+// must draw **nothing at all**, and a changed scene whose damage must be the one quadrant that
+// differs rather than the window.
+fn drive_repaint(w: window.Window) -> Result<desktop.Painter, string> {
+    val o = repaint_options()
+    var painter = try desktop.painter_of(width as float, height as float, 1.0)
+
+    val first = try desktop.repaint(painter, w, quadrant_scene(0), o)
+    painter = first.next
+    switch first.region {
+        Some(r) { printf("repaint first {}x{}\n", str(r.width), str(r.height)) }
+        None { print("repaint first painted nothing, which it must not") }
+    }
+
+    val again = try desktop.repaint(painter, w, quadrant_scene(0), o)
+    painter = again.next
+    switch again.region {
+        Some(r) { printf("repaint unchanged painted {}x{}, which it must not\n", str(r.width), str(r.height)) }
+        None { print("repaint unchanged painted nothing") }
+    }
+
+    // `forget` is what an `Exposed` event needs: the scene has not changed, so without it the
+    // window would stay as the compositor left it.
+    val forced = try desktop.repaint(desktop.forget(painter), w, quadrant_scene(0), o)
+    painter = forced.next
+    switch forced.region {
+        Some(r) { printf("repaint after forget {}x{}\n", str(r.width), str(r.height)) }
+        None { print("repaint after forget painted nothing, which it must not") }
+    }
+
+    val changed = try desktop.repaint(painter, w, quadrant_scene(1), o)
+    switch changed.region {
+        Some(r) { printf("repaint one quadrant {}x{} at {},{}\n", str(r.width), str(r.height), str(r.x), str(r.y)) }
+        None { print("repaint of a changed scene painted nothing, which it must not") }
+    }
+    return ok(changed.next)
 }
 
 fn paint_window(w: window.Window, floats: bool) -> Result<unit, string> {
@@ -231,12 +352,25 @@ fn main() {
             printf("size {}x{}\n", str(size.width), str(size.height))
             val floats = use_floats()
             val regional = use_region()
-            if regional {
-                try paint_region(w)
+            val driven = use_repaint()
+            var painter = Option<desktop.Painter>.None
+            if driven {
+                painter = Option<desktop.Painter>.Some(try drive_repaint(w))
             } else {
-                try paint_window(w, floats)
+                if regional {
+                    try paint_region(w)
+                } else {
+                    try paint_window(w, floats)
+                }
             }
-            printf("presented {}\n", if regional { "region" } else { if floats { "floats" } else { "bytes" } })
+            printf(
+                "presented {}\n",
+                if driven {
+                    "repaint"
+                } else {
+                    if regional { "region" } else { if floats { "floats" } else { "bytes" } }
+                }
+            )
             // **Re-presented every pass, not once.** A compositor can show the window before its
             // first contents arrive, and a screenshot taken in that gap reads black -- which is
             // what the harness saw the first time it ran under a loaded `make check-fast`. Painting
@@ -251,20 +385,41 @@ fn main() {
             while !closing && clock.monotonic_millis() < deadline {
                 for one in try window.poll(w) {
                     report(one)
+                    // Repaint on Exposed, which is what the event means: the window's contents are
+                    // gone and the scene cannot tell us so.
+                    if driven && is_exposed(one) {
+                        if Some(held) = painter {
+                            val redrawn = try desktop.repaint(
+                                desktop.forget(held),
+                                w,
+                                quadrant_scene(1),
+                                repaint_options()
+                            )
+                            painter = Option<desktop.Painter>.Some(redrawn.next)
+                        }
+                    }
                     if is_close(one) {
                         closing = true
                     }
                 }
-                if regional {
-                    // **Only the region, not the whole frame.** Re-presenting everything each pass
-                    // as the other modes do left the window alternating between the quadrants and
-                    // the magenta square, and the harness screenshotted the wrong half of that
-                    // cycle -- a flake entirely of this file's own making. The pixels outside the
-                    // region are painted once, before "presented", and then left alone, which is
-                    // also a truer picture of what a repaint loop does.
-                    try magenta_region(w)
+                if driven {
+                    // **Nothing to do.** The scene has not changed, so `desktop.repaint` would
+                    // correctly draw nothing -- which is the behaviour under test, and re-calling it
+                    // here would only assert it a second time. The window keeps what the last
+                    // `drive_repaint` left on it.
+                    unit
                 } else {
-                    try paint_window(w, floats)
+                    if regional {
+                        // **Only the region, not the whole frame.** Re-presenting everything each
+                        // pass as the other modes do left the window alternating between the
+                        // quadrants and the magenta square, and the harness screenshotted the wrong
+                        // half of that cycle -- a flake entirely of this file's own making. The
+                        // pixels outside the region are painted once, before "presented", and then
+                        // left alone, which is also a truer picture of what a repaint loop does.
+                        try magenta_region(w)
+                    } else {
+                        try paint_window(w, floats)
+                    }
                 }
                 clock.sleep_millis(50)
             }

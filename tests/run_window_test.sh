@@ -33,7 +33,7 @@ command -v xprop >/dev/null || skip "no xprop"
 command -v import >/dev/null || skip "no ImageMagick import"
 
 work="$(mktemp -d)"
-trap 'rm -rf "$work"; for p in ${pid:-} ${bytes_pid:-} ${region_pid:-}; do kill "$p" 2>/dev/null; done' EXIT
+trap 'rm -rf "$work"; for p in ${pid:-} ${bytes_pid:-} ${region_pid:-} ${repaint_pid:-}; do kill "$p" 2>/dev/null; done' EXIT
 
 "$BIN" "$PROGRAM" > "$work/out.txt" 2>&1 &
 pid=$!
@@ -229,6 +229,61 @@ else
 fi
 kill "$region_pid" 2>/dev/null
 region_pid=""
+
+# --- the damage-driven repaint, which is the whole chain joined up
+#
+# `desktop.repaint` asks `raster.damage_between` what changed, redraws that rectangle with
+# `draw_into_region` and sends it with `present_region`. Everything under it is covered by
+# `tests/lang`; what only a real window can show is that the four of them joined together put the
+# right pixels on a screen. The program reports the three cases a loop actually meets and ends with
+# one quadrant recoloured, so the pixels below are the proof that a *partial* repaint of a window
+# leaves the other three quadrants exactly as they were.
+WINDOW_PRESENT_MODE=repaint "$BIN" "$PROGRAM" > "$work/repaint.txt" 2>&1 &
+repaint_pid=$!
+repaint_id=""
+for _ in $(seq 1 60); do
+    repaint_id="$(grep -o 'window-id [0-9]*' "$work/repaint.txt" 2>/dev/null | awk '{print $2}')"
+    [ -n "$repaint_id" ] && break
+    sleep 0.1
+done
+repaint_drawn=0
+for _ in $(seq 1 100); do
+    if grep -q '^presented repaint' "$work/repaint.txt" 2>/dev/null; then repaint_drawn=1; break; fi
+    sleep 0.1
+done
+if [ -z "$repaint_id" ] || [ "$repaint_drawn" -eq 0 ]; then
+    echo "FAIL window_repaint (no window or never presented: $(head -4 "$work/repaint.txt" | tr '\n' ' '))"
+    fail=1
+else
+    check_line() {
+        if grep -qF -- "$1" "$work/repaint.txt"; then
+            echo "PASS window_repaint_$2"
+        else
+            echo "FAIL window_repaint_$2 (no line '$1'; got: $(grep '^repaint' "$work/repaint.txt" | tr '\n' '|'))"
+            fail=1
+        fi
+    }
+    # A first frame draws everything; the same scene again draws nothing; `forget` forces a full
+    # redraw, which is what an Exposed event needs; and one changed quadrant damages that quadrant.
+    check_line "repaint first 320x240" first_frame_is_whole
+    check_line "repaint unchanged painted nothing" unchanged_paints_nothing
+    check_line "repaint after forget 320x240" forget_forces_whole
+    check_line "repaint one quadrant 160x120 at 160,120" one_quadrant_only
+
+    driven_id="$id"
+    id="$repaint_id"
+    # Three quadrants untouched by the partial repaint, and the fourth showing its new colour.
+    check_pixel 80 60 "srgb(255,0,0)" repaint_untouched_red
+    check_pixel 240 60 "srgb(0,255,0)" repaint_untouched_green
+    check_pixel 80 180 "srgb(0,0,255)" repaint_untouched_blue
+    check_pixel 240 180 "srgb(255,255,0)" repaint_changed_to_yellow
+    # Either side of the damaged quadrant's own edge.
+    check_pixel 159 180 "srgb(0,0,255)" repaint_edge_outside
+    check_pixel 161 180 "srgb(255,255,0)" repaint_edge_inside
+    id="$driven_id"
+fi
+kill "$repaint_pid" 2>/dev/null
+repaint_pid=""
 
 # --- input, which is the half no Ziman code can reach
 #

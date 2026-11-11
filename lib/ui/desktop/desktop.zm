@@ -1,4 +1,5 @@
-// The desktop backend's adapter: a `window.Event` as a `controls.Input`.
+// The desktop backend's adapter, both ways: a `window.Event` as a `controls.Input`, and a
+// `scene.Scene` onto the window's pixels.
 //
 // **This module exists so that `lib/ui/` need not know what X11 is.** The control set -- buttons,
 // fields, lists, menus, dialogs -- is the same logic whatever is drawing it, and the thing that
@@ -14,7 +15,16 @@
 // **The keysym numbers are still in exactly one place**, and it is not here: this maps
 // `window.key_name`'s output, which is the name X11 already agreed on, so adding a key means
 // touching `window.zm` and this table and nothing else.
+// **The repaint half lives here too, and that is the reason this file is `desktop` rather than
+// `events`.** Joining a renderer to a window is exactly the backend-specific work this module
+// exists to hold: `raster` knows nothing about windows and `window` knows nothing about scenes --
+// deliberately, each says so in its own header -- so something has to own a surface, remember what
+// it last showed, and work out what to send. That something is backend glue, and this is where the
+// backend glue goes.
 use controls
+use geom
+use raster
+use scene
 use widget
 use widget.Density
 use window
@@ -97,4 +107,97 @@ fn key_of(name: string) -> controls.Key {
     if name == "End" { return controls.Key.End }
     if len(name) == 1 { return controls.Key.Char(name) }
     return controls.Key.Other(name)
+}
+
+// ---- repainting
+
+// A window's pixels, kept between frames, with the scene they last showed.
+//
+// **Keeping the last scene is the whole mechanism.** `raster.damage_between` can say what changed
+// between two scenes, but only if the previous one still exists -- and because a `Scene` is an
+// immutable value, keeping it costs a reference rather than a copy. That is what makes this a few
+// lines rather than a change to the widget tree: F271 made the tree pure and rebuilt every frame,
+// so there is nowhere in a widget to record "I changed", and no need for one.
+pub struct Painter {
+    surface: raster.Surface
+    // `None` before the first frame, and after `forget`.
+    shown: Option<scene.Scene>
+    // What the surface was made for, so a resize or a changed ratio is noticed rather than refused.
+    width_pt: float
+    height_pt: float
+    px_per_pt: float
+}
+
+// What one `repaint` did.
+pub struct Repaint {
+    // The painter for the next frame. Values are immutable, so the remembered scene comes back this
+    // way: `p = try desktop.repaint(p, ...).next` is the shape of a loop.
+    next: Painter
+    // The pixels redrawn, or **`None` when the scene was unchanged** -- in which case nothing was
+    // drawn and nothing was sent to the display at all. Worth reading: it is the signal that a loop
+    // can afford to wait for the next event rather than spin.
+    region: Option<raster.Painted>
+}
+
+pub fn painter_of(width_pt: float, height_pt: float, px_per_pt: float) -> Result<Painter, string> {
+    val surface = try raster.surface_of(width_pt, height_pt, px_per_pt)
+    return ok(Painter {
+        surface: surface,
+        shown: Option<scene.Scene>.None,
+        width_pt: width_pt,
+        height_pt: height_pt,
+        px_per_pt: px_per_pt
+    })
+}
+
+// Forgets what the window is showing, so the next `repaint` redraws all of it.
+//
+// **This is what an `Exposed` event needs**, and without it a damage-driven loop is wrong rather
+// than slow: a compositor can lose a window's contents and ask for them again, and the scene has not
+// changed, so `damage_between` would correctly answer "nothing" and the window would stay blank. The
+// same applies after anything else draws over the window behind this code's back.
+pub fn forget(p: Painter) -> Painter {
+    return with p { shown: Option<scene.Scene>.None }
+}
+
+// Draws `s` onto the window, redrawing **only what changed** since the last call.
+//
+// The whole of the damage path in four steps: ask `raster.damage_between` what differs from the scene
+// this painter last showed, redraw that rectangle with `raster.draw_into_region`, send that same
+// rectangle with `window.present_region`, and remember the scene for next time. A first frame, or one
+// after `forget`, redraws everything because the surface holds no known scene.
+//
+// **A resize makes a new surface rather than an error.** `draw_into_region` refuses a scene whose
+// size does not match its surface -- correctly, since the two must agree -- but a caller whose window
+// just resized should not have to notice that, so a changed size or ratio is taken as the resize it
+// is. The next frame is a full one, which is right: none of the old pixels mean anything.
+pub fn repaint(
+    p: Painter,
+    w: window.Window,
+    s: scene.Scene,
+    o: raster.Options
+) -> Result<Repaint, string> {
+    val resized = s.width != p.width_pt || s.height != p.height_pt || o.px_per_pt != p.px_per_pt
+    val current = if resized { try painter_of(s.width, s.height, o.px_per_pt) } else { p }
+    val damage = switch current.shown {
+        Some(previous) { raster.damage_between(previous, s, o) }
+        None { Option<geom.Rect>.Some(geom.rect_of(0.0, 0.0, s.width, s.height)) }
+    }
+    val remembered = with current { shown: Option<scene.Scene>.Some(s) }
+    return switch damage {
+        // **Nothing drawn and nothing presented.** Not a faster repaint but the absence of one,
+        // which is the cheapest frame there is and the common case for a window nobody is touching.
+        None { ok(Repaint { next: remembered, region: Option<raster.Painted>.None }) }
+        Some(region) {
+            val painted = try raster.draw_into_region(current.surface, s, o, region)
+            val pixels = raster.premultiplied_of(current.surface)
+            try window.present_region(w, pixels.data, pixels.width, pixels.height, window.Region {
+                x: painted.x,
+                y: painted.y,
+                width: painted.width,
+                height: painted.height
+            })
+            ok(Repaint { next: remembered, region: Option<raster.Painted>.Some(painted) })
+        }
+    }
 }
