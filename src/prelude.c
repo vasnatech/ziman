@@ -714,6 +714,12 @@ static int option_string_value(Value opt, Value *out) {
  * pure-Ziman version accumulating via repeated `concat` would be the
  * same O(N^2) pattern this was written to replace (see docs/design/journal/'s
  * "join" entry). */
+/* How many elements a `MutableArray` holds, and the one at an index -- declared here and defined
+ * below the builder table, because the natives that read a builder are spread through this file and
+ * the table sits in the middle of it. */
+static int ziman_piece_count(Value builder);
+static Value ziman_piece_at(Value builder, int i);
+
 static Value native_join(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -725,18 +731,24 @@ static Value native_join(Value *args, int argc, int line, int col) {
     int has_prefix = option_string_value(args[0], &pv);
     int has_suffix = option_string_value(args[1], &sv);
     int has_sep = option_string_value(args[2], &dv);
-    ArrayObj *pieces = args[3].as.arr;
+    /* **Two declarations, one symbol**: the pieces arrive either as the variadic's collapsed array
+     * or as a `MutableArray` handle, and this walks whichever it was given, copying neither. The
+     * builder form costs one table lookup per element rather than per call, because this function
+     * sits above the builder table in this file -- two loads against a copy of the whole array. */
+    int from_builder = args[3].type->kind == TY_STRUCT;
+    ArrayObj *pieces = from_builder ? NULL : args[3].as.arr;
+    int count = from_builder ? ziman_piece_count(args[3]) : pieces->count;
 
     size_t prefix_len = has_prefix ? SLEN(pv) : 0;
     size_t suffix_len = has_suffix ? SLEN(sv) : 0;
     size_t separator_len = has_sep ? SLEN(dv) : 0;
 
     size_t total = prefix_len + suffix_len;
-    for (int i = 0; i < pieces->count; i++) {
-        total += SLEN(array_get(pieces, i));
+    for (int i = 0; i < count; i++) {
+        total += SLEN(from_builder ? ziman_piece_at(args[3], i) : array_get(pieces, i));
     }
-    if (pieces->count > 1) {
-        total += separator_len * (size_t)(pieces->count - 1);
+    if (count > 1) {
+        total += separator_len * (size_t)(count - 1);
     }
 
     char *buf = zalloc_atomic(total + 1);
@@ -745,12 +757,12 @@ static Value native_join(Value *args, int argc, int line, int col) {
         memcpy(buf + pos, SPTR(pv), prefix_len);
         pos += prefix_len;
     }
-    for (int i = 0; i < pieces->count; i++) {
+    for (int i = 0; i < count; i++) {
         if (i > 0 && has_sep) {
             memcpy(buf + pos, SPTR(dv), separator_len);
             pos += separator_len;
         }
-        Value piece = array_get(pieces, i);
+        Value piece = from_builder ? ziman_piece_at(args[3], i) : array_get(pieces, i);
         size_t piece_len = SLEN(piece);
         memcpy(buf + pos, SPTR(piece), piece_len);
         pos += piece_len;
@@ -1423,6 +1435,14 @@ static Value native_mutable_array_insert(Value *args, int argc, int line, int co
     else buf->items[i] = args[2];
     buf->length++;
     return value_int(0); /* void return -- the caller never uses this */
+}
+
+static int ziman_piece_count(Value builder) {
+    return (int)mutable_array_table_get(mutable_array_handle_of(builder))->length;
+}
+
+static Value ziman_piece_at(Value builder, int i) {
+    return mutable_array_element_at(mutable_array_table_get(mutable_array_handle_of(builder)), (size_t)i);
 }
 
 /* O(n), and it answers what it removed -- which is why there is no `pop`:

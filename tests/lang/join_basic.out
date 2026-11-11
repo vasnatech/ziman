@@ -7,3 +7,9 @@ a, b, c, d
 [a, b, c, d]
 6890
 8891
+a,b,c
+<a b c>
+true
+[]
+a,b,c
+a,b,c,d

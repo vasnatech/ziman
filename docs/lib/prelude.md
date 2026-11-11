@@ -4056,6 +4056,28 @@ the pieces, and `prefix` and `suffix` around the whole; each is optional in a na
 `join(prefix: "[", suffix: "]", separator: ", ", pieces: arr)` is `[a, b, c]`. Written as a
 native so that joining N strings is O(N), where adding them with `concat` one at a time is not.
 
+```
+pub native fn join(
+    prefix: Option<string>,
+    suffix: Option<string>,
+    separator: Option<string>,
+    pieces: MutableArray<string>
+) -> string
+```
+
+The same, over a `MutableArray` of pieces, which a variadic cannot take.
+
+**A variadic takes a scalar or an immutable array and nothing else**, and that is right: a callee
+receives its tail as a `[T]` value it may store, so aliasing a builder's buffer would let a later
+`push` mutate an array someone holds as immutable. Teaching variadics to accept a builder would
+mean materialising it at the call boundary -- exactly the `snapshot` it replaced, and hidden
+rather than written.
+
+A builtin can do better, which is why this declaration exists: it walks the builder's elements
+and returns a string, retaining nothing, so there is no copy at all.
+`join(separator: ", ", pieces: snapshot(parts))` was 67 sites in `lib/`, each paying for a copy
+to satisfy a signature.
+
 ### `split_once`
 
 ```

@@ -2405,7 +2405,18 @@ static int ovl_min_named_arity(const FunctionDecl *fn) {
 static int ovl_arity_fits(const FunctionDecl *fn, int argc, int named) {
     int n = fn->params.count;
     int variadic = n > 0 && fn->params.items[n - 1].is_variadic;
-    if (variadic) return argc >= n - 1;
+    /* **A named call omits optional parameters, whichever arm it lands on** (F278). The variadic
+     * arm read `argc >= n - 1` -- "every fixed parameter was supplied", which is right positionally
+     * and wrong for a named call, where an `Option` may simply be left out. `join`'s own
+     * declaration has four parameters and three of them optional, so
+     * `join(separator: ",", pieces: xs)` arrives with two arguments and was refused here for
+     * needing three. With one declaration it never got this far: this gate runs only for a set.
+     *
+     * The same mistake F239 fixed on the arm below, in the same function, for the same reason --
+     * left on this arm because no overloaded set had a variadic member with omittable parameters
+     * until `join` gained a second declaration. `ovl_min_named_arity` already skips a variadic
+     * parameter unless it demands at least one, so it needed nothing. */
+    if (variadic && !named) return argc >= n - 1;
     if (named) return argc <= n && argc >= ovl_min_named_arity(fn);
     return argc == n;
 }

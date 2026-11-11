@@ -30,4 +30,31 @@ fn main() {
     }
     print(byte_len(join(pieces: big)))
     print(byte_len(join(prefix: "[", suffix: "]", separator: ",", pieces: big)))
+
+    // ---- a builder of pieces, which a variadic cannot take
+    //
+    // **`join` has a second declaration for a `MutableArray`**, because a variadic accepts a scalar
+    // or an immutable array and nothing else -- and teaching variadics to take a builder would mean
+    // materialising it at the call boundary, since a callee holds its tail as a `[T]` value it may
+    // store. A builtin walks the builder and returns a string, retaining nothing, so this form
+    // copies nothing where `pieces: snapshot(parts)` copied the whole array (F279).
+    val parts = mutable_array_new<string>()
+    push(parts, "a")
+    push(parts, "b")
+    push(parts, "c")
+    print(join(separator: ",", pieces: parts))
+    print(join(prefix: "<", suffix: ">", separator: " ", pieces: parts))
+    // Both forms of the same content agree.
+    print(join(separator: ",", pieces: parts) == join(separator: ",", pieces: snapshot(parts)))
+    // Empty, which has no separator to place.
+    print(concat("[", join(separator: ",", pieces: mutable_array_new<string>()), "]"))
+
+    // **The answer does not alias the builder.** The string is finished when it is returned, so
+    // growing the builder afterwards must not change what was already answered -- which is the
+    // property that makes reading the buffer in place safe for a builtin and unsafe for a general
+    // variadic.
+    val answered = join(separator: ",", pieces: parts)
+    push(parts, "d")
+    print(answered)
+    print(join(separator: ",", pieces: parts))
 }
