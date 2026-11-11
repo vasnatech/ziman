@@ -33,11 +33,26 @@ fn main() {
     val form = widget.column_of(4.0, [
         labelled("send", widget.Role.Button, "Send"),
         labelled("url", widget.Role.TextField, "http://example.test"),
-        labelled("env", widget.Role.ComboBox, "staging"),
+        // **A real choice, not a label claiming to be one.** `control_of` takes a node's name from
+        // the text inside it and leaves the value empty, so a stand-in would assert the role and
+        // nothing about the value -- which is the half this fixture exists to cover now.
+        controls.menu_title_widget(
+            controls.choice_of("env", "Environment", ["(global)", "staging"], 1),
+            controls.default_style()
+        ),
         // **A real text area, not a label claiming to be one.** A reader that thinks a multi-line
         // field is single-line reads it as one line, so the state has to be published -- and it is
         // only asserted here because the control genuinely sets it.
         controls.entry_widget(controls.text_area_of("body", "Body", "a\nb", 4), controls.default_style(), metrics()),
+        // **A value that is not ASCII, because AT-SPI offsets are characters and C strings are
+        // bytes.** Every other value here is ASCII, where the two are the same number -- so a text
+        // interface measuring bytes passed every check and would hand a reader a cut-in-half
+        // character the first time anyone typed an accent.
+        controls.entry_widget(
+            controls.entry_of("note", "Note", "café ☕"),
+            controls.default_style(),
+            metrics()
+        ),
         // **A disabled control, because "cannot be used" is a fact a reader must be told.** Without
         // one here, publishing every node as enabled passed every check -- the absence of a state
         // is invisible to a test that only looks at nodes which have it.

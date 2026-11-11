@@ -69,7 +69,14 @@ typedef struct {
     AtkObjectClass parent;
 } ZimanNodeClass;
 
-G_DEFINE_TYPE(ZimanNode, ziman_node, ATK_TYPE_OBJECT)
+static void ziman_text_iface_init(AtkTextIface *iface);
+
+/* **`AtkText`, because a name is not a value.** A node's `value` -- what a field holds, what a
+ * combo box has chosen -- crossed from Ziman and was stored and reached no client, because AT-SPI
+ * exposes content through this interface rather than as part of the accessible name. Without it a
+ * reader says "URL, entry" and stops, where a user needs to hear what is in it. */
+G_DEFINE_TYPE_WITH_CODE(ZimanNode, ziman_node, ATK_TYPE_OBJECT,
+                        G_IMPLEMENT_INTERFACE(ATK_TYPE_TEXT, ziman_text_iface_init))
 
 static gint ziman_node_n_children(AtkObject *o) {
     ZimanNode *n = (ZimanNode *)o;
@@ -133,6 +140,62 @@ static void ziman_node_class_init(ZimanNodeClass *k) {
     ATK_OBJECT_CLASS(k)->ref_child = ziman_node_ref_child;
     ATK_OBJECT_CLASS(k)->get_description = ziman_node_description;
     ATK_OBJECT_CLASS(k)->ref_state_set = ziman_node_state_set;
+}
+
+/* The value as a counted string. **Characters, not bytes**: AT-SPI offsets are character offsets,
+ * so a value with anything non-ASCII in it would otherwise be reported longer than it reads and a
+ * client asking for the last character would be handed half of one. */
+static const char *node_text(AtkText *text, glong *out_chars) {
+    ZimanNode *n = (ZimanNode *)text;
+    const char *s = n->value == NULL ? "" : n->value;
+    if (out_chars != NULL) *out_chars = g_utf8_strlen(s, -1);
+    return s;
+}
+
+static gchar *ziman_text_get_text(AtkText *text, gint start, gint end) {
+    glong chars = 0;
+    const char *s = node_text(text, &chars);
+    if (start < 0) start = 0;
+    if (end < 0 || end > chars) end = (gint)chars;
+    if (start >= end) return g_strdup("");
+    const char *from = g_utf8_offset_to_pointer(s, start);
+    const char *to = g_utf8_offset_to_pointer(s, end);
+    return g_strndup(from, (gsize)(to - from));
+}
+
+static gint ziman_text_get_character_count(AtkText *text) {
+    glong chars = 0;
+    node_text(text, &chars);
+    return (gint)chars;
+}
+
+static gunichar ziman_text_get_character_at_offset(AtkText *text, gint offset) {
+    glong chars = 0;
+    const char *s = node_text(text, &chars);
+    if (offset < 0 || offset >= chars) return 0;
+    return g_utf8_get_char(g_utf8_offset_to_pointer(s, offset));
+}
+
+/* **The whole value, whatever granularity was asked for.** A reader asks for a word, a line or a
+ * paragraph; this layer knows none of those -- `edit` does, and it is on the other side of the
+ * boundary. Answering the whole string is honest and useful where answering nothing is neither,
+ * and a reader that wanted a word gets a value it can split. */
+static gchar *ziman_text_get_string_at_offset(AtkText *text, gint offset, AtkTextGranularity granularity,
+                                              gint *start, gint *end) {
+    (void)offset;
+    (void)granularity;
+    glong chars = 0;
+    node_text(text, &chars);
+    if (start != NULL) *start = 0;
+    if (end != NULL) *end = (gint)chars;
+    return ziman_text_get_text(text, 0, (gint)chars);
+}
+
+static void ziman_text_iface_init(AtkTextIface *iface) {
+    iface->get_text = ziman_text_get_text;
+    iface->get_character_count = ziman_text_get_character_count;
+    iface->get_character_at_offset = ziman_text_get_character_at_offset;
+    iface->get_string_at_offset = ziman_text_get_string_at_offset;
 }
 
 static AtkObject *g_root = NULL;

@@ -82,7 +82,12 @@ check() {
 check 'application: "ziman a11y fixture"' application
 check 'button: "Send"' button
 check 'entry: "http://example.test"' text_field
-check 'combo box: "staging"' combo_box
+check 'combo box: "Environment" = "staging" (7 chars)' combo_box
+# Read back exactly, which is only possible if the offsets are characters: `café ☕` is 6 characters
+# and 10 bytes, so a byte count walks past the end of the string.
+# `café ☕` is 6 characters and 9 bytes, so the count is where a byte/character mix-up shows: the
+# text comes back right either way, because the copy stops at the NUL.
+check 'entry: "Note" = "café ☕" (6 chars)' non_ascii_value_round_trips
 check 'list: ""' list
 check 'list item: "first"' list_item
 
@@ -92,7 +97,19 @@ check 'list item: "first"' list_item
 # field and reads it as one.
 check 'entry: "http://example.test" [focused]' focus_is_published
 check 'button: "Revert" [disabled]' disabled_is_published
-check 'entry: "Body" [multi line]' multiline_is_published
+check 'entry: "Body" = "a' multiline_value_is_readable
+check 'b" (3 chars) [multi line]' multiline_is_published
+
+# **The value is a different fact from the name**, and a reader says both: the name to tell you what
+# a control is, the text to tell you what it holds. A tree that published only the first would
+# announce "URL, entry" and stop. These two lines are the pair that catches it -- a node whose
+# `AtkText` answered nothing would keep its name and lose its contents.
+if printf '%s\n' "$seen" | grep -q 'combo box: "Environment" = "staging"'; then
+    echo "PASS a11y_a_choice_announces_what_is_chosen"
+else
+    echo "FAIL a11y_a_choice_announces_what_is_chosen (got: $(printf '%s' "$seen" | grep 'combo box' | tr '\n' '|'))"
+    fail=1
+fi
 if [ "$(printf '%s\n' "$seen" | grep -c 'focused')" = "1" ]; then
     echo "PASS a11y_exactly_one_node_is_focused"
 else

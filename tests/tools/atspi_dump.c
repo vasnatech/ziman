@@ -51,6 +51,24 @@ static void walk(AtspiAccessible *node, int depth, const char *indent) {
     AtspiRole role = atspi_accessible_get_role(node, NULL);
     char *role_name = atspi_accessible_get_role_name(node, NULL);
     printf("%*s%s: \"%s\"", depth * 2, indent, role_name ? role_name : "?", name ? name : "");
+    /* **The value, which is a different thing from the name.** A reader says the name to tell you
+     * what a control is and the text to tell you what it holds, and a tree that published only the
+     * first would announce "URL, entry" and stop. Read through `AtspiText`, which is where AT-SPI
+     * keeps content. */
+    AtspiText *text = atspi_accessible_get_text_iface(node);
+    if (text != NULL) {
+        gint n = atspi_text_get_character_count(text, NULL);
+        if (n > 0) {
+            char *content = atspi_text_get_text(text, 0, n, NULL);
+            /* **The count is printed, not just the text.** A count in bytes rather than characters
+             * returns the right string anyway -- `g_strndup` stops at the NUL -- so the only place
+             * that error shows is the number itself, and a client that trusts it for iteration
+             * walks off the end of the string. */
+            if (content != NULL && content[0] != '\0') printf(" = \"%s\" (%d chars)", content, n);
+            g_free(content);
+        }
+        g_object_unref(text);
+    }
     print_states(node);
     printf("\n");
     g_free(name);
