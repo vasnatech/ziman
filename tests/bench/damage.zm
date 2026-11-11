@@ -1,0 +1,108 @@
+// What a damage region is worth: repainting a rectangle against repainting the window.
+//
+// **The measurement that justified building this at all.** On this scene at 1280x800 a full frame is
+// about 34 ms, and the *same frame with no ops in it* -- the background clear and nothing else -- is
+// 2 ms. So roughly 32 of those 34 milliseconds are spent drawing things that did not change, and a
+// frame that touches only what did has 2 ms of unavoidable floor to live above rather than 34.
+//
+// Interleaved, A then B, three passes, for the reason every F270 measurement repeats: this machine's
+// absolutes have moved about 2x between batches an hour apart with no code change. Read the pair
+// within a pass, never a number here against a number elsewhere.
+use clock
+use font
+use fs
+use geom
+use paint
+use raster
+use scene
+use shape
+
+fn solid(r: float, g: float, b: float) -> paint.Paint {
+    return paint.Paint.Solid(paint.rgb(r, g, b))
+}
+
+// The same window of chrome and text `repaint.zm` uses, so the two files' numbers are comparable.
+fn frame_scene(width: float, height: float) -> scene.Scene {
+    val ops = mutable_array_new<scene.Op>()
+    val chrome = solid(0.93, 0.93, 0.95)
+    val ink = solid(0.1, 0.1, 0.12)
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, width, 44.0)), chrome))
+    for i in 0..8 {
+        val x = 12.0 + (i as float) * 92.0
+        push(ops, scene.fill(shape.round_rect_path(geom.rect_of(x, 8.0, 84.0, 28.0), 6.0), solid(1.0, 1.0, 1.0)))
+        push(ops, scene.text_of("Menu", geom.point_of(x + 10.0, 28.0), 13.0, 0, ink))
+    }
+    for i in 0..40 {
+        val y = 56.0 + (i as float) * 18.0
+        if y < height - 18.0 {
+            push(ops, scene.text_of("A record of some length, 2026-11-10", geom.point_of(12.0, y), 12.0, 0, ink))
+        }
+    }
+    return scene.with_ops(scene.scene_of(width, height), snapshot(ops))
+}
+
+fn run() -> Result<unit, string> {
+    val data = switch fs.read_bytes("vendor/fonts/Caladea-Regular.ttf") {
+        Ok(d) { d }
+        Err(why) { return err(concat("font: ", format("{}", why))) }
+    }
+    val f = switch font.load(data) {
+        Ok(x) { x }
+        Err(why) { return err(concat("load: ", why)) }
+    }
+    val o = with raster.options() {
+        fonts: [f],
+        samples: 4,
+        background: Option<paint.Color>.Some(paint.white()),
+        max_pixels: 4000000
+    }
+    val s = frame_scene(1280.0, 800.0)
+    val rounds = 10
+
+    // Three regions, because the saving is in the area and the point is how it scales: a caret, a
+    // button taking the pointer, and one row of a list.
+    val regions = [
+        geom.rect_of(100.0, 300.0, 2.0, 14.0),
+        geom.rect_of(12.0, 8.0, 84.0, 28.0),
+        geom.rect_of(12.0, 290.0, 400.0, 18.0)
+    ]
+    val names = ["a caret  2x14   ", "a button 84x28  ", "a list row 400x18"]
+
+    var pass = 0
+    while pass < 3 {
+        val full = try raster.surface_of(1280.0, 800.0, 1.0)
+        try raster.draw_into(full, s, o)
+        var a = 0
+        val t0 = clock.monotonic_millis()
+        while a < rounds {
+            try raster.draw_into(full, s, o)
+            a = a + 1
+        }
+        val full_ms = clock.monotonic_millis() - t0
+        printf("pass {}: full frame {} ms / {} frames\n", str(pass), str(full_ms), str(rounds))
+
+        var r = 0
+        while r < len(regions) {
+            val c = try raster.surface_of(1280.0, 800.0, 1.0)
+            try raster.draw_into(c, s, o)
+            var b = 0
+            val t1 = clock.monotonic_millis()
+            while b < rounds {
+                try raster.draw_into_region(c, s, o, regions[r])
+                b = b + 1
+            }
+            val region_ms = clock.monotonic_millis() - t1
+            printf("          {} {} ms / {} frames\n", names[r], str(region_ms), str(rounds))
+            r = r + 1
+        }
+        pass = pass + 1
+    }
+    return unit
+}
+
+fn main() {
+    switch run() {
+        Ok(_) { unit }
+        Err(why) { printf("FAILED: {}\n", why) }
+    }
+}

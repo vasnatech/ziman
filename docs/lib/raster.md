@@ -269,6 +269,48 @@ allocated, filled, copied and dropped every frame for nobody.
 A caller that wants an encodable image still calls `render_into`; this is for one that is going
 to hand the pixels straight to a display. Pair it with `premultiplied_of`.
 
+### `Painted`
+
+```
+pub struct Painted {
+    x: int
+    y: int
+    width: int
+    height: int
+}
+```
+
+The device-pixel rectangle a regional draw actually painted, which is exactly what
+`window.present_region` needs. Returned rather than recomputed by the caller: it is the region
+asked for, scaled by `px_per_pt`, rounded outwards and clipped to the surface, and a caller
+repeating that arithmetic is a second place for it to be wrong.
+
+### `draw_into_region`
+
+```
+pub fn draw_into_region(c: Surface, s: Scene, o: Options, region: Rect) -> Result<Painted, string>
+```
+
+Redraws **one rectangle** of the surface and leaves every other pixel as it was.
+
+This is the whole point of keeping a `Surface` between frames. A window repaints because something
+small changed -- a caret blinked, a button took the pointer, one row of a list got longer -- and
+redrawing 1,024,000 pixels to show a new caret is most of what makes a toolkit feel slow.
+Measured on this file's own benchmark scene at 1280x800: a full frame is about 34 ms, and the same
+frame with *no ops at all* is 2 ms, so roughly 32 of those 34 milliseconds are drawing things that
+did not change.
+
+`region` is in scene units, like everything else a caller passes; it is scaled by
+`Options.px_per_pt`, rounded **outwards** so a region that falls between pixels covers both, and
+clipped to the surface. The pixels it covers are cleared and redrawn exactly as a full frame would
+do it, so the result is per-pixel identical to a full redraw inside the region -- which is what
+`tests/lang/graphics_damage.zm` asserts rather than assumes.
+
+**What this does not do is decide what changed.** That is the caller's, and deliberately so: the
+renderer sees one scene and has no memory of the last one, while an application knows which widget
+it just changed. A caller that wants it computed can diff two scenes; a caller that gets it wrong
+gets a stale window rather than a crash, which is the failure mode to expect from this.
+
 ### `Premultiplied`
 
 ```

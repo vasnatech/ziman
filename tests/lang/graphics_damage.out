@@ -1,0 +1,8 @@
+painted: 20,20 61x25
+inside differs from a full redraw of B:  0
+outside differs from a full redraw of A: 0
+inside differs from the OLD scene A:     1464
+redrawing B over B changes nothing:      0
+a region past the edge is clipped to: 120x80
+clipped to the whole surface, so it equals a full redraw of B: 0
+empty region refused: raster: a region to redraw must be larger than nothing

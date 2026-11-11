@@ -159,6 +159,18 @@ fn quadrant_floats() -> MutableArray<float> {
     return out
 }
 
+// Paints the whole float buffer one colour, for the regional-present case below.
+fn flood(buffer: MutableArray<float>, r: float, g: float, b: float) {
+    var i = 0
+    while i < len(buffer) {
+        buffer[i] = r
+        buffer[i + 1] = g
+        buffer[i + 2] = b
+        buffer[i + 3] = 1.0
+        i = i + 4
+    }
+}
+
 // Which `present` to exercise. Defaults to the float one, because that is the path a repaint uses.
 fn use_floats() -> bool {
     return switch os.get_env("WINDOW_PRESENT_MODE") {
@@ -167,11 +179,44 @@ fn use_floats() -> bool {
     }
 }
 
+fn use_region() -> bool {
+    return switch os.get_env("WINDOW_PRESENT_MODE") {
+        Some(mode) { mode == "region" }
+        None { false }
+    }
+}
+
 fn paint_window(w: window.Window, floats: bool) -> Result<unit, string> {
     if floats {
         return window.present(w, quadrant_floats(), width, height)
     }
     return window.present_bytes(w, quadrants(), width, height)
+}
+
+// **The regional present, asserted in both directions at once.** The quadrants go up as a whole
+// frame; then the entire buffer is flooded magenta and only a 40x40 square at the quadrant meeting
+// point is presented. So the window must show magenta *there* and the original four colours
+// everywhere else -- and the buffer being wholly magenta is what makes the second half mean
+// something, because a region that pushed more than it was asked to would turn a quadrant centre
+// magenta too.
+val region_x = 140
+val region_y = 100
+val region_size = 40
+
+fn magenta_region(w: window.Window) -> Result<unit, string> {
+    val buffer = quadrant_floats()
+    flood(buffer, 1.0, 0.0, 1.0)
+    return window.present_region(w, buffer, width, height, window.Region {
+        x: region_x,
+        y: region_y,
+        width: region_size,
+        height: region_size
+    })
+}
+
+fn paint_region(w: window.Window) -> Result<unit, string> {
+    try window.present(w, quadrant_floats(), width, height)
+    return magenta_region(w)
 }
 
 fn main() {
@@ -185,8 +230,13 @@ fn main() {
             printf("window-id {}\n", str(id))
             printf("size {}x{}\n", str(size.width), str(size.height))
             val floats = use_floats()
-            try paint_window(w, floats)
-            printf("presented {}\n", if floats { "floats" } else { "bytes" })
+            val regional = use_region()
+            if regional {
+                try paint_region(w)
+            } else {
+                try paint_window(w, floats)
+            }
+            printf("presented {}\n", if regional { "region" } else { if floats { "floats" } else { "bytes" } })
             // **Re-presented every pass, not once.** A compositor can show the window before its
             // first contents arrive, and a screenshot taken in that gap reads black -- which is
             // what the harness saw the first time it ran under a loaded `make check-fast`. Painting
@@ -205,7 +255,17 @@ fn main() {
                         closing = true
                     }
                 }
-                try paint_window(w, floats)
+                if regional {
+                    // **Only the region, not the whole frame.** Re-presenting everything each pass
+                    // as the other modes do left the window alternating between the quadrants and
+                    // the magenta square, and the harness screenshotted the wrong half of that
+                    // cycle -- a flake entirely of this file's own making. The pixels outside the
+                    // region are painted once, before "presented", and then left alone, which is
+                    // also a truer picture of what a repaint loop does.
+                    try magenta_region(w)
+                } else {
+                    try paint_window(w, floats)
+                }
                 clock.sleep_millis(50)
             }
             return ok(unit)

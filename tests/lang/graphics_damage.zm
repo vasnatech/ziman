@@ -1,0 +1,196 @@
+// Repainting one rectangle of a surface, and the two things that have to be true of it.
+//
+// **A regional redraw is only useful if it is indistinguishable from a full one.** The whole promise
+// of `raster.draw_into_region` is that a caller may redraw a small rectangle instead of a whole
+// window and get the same window, so the assertions here are not about the region mechanism in
+// isolation -- they compare it against the full redraw it is standing in for, per pixel:
+//
+//   - inside the region, a regional redraw of scene B over a surface holding scene A must match a
+//     full redraw of B exactly;
+//   - outside it, that same surface must still match a full redraw of A exactly.
+//
+// Either one alone passes for the wrong reason. A region that painted the whole canvas satisfies the
+// first; a region that painted nothing at all satisfies the second.
+use font
+use fs
+use geom
+use paint
+use raster
+use scene
+use shape
+
+val width = 120.0
+val height = 80.0
+
+fn solid(r: float, g: float, b: float) -> paint.Paint {
+    return paint.Paint.Solid(paint.rgb(r, g, b))
+}
+
+// Two scenes differing **everywhere**, with shapes arranged so that each way of getting the window
+// wrong leaves a visible mark. The band being redrawn is 20,20 60x24.
+//
+// **Three rounds of this were needed and the first two were nearly useless**, which is the part
+// worth keeping. Scenes differing only inside the region caught 1 of 6 deliberate breaks: an op that
+// wrongly painted outside the region painted exactly what was already there, so there was no
+// difference to detect. Making them differ everywhere caught 3 of 6. The last three needed the
+// geometry below, because a clamp can only be caught by something that crosses the edge it clamps:
+//
+//   - `straddles_top` crosses the region's **horizontal** edge, which is the only thing that can
+//     catch `fill_shape`'s row clamp -- a shape wholly outside is skipped by the early return
+//     instead, so the row clamp is never reached;
+//   - `straddles_left` and the text at the same place cross the **vertical** edge, for
+//     `fill_shape`'s and `blit`'s column clamps;
+//   - **the bars wholly outside are drawn last**, which is what catches the early return. Drawn
+//     first they were painted over by the opaque band and vanished: `clamp_int` pins a shape that
+//     misses the window to the window's own edge, so without the early return they smear a single
+//     row along it -- and a later opaque op covering that row hid the smear completely.
+//
+// Each of those was found by breaking the code and watching the fixture pass.
+fn scene_of(inner: paint.Paint, outer: paint.Paint, label: string) -> scene.Scene {
+    val ops = mutable_array_new<scene.Op>()
+    // Inside the region.
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(20.0, 20.0, 60.0, 24.0)), inner))
+    push(ops, scene.text_of(label, geom.point_of(24.0, 38.0), 11.0, 0, solid(1.0, 1.0, 1.0)))
+    // Crossing the region's edges, drawn over the band so a mis-clamp is not hidden by it.
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(10.0, 14.0, 100.0, 12.0)), outer))
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(4.0, 28.0, 30.0, 8.0)), outer))
+    push(ops, scene.text_of(label, geom.point_of(10.0, 34.0), 11.0, 0, outer))
+    // **Baselines outside the region whose glyphs reach into it.** These exist for `draw_text`'s
+    // pre-shaping band test, which skips a whole run before it is shaped, and they are the only
+    // things here that can catch that test being too tight: every other run has its baseline inside
+    // the region, so even a band collapsed to the baseline alone would include it and draw correctly.
+    // Caladea is 1000 units per em with a bounding box of -222..932, so at size 11 a run reaches
+    // 10.25 above its baseline and 2.44 below. A baseline at 52 therefore pokes its ascenders up to
+    // 41.75, and one at 19 pokes its descenders down to 21.44 -- both inside the 20..44 band.
+    // Letters chosen for the extremes they actually have.
+    push(ops, scene.text_of("bdfhkl", geom.point_of(26.0, 52.0), 11.0, 0, outer))
+    push(ops, scene.text_of("gjpqy", geom.point_of(26.0, 19.0), 11.0, 0, outer))
+    // **A rotated run, for the guard on that band test.** The test looks at the vertical extent
+    // only, which is meaningless once `m.b` is non-zero: under this quarter turn a run's device y
+    // comes from its user *x*. Placed so that it lands inside the region after rotation -- user
+    // (30, -50) becomes device (50, 30) -- while the naive band would put it at 0 and skip it.
+    push(ops, scene.group(geom.rotation(1.5707963267948966), [
+        scene.text_of(label, geom.point_of(30.0, -50.0), 11.0, 0, outer)
+    ]))
+    // Wholly outside, and **last**, so a smear onto the window's edge rows survives to be seen.
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, width, 12.0)), outer))
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(0.0, 68.0, width, 12.0)), outer))
+    push(ops, scene.text_of(label, geom.point_of(8.0, 62.0), 11.0, 0, outer))
+    return scene.with_ops(scene.scene_of(width, height), snapshot(ops))
+}
+
+fn surface() -> Result<raster.Surface, string> {
+    return raster.surface_of(width, height, 1.0)
+}
+
+// How many pixels of `a` and `b` differ, counted inside the given device rect or outside it.
+fn differences(a: raster.Surface, b: raster.Surface, x0: int, y0: int, x1: int, y1: int, inside: bool) -> int {
+    val pa = raster.premultiplied_of(a)
+    val pb = raster.premultiplied_of(b)
+    var differing = 0
+    for y in 0..pa.height {
+        for x in 0..pa.width {
+            val within = x >= x0 && x <= x1 && y >= y0 && y <= y1
+            if within == inside {
+                val at = (y * pa.width + x) * 4
+                var channel = 0
+                var same = true
+                while channel < 4 {
+                    if pa.data[at + channel] != pb.data[at + channel] {
+                        same = false
+                    }
+                    channel = channel + 1
+                }
+                if !same {
+                    differing = differing + 1
+                }
+            }
+        }
+    }
+    return differing
+}
+
+fn run() -> Result<unit, string> {
+    val data = switch fs.read_bytes("vendor/fonts/Caladea-Regular.ttf") {
+        Ok(d) { d }
+        Err(why) { return err(concat("font: ", format("{}", why))) }
+    }
+    val f = switch font.load(data) {
+        Ok(x) { x }
+        Err(why) { return err(concat("load: ", why)) }
+    }
+    val o = with raster.options() {
+        fonts: [f],
+        samples: 4,
+        background: Option<paint.Color>.Some(paint.white()),
+        max_pixels: 100000
+    }
+    val a = scene_of(solid(0.1, 0.7, 0.3), solid(0.2, 0.4, 0.8), "aaaa")
+    val b = scene_of(solid(0.9, 0.8, 0.2), solid(0.8, 0.3, 0.1), "bbbb")
+
+    // The two references: a full redraw of each scene.
+    val full_a = try surface()
+    val full_b = try surface()
+    try raster.draw_into(full_a, a, o)
+    try raster.draw_into(full_b, b, o)
+
+    // The surface under test: scene A in full, then scene B over the band alone.
+    val patched = try surface()
+    try raster.draw_into(patched, a, o)
+    val region = geom.rect_of(20.0, 20.0, 60.0, 24.0)
+    val painted = try raster.draw_into_region(patched, b, o, region)
+    printf("painted: {},{} {}x{}\n", str(painted.x), str(painted.y), str(painted.width), str(painted.height))
+
+    val x1 = painted.x + painted.width - 1
+    val y1 = painted.y + painted.height - 1
+
+    // Inside the region it must be scene B, to the pixel.
+    printf(
+        "inside differs from a full redraw of B:  {}\n",
+        str(differences(patched, full_b, painted.x, painted.y, x1, y1, true))
+    )
+    // Outside it, scene A must be untouched -- the bars above and below, and the white margin.
+    printf(
+        "outside differs from a full redraw of A: {}\n",
+        str(differences(patched, full_a, painted.x, painted.y, x1, y1, false))
+    )
+
+    // **And the region has to matter.** If it did nothing, the two counts above would also be the
+    // counts against the opposite references -- so these say the scenes really do differ there and
+    // the surface really did change.
+    printf(
+        "inside differs from the OLD scene A:     {}\n",
+        str(differences(patched, full_a, painted.x, painted.y, x1, y1, true))
+    )
+
+    // Redrawing the same scene in a region is idempotent: a no-op repaint leaves no trace.
+    val again = try surface()
+    try raster.draw_into(again, b, o)
+    try raster.draw_into_region(again, b, o, region)
+    printf("redrawing B over B changes nothing:      {}\n", str(differences(again, full_b, 0, 0, 0, 0, false)))
+
+    // A region reaching outside the surface is clipped rather than refused: a window manager can
+    // report damage past the edge, and a renderer that errored on it would make the caller clamp.
+    val edge = try surface()
+    try raster.draw_into(edge, a, o)
+    val clipped = try raster.draw_into_region(edge, b, o, geom.rect_of(-40.0, -40.0, 400.0, 400.0))
+    printf("a region past the edge is clipped to: {}x{}\n", str(clipped.width), str(clipped.height))
+    printf(
+        "clipped to the whole surface, so it equals a full redraw of B: {}\n",
+        str(differences(edge, full_b, 0, 0, 0, 0, false))
+    )
+
+    // An empty region is a caller mistake worth a message rather than a silent no-op.
+    switch raster.draw_into_region(edge, b, o, geom.rect_of(10.0, 10.0, 0.0, 5.0)) {
+        Ok(_) { print("an empty region was accepted, which it should not be") }
+        Err(why) { printf("empty region refused: {}\n", why) }
+    }
+    return unit
+}
+
+fn main() {
+    switch run() {
+        Ok(_) { unit }
+        Err(why) { printf("FAILED: {}\n", why) }
+    }
+}

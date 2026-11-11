@@ -336,14 +336,14 @@ static int try_shm_image(Slot *s, int width, int height, Visual *visual, int dep
  * wait on. `XSync` is the wait: it returns once the server has processed the request, which costs a
  * round trip and saves copying 4 MB. One shared helper so the two `present` natives cannot disagree
  * about that. */
-static void put_image(Slot *s, int width, int height) {
+static void put_image(Slot *s, int x, int y, int width, int height) {
     if (s->shm_active) {
-        XShmPutImage(g_display, s->win, s->gc, s->image, 0, 0, 0, 0, (unsigned)width,
+        XShmPutImage(g_display, s->win, s->gc, s->image, x, y, x, y, (unsigned)width,
                      (unsigned)height, False);
         XSync(g_display, False);
         return;
     }
-    XPutImage(g_display, s->win, s->gc, s->image, 0, 0, 0, 0, (unsigned)width, (unsigned)height);
+    XPutImage(g_display, s->win, s->gc, s->image, x, y, x, y, (unsigned)width, (unsigned)height);
     XFlush(g_display);
 }
 
@@ -498,7 +498,7 @@ static Value native_window_present_raw(Value *args, int argc, int line, int col)
     }
     free(rgba);
 
-    put_image(s, (int)width, (int)height);
+    put_image(s, 0, 0, (int)width, (int)height);
     return window_ok(ok, value_unit());
 #endif
 }
@@ -772,6 +772,15 @@ static Value native_window_present_premul_raw(Value *args, int argc, int line, i
     int64_t height = args[3].as.i;
     if (width < 1 || height < 1) return window_err(ok, "the pixel buffer's width and height must be positive");
 
+    /* The rectangle to convert and push. A full frame passes the whole buffer; a repaint that knows
+     * what changed passes that, and **the pack loop below shrinks with it** -- pushing a
+     * sub-rectangle while still converting a million pixels would leave most of the saving
+     * unclaimed and would have measured as nothing. */
+    int64_t rx = args[4].as.i;
+    int64_t ry = args[5].as.i;
+    int64_t rw = args[6].as.i;
+    int64_t rh = args[7].as.i;
+
     size_t n = 0;
     const double *px = ziman_mutable_array_float_data(args[1], &n);
     size_t needed = (size_t)width * (size_t)height * 4u;
@@ -783,12 +792,21 @@ static Value native_window_present_premul_raw(Value *args, int argc, int line, i
         return window_err(ok, message);
     }
 
+    if (rw < 1 || rh < 1) return window_err(ok, "the region to present must be larger than nothing");
+    if (rx < 0) { rw += rx; rx = 0; }
+    if (ry < 0) { rh += ry; ry = 0; }
+    if (rx >= width || ry >= height) return window_ok(ok, value_unit());
+    if (rx + rw > width) rw = width - rx;
+    if (ry + rh > height) rh = height - ry;
+    if (rw < 1 || rh < 1) return window_ok(ok, value_unit());
+
     const char *failed = ensure_image(s, (int)width, (int)height);
     if (failed != NULL) return window_err(ok, failed);
 
     uint32_t *out = (uint32_t *)s->pixels;
-    size_t pixels = (size_t)width * (size_t)height;
-    for (size_t i = 0; i < pixels; i++) {
+    for (int64_t row = ry; row < ry + rh; row++) {
+    for (int64_t cx = rx; cx < rx + rw; cx++) {
+        const size_t i = (size_t)(row * width + cx);
         const double *p = px + i * 4u;
         const double a = p[3];
         /* An opaque pixel needs no un-premultiplying, and a window's frame is normally opaque
@@ -807,8 +825,9 @@ static Value native_window_present_premul_raw(Value *args, int argc, int line, i
         out[i] = ((uint32_t)(int64_t)r << g_red_shift) | ((uint32_t)(int64_t)g << g_green_shift)
                  | ((uint32_t)(int64_t)b << g_blue_shift);
     }
+    }
 
-    put_image(s, (int)width, (int)height);
+    put_image(s, (int)rx, (int)ry, (int)rw, (int)rh);
     return window_ok(ok, value_unit());
 #endif
 }

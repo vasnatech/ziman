@@ -43,6 +43,12 @@
  * The loop `clear_to` runs, which is a million iterations of four indexed stores for a 1280x800
  * canvas. Nothing here is clamped or converted: a `Premul` is already in the canvas's own space,
  * and clamping a value the caller computed would be this file deciding something. */
+/* raster.clear_premul(data, width, x0, y0, x1, y1, r, g, b, a): one rectangle of the canvas to a
+ * premultiplied colour, inclusive of x1 and y1.
+ *
+ * **Rectangular rather than whole-canvas, because a repaint is a rectangle.** It cleared everything
+ * until damage regions, and a frame that redraws a caret should not pay 4 million stores to start.
+ * The whole canvas is `0, 0, width - 1, height - 1`, which is what a page render passes. */
 static Value native_raster_clear_premul(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     size_t n = 0;
@@ -50,18 +56,32 @@ static Value native_raster_clear_premul(Value *args, int argc, int line, int col
     /* A canvas that has adopted no packed representation yet has nothing to clear: `raster.zm`
      * fills it at construction, so this is the empty-canvas case rather than a disagreement. */
     if (data == NULL) return value_unit();
-    double r = args[1].as.f;
-    double g = args[2].as.f;
-    double b = args[3].as.f;
-    double a = args[4].as.f;
+    int64_t width = args[1].as.i;
+    int64_t x0 = args[2].as.i;
+    int64_t y0 = args[3].as.i;
+    int64_t x1 = args[4].as.i;
+    int64_t y1 = args[5].as.i;
+    double r = args[6].as.f;
+    double g = args[7].as.f;
+    double b = args[8].as.f;
+    double a = args[9].as.f;
+    if (width <= 0) return value_unit();
     /* Truncated to whole pixels: a canvas whose length is not a multiple of four is not something
      * to half-fill. `raster.zm` always allocates width*height*4. */
-    size_t pixels = n / CHANNELS;
-    for (size_t i = 0; i < pixels; i++) {
-        data[i * CHANNELS + 0] = r;
-        data[i * CHANNELS + 1] = g;
-        data[i * CHANNELS + 2] = b;
-        data[i * CHANNELS + 3] = a;
+    int64_t height = (int64_t)(n / CHANNELS) / width;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > width - 1) x1 = width - 1;
+    if (y1 > height - 1) y1 = height - 1;
+    if (x0 > x1 || y0 > y1) return value_unit();
+    for (int64_t y = y0; y <= y1; y++) {
+        double *row = data + (size_t)(y * width) * CHANNELS;
+        for (int64_t x = x0; x <= x1; x++) {
+            row[x * CHANNELS + 0] = r;
+            row[x * CHANNELS + 1] = g;
+            row[x * CHANNELS + 2] = b;
+            row[x * CHANNELS + 3] = a;
+        }
     }
     return value_unit();
 }

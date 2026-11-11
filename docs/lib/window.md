@@ -289,6 +289,55 @@ is the job of whatever produced the pixels. **Ignored, not multiplied in**: the 
 is undone first, so a half-transparent shape shows at its own colour rather than dimmed towards
 black, which is what the byte path has always done and what this stays identical to.
 
+### `Region`
+
+```
+pub struct Region {
+    x: int
+    y: int
+    width: int
+    height: int
+}
+```
+
+A rectangle of a window, in device pixels. `raster.Painted` is the same four numbers coming the
+other way, which is how a regional redraw hands over exactly what it touched.
+
+### `present_region`
+
+```
+pub fn present_region(
+    w: Window,
+    pixels: MutableArray<float>,
+    width: int,
+    height: int,
+    region: Region
+) -> Result<unit, string>
+```
+
+Puts **one rectangle** of a frame on the window and leaves the rest of it alone.
+
+The buffer is still the whole frame -- `width` and `height` describe it, as `present` does -- and
+`region` says which part of it changed. Everything outside is left as the window already had it,
+which is what makes this worth having: the pixels are converted and pushed for the region alone,
+so a repaint of a caret costs a caret rather than a window.
+
+Pair it with `raster.draw_into_region`, which answers the device rectangle it painted:
+
+
+```
+val painted = try raster.draw_into_region(surface, scene, options, changed)
+val px = raster.premultiplied_of(surface)
+try window.present_region(w, px.data, px.width, px.height, window.Region {
+    x: painted.x, y: painted.y, width: painted.width, height: painted.height
+})
+```
+
+**A region reaching outside the frame is clipped, not refused**, because a window manager reports
+damage in its own coordinates and may well report some that has nothing left to cover; a region
+entirely outside presents nothing and says so by returning normally. An empty one is a caller
+mistake and is refused.
+
 ### `present_bytes`
 
 ```

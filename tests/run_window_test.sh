@@ -33,7 +33,7 @@ command -v xprop >/dev/null || skip "no xprop"
 command -v import >/dev/null || skip "no ImageMagick import"
 
 work="$(mktemp -d)"
-trap 'rm -rf "$work"; for p in ${pid:-} ${bytes_pid:-}; do kill "$p" 2>/dev/null; done' EXIT
+trap 'rm -rf "$work"; for p in ${pid:-} ${bytes_pid:-} ${region_pid:-}; do kill "$p" 2>/dev/null; done' EXIT
 
 "$BIN" "$PROGRAM" > "$work/out.txt" 2>&1 &
 pid=$!
@@ -180,6 +180,55 @@ else
 fi
 kill "$bytes_pid" 2>/dev/null
 bytes_pid=""
+
+# --- the regional present, which has to be right in both directions
+#
+# `present_region` converts and pushes one rectangle and leaves the rest of the window as it was,
+# which is two claims and needs both tested: the program presents the quadrants, floods its whole
+# buffer magenta, and presents **only** a 40x40 square at 140,100. So the square must be magenta and
+# the four quadrant centres must still hold their original colours -- and since the buffer behind it
+# is *entirely* magenta, a region that pushed more than it was asked to turns a quadrant centre
+# magenta and fails here rather than somewhere subtler.
+WINDOW_PRESENT_MODE=region "$BIN" "$PROGRAM" > "$work/region.txt" 2>&1 &
+region_pid=$!
+region_id=""
+for _ in $(seq 1 60); do
+    region_id="$(grep -o 'window-id [0-9]*' "$work/region.txt" 2>/dev/null | awk '{print $2}')"
+    [ -n "$region_id" ] && break
+    sleep 0.1
+done
+region_drawn=0
+for _ in $(seq 1 100); do
+    if grep -q '^presented region' "$work/region.txt" 2>/dev/null; then region_drawn=1; break; fi
+    sleep 0.1
+done
+if [ -z "$region_id" ] || [ "$region_drawn" -eq 0 ]; then
+    echo "FAIL window_present_region (no window or never presented: $(head -3 "$work/region.txt" | tr '\n' ' '))"
+    fail=1
+else
+    whole_id="$id"
+    id="$region_id"
+    check_pixel 160 120 "srgb(255,0,255)" region_inside_magenta
+    check_pixel 145 105 "srgb(255,0,255)" region_corner_magenta
+    check_pixel 80 60 "srgb(255,0,0)" region_outside_still_red
+    check_pixel 240 60 "srgb(0,255,0)" region_outside_still_green
+    check_pixel 80 180 "srgb(0,0,255)" region_outside_still_blue
+    check_pixel 240 180 "srgb(255,255,255)" region_outside_still_white
+    # Two pixels either side of the region's own edge, which is the only thing that catches a region
+    # off by one: 139 must be untouched and 140 must be magenta.
+    # **Both edges, because one edge catches only one direction of mistake.** The region is
+    # x 140..179 and y 100..139, so 139 and 180 must be untouched while 140 and 179 must be magenta.
+    # With only the left pair, a region one pixel too *wide* changed nothing either test looked at.
+    check_pixel 139 120 "srgb(0,0,255)" region_edge_left_outside
+    check_pixel 140 120 "srgb(255,0,255)" region_edge_left_inside
+    check_pixel 179 120 "srgb(255,0,255)" region_edge_right_inside
+    check_pixel 180 120 "srgb(255,255,255)" region_edge_right_outside
+    check_pixel 160 139 "srgb(255,0,255)" region_edge_bottom_inside
+    check_pixel 160 140 "srgb(255,255,255)" region_edge_bottom_outside
+    id="$whole_id"
+fi
+kill "$region_pid" 2>/dev/null
+region_pid=""
 
 # --- input, which is the half no Ziman code can reach
 #

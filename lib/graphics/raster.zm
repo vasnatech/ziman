@@ -139,6 +139,23 @@ struct Target {
     width: int
     height: int
     data: MutableArray<float>
+    // **The pixels this pass may write, inclusive** -- the whole canvas unless a caller narrowed it
+    // with `draw_into_region`.
+    //
+    // It lives here rather than in a parameter because *every* drawing function needs it and almost
+    // none of them would use it directly: `fill_shape` and `blit` are the only two that touch
+    // pixels, and a parameter would have had to thread through `draw_ops`, `draw_text`, `clear_to`
+    // and the group recursion to reach them. A `Target` is a handle to a canvas plus the terms on
+    // which it may be written, which is what these four numbers are.
+    //
+    // **Not a clip.** A clip in this renderer is a full-canvas coverage mask (`clip_mask`), which is
+    // an allocation of width*height floats and a read per pixel -- exactly what a damage region
+    // exists to avoid. These four ints narrow the loops instead, so a small region costs nothing
+    // beyond the pixels it covers.
+    win_x0: int
+    win_y0: int
+    win_x1: int
+    win_y1: int
     // Rasterised glyphs, keyed by shape and subpixel position. Per *render*, deliberately: a cache
     // that outlived the call would need invalidating when a face changed and bounding so a
     // long-lived process could not grow one forever. A page is where the reuse is anyway.
@@ -290,6 +307,58 @@ pub fn render_into(c: Surface, s: Scene, o: Options) -> Result<image.Image, stri
 // A caller that wants an encodable image still calls `render_into`; this is for one that is going
 // to hand the pixels straight to a display. Pair it with `premultiplied_of`.
 pub fn draw_into(c: Surface, s: Scene, o: Options) -> Result<unit, string> {
+    try draw_window(c, s, o, 0, 0, c.target.width - 1, c.target.height - 1)
+    return unit
+}
+
+// The device-pixel rectangle a regional draw actually painted, which is exactly what
+// `window.present_region` needs. Returned rather than recomputed by the caller: it is the region
+// asked for, scaled by `px_per_pt`, rounded outwards and clipped to the surface, and a caller
+// repeating that arithmetic is a second place for it to be wrong.
+pub struct Painted {
+    x: int
+    y: int
+    width: int
+    height: int
+}
+
+// Redraws **one rectangle** of the surface and leaves every other pixel as it was.
+//
+// This is the whole point of keeping a `Surface` between frames. A window repaints because something
+// small changed -- a caret blinked, a button took the pointer, one row of a list got longer -- and
+// redrawing 1,024,000 pixels to show a new caret is most of what makes a toolkit feel slow.
+// Measured on this file's own benchmark scene at 1280x800: a full frame is about 34 ms, and the same
+// frame with *no ops at all* is 2 ms, so roughly 32 of those 34 milliseconds are drawing things that
+// did not change.
+//
+// `region` is in scene units, like everything else a caller passes; it is scaled by
+// `Options.px_per_pt`, rounded **outwards** so a region that falls between pixels covers both, and
+// clipped to the surface. The pixels it covers are cleared and redrawn exactly as a full frame would
+// do it, so the result is per-pixel identical to a full redraw inside the region -- which is what
+// `tests/lang/graphics_damage.zm` asserts rather than assumes.
+//
+// **What this does not do is decide what changed.** That is the caller's, and deliberately so: the
+// renderer sees one scene and has no memory of the last one, while an application knows which widget
+// it just changed. A caller that wants it computed can diff two scenes; a caller that gets it wrong
+// gets a stale window rather than a crash, which is the failure mode to expect from this.
+pub fn draw_into_region(c: Surface, s: Scene, o: Options, region: Rect) -> Result<Painted, string> {
+    val ratio = o.px_per_pt
+    // Outwards on every side: `floor` the near edges, `ceil` the far ones. Rounding inwards would
+    // leave a half-covered pixel showing the previous frame, which is a one-pixel seam along the
+    // edge of everything that ever moves -- the same class of mistake as the half-open scanline
+    // rule in `row_coverage_raw`.
+    val x0 = clamp_int(floor(region.x * ratio), 0, c.target.width - 1)
+    val y0 = clamp_int(floor(region.y * ratio), 0, c.target.height - 1)
+    val x1 = clamp_int(ceil((region.x + region.width) * ratio), 0, c.target.width - 1)
+    val y1 = clamp_int(ceil((region.y + region.height) * ratio), 0, c.target.height - 1)
+    if region.width <= 0.0 || region.height <= 0.0 {
+        return err("raster: a region to redraw must be larger than nothing")
+    }
+    try draw_window(c, s, o, x0, y0, x1, y1)
+    return ok(Painted { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 })
+}
+
+fn draw_window(c: Surface, s: Scene, o: Options, x0: int, y0: int, x1: int, y1: int) -> Result<unit, string> {
     val frame = try frame_size(s, o)
     if frame.width != c.target.width || frame.height != c.target.height {
         return err(concat(
@@ -324,10 +393,19 @@ pub fn draw_into(c: Surface, s: Scene, o: Options) -> Result<unit, string> {
         Some(_) { true }
         None { false }
     }
-    if !overwritten {
-        clear_premul(c.target.data, 0.0, 0.0, 0.0, 0.0)
+    // **A copy of the target carrying the window**, which is cheap and is what lets one code path
+    // serve both entry points: `data` and `glyphs` are handles, so the copy shares the canvas and
+    // the glyph cache and only the four bounds differ.
+    val t = with c.target {
+        win_x0: x0,
+        win_y0: y0,
+        win_x1: x1,
+        win_y1: y1
     }
-    return draw_frame(c.target, s, o)
+    if !overwritten {
+        clear_premul(t.data, t.width, t.win_x0, t.win_y0, t.win_x1, t.win_y1, 0.0, 0.0, 0.0, 0.0)
+    }
+    return draw_frame(t, s, o)
 }
 
 // A surface's pixels as they are held: **premultiplied** RGBA floats, four per pixel, row-major.
@@ -438,6 +516,10 @@ fn new_target(width: int, height: int) -> Target {
     // that starts at 20 and doubles copies the whole thing twenty times on the way up.
     val data = mutable_array_filled<float>(total, 0.0)
     return Target {
+        win_x0: 0,
+        win_y0: 0,
+        win_x1: width - 1,
+        win_y1: height - 1,
         width: width,
         height: height,
         data: data,
@@ -456,7 +538,18 @@ fn new_target(width: int, height: int) -> Target {
 // also makes them exactly reproducible: `tests/lang/graphics_raster.zm` asserts real pixels across
 // anti-aliasing, both winding rules, strokes, gradients, alpha and all three output formats, and it
 // is byte-identical with these loops in C. That fixture is the oracle, and it predates the change.
-native fn clear_premul(data: MutableArray<float>, r: float, g: float, b: float, a: float)
+native fn clear_premul(
+    data: MutableArray<float>,
+    width: int,
+    x0: int,
+    y0: int,
+    x1: int,
+    y1: int,
+    r: float,
+    g: float,
+    b: float,
+    a: float
+)
 
 native fn to_bytes_premul(data: MutableArray<float>, channels: int) -> Result<[byte], string>
 
@@ -563,7 +656,7 @@ native fn composite_row_flat(
 )
 
 fn clear_to(t: Target, c: Premul) {
-    clear_premul(t.data, c.red, c.green, c.blue, c.alpha)
+    clear_premul(t.data, t.width, t.win_x0, t.win_y0, t.win_x1, t.win_y1, c.red, c.green, c.blue, c.alpha)
 }
 
 // ---- the scene walk
@@ -647,6 +740,39 @@ fn draw_text(
                 font.base_font_name(s),
                 "' is one of the standard fourteen, which carry no outlines -- a PDF reader resolves them against fonts it already has, and this backend has no such library. Load a TrueType face with font.load"
             ))
+        }
+    }
+    // **Is this run anywhere near the window? Asked before the run is shaped, which is the whole
+    // point of asking.**
+    //
+    // A regional redraw of a 2x14 caret measured 17.1 ms against a full frame's 33.1 -- 1.9x, where
+    // the floor said 17x was available -- and the profile said why: `draw_text`, `lookup4`,
+    // `u16_at`, `glyphs_of`, `advance_of` and `glyph_for` were half the frame. Every one of the 48
+    // runs in the scene was being shaped in full -- each character mapped through the cmap, each
+    // advance read, each outline fetched -- and only then handed to `blit`, which returned
+    // immediately because the window excluded it. The pixel loops were already skipping the work;
+    // the *shaping* was not.
+    //
+    // The bound is **exact, not a guess**: `y_min`/`y_max` are the `head` table's global bounding
+    // box, so no glyph of this face can reach beyond them at any size. A declared
+    // ascender/descender would have been the obvious thing to use and would be wrong -- an accent
+    // or a tail can exceed it, and the clipping would appear only for particular letters.
+    //
+    // **Only for a transform with no rotation or skew**, because this tests the vertical extent
+    // alone and under a rotation the horizontal extent feeds into it -- and the horizontal extent is
+    // exactly what cannot be known without shaping the run. A rotated run is shaped as before. The
+    // horizontal direction needs no test here either way: `blit` clamps each glyph's tile to the
+    // window already, and that is per glyph rather than per run.
+    if m.b == 0.0 && m.c == 0.0 {
+        val per_unit = run.size / (face.units_per_em as float)
+        val user_top = run.at.y - (face.y_max as float) * per_unit
+        val user_bottom = run.at.y - (face.y_min as float) * per_unit
+        val edge_a = m.d * user_top + m.f
+        val edge_b = m.d * user_bottom + m.f
+        val top = if edge_a < edge_b { edge_a } else { edge_b }
+        val bottom = if edge_a < edge_b { edge_b } else { edge_a }
+        if ceil(bottom) < t.win_y0 || floor(top) > t.win_y1 {
+            return unit
         }
     }
     val ids = try font.glyphs_of(face, run.text)
@@ -842,16 +968,19 @@ fn blit(t: Target, tile: GlyphTile, ix: int, iy: int, b: Blitter) -> Result<unit
     // The tile's x range that lands on the canvas, computed per blit rather than tested per pixel:
     // a glyph half off the left edge otherwise costs a bounds check for every pixel it does not
     // have. `lo`/`hi` are tile coordinates; the canvas column is `ix + tile.left + tx`.
+    // Against the target's write window rather than the canvas, for the reason `fill_shape` gives:
+    // this is where a glyph outside a damage region stops costing anything, and where one that
+    // overlaps its edge is cut off instead of writing over kept pixels.
     val offset = ix + tile.left
-    val lo = if offset < 0 { 0 - offset } else { 0 }
-    val hi = if offset + tile.width > t.width { t.width - offset - 1 } else { tile.width - 1 }
+    val lo = if offset < t.win_x0 { t.win_x0 - offset } else { 0 }
+    val hi = if offset + tile.width > t.win_x1 + 1 { t.win_x1 - offset } else { tile.width - 1 }
     if lo > hi {
         return unit
     }
     var ty = 0
     while ty < tile.height {
         val py = iy + tile.top + ty
-        if py >= 0 && py < t.height {
+        if py >= t.win_y0 && py <= t.win_y1 {
             if Some(constant) = flat {
                 composite_span_flat(
                     t.data,
@@ -952,14 +1081,29 @@ fn fill_shape(
     if len(e.xy) == 0 {
         return unit
     }
-    val first_row = clamp_int(floor(e.min_y), 0, t.height - 1)
-    val last_row = clamp_int(ceil(e.max_y), 0, t.height - 1)
+    // **Clamped to the target's write window, not to the canvas** -- which is the whole of how a
+    // damage region skips work. A shape wholly outside the window produces `first > last` and
+    // returns below, so an op that did not change costs the path transform and its edge list and
+    // nothing else; a shape that straddles the window is drawn only where it is allowed to be,
+    // which is what stops it corrupting the pixels the surface is keeping from the last frame.
+    val first_row = clamp_int(floor(e.min_y), t.win_y0, t.win_y1)
+    val last_row = clamp_int(ceil(e.max_y), t.win_y0, t.win_y1)
     // **The shape's own horizontal extent, not the canvas's.** A 26-pixel-wide rectangle on a
     // 600-pixel canvas otherwise costs 600 pixels a row instead of 26. Interleaved A/B on a page of
     // 400 of them: 3592 ms to 2253 ms, so 1.6x -- not the 23x the ratio of widths suggests, because
     // most of the remaining time is the edge scan and the interpreter, not this loop.
-    val first_col = clamp_int(floor(e.min_x), 0, t.width - 1)
-    val last_col = clamp_int(ceil(e.max_x), 0, t.width - 1)
+    val first_col = clamp_int(floor(e.min_x), t.win_x0, t.win_x1)
+    val last_col = clamp_int(ceil(e.max_x), t.win_x0, t.win_x1)
+    // `clamp_int` pins a shape that misses the window entirely to the window's own edge, so the
+    // range it leaves is a single row or column rather than an empty one -- the emptiness has to be
+    // tested against the *shape*. Without this a glyph far above the window would repaint its top
+    // row, which is a one-pixel smear rather than an obvious failure.
+    if ceil(e.max_y) < t.win_y0 || floor(e.min_y) > t.win_y1 {
+        return unit
+    }
+    if ceil(e.max_x) < t.win_x0 || floor(e.min_x) > t.win_x1 {
+        return unit
+    }
     // A solid colour is the same at every pixel, so it is evaluated once instead of per pixel --
     // which also skips the inverse transform there. Every other ink genuinely varies with position.
     // Worth 1.33x on the same page (2253 ms to 1667 ms, interleaved), and `Solid` is the common case.
