@@ -388,6 +388,16 @@ pub struct Entry {
     // undo means to anyone. The rule is the one editors use: consecutive `Text` inserts coalesce,
     // and anything else -- a delete, a paste, a caret move, a click -- ends the run.
     typing: bool
+    // How many lines tall. **1 is a field and anything more is a text area**, and the difference is
+    // only three things: Enter inserts a newline instead of being left for a default button, Up and
+    // Down move by line instead of doing nothing, and the widget draws a column of lines instead of
+    // one run.
+    //
+    // One control rather than two because the rest -- clusters, words, selection, undo, the click
+    // that places a caret -- is identical, and `edit` never cared how many lines its text had: a
+    // newline has always been an ordinary character in that string. A separate `TextArea` would have
+    // been a second copy of all of it to gain a field.
+    rows: int
 }
 
 pub fn entry_of(name: string, label: string, text: string) -> Entry {
@@ -399,8 +409,15 @@ pub fn entry_of(name: string, label: string, text: string) -> Entry {
         disabled: false,
         readonly: false,
         dragging: false,
-        typing: false
+        typing: false,
+        rows: 1
     }
+}
+
+// A field `rows` lines tall: Enter inserts a newline, Up and Down move by line, and the text is
+// drawn a line at a time.
+pub fn text_area_of(name: string, label: string, text: string, rows: int) -> Entry {
+    return with entry_of(name, label, text) { rows: if rows < 1 { 1 } else { rows } }
 }
 
 pub struct EntryStep {
@@ -509,6 +526,21 @@ fn entry_key(e: Entry, k: Keystroke) -> EntryStep {
     if Key.is_End(k.key) { return moved(e, edit.move_end(e.editor, extend)) }
     if Key.is_Backspace(k.key) { return changed_by(e, edit.delete_back(e.editor)) }
     if Key.is_Delete(k.key) { return changed_by(e, edit.delete_forward(e.editor)) }
+    // **The three keys a text area answers and a field does not.**
+    //
+    // Enter is the sharp one: in a one-line field it must fall through untouched, because that is
+    // the key a default button answers and a field that swallowed it would break every form. In a
+    // text area it is a newline, and nothing else can type one -- the keyboard sends `Enter`, not
+    // `Text("\n")`.
+    //
+    // Up and Down do nothing in a field on purpose rather than by omission: there is nowhere to go,
+    // and a field that moved the caret to one end on Up would be surprising in a form where Up is
+    // how a user expects to reach the control above.
+    if e.rows > 1 {
+        if Key.is_Enter(k.key) { return changed_by(e, edit.insert(e.editor, "\n")) }
+        if Key.is_Up(k.key) { return moved(e, edit.move_up(e.editor, extend)) }
+        if Key.is_Down(k.key) { return moved(e, edit.move_down(e.editor, extend)) }
+    }
     return kept(e)
 }
 
@@ -615,7 +647,113 @@ pub val caret_name = "caret"
 //
 // Takes a `Metrics` where `button_widget` does not, because a caret's height is a text measurement
 // and guessing it from the em size is wrong for any face whose line height is not 1.2.
+// One line of a multi-line field: the part before the selection, the selected part or the caret,
+// and the part after -- the same three pieces `entry_widget` lays out for a single line, clamped to
+// this line's range.
+fn entry_line(
+    e: Entry,
+    from_at: int,
+    to_at: int,
+    on_this_line: bool,
+    ink: Color,
+    style: Style,
+    line: float
+) -> widget.Widget {
+    val text = e.editor.text
+    val sel_from = edit.selection_start(e.editor)
+    val sel_to = edit.selection_end(e.editor)
+    val selected = edit.has_selection(e.editor)
+    // The selection clipped to this line. Both ends are pinned inside it, so a selection that
+    // starts above and ends below colours the whole line and one that misses it entirely collapses
+    // to nothing.
+    val lo = if sel_from < from_at { from_at } else { if sel_from > to_at { to_at } else { sel_from } }
+    val hi = if sel_to < from_at { from_at } else { if sel_to > to_at { to_at } else { sel_to } }
+    val pieces = mutable_array_new<widget.Widget>()
+    if selected && hi > lo {
+        push(pieces, widget.label_of(substring(text, from_at, lo), style.text_size, ink))
+        push(pieces, widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            background: Option<Color>.Some(style.pressed_face),
+            children: [widget.label_of(substring(text, lo, hi), style.text_size, ink)],
+            name: "selection"
+        }))
+        push(pieces, widget.label_of(substring(text, hi, to_at), style.text_size, ink))
+    } else {
+        if !selected && on_this_line {
+            val caret = e.editor.caret
+            push(pieces, widget.label_of(substring(text, from_at, caret), style.text_size, ink))
+            push(pieces, widget.fixed_of(1.0, line, widget.Widget.Group(widget.Stack {
+                direction: widget.Direction.Row,
+                spacing: 0.0,
+                padding: widget.no_insets(),
+                background: Option<Color>.Some(ink),
+                children: [],
+                name: caret_name
+            })))
+            push(pieces, widget.label_of(substring(text, caret, to_at), style.text_size, ink))
+        } else {
+            push(pieces, widget.label_of(substring(text, from_at, to_at), style.text_size, ink))
+        }
+    }
+    return widget.fixed_of(0.0, line, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        background: Option<Color>.None,
+        children: snapshot(pieces),
+        name: ""
+    }))
+}
+
+fn multi_line_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget {
+    val ink = if e.disabled { style.disabled_ink } else { style.ink }
+    val height = m.line_height
+    val line = height(style.text_size)
+    val text = e.editor.text
+    val caret_line = edit.line_index(text, e.editor.caret)
+    val lines = mutable_array_new<widget.Widget>()
+    var at = 0
+    var index = 0
+    // Walks the text by line rather than splitting it, because the widget needs each line's
+    // *indices* and not just its characters: the caret and the selection are positions in the whole
+    // string, and a split would throw away the only thing that relates them to a line.
+    var more = true
+    while more {
+        val stop = edit.line_end(text, at)
+        push(lines, entry_line(e, at, stop, index == caret_line, ink, style, line))
+        if stop >= len(text) {
+            more = false
+        } else {
+            at = stop + 1
+            index = index + 1
+        }
+    }
+    val inside = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: style.padding,
+        background: Option<Color>.Some(style.face),
+        children: snapshot(lines),
+        name: ""
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: e.name,
+        role: widget.Role.TextField,
+        label: e.label,
+        description: "",
+        value: text,
+        state: with widget.no_state() { disabled: e.disabled, readonly: e.readonly, multiline: true },
+        tab_stop: true,
+        child: widget.named_scroll(concat(e.name, "-scroll"), 0.0, 0.0, inside)
+    })
+}
+
 pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget {
+    if e.rows > 1 {
+        return multi_line_widget(e, style, m)
+    }
     val ink = if e.disabled { style.disabled_ink } else { style.ink }
     val height = m.line_height
     val line = height(style.text_size)

@@ -285,3 +285,75 @@ fn the_history_is_bounded_and_drops_the_oldest() {
     test.assert_eq(h.past[0].text, "2")
     test.assert_eq(h.past[1].text, "3")
 }
+
+// ---- lines
+//
+// **The point of these is that a single line is unchanged.** The text was always allowed to hold a
+// newline and nothing looked for one; adding line awareness must not move Home, End or anything
+// else for a field with no newline in it, or every existing `controls.Entry` changes behaviour.
+
+#[test]
+fn a_single_line_is_one_line_and_home_and_end_are_unchanged() {
+    val e = edit.editor_of("hello")
+    test.assert_eq(0, edit.line_start("hello", 3))
+    test.assert_eq(5, edit.line_end("hello", 3))
+    test.assert_eq(0, edit.line_index("hello", 3))
+    test.assert_eq(0, edit.move_home(e, false).caret)
+    test.assert_eq(5, edit.move_end(e, false).caret)
+}
+
+#[test]
+fn home_and_end_are_per_line() {
+    // "one\ntwo\nthree": line starts at 0, 4, 8.
+    val text = concat("one", "\n", "two", "\n", "three")
+    val e = edit.place_caret(edit.editor_of(text), 5, false)
+    test.assert_eq(4, edit.line_start(text, 5))
+    test.assert_eq(7, edit.line_end(text, 5))
+    test.assert_eq(4, edit.move_home(e, false).caret)
+    test.assert_eq(7, edit.move_end(e, false).caret)
+    test.assert_eq(1, edit.line_index(text, 5))
+}
+
+#[test]
+fn the_caret_keeps_its_column_moving_between_lines() {
+    val text = concat("abcd", "\n", "efgh")
+    // Column 2 on the first line is index 2; down should land on index 7.
+    val e = edit.place_caret(edit.editor_of(text), 2, false)
+    test.assert_eq(7, edit.move_down(e, false).caret)
+    test.assert_eq(2, edit.move_up(edit.move_down(e, false), false).caret)
+}
+
+// **A short line clamps the column rather than overshooting into the next one**, which is the case
+// that turns a column into an index wrongly: without the clamp, column 4 on a two-character line
+// walks past its newline and lands on the line after.
+#[test]
+fn a_shorter_line_clamps_the_column() {
+    val text = concat("abcdef", "\n", "xy", "\n", "ghijkl")
+    val e = edit.place_caret(edit.editor_of(text), 5, false)
+    val down = edit.move_down(e, false)
+    test.assert_eq(9, down.caret)
+    test.assert_eq(1, edit.line_index(text, down.caret))
+    // And on down again the column is taken from where the caret *is*, not from where it started --
+    // which is why a real editor remembers a "desired column" and this deliberately does not: the
+    // simpler rule is the one the comment in `edit.zm` describes.
+    test.assert_eq(12, edit.move_down(down, false).caret)
+}
+
+#[test]
+fn up_from_the_first_line_goes_to_the_start_and_down_from_the_last_to_the_end() {
+    val text = concat("abc", "\n", "def")
+    val top = edit.place_caret(edit.editor_of(text), 2, false)
+    test.assert_eq(0, edit.move_up(top, false).caret)
+    val bottom = edit.place_caret(edit.editor_of(text), 5, false)
+    test.assert_eq(7, edit.move_down(bottom, false).caret)
+}
+
+#[test]
+fn moving_by_line_can_extend_a_selection() {
+    val text = concat("abcd", "\n", "efgh")
+    val e = edit.place_caret(edit.editor_of(text), 2, false)
+    val extended = edit.move_down(e, true)
+    test.assert_eq(2, extended.anchor)
+    test.assert_eq(7, extended.caret)
+    test.assert_eq("cd\nef", edit.selected_text(extended))
+}

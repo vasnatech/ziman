@@ -1031,3 +1031,79 @@ fn a_dialog_traps_the_window_behind_it() {
     test.assert(Option.is_None(a11y.node_of(t, "save")))
     test.assert_eq(said_in(t, "confirm"), "dialog, Discard changes?")
 }
+
+// ---- a text area
+//
+// **The whole of multi-line is three keys and a column of lines**, so the cases that matter are the
+// ones where a field and an area must differ, and the one where they must not.
+
+fn area(text: string) -> controls.Entry {
+    return controls.text_area_of("body", "Body", text, 6)
+}
+
+fn press(key: controls.Key) -> controls.Input {
+    return controls.Input.KeyDown(controls.keystroke_of(key))
+}
+
+val anywhere = geom.rect_of(0.0, 0.0, 200.0, 100.0)
+
+#[test]
+fn enter_types_a_newline_in_an_area() {
+    val step = controls.entry_input(
+        area("ab"),
+        press(controls.Key.Enter),
+        anywhere,
+        controls.default_style(),
+        metrics()
+    )
+    test.assert_eq("ab\n", step.entry.editor.text)
+    test.assert(step.changed)
+}
+
+// **A one-line field must leave Enter alone**, because it is the key a default button answers. A
+// field that swallowed it would break every form that has one.
+#[test]
+fn enter_is_untouched_in_a_one_line_field() {
+    val step = controls.entry_input(
+        controls.entry_of("name", "Name", "ab"),
+        press(controls.Key.Enter),
+        anywhere,
+        controls.default_style(),
+        metrics()
+    )
+    test.assert_eq("ab", step.entry.editor.text)
+    test.assert_false(step.changed)
+}
+
+#[test]
+fn up_and_down_move_by_line_in_an_area_and_do_nothing_in_a_field() {
+    val two = area(concat("abcd", "\n", "efgh"))
+    val placed = with two { editor: edit.place_caret(two.editor, 2, false) }
+    val down = controls.entry_input(placed, press(controls.Key.Down), anywhere, controls.default_style(), metrics())
+    test.assert_eq(7, down.entry.editor.caret)
+    val field = controls.entry_of("name", "Name", "abcd")
+    val still = controls.entry_input(field, press(controls.Key.Down), anywhere, controls.default_style(), metrics())
+    test.assert_eq(field.editor.caret, still.entry.editor.caret)
+}
+
+// Home and End are per line for both, which is not a difference between them: it follows from
+// `edit.move_home` being line-aware, and for a field with no newline it is what it always was.
+#[test]
+fn home_is_the_start_of_the_line_not_of_the_text() {
+    val a = area(concat("one", "\n", "two"))
+    val placed = with a { editor: edit.place_caret(a.editor, 5, false) }
+    val home = controls.entry_input(placed, press(controls.Key.Home), anywhere, controls.default_style(), metrics())
+    test.assert_eq(4, home.entry.editor.caret)
+}
+
+#[test]
+fn an_area_announces_itself_as_multiline() {
+    val w = controls.entry_widget(area("x"), controls.default_style(), metrics())
+    val laid = widget.layout(w, geom.rect_of(0.0, 0.0, 200.0, 100.0), metrics())
+    val tree = a11y.tree_of(laid, "form", "body")
+    if Some(node) = a11y.node_of(tree, "body") {
+        test.assert(node.state.multiline)
+    } else {
+        test.fail("the area is not in the accessibility tree")
+    }
+}

@@ -203,17 +203,68 @@ word and presses Left expects the caret at its beginning, not inside it.
 pub fn move_right(e: Editor, extend: bool) -> Editor
 ```
 
+## Lines
+
+### `line_start`
+
+```
+pub fn line_start(text: string, at: int) -> int
+```
+
+The index just after the newline before `at`, or 0.
+
+### `line_end`
+
+```
+pub fn line_end(text: string, at: int) -> int
+```
+
+The index of the newline at or after `at`, or the length.
+
 ### `move_home`
 
 ```
 pub fn move_home(e: Editor, extend: bool) -> Editor
 ```
 
+**Home and End are per line**, which is what they mean in every editor. For a single-line field
+they answer 0 and the length exactly as they always did.
+
 ### `move_end`
 
 ```
 pub fn move_end(e: Editor, extend: bool) -> Editor
 ```
+
+### `move_up`
+
+```
+pub fn move_up(e: Editor, extend: bool) -> Editor
+```
+
+The caret one line up or down, keeping its column where the line is long enough.
+
+**The column is counted in characters, not measured in pixels**, which is the one simplifying
+choice here and is worth naming: in a proportional face, moving down a line and back up can land
+a column or two from where it started, where a pixel-measured caret would return exactly. Doing
+it properly needs the metrics threaded through every movement, and a text area is most often used
+for code and data -- the things people put in a request body -- where the difference is small.
+`controls.caret_at_x` already measures when a *click* places the caret, so the pixel answer is
+there when this is worth revisiting.
+
+### `move_down`
+
+```
+pub fn move_down(e: Editor, extend: bool) -> Editor
+```
+
+### `line_index`
+
+```
+pub fn line_index(text: string, at: int) -> int
+```
+
+Which line `at` falls on, counting from 0 -- what a widget needs to draw a caret.
 
 ### `select_all`
 

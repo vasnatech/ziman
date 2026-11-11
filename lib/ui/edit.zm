@@ -228,12 +228,110 @@ pub fn move_right(e: Editor, extend: bool) -> Editor {
     return moved(e, cluster_after(e.text, e.caret), extend)
 }
 
+// ---------------------------------------------------------------- lines
+//
+// **The text was always allowed to contain newlines; nothing looked for them.** Every operation
+// here works on a flat string with a caret index, so a `\n` has been a perfectly ordinary character
+// all along -- it is only `move_home`, `move_end` and the absence of up and down that assumed one
+// line, plus a widget that drew one text run. These four functions and `controls.TextArea` are the
+// whole of what multi-line needed.
+//
+// **For text with no newline every one of these is what it was**: `line_start` is 0, `line_end` is
+// the length, and up and down have nowhere to go. So this changes nothing for a single-line field.
+
+// The index just after the newline before `at`, or 0.
+pub fn line_start(text: string, at: int) -> int {
+    var i = clamped(text, at)
+    while i > 0 {
+        if substring(text, i - 1, i) == "\n" {
+            return i
+        }
+        i = i - 1
+    }
+    return 0
+}
+
+// The index of the newline at or after `at`, or the length.
+pub fn line_end(text: string, at: int) -> int {
+    val n = len(text)
+    var i = clamped(text, at)
+    while i < n {
+        if substring(text, i, i + 1) == "\n" {
+            return i
+        }
+        i = i + 1
+    }
+    return n
+}
+
+fn clamped(text: string, at: int) -> int {
+    if at < 0 {
+        return 0
+    }
+    if at > len(text) {
+        return len(text)
+    }
+    return at
+}
+
+// **Home and End are per line**, which is what they mean in every editor. For a single-line field
+// they answer 0 and the length exactly as they always did.
 pub fn move_home(e: Editor, extend: bool) -> Editor {
-    return moved(e, 0, extend)
+    return moved(e, line_start(e.text, e.caret), extend)
 }
 
 pub fn move_end(e: Editor, extend: bool) -> Editor {
-    return moved(e, len(e.text), extend)
+    return moved(e, line_end(e.text, e.caret), extend)
+}
+
+// The caret one line up or down, keeping its column where the line is long enough.
+//
+// **The column is counted in characters, not measured in pixels**, which is the one simplifying
+// choice here and is worth naming: in a proportional face, moving down a line and back up can land
+// a column or two from where it started, where a pixel-measured caret would return exactly. Doing
+// it properly needs the metrics threaded through every movement, and a text area is most often used
+// for code and data -- the things people put in a request body -- where the difference is small.
+// `controls.caret_at_x` already measures when a *click* places the caret, so the pixel answer is
+// there when this is worth revisiting.
+pub fn move_up(e: Editor, extend: bool) -> Editor {
+    val start = line_start(e.text, e.caret)
+    if start == 0 {
+        // Already on the first line: Up goes to the very beginning, as editors do rather than
+        // doing nothing, so a held key reaches the top.
+        return moved(e, 0, extend)
+    }
+    val column = e.caret - start
+    val previous_start = line_start(e.text, start - 1)
+    val previous_end = start - 1
+    val target = if previous_start + column < previous_end { previous_start + column } else { previous_end }
+    return moved(e, target, extend)
+}
+
+pub fn move_down(e: Editor, extend: bool) -> Editor {
+    val start = line_start(e.text, e.caret)
+    val end = line_end(e.text, e.caret)
+    if end >= len(e.text) {
+        return moved(e, len(e.text), extend)
+    }
+    val column = e.caret - start
+    val next_start = end + 1
+    val next_end = line_end(e.text, next_start)
+    val target = if next_start + column < next_end { next_start + column } else { next_end }
+    return moved(e, target, extend)
+}
+
+// Which line `at` falls on, counting from 0 -- what a widget needs to draw a caret.
+pub fn line_index(text: string, at: int) -> int {
+    val limit = clamped(text, at)
+    var i = 0
+    var lines = 0
+    while i < limit {
+        if substring(text, i, i + 1) == "\n" {
+            lines = lines + 1
+        }
+        i = i + 1
+    }
+    return lines
 }
 
 pub fn select_all(e: Editor) -> Editor {

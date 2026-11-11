@@ -462,6 +462,16 @@ pub struct Entry {
     // undo means to anyone. The rule is the one editors use: consecutive `Text` inserts coalesce,
     // and anything else -- a delete, a paste, a caret move, a click -- ends the run.
     typing: bool
+    // How many lines tall. **1 is a field and anything more is a text area**, and the difference is
+    // only three things: Enter inserts a newline instead of being left for a default button, Up and
+    // Down move by line instead of doing nothing, and the widget draws a column of lines instead of
+    // one run.
+    //
+    // One control rather than two because the rest -- clusters, words, selection, undo, the click
+    // that places a caret -- is identical, and `edit` never cared how many lines its text had: a
+    // newline has always been an ordinary character in that string. A separate `TextArea` would have
+    // been a second copy of all of it to gain a field.
+    rows: int
 }
 ```
 
@@ -476,6 +486,15 @@ against 32 cases with no widget, no layout and no font in sight.
 ```
 pub fn entry_of(name: string, label: string, text: string) -> Entry
 ```
+
+### `text_area_of`
+
+```
+pub fn text_area_of(name: string, label: string, text: string, rows: int) -> Entry
+```
+
+A field `rows` lines tall: Enter inserts a newline, Up and Down move by line, and the text is
+drawn a line at a time.
 
 ### `EntryStep`
 
@@ -536,18 +555,6 @@ application can draw attention to it.
 ```
 pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget
 ```
-
-The field as a widget.
-
-**The caret is placed by the layout rather than computed.** The row is the text before the caret,
-then a one-unit box, then the text after it -- so the same metrics that measure the text place the
-caret, and the two cannot drift apart. Computing a caret's x separately is how a caret ends up
-half a character off in one font and right in another.
-
-A selection is the same trick: the selected run is its own label with a background behind it.
-
-Takes a `Metrics` where `button_widget` does not, because a caret's height is a text measurement
-and guessing it from the em size is wrong for any face whose line height is not 1.2.
 
 ## The list
 
