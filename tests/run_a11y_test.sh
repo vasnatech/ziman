@@ -92,6 +92,7 @@ check 'list item: "first"' list_item
 # field and reads it as one.
 check 'entry: "http://example.test" [focused]' focus_is_published
 check 'button: "Revert" [disabled]' disabled_is_published
+check 'entry: "Body" [multi line]' multiline_is_published
 if [ "$(printf '%s\n' "$seen" | grep -c 'focused')" = "1" ]; then
     echo "PASS a11y_exactly_one_node_is_focused"
 else
