@@ -654,10 +654,20 @@ because a row has no name of its own and an index alone would collide with anoth
 ```
 pub struct Menu {
     name: string
+    // What the collapsed control shows. For a menu it is the menu's name ("File"); for a choice it
+    // is **not used** -- `collapsed_text` reads the selection instead, so the two cannot disagree.
     title: string
+    // What a reader calls it. The same as `title` for a menu, and a fixed name for a choice, whose
+    // title changes as the user picks: a control that introduced itself as its own current value
+    // would announce "staging, combo box, staging".
+    label: string
     items: List
     open: bool
     disabled: bool
+    // `Menu` for a list of commands, `ComboBox` for a picker of values. One structure, because a
+    // dropdown *is* a popup list with a collapsed title and building a second one would have been a
+    // copy of the popup, the keyboard handling and the dismissal to change two role names.
+    role: widget.Role
 }
 ```
 
@@ -672,6 +682,37 @@ the only honest difference is what a reader calls it, which is why `List.role` i
 ```
 pub fn menu_of(name: string, title: string, items: [string]) -> Menu
 ```
+
+### `choice_of`
+
+```
+pub fn choice_of(name: string, label: string, items: [string], selected: int) -> Menu
+```
+
+A dropdown: pick one of `items`, showing the one picked.
+
+**The same control as a menu, announcing differently** -- a menu offers commands and this offers
+values, which a reader distinguishes and a user does too. `selected` is an index into `items`, or
+-1 for nothing chosen yet, in which case the collapsed control shows `label`.
+
+The chosen value is **read from the list's selection rather than stored**, so there is no second
+place for it to be wrong: `menu_input` moves the selection and the collapsed text follows.
+
+### `collapsed_text`
+
+```
+pub fn collapsed_text(m: Menu) -> string
+```
+
+What the collapsed control shows: the chosen value for a choice, the title for a menu.
+
+### `chosen_value`
+
+```
+pub fn chosen_value(m: Menu) -> string
+```
+
+The value a choice is showing, or "" when nothing is chosen. A menu has none.
 
 ### `MenuStep`
 

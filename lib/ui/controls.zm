@@ -1009,10 +1009,20 @@ pub fn row_name(l: List, index: int) -> string {
 // the only honest difference is what a reader calls it, which is why `List.role` is a field.
 pub struct Menu {
     name: string
+    // What the collapsed control shows. For a menu it is the menu's name ("File"); for a choice it
+    // is **not used** -- `collapsed_text` reads the selection instead, so the two cannot disagree.
     title: string
+    // What a reader calls it. The same as `title` for a menu, and a fixed name for a choice, whose
+    // title changes as the user picks: a control that introduced itself as its own current value
+    // would announce "staging, combo box, staging".
+    label: string
     items: List
     open: bool
     disabled: bool
+    // `Menu` for a list of commands, `ComboBox` for a picker of values. One structure, because a
+    // dropdown *is* a popup list with a collapsed title and building a second one would have been a
+    // copy of the popup, the keyboard handling and the dismissal to change two role names.
+    role: widget.Role
 }
 
 pub fn menu_of(name: string, title: string, items: [string]) -> Menu {
@@ -1020,7 +1030,64 @@ pub fn menu_of(name: string, title: string, items: [string]) -> Menu {
         role: widget.Role.Menu,
         item_role: widget.Role.MenuItem
     }
-    return Menu { name: name, title: title, items: inner, open: false, disabled: false }
+    return Menu {
+        name: name,
+        title: title,
+        label: title,
+        items: inner,
+        open: false,
+        disabled: false,
+        role: widget.Role.Menu
+    }
+}
+
+// A dropdown: pick one of `items`, showing the one picked.
+//
+// **The same control as a menu, announcing differently** -- a menu offers commands and this offers
+// values, which a reader distinguishes and a user does too. `selected` is an index into `items`, or
+// -1 for nothing chosen yet, in which case the collapsed control shows `label`.
+//
+// The chosen value is **read from the list's selection rather than stored**, so there is no second
+// place for it to be wrong: `menu_input` moves the selection and the collapsed text follows.
+pub fn choice_of(name: string, label: string, items: [string], selected: int) -> Menu {
+    val inner = with list_of(concat(name, "/items"), label, items) {
+        role: widget.Role.List,
+        item_role: widget.Role.ListItem,
+        selected: if selected < 0 || selected >= len(items) { 0 - 1 } else { selected }
+    }
+    return Menu {
+        name: name,
+        title: label,
+        label: label,
+        items: inner,
+        open: false,
+        disabled: false,
+        role: widget.Role.ComboBox
+    }
+}
+
+// What the collapsed control shows: the chosen value for a choice, the title for a menu.
+pub fn collapsed_text(m: Menu) -> string {
+    if !widget.Role.is_ComboBox(m.role) {
+        return m.title
+    }
+    val at = m.items.selected
+    if at < 0 || at >= len(m.items.items) {
+        return m.label
+    }
+    return m.items.items[at]
+}
+
+// The value a choice is showing, or "" when nothing is chosen. A menu has none.
+pub fn chosen_value(m: Menu) -> string {
+    if !widget.Role.is_ComboBox(m.role) {
+        return ""
+    }
+    val at = m.items.selected
+    if at < 0 || at >= len(m.items.items) {
+        return ""
+    }
+    return m.items.items[at]
 }
 
 pub struct MenuStep {
@@ -1145,15 +1212,18 @@ pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
         spacing: 0.0,
         padding: style.padding,
         background: Option<Color>.Some(face),
-        children: [widget.label_of(m.title, style.text_size, ink)],
+        children: [widget.label_of(collapsed_text(m), style.text_size, ink)],
         name: ""
     })
     return widget.Widget.Control(widget.Focusable {
         name: m.name,
-        role: widget.Role.Menu,
-        label: m.title,
+        role: m.role,
+        label: m.label,
         description: "",
-        value: "",
+        // **A choice announces its value and a menu has none to announce.** This is the whole
+        // behavioural difference between the two once the role is right: a reader says the label,
+        // then what it is, then what it holds.
+        value: chosen_value(m),
         state: with widget.no_state() {
             disabled: m.disabled,
             expanded: Option<bool>.Some(m.open)

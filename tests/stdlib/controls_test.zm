@@ -1107,3 +1107,69 @@ fn an_area_announces_itself_as_multiline() {
         test.fail("the area is not in the accessibility tree")
     }
 }
+
+// ---- a choice
+//
+// **A choice is a menu that announces itself as a value rather than a command**, and the cases that
+// matter are the ones where the two must differ. The popup, the keyboard and the dismissal are the
+// same code and are already covered by the menu tests above.
+
+#[test]
+fn a_choice_shows_what_is_chosen_and_a_menu_shows_its_title() {
+    val choice = controls.choice_of("env", "Environment", ["global", "staging"], 1)
+    test.assert_eq("staging", controls.collapsed_text(choice))
+    test.assert_eq("staging", controls.chosen_value(choice))
+    val menu = controls.menu_of("file", "File", ["Open", "Save"])
+    test.assert_eq("File", controls.collapsed_text(menu))
+    // A menu holds no value, and saying it held its title would make a reader announce a command
+    // list as though something were selected in it.
+    test.assert_eq("", controls.chosen_value(menu))
+}
+
+// **Nothing chosen shows the label, not an empty box.** A picker that rendered blank looks broken
+// rather than unset, and -1 is what `choice_of` stores for an out-of-range index.
+#[test]
+fn a_choice_with_nothing_chosen_shows_its_label() {
+    val choice = controls.choice_of("env", "Environment", ["global"], 0 - 1)
+    test.assert_eq("Environment", controls.collapsed_text(choice))
+    test.assert_eq("", controls.chosen_value(choice))
+    val past_the_end = controls.choice_of("env", "Environment", ["global"], 7)
+    test.assert_eq("Environment", controls.collapsed_text(past_the_end))
+}
+
+#[test]
+fn a_choice_announces_itself_as_a_combo_box_holding_its_value() {
+    val choice = controls.choice_of("env", "Environment", ["global", "staging"], 1)
+    val laid = widget.layout(
+        controls.menu_title_widget(choice, controls.default_style()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    val tree = a11y.tree_of(laid, "window", "env")
+    if Some(node) = a11y.node_of(tree, "env") {
+        // The label is the fixed name and the value is what is chosen: a control that introduced
+        // itself as its own current value would say "staging, combo box, staging".
+        test.assert_eq("Environment", node.name)
+        test.assert_eq("staging", node.value)
+        // Role first, then the name, then the value, then the state -- `a11y.announce`'s own order.
+        test.assert_eq("combo box, Environment, staging, collapsed", a11y.announce(node))
+    } else {
+        test.fail("the choice is not in the accessibility tree")
+    }
+}
+
+// **Choosing moves the collapsed text with it**, which is the point of reading the value from the
+// list's selection rather than storing it: there is no second place to update and so no way for the
+// two to disagree.
+#[test]
+fn choosing_from_a_choice_changes_what_it_shows() {
+    val choice = with controls.choice_of("env", "Environment", ["global", "staging"], 0) { open: true }
+    val moved = to_menu(choice, controls.Input.KeyDown(key(key_down)))
+    test.assert_eq(1, moved.menu.items.selected)
+    // The collapsed text follows the selection even before the item is chosen, which is what a
+    // dropdown does while you arrow through it.
+    test.assert_eq("staging", controls.collapsed_text(moved.menu))
+    val taken = to_menu(moved.menu, controls.Input.KeyDown(key(controls.Key.Enter)))
+    test.assert_eq(1, taken.chosen)
+    test.assert_eq("staging", controls.chosen_value(taken.menu))
+}

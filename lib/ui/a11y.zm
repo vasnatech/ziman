@@ -383,6 +383,7 @@ fn role_word(r: Role) -> string {
         TabList { "tab list" }
         Menu { "menu" }
         MenuItem { "menu item" }
+        ComboBox { "combo box" }
         ScrollBar { "scroll bar" }
         Dialog { "dialog" }
         Group { "group" }

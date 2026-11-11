@@ -421,6 +421,11 @@ pub enum Role {
     TabList
     Menu
     MenuItem
+    // **A value picker, which is not a menu.** A menu offers commands and a combo box offers
+    // values, and a reader says different things about them: "File, menu" invites you to look for
+    // an action, "Environment, combo box, staging" tells you what is currently chosen. The two are
+    // built from the same popup here and announce differently on purpose.
+    ComboBox
     ScrollBar
     Dialog
     // A container that groups its children for a reader without being anything itself -- a toolbar,
