@@ -29,8 +29,25 @@
 // 1.82x, 1.72x, 1.86x. The two batches agree on the ratio and disagree on the absolutes by a third,
 // which is the point of the paragraph above.
 //
-// 35 glyphs stayed cached across all ten frames. The remaining per-frame cost is the edge walk and
-// the character map, which are F270's items 5 and 2.
+// 35 glyphs stayed cached across all ten frames.
+//
+// **Then profiling the repaint path -- not the `render` path -- changed the ranking again.** With the
+// allocation gone, the top three were `to_bytes_premul` at 15.7%, `blit` at 13.6% and
+// `clear_premul` at 13.4%, two of them already in C and both of those bound by walking 32 MB rather
+// than by the interpreter. The third of them was waste: `render_into` reset the surface to
+// transparent and `draw_frame` then cleared it to `Options.background`, which *writes* every pixel
+// -- two passes for one result. Skipping the reset when there is a background, interleaved over two
+// binaries, three passes of 20 repaints:
+//
+//   | pass | with the reset | without | ratio |
+//   | ---- | -------------- | ------- | ----- |
+//   | 1    | 696 ms         | 635 ms  | 1.10x |
+//   | 2    | 701 ms         | 627 ms  | 1.12x |
+//   | 3    | 701 ms         | 651 ms  | 1.08x |
+//
+// What is left in a repaint is `to_bytes_premul`, which converts 32 MB of floats into a fresh 4 MB
+// of bytes every frame, then `blit`, then the edge walk -- F270's items 5 and 2, and a new one:
+// letting the surface own its output buffer, or handing `window.present` the floats directly.
 use clock
 use font
 use fs

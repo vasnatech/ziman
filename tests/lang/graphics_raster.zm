@@ -548,6 +548,35 @@ fn main() {
         str(raster.surface_height(surface))
     ))
 
+    // **With a background, the transparent reset is skipped**, because `Options.background` writes
+    // every pixel rather than compositing over it -- so clearing first would be two passes over the
+    // canvas for one result, and the profile of a repaint put that at 13% of a frame.
+    //
+    // Asserted on the **second** frame, for the reason the cases above are: the first frame of a
+    // fresh surface starts zeroed and so cannot tell a skipped reset from a performed one.
+    //
+    // A **semi-transparent** background, which is the sharp version: skipping the reset is only
+    // safe if the background clear *writes*, and one that composited would leave last frame's
+    // pixels showing through exactly here.
+    val washed = with raster.options() { background: Option<paint.Color>.Some(paint.rgba(0.1, 0.8, 0.4, 0.5)) }
+    val lit = switch raster.surface_of(24, 16) {
+        Ok(c) { c }
+        Err(why) {
+            print(concat("surface refused: ", why))
+            return
+        }
+    }
+    val lit_fresh = unwrap_render(raster.render(reuse, washed))
+    val lit_one = unwrap_render(raster.render_into(lit, reuse, washed))
+    val lit_two = unwrap_render(raster.render_into(lit, reuse, washed))
+    print(concat("background, frame 1:   ", str(digest(lit_one) == digest(lit_fresh))))
+    print(concat("  frame 2 matches it:  ", str(digest(lit_two) == digest(lit_one))))
+    // And after a frame that leaves more ink, so the skip is not idempotent only for this scene.
+    val _ = unwrap_render(raster.render_into(lit, heavier, washed))
+    print(concat("  after a full frame:  ", str(
+        digest(unwrap_render(raster.render_into(lit, reuse, washed))) == digest(lit_one)
+    )))
+
     // ---- what a surface refuses
     print(concat("a scene of the wrong size: ", refusal(raster.render_into(
         surface,

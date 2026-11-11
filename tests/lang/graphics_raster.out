@@ -39,6 +39,9 @@ surface matches render: true
 frame two matches one: true
 after a full frame:    true
 surface size:          24x16
+background, frame 1:   true
+  frame 2 matches it:  true
+  after a full frame:  true
 a scene of the wrong size: raster: the scene is 40x16 but the surface is 24x16 -- make a new surface when the window resizes
 a zero-size surface:   raster: a surface must be at least 1x1, got 0x16
 too large a surface:   raster: a surface may be at most 16384 on a side, got 20000x10
