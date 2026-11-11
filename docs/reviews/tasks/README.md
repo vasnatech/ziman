@@ -43,3 +43,4 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F209 to F249](f209-f249.md)
 - [F250 to F265](f250-f262.md)
 - [F269 to F277 — desktop applications (route B)](f269-f277.md)
+- [F278 to F279 — the builder half of the variadic builtins](f278-f279.md)
