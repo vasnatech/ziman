@@ -1,0 +1,12 @@
+identical scenes          : no damage -- channels differing from a full redraw: 0
+one fill recoloured       : damage 40x16 at 10,20 -- channels differing from a full redraw: 0
+one fill moved            : damage 40x40 at 10,20 -- channels differing from a full redraw: 0
+text changed              : damage 49x13 at 11,40 -- channels differing from a full redraw: 0
+stroke recoloured         : damage 70x46 at 45,5 -- channels differing from a full redraw: 0
+an op appended            : damage 30x14 at 80,60 -- channels differing from a full redraw: 0
+an op removed             : damage 30x14 at 80,60 -- channels differing from a full redraw: 0
+one row of a group        : damage 100x12 at 8,42 -- channels differing from a full redraw: 0
+one row of a clipped group: damage 30x12 at 8,42 -- channels differing from a full redraw: 0
+a whole group moved       : damage 100x70 at 8,10 -- channels differing from a full redraw: 0
+the background changed    : damage 120x80 at 0,0 -- channels differing from a full redraw: 0
+a resized scene           : damage 120x90

@@ -311,6 +311,36 @@ renderer sees one scene and has no memory of the last one, while an application 
 it just changed. A caller that wants it computed can diff two scenes; a caller that gets it wrong
 gets a stale window rather than a crash, which is the failure mode to expect from this.
 
+## What changed
+
+### `damage_between`
+
+```
+pub fn damage_between(previous: Scene, current: Scene, o: Options) -> Option<Rect>
+```
+
+What changed between two scenes, as a rectangle in scene units to hand to `draw_into_region` --
+or `None` if nothing did, in which case a window needs no repaint at all.
+
+**This is the piece that makes damage regions automatic.** `draw_into_region` can repaint a
+rectangle but has no idea which one; an application knows what it changed but usually only in
+terms of its own widgets. Comparing the scene it just built against the one it built last frame
+answers the question without either side having to track anything: `Scene` is an immutable value,
+so last frame's is still there to compare against, and the comparison is structural.
+
+**Deliberately conservative, in one direction only.** Every case that cannot be answered exactly
+answers "everything" -- an op whose bounds need the work that bounding them was meant to avoid, a
+scene that changed size, a different background, a group that moved. The result may therefore be
+larger than necessary and is never smaller, so the failure mode is a slower frame rather than a
+stale window. Nothing here returns an error for the same reason.
+
+**Ops are matched by position, so inserting one marks everything after it as changed.** That is
+usually right rather than merely safe -- inserting a row does move every row below it -- but a
+caller that reorders a long list will see large damage, and the way out is to reorder inside a
+`Nested` group so the comparison recurses into it. Two groups are compared internally when their
+transform and clip match; otherwise both the old and the new ink are damaged, because the old has
+to be erased.
+
 ### `Premultiplied`
 
 ```

@@ -1,0 +1,249 @@
+// Working out what changed between two scenes, and the one assertion that matters about it.
+//
+// `raster.damage_between` answers a rectangle to repaint. The dangerous direction of error is
+// **too small** -- a region that misses something leaves last frame's pixels on screen, and the
+// window is quietly wrong rather than slow. So every case here is checked the same way, end to end:
+//
+//     draw scene A in full, then redraw only the computed damage with scene B
+//     == draw scene B in full
+//
+// compared over the **whole** surface, not just inside the region. A damage rectangle that is too
+// small fails it; one that is too large still passes, which is the asymmetry the function is built
+// around. The reported width and height are there so a case that answers "everything" cannot hide
+// behind a passing comparison -- `tests/bench/damage.zm` is where the saving is measured, but a
+// fixture that only checked pixels would be satisfied by a function that always said "the lot".
+use font
+use fs
+use geom
+use math.round
+use paint
+use raster
+use scene
+use shape
+
+val width = 120.0
+val height = 80.0
+
+fn solid(r: float, g: float, b: float) -> paint.Paint {
+    return paint.Paint.Solid(paint.rgb(r, g, b))
+}
+
+fn surface() -> Result<raster.Surface, string> {
+    return raster.surface_of(width, height, 1.0)
+}
+
+fn differences(a: raster.Surface, b: raster.Surface) -> int {
+    val pa = raster.premultiplied_of(a)
+    val pb = raster.premultiplied_of(b)
+    var differing = 0
+    var at = 0
+    while at < len(pa.data) {
+        if pa.data[at] != pb.data[at] {
+            differing = differing + 1
+        }
+        at = at + 1
+    }
+    return differing
+}
+
+// Draws A, applies the computed damage with B, and compares the result against a full draw of B
+// over every pixel. Prints the damage's size so a lazy "everything" answer is visible.
+//
+// **The comparison runs even when there is no damage, and that matters more than it looks.** The
+// first version returned early on `None` with a cheerful "no damage", and three of five deliberate
+// breaks of `damage_between` went undetected because of it -- each one made the damage *vanish*
+// rather than shrink (a zero-height text box, a skipped list tail, an unnoticed background change),
+// so the assertion that would have caught them never ran. `None` is a claim that the two scenes look
+// identical, and it has to be checked like any other.
+fn check(label: string, a: scene.Scene, b: scene.Scene, o: raster.Options) -> Result<unit, string> {
+    val patched = try surface()
+    try raster.draw_into(patched, a, o)
+    val described = switch raster.damage_between(a, b, o) {
+        Some(r) {
+            try raster.draw_into_region(patched, b, o, r)
+            concat(
+                "damage ",
+                str(round(r.width) as int),
+                "x",
+                str(round(r.height) as int),
+                " at ",
+                str(round(r.x) as int),
+                ",",
+                str(round(r.y) as int)
+            )
+        }
+        None { "no damage" }
+    }
+    val full = try surface()
+    try raster.draw_into(full, b, o)
+    printf(
+        "{}: {} -- channels differing from a full redraw: {}\n",
+        label,
+        described,
+        str(differences(patched, full))
+    )
+    return unit
+}
+
+fn base_ops(top: paint.Paint, label: string) -> [scene.Op] {
+    val ops = mutable_array_new<scene.Op>()
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, width, 10.0)), top))
+    push(ops, scene.fill(shape.rect_path(geom.rect_of(10.0, 20.0, 40.0, 16.0)), solid(0.2, 0.6, 0.9)))
+    push(ops, scene.text_of(label, geom.point_of(12.0, 50.0), 11.0, 0, solid(0.1, 0.1, 0.1)))
+    push(ops, scene.stroke(
+        shape.rect_path(geom.rect_of(60.0, 20.0, 40.0, 16.0)),
+        solid(0.9, 0.2, 0.2),
+        paint.stroke_of(3.0)
+    ))
+    return snapshot(ops)
+}
+
+fn scene_with(ops: [scene.Op]) -> scene.Scene {
+    return scene.with_ops(scene.scene_of(width, height), ops)
+}
+
+fn replace_at(ops: [scene.Op], index: int, op: scene.Op) -> [scene.Op] {
+    val out = mutable_array_new<scene.Op>()
+    var i = 0
+    while i < len(ops) {
+        if i == index {
+            push(out, op)
+        } else {
+            push(out, ops[i])
+        }
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
+fn run() -> Result<unit, string> {
+    val data = switch fs.read_bytes("vendor/fonts/Caladea-Regular.ttf") {
+        Ok(d) { d }
+        Err(why) { return err(concat("font: ", format("{}", why))) }
+    }
+    val f = switch font.load(data) {
+        Ok(x) { x }
+        Err(why) { return err(concat("load: ", why)) }
+    }
+    val o = with raster.options() {
+        fonts: [f],
+        samples: 4,
+        background: Option<paint.Color>.Some(paint.white()),
+        max_pixels: 100000
+    }
+    val base = base_ops(solid(0.3, 0.3, 0.3), "aaaa")
+    val a = scene_with(base)
+
+    try check("identical scenes          ", a, a, o)
+
+    // One fill recoloured: the damage should be that rectangle and nothing else.
+    try check(
+        "one fill recoloured       ",
+        a,
+        scene_with(replace_at(
+            base,
+            1,
+            scene.fill(shape.rect_path(geom.rect_of(10.0, 20.0, 40.0, 16.0)), solid(0.9, 0.1, 0.5))
+        )),
+        o
+    )
+
+    // **One fill moved**, which needs both the old and the new place: a region covering only where
+    // it went to leaves the old rectangle on screen.
+    try check(
+        "one fill moved            ",
+        a,
+        scene_with(replace_at(
+            base,
+            1,
+            scene.fill(shape.rect_path(geom.rect_of(10.0, 44.0, 40.0, 16.0)), solid(0.2, 0.6, 0.9))
+        )),
+        o
+    )
+
+    // Text changed: the damage has to allow for the face's own overhangs, not just the advance.
+    try check("text changed              ", a, scene_with(base_ops(solid(0.3, 0.3, 0.3), "wwww")), o)
+
+    // A stroke recoloured: its damage must include the pen's half-width and the miter reach, or a
+    // border of stale pixels is left along every edge.
+    try check(
+        "stroke recoloured         ",
+        a,
+        scene_with(replace_at(base, 3, scene.stroke(
+            shape.rect_path(geom.rect_of(60.0, 20.0, 40.0, 16.0)),
+            solid(0.1, 0.8, 0.3),
+            paint.stroke_of(3.0)
+        ))),
+        o
+    )
+
+    // An op appended, and one removed.
+    val longer = mutable_array_new<scene.Op>()
+    for op in base {
+        push(longer, op)
+    }
+    push(longer, scene.fill(shape.rect_path(geom.rect_of(80.0, 60.0, 30.0, 14.0)), solid(0.5, 0.2, 0.7)))
+    try check("an op appended            ", a, scene_with(snapshot(longer)), o)
+    try check("an op removed             ", scene_with(snapshot(longer)), a, o)
+
+    // **A group with one changed child**: the damage should be the child, not the group. This is the
+    // case that matters in a real tree, where a window is a group of rows.
+    val rows_a = mutable_array_new<scene.Op>()
+    val rows_b = mutable_array_new<scene.Op>()
+    for i in 0..4 {
+        val y = 4.0 + (i as float) * 16.0
+        val fill = if i == 2 { solid(0.9, 0.4, 0.1) } else { solid(0.4, 0.4, 0.8) }
+        push(rows_a, scene.fill(shape.rect_path(geom.rect_of(0.0, y, 100.0, 12.0)), solid(0.4, 0.4, 0.8)))
+        push(rows_b, scene.fill(shape.rect_path(geom.rect_of(0.0, y, 100.0, 12.0)), fill))
+    }
+    val grouped_a = scene_with([scene.group(geom.translation(8.0, 6.0), snapshot(rows_a))])
+    val grouped_b = scene_with([scene.group(geom.translation(8.0, 6.0), snapshot(rows_b))])
+    try check("one row of a group        ", grouped_a, grouped_b, o)
+
+    // **A clipped group**, where the clip is narrower than the child that changed: the damage must
+    // be the intersection, not the child. Without this case, ignoring a group's clip entirely passed
+    // every other assertion here -- a damage region that is too *large* is still correct, so only
+    // the recorded size catches it.
+    val clip = shape.rect_path(geom.rect_of(0.0, 0.0, 30.0, 100.0))
+    val clipped_a = scene_with([scene.group_of(
+        geom.translation(8.0, 6.0),
+        Option<shape.Path>.Some(clip),
+        snapshot(rows_a)
+    )])
+    val clipped_b = scene_with([scene.group_of(
+        geom.translation(8.0, 6.0),
+        Option<shape.Path>.Some(clip),
+        snapshot(rows_b)
+    )])
+    try check("one row of a clipped group", clipped_a, clipped_b, o)
+
+    // **A group that moved** cannot be compared child by child -- its old and new ink are in
+    // different places -- so both are damaged.
+    val moved = scene_with([scene.group(geom.translation(8.0, 20.0), snapshot(rows_a))])
+    try check("a whole group moved       ", grouped_a, moved, o)
+
+    // A different background, and a different size, both answer "everything".
+    try check(
+        "the background changed    ",
+        a,
+        scene.with_background(scene_with(base), solid(0.95, 0.95, 0.8)),
+        o
+    )
+    val taller = scene.with_ops(scene.scene_of(width, height + 10.0), base)
+    switch raster.damage_between(a, taller, o) {
+        Some(r) { printf(
+            "a resized scene           : damage {}x{}\n",
+            str(round(r.width) as int),
+            str(round(r.height) as int)
+        ) }
+        None { print("a resized scene reported no damage, which it must not") }
+    }
+    return unit
+}
+
+fn main() {
+    switch run() {
+        Ok(_) { unit }
+        Err(why) { printf("FAILED: {}\n", why) }
+    }
+}

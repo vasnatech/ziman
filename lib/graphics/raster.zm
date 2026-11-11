@@ -358,6 +358,255 @@ pub fn draw_into_region(c: Surface, s: Scene, o: Options, region: Rect) -> Resul
     return ok(Painted { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 })
 }
 
+// ---- what changed
+
+// What `damage_between` has worked out so far: a rectangle, whether anything changed at all, and
+// whether it gave up and wants the whole scene.
+//
+// `whole` is not a failure. Some ops cannot be bounded without doing the work that bounding them was
+// meant to avoid -- a text run in a font the face table does not hold, say -- and the honest answer
+// for those is "repaint everything", which is correct, slower, and never wrong. Nothing here returns
+// an error: a damage calculation that fails closed is a stale window, so it fails open instead.
+struct Changed {
+    rect: Rect
+    any: bool
+    whole: bool
+}
+
+fn nothing_changed() -> Changed {
+    return Changed { rect: geom.empty_rect(), any: false, whole: false }
+}
+
+fn merge_changed(a: Changed, b: Changed) -> Changed {
+    if !b.any {
+        return a
+    }
+    if !a.any {
+        return b
+    }
+    return Changed { rect: geom.rect_union(a.rect, b.rect), any: true, whole: a.whole || b.whole }
+}
+
+// A rectangle in a group's own space, brought out through the transforms above it.
+fn changed_at(r: Rect, m: Matrix) -> Changed {
+    return Changed { rect: geom.transform_rect(m, r), any: true, whole: false }
+}
+
+fn changed_everything() -> Changed {
+    return Changed { rect: geom.empty_rect(), any: true, whole: true }
+}
+
+// Where an op puts ink, in its own coordinate space. `None` means it cannot be bounded cheaply.
+fn op_bounds(op: Op, o: Options) -> Option<Rect> {
+    return switch op {
+        Fill(f) { Option<Rect>.Some(shape.path_bounds(f.path)) }
+        // **Grown by the pen, and by the miter.** A stroke's outline reaches half the width to
+        // either side of the path, and a miter join reaches `miter_limit` times that from the joint
+        // -- which is the whole reason `miter_limit` exists, since without the fallback a near-180
+        // degree join spikes thousands of units. Bounding a stroke by its path alone would leave a
+        // half-width border of stale pixels along every stroked edge.
+        StrokePath(st) {
+            val reach = st.stroke.width * 0.5 * (if st.stroke.miter_limit > 1.0 { st.stroke.miter_limit } else { 1.0 })
+            val b = shape.path_bounds(st.path)
+            Option<Rect>.Some(rect_of(b.x - reach, b.y - reach, b.width + reach * 2.0, b.height + reach * 2.0))
+        }
+        Text(run) { text_bounds(run, o) }
+        DrawImage(pl) { Option<Rect>.Some(pl.into) }
+        Nested(g) { group_bounds(g, o) }
+    }
+}
+
+// A run's ink, from the face's own global bounding box.
+//
+// `x_min`/`x_max` and `y_min`/`y_max` bound *any* glyph of the face relative to its own pen, so this
+// encloses the run whatever it says: the left edge allows for a glyph that starts behind its pen and
+// the right edge for one whose ink runs past its advance, which is why neither side is just the
+// advance. The same reasoning as `draw_text`'s band test, and the same reason the declared ascender
+// is not used.
+fn text_bounds(run: scene.TextRun, o: Options) -> Option<Rect> {
+    if run.font < 0 || run.font >= len(o.fonts) || run.size <= 0.0 {
+        return Option<Rect>.None
+    }
+    val face = switch o.fonts[run.font] {
+        Embedded(f) { f }
+        // A standard font carries no outlines and this backend refuses to draw one, so there is
+        // nothing to measure and nothing that will be drawn either.
+        Standard(_) { return Option<Rect>.None }
+    }
+    val width = switch font.advance(o.fonts[run.font], run.text, run.size) {
+        Ok(w) { w }
+        Err(_) { return Option<Rect>.None }
+    }
+    val per_unit = run.size / (face.units_per_em as float)
+    val left = run.at.x + (face.x_min as float) * per_unit
+    val right = run.at.x + width + (face.x_max as float) * per_unit
+    val top = run.at.y - (face.y_max as float) * per_unit
+    val bottom = run.at.y - (face.y_min as float) * per_unit
+    return Option<Rect>.Some(rect_of(left, top, right - left, bottom - top))
+}
+
+fn group_bounds(g: scene.Group, o: Options) -> Option<Rect> {
+    var acc = nothing_changed()
+    for child in g.ops {
+        acc = merge_changed(acc, bounds_of_op(child, g.transform, o))
+    }
+    if acc.whole {
+        return Option<Rect>.None
+    }
+    if !acc.any {
+        return Option<Rect>.Some(geom.empty_rect())
+    }
+    // A clip can only make the ink smaller, so it is intersected rather than ignored -- a group
+    // clipped to a corner must not damage the whole of what its children would have covered.
+    return switch g.clip {
+        Some(path) { Option<Rect>.Some(rect_intersection(
+            acc.rect,
+            geom.transform_rect(g.transform, shape.path_bounds(path))
+        )) }
+        None { Option<Rect>.Some(acc.rect) }
+    }
+}
+
+// A group's clip narrowing the damage its children reported.
+//
+// **This was missing and nothing but the recorded damage size could see it.** The recursion into a
+// matching pair of groups threaded the transform and not the clip, so a clipped group whose child
+// changed reported the child's whole extent -- correct, since a larger region is never wrong, and
+// therefore invisible to every pixel comparison in the fixture. A clip composes by intersection at
+// each level on the way out, which is why doing it here rather than at the top is right for nested
+// groups.
+fn clipped_by(c: Changed, clip: Option<shape.Path>, m: Matrix) -> Changed {
+    if !c.any || c.whole {
+        return c
+    }
+    return switch clip {
+        Some(path) {
+            val within = rect_intersection(c.rect, geom.transform_rect(m, shape.path_bounds(path)))
+            if geom.is_empty(within) { nothing_changed() } else { Changed { rect: within, any: true, whole: false } }
+        }
+        None { c }
+    }
+}
+
+fn bounds_of_op(op: Op, m: Matrix, o: Options) -> Changed {
+    return switch op_bounds(op, o) {
+        Some(r) { if geom.is_empty(r) { nothing_changed() } else { changed_at(r, m) } }
+        None { changed_everything() }
+    }
+}
+
+fn rect_intersection(a: Rect, b: Rect) -> Rect {
+    val x0 = if a.x > b.x { a.x } else { b.x }
+    val y0 = if a.y > b.y { a.y } else { b.y }
+    val x1 = if geom.right(a) < geom.right(b) { geom.right(a) } else { geom.right(b) }
+    val y1 = if geom.bottom(a) < geom.bottom(b) { geom.bottom(a) } else { geom.bottom(b) }
+    if x1 <= x0 || y1 <= y0 {
+        return geom.empty_rect()
+    }
+    return rect_of(x0, y0, x1 - x0, y1 - y0)
+}
+
+// Two ops at the same position in their lists, known to differ.
+fn diff_one(before: Op, after: Op, m: Matrix, o: Options) -> Changed {
+    // **Two groups with the same frame are compared inside**, which is what keeps damage tight in a
+    // real tree: a window is a group of rows, and one row changing should not damage the window. The
+    // transform and clip have to match for this -- a group that *moved* has its old and new ink in
+    // different places, and the only honest answer there is both.
+    val deeper = switch before {
+        Nested(gb) {
+            switch after {
+                Nested(ga) {
+                    if gb.transform == ga.transform && gb.clip == ga.clip {
+                        val inner = matrix_concat(m, gb.transform)
+                        Option<Changed>.Some(clipped_by(diff_ops(gb.ops, ga.ops, inner, o), gb.clip, inner))
+                    } else {
+                        Option<Changed>.None
+                    }
+                }
+                Fill(_) { Option<Changed>.None }
+                StrokePath(_) { Option<Changed>.None }
+                Text(_) { Option<Changed>.None }
+                DrawImage(_) { Option<Changed>.None }
+            }
+        }
+        Fill(_) { Option<Changed>.None }
+        StrokePath(_) { Option<Changed>.None }
+        Text(_) { Option<Changed>.None }
+        DrawImage(_) { Option<Changed>.None }
+    }
+    return switch deeper {
+        Some(c) { c }
+        // **Both the old ink and the new**, because the old has to be erased as much as the new has
+        // to be drawn. A region covering only where the op moved *to* leaves its previous position
+        // on the screen, which is the classic trail-behind-a-dragged-thing bug.
+        None { merge_changed(bounds_of_op(before, m, o), bounds_of_op(after, m, o)) }
+    }
+}
+
+fn diff_ops(before: [Op], after: [Op], m: Matrix, o: Options) -> Changed {
+    var acc = nothing_changed()
+    val shared = if len(before) < len(after) { len(before) } else { len(after) }
+    var i = 0
+    while i < shared {
+        if before[i] != after[i] {
+            acc = merge_changed(acc, diff_one(before[i], after[i], m, o))
+        }
+        i = i + 1
+    }
+    // The tail of whichever list is longer: ops that appeared, or ops that are gone and whose ink
+    // has to be cleared away.
+    var extra = shared
+    while extra < len(before) {
+        acc = merge_changed(acc, bounds_of_op(before[extra], m, o))
+        extra = extra + 1
+    }
+    extra = shared
+    while extra < len(after) {
+        acc = merge_changed(acc, bounds_of_op(after[extra], m, o))
+        extra = extra + 1
+    }
+    return acc
+}
+
+// What changed between two scenes, as a rectangle in scene units to hand to `draw_into_region` --
+// or `None` if nothing did, in which case a window needs no repaint at all.
+//
+// **This is the piece that makes damage regions automatic.** `draw_into_region` can repaint a
+// rectangle but has no idea which one; an application knows what it changed but usually only in
+// terms of its own widgets. Comparing the scene it just built against the one it built last frame
+// answers the question without either side having to track anything: `Scene` is an immutable value,
+// so last frame's is still there to compare against, and the comparison is structural.
+//
+// **Deliberately conservative, in one direction only.** Every case that cannot be answered exactly
+// answers "everything" -- an op whose bounds need the work that bounding them was meant to avoid, a
+// scene that changed size, a different background, a group that moved. The result may therefore be
+// larger than necessary and is never smaller, so the failure mode is a slower frame rather than a
+// stale window. Nothing here returns an error for the same reason.
+//
+// **Ops are matched by position, so inserting one marks everything after it as changed.** That is
+// usually right rather than merely safe -- inserting a row does move every row below it -- but a
+// caller that reorders a long list will see large damage, and the way out is to reorder inside a
+// `Nested` group so the comparison recurses into it. Two groups are compared internally when their
+// transform and clip match; otherwise both the old and the new ink are damaged, because the old has
+// to be erased.
+pub fn damage_between(previous: Scene, current: Scene, o: Options) -> Option<Rect> {
+    val whole = rect_of(0.0, 0.0, current.width, current.height)
+    if previous.width != current.width || previous.height != current.height {
+        return Option<Rect>.Some(whole)
+    }
+    if previous.background != current.background {
+        return Option<Rect>.Some(whole)
+    }
+    val changed = diff_ops(previous.ops, current.ops, identity(), o)
+    if !changed.any {
+        return Option<Rect>.None
+    }
+    if changed.whole {
+        return Option<Rect>.Some(whole)
+    }
+    return Option<Rect>.Some(rect_intersection(changed.rect, whole))
+}
+
 fn draw_window(c: Surface, s: Scene, o: Options, x0: int, y0: int, x1: int, y1: int) -> Result<unit, string> {
     val frame = try frame_size(s, o)
     if frame.width != c.target.width || frame.height != c.target.height {

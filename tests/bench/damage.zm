@@ -41,6 +41,19 @@ fn frame_scene(width: float, height: float) -> scene.Scene {
     return scene.with_ops(scene.scene_of(width, height), snapshot(ops))
 }
 
+// The same scene with one extra small fill, standing in for a caret appearing.
+fn with_one_caret(base: scene.Scene) -> MutableArray<scene.Op> {
+    val ops = mutable_array_new<scene.Op>()
+    for op in base.ops {
+        push(ops, op)
+    }
+    push(ops, scene.fill(
+        shape.rect_path(geom.rect_of(100.0, 300.0, 2.0, 14.0)),
+        paint.Paint.Solid(paint.rgb(0.0, 0.0, 0.0))
+    ))
+    return ops
+}
+
 fn run() -> Result<unit, string> {
     val data = switch fs.read_bytes("vendor/fonts/Caladea-Regular.ttf") {
         Ok(d) { d }
@@ -67,6 +80,43 @@ fn run() -> Result<unit, string> {
         geom.rect_of(12.0, 290.0, 400.0, 18.0)
     ]
     val names = ["a caret  2x14   ", "a button 84x28  ", "a list row 400x18"]
+
+    // **What the diff itself costs**, which decides whether it can run every frame. Timed on the
+    // worst case for the walk -- two identical 49-op scenes, so every op is compared and none is
+    // short-circuited -- and on one changed op, which additionally measures the changed op's bounds.
+    val same = frame_scene(1280.0, 800.0)
+    val changed = scene.with_ops(
+        scene.scene_of(1280.0, 800.0),
+        snapshot(with_one_caret(frame_scene(1280.0, 800.0)))
+    )
+    var warm = 0
+    while warm < 20 {
+        raster.damage_between(s, same, o)
+        warm = warm + 1
+    }
+    val d0 = clock.monotonic_millis()
+    var n = 0
+    while n < 200 {
+        raster.damage_between(s, same, o)
+        n = n + 1
+    }
+    val identical_ms = clock.monotonic_millis() - d0
+    val d1 = clock.monotonic_millis()
+    n = 0
+    while n < 200 {
+        raster.damage_between(s, changed, o)
+        n = n + 1
+    }
+    val changed_ms = clock.monotonic_millis() - d1
+    printf(
+        "damage_between over 49 ops, 200 calls: identical {} ms, one op changed {} ms\n",
+        str(identical_ms),
+        str(changed_ms)
+    )
+    switch raster.damage_between(s, changed, o) {
+        Some(r) { printf("  (the one changed op damages {}x{})\n", str(r.width as int), str(r.height as int)) }
+        None { print("  (no damage, which this case must not report)") }
+    }
 
     var pass = 0
     while pass < 3 {
