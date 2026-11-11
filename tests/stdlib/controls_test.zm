@@ -854,3 +854,178 @@ fn a_row_scrolled_out_of_the_list_cannot_be_clicked() {
     }, "people/2")
     test.assert(Option.is_None(a11y.node_of(a11y.tree_of(l, "R", ""), "people/9")))
 }
+
+// --- menus
+
+fn file_menu() -> controls.Menu {
+    return controls.menu_of("file", "File", ["New", "Open", "Save"])
+}
+
+val title_box = geom.rect_of(0.0, 0.0, 40.0, 20.0)
+
+fn popup_box() -> geom.Rect {
+    return geom.rect_of(0.0, 20.0, 80.0, 60.0)
+}
+
+fn to_menu(m: controls.Menu, input: controls.Input) -> controls.MenuStep {
+    return controls.menu_input(m, input, title_box, popup_box())
+}
+
+fn menu_key(m: controls.Menu, keysym: int) -> controls.MenuStep {
+    return to_menu(m, controls.Input.KeyDown(key(keysym)))
+}
+
+val key_escape = 65307
+
+// **A menu bar opens on the way down**, which is what lets a user press and drag onto an item in
+// one gesture rather than having to click twice.
+#[test]
+fn a_press_on_the_title_opens_it_and_lands_on_the_first_item() {
+    val step = to_menu(file_menu(), controls.Input.Press(geom.point_of(10.0, 10.0)))
+    test.assert(step.menu.open)
+    test.assert_eq(step.menu.items.selected, 0)
+    test.assert_eq(step.chosen, 0 - 1)
+}
+
+#[test]
+fn down_opens_it_from_the_keyboard_and_a_press_elsewhere_does_not() {
+    test.assert(menu_key(file_menu(), key_down).menu.open)
+    test.assert_false(to_menu(file_menu(), controls.Input.Press(geom.point_of(200.0, 200.0))).menu.open)
+}
+
+// The arrows inside an open menu are the list's, which is the whole reason a menu holds one.
+#[test]
+fn the_arrows_move_within_an_open_menu() {
+    val open = menu_key(file_menu(), key_down).menu
+    val moved = menu_key(open, key_down)
+    test.assert_eq(moved.menu.items.selected, 1)
+    test.assert(moved.menu.open)
+}
+
+#[test]
+fn enter_chooses_the_highlighted_item_and_closes() {
+    var m = menu_key(file_menu(), key_down).menu
+    m = menu_key(m, key_down).menu
+    val step = menu_key(m, 65293)
+    test.assert_eq(step.chosen, 1)
+    test.assert_false(step.menu.open)
+    test.assert_false(step.dismissed)
+}
+
+// **Escape closes without choosing, and a dismissal is not a choice of nothing.** A caller that
+// treated them alike would act on the user backing out.
+#[test]
+fn escape_dismisses_without_choosing() {
+    val open = menu_key(file_menu(), key_down).menu
+    val step = menu_key(open, key_escape)
+    test.assert_false(step.menu.open)
+    test.assert(step.dismissed)
+    test.assert_eq(step.chosen, 0 - 1)
+}
+
+// **A click away from both boxes dismisses it**, which is what a placed layer letting clicks
+// through is for: the click reaches whatever was beneath as well, and closing is this module's half.
+#[test]
+fn a_click_away_from_an_open_menu_dismisses_it() {
+    val open = menu_key(file_menu(), key_down).menu
+    val step = to_menu(open, controls.Input.Press(geom.point_of(300.0, 300.0)))
+    test.assert_false(step.menu.open)
+    test.assert(step.dismissed)
+}
+
+// And a second press on the title closes it, as every menu bar does.
+#[test]
+fn a_second_press_on_the_title_closes_it() {
+    val open = menu_key(file_menu(), key_down).menu
+    val step = to_menu(open, controls.Input.Press(geom.point_of(10.0, 10.0)))
+    test.assert_false(step.menu.open)
+    test.assert(step.dismissed)
+}
+
+#[test]
+fn a_click_on_a_row_of_an_open_menu_highlights_it() {
+    val open = menu_key(file_menu(), key_down).menu
+    val step = to_menu(open, controls.Input.Press(geom.point_of(10.0, 50.0)))
+    test.assert(step.menu.open)
+    test.assert_eq(step.menu.items.selected, 1)
+}
+
+#[test]
+fn a_disabled_menu_does_not_open() {
+    val off = with file_menu() { disabled: true }
+    test.assert_false(to_menu(off, controls.Input.Press(geom.point_of(10.0, 10.0))).menu.open)
+    test.assert_false(menu_key(off, key_down).menu.open)
+}
+
+// **A menu announces that it is a menu and whether it is open**, which is the state a reader needs
+// to tell a user whether pressing Down will do anything.
+#[test]
+fn a_menu_title_says_whether_it_is_expanded() {
+    val style = controls.default_style()
+    test.assert_eq(said_of(controls.menu_title_widget(file_menu(), style), "file"), "menu, File, collapsed")
+    val open = menu_key(file_menu(), key_down).menu
+    test.assert_eq(said_of(controls.menu_title_widget(open, style), "file"), "menu, File, expanded")
+}
+
+// The popup's rows are menu items and not list items, which is the only thing a menu changed about
+// the list it reuses.
+#[test]
+fn the_popup_rows_are_menu_items() {
+    val open = menu_key(file_menu(), key_down).menu
+    val l = widget.layout(
+        widget.layered_of([widget.base_layer(widget.Widget.Nothing),
+            controls.menu_popup_layer(open, controls.default_style(), popup_box())]),
+        geom.rect_of(0.0, 0.0, 120.0, 100.0),
+        metrics()
+    )
+    val t = a11y.tree_of(l, "Records", "")
+    test.assert_eq(said_in(t, "file/items"), "menu, File")
+    test.assert_eq(said_in(t, "file/items/0"), "menu item, New, selected")
+    test.assert_eq(said_in(t, "file/items/1"), "menu item, Open")
+}
+
+// --- dialogs
+
+fn answer(input: controls.Input) -> string {
+    return switch controls.dialog_keys(input) {
+        Confirm { "confirm" }
+        Cancel { "cancel" }
+        Nothing { "nothing" }
+    }
+}
+
+// **Escape cancels and Enter confirms** -- the two keys a dialog owes a user who never reaches for
+// the mouse.
+#[test]
+fn a_dialog_answers_escape_and_enter() {
+    test.assert_eq(answer(controls.Input.KeyDown(key(key_escape))), "cancel")
+    test.assert_eq(answer(controls.Input.KeyDown(key(65293))), "confirm")
+    test.assert_eq(answer(controls.Input.KeyDown(key(letter_a))), "nothing")
+    test.assert_eq(answer(controls.Input.Press(inside())), "nothing")
+    // On the way down only: a key *up* must not confirm a dialog the keystroke opened.
+    test.assert_eq(answer(controls.Input.KeyUp(key(65293))), "nothing")
+}
+
+// **A dialog shuts the window out of the keyboard and the pointer both.** The geometry does the
+// pointer and `takes_keys` does Tab, and this is the case that holds the pair together.
+#[test]
+fn a_dialog_traps_the_window_behind_it() {
+    val style = controls.default_style()
+    val behind = controls.button_widget(controls.button_of("save", "Save"), style)
+    val inside_it = controls.button_widget(controls.button_of("ok", "OK"), style)
+    val l = widget.layout(
+        widget.layered_of([
+            widget.base_layer(behind),
+            controls.dialog_layer("confirm", "Discard changes?", inside_it, style)
+        ]),
+        geom.rect_of(0.0, 0.0, 200.0, 120.0),
+        metrics()
+    )
+    // Tab holds only what is inside.
+    test.assert_len(1, focus.controls(l))
+    test.assert_eq(focus.controls(l)[0].name, "ok")
+    // And a reader is told the same.
+    val t = a11y.tree_of(l, "Records", "ok")
+    test.assert(Option.is_None(a11y.node_of(t, "save")))
+    test.assert_eq(said_in(t, "confirm"), "dialog, Discard changes?")
+}

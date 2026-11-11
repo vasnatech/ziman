@@ -628,6 +628,15 @@ pub struct List {
     offset: float
     row_height: float
     disabled: bool
+    // What a reader calls this and its rows.
+    //
+    // **Fields rather than constants, so a menu can be a list.** A menu's popup is a list of rows
+    // with one highlighted, scrolled when it is long, driven by the same arrows -- all of which is
+    // `List` already. The only honest difference is what a screen reader should call it, so that is
+    // the only thing a menu has to change. Duplicating the selection, the scrolling and the key
+    // handling to rename two roles would have been the alternative.
+    role: widget.Role
+    item_role: widget.Role
 }
 
 pub fn list_of(name: string, label: string, items: [string]) -> List {
@@ -638,7 +647,9 @@ pub fn list_of(name: string, label: string, items: [string]) -> List {
         selected: if len(items) == 0 { 0 - 1 } else { 0 },
         offset: 0.0,
         row_height: 20.0,
-        disabled: false
+        disabled: false,
+        role: widget.Role.List,
+        item_role: widget.Role.ListItem
     }
 }
 
@@ -767,7 +778,7 @@ pub fn list_widget(l: List, style: Style) -> widget.Widget {
             l.row_height,
             widget.part_of(
                 row_name(l, i),
-                widget.Role.ListItem,
+                l.item_role,
                 l.items[i],
                 with widget.no_state() { selected: chosen, disabled: l.disabled },
                 row
@@ -777,7 +788,7 @@ pub fn list_widget(l: List, style: Style) -> widget.Widget {
     }
     return widget.Widget.Control(widget.Focusable {
         name: l.name,
-        role: widget.Role.List,
+        role: l.role,
         label: l.label,
         description: "",
         value: "",
@@ -791,6 +802,242 @@ pub fn list_widget(l: List, style: Style) -> widget.Widget {
 // because a row has no name of its own and an index alone would collide with another list's.
 pub fn row_name(l: List, index: int) -> string {
     return concat(l.name, "/", str(index))
+}
+
+// -------------------------------------------------------- menus and dialogs
+
+// A title on a menu bar and the items that drop from it.
+//
+// **A menu is a title and a `List`**, not a new widget with its own selection and scrolling. The
+// popup is a list of rows with one highlighted, scrolled when it is long, moved by the same arrows;
+// the only honest difference is what a reader calls it, which is why `List.role` is a field.
+pub struct Menu {
+    name: string
+    title: string
+    items: List
+    open: bool
+    disabled: bool
+}
+
+pub fn menu_of(name: string, title: string, items: [string]) -> Menu {
+    val inner = with list_of(concat(name, "/items"), title, items) {
+        role: widget.Role.Menu,
+        item_role: widget.Role.MenuItem
+    }
+    return Menu { name: name, title: title, items: inner, open: false, disabled: false }
+}
+
+pub struct MenuStep {
+    menu: Menu
+    // The item chosen, or -1. An output: the application acts on it and stores the menu.
+    chosen: int
+    // The menu closed without choosing -- Escape, or a click away from it. Separate from `chosen`,
+    // because a caller that treated them alike would act on a dismissal.
+    dismissed: bool
+}
+
+// What an input does to a menu.
+//
+// `title_bounds` is the box of the title on the bar and `popup_bounds` the box of the open popup,
+// both needed because **a click's meaning depends on which of the two it is in** -- and on neither,
+// which is a dismissal.
+//
+// The popup is not a child of the title, so this cannot find either box itself: `widget.layer_at`
+// explains why an overlay lives in the root's layer list, and the caller that put it there is the
+// one that knows where it went.
+pub fn menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect) -> MenuStep {
+    if m.disabled {
+        return menu_unchanged(m)
+    }
+    if !m.open {
+        return closed_menu_input(m, input, title_bounds)
+    }
+    return open_menu_input(m, input, title_bounds, popup_bounds)
+}
+
+fn closed_menu_input(m: Menu, input: Input, title_bounds: Rect) -> MenuStep {
+    return switch input {
+        // A click on the title opens it. On the way *down*, not up: a menu bar opens on press, which
+        // is what lets a user press and drag onto an item in one gesture.
+        Press(p) {
+            if widget.contains(title_bounds, p) {
+                opened(m)
+            } else {
+                menu_unchanged(m)
+            }
+        }
+        KeyDown(k) {
+            val name = window.key_name(k)
+            if name == "Down" || name == "Enter" || name == "Space" {
+                opened(m)
+            } else {
+                menu_unchanged(m)
+            }
+        }
+        KeyUp(_) { menu_unchanged(m) }
+        Text(_) { menu_unchanged(m) }
+        Paste(_) { menu_unchanged(m) }
+        Release(_) { menu_unchanged(m) }
+        Move(_) { menu_unchanged(m) }
+        Wheel(_) { menu_unchanged(m) }
+    }
+}
+
+fn open_menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect) -> MenuStep {
+    val name = switch input {
+        KeyDown(k) { window.key_name(k) }
+        KeyUp(_) { "" }
+        Text(_) { "" }
+        Paste(_) { "" }
+        Press(_) { "" }
+        Release(_) { "" }
+        Move(_) { "" }
+        Wheel(_) { "" }
+    }
+    // **Escape closes without choosing, and that is a dismissal rather than a choice of nothing.**
+    if name == "Escape" {
+        return dismissed_menu(m)
+    }
+    if name == "Enter" || name == "Space" {
+        if m.items.selected >= 0 {
+            return MenuStep { menu: with m { open: false }, chosen: m.items.selected, dismissed: false }
+        }
+        return dismissed_menu(m)
+    }
+    // **A click outside both boxes dismisses it**, which is what placed layers letting clicks
+    // through is for: the click also reaches whatever was under it, and the menu closing is this
+    // module's half of that.
+    if Press(p) = input {
+        if !widget.contains(popup_bounds, p) && !widget.contains(title_bounds, p) {
+            return dismissed_menu(m)
+        }
+        // On the title again: a second press closes it, as every menu bar does.
+        if widget.contains(title_bounds, p) {
+            return dismissed_menu(m)
+        }
+    }
+    // Everything else is the list's: arrows, Home, End, the wheel, and a click on a row.
+    val step = list_input(m.items, input, popup_bounds)
+    return MenuStep { menu: with m { items: step.list }, chosen: 0 - 1, dismissed: false }
+}
+
+fn opened(m: Menu) -> MenuStep {
+    // Opens on the first item rather than on nothing, so the keyboard has somewhere to be.
+    return MenuStep {
+        menu: with m { open: true, items: with m.items { selected: if len(m.items.items) == 0 { 0 - 1 } else { 0 } } },
+        chosen: 0 - 1,
+        dismissed: false
+    }
+}
+
+fn dismissed_menu(m: Menu) -> MenuStep {
+    return MenuStep { menu: with m { open: false }, chosen: 0 - 1, dismissed: true }
+}
+
+fn menu_unchanged(m: Menu) -> MenuStep {
+    return MenuStep { menu: m, chosen: 0 - 1, dismissed: false }
+}
+
+// The title as it sits on the bar. A control in its own right, so Tab reaches the menu and a reader
+// announces it.
+pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
+    val ink = if m.disabled { style.disabled_ink } else { style.ink }
+    val face = if m.open { style.pressed_face } else { style.face }
+    val inside = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: style.padding,
+        background: Option<Color>.Some(face),
+        children: [widget.label_of(m.title, style.text_size, ink)],
+        name: ""
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: m.name,
+        role: widget.Role.Menu,
+        label: m.title,
+        description: "",
+        value: "",
+        state: with widget.no_state() {
+            disabled: m.disabled,
+            expanded: Option<bool>.Some(m.open)
+        },
+        tab_stop: true,
+        child: inside
+    })
+}
+
+// The open popup, as a layer for the **root's** layer list.
+//
+// `at` is where the caller decided it goes, from the title's laid bounds -- see `widget.layer_at`
+// for why it cannot be a child of the title. A placed layer, so a click away from it falls through
+// to what is beneath as well as closing the menu.
+//
+// Takes the keyboard while it is open, because an open menu owns the arrows.
+pub fn menu_popup_layer(m: Menu, style: Style, at: Rect) -> widget.Layer {
+    return widget.layer_at(at, true, list_widget(m.items, style))
+}
+
+// ------------------------------------------------------------------ dialogs
+
+// What a dialog's keys mean. Returned rather than acted on, for the reason everything here is: this
+// module cannot close a window or save a record.
+pub enum DialogAnswer {
+    Confirm
+    Cancel
+    Nothing
+}
+
+// **Escape cancels and Enter confirms**, which are the two keys a dialog owes a user who never
+// reaches for the mouse. Everything else belongs to whatever is inside it.
+//
+// Enter is deliberately not "the focused button": a dialog's default action is the dialog's, not the
+// focus's, or tabbing to Cancel and pressing Enter would confirm.
+pub fn dialog_keys(input: Input) -> DialogAnswer {
+    if KeyDown(k) = input {
+        val name = window.key_name(k)
+        if name == "Escape" {
+            return DialogAnswer.Cancel
+        }
+        if name == "Enter" {
+            return DialogAnswer.Confirm
+        }
+    }
+    return DialogAnswer.Nothing
+}
+
+// A modal layer holding `content` under a title.
+//
+// **Modal, so the geometry shuts the pointer out and `takes_keys` shuts Tab out** -- a click beside
+// the dialog lands on the layer, finds no control, and goes nowhere, and the tab order holds only
+// what is inside. `widget.modal_layer` is where both of those are explained.
+//
+// The content is the caller's: a dialog is a frame and a pair of keys, not a thing that knows what
+// it is asking.
+pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: Style) -> widget.Layer {
+    val framed = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: style.text_size * 0.5,
+        padding: style.padding,
+        background: Option<Color>.Some(style.face),
+        children: [widget.label_of(title, style.text_size, style.ink), content],
+        name: ""
+    })
+    val titled = widget.Widget.Control(widget.Focusable {
+        name: name,
+        role: widget.Role.Dialog,
+        label: title,
+        description: "",
+        value: "",
+        state: widget.no_state(),
+        tab_stop: false,
+        child: framed
+    })
+    // Centred with flexible space, which the box model already does -- a dialog needs no absolute
+    // positioning to sit in the middle of a window.
+    return widget.modal_layer(widget.column_of(
+        0.0,
+        [widget.flex(), widget.row_of(0.0, [widget.flex(), titled, widget.flex()]), widget.flex()]
+    ))
 }
 
 // ------------------------------------------------------------------- the style

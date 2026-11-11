@@ -505,6 +505,15 @@ pub struct List {
     offset: float
     row_height: float
     disabled: bool
+    // What a reader calls this and its rows.
+    //
+    // **Fields rather than constants, so a menu can be a list.** A menu's popup is a list of rows
+    // with one highlighted, scrolled when it is long, driven by the same arrows -- all of which is
+    // `List` already. The only honest difference is what a screen reader should call it, so that is
+    // the only thing a menu has to change. Duplicating the selection, the scrolling and the key
+    // handling to rename two roles would have been the alternative.
+    role: widget.Role
+    item_role: widget.Role
 }
 ```
 
@@ -568,6 +577,126 @@ pub fn row_name(l: List, index: int) -> string
 
 A row's name, which focus and accessibility both address it by. The list's name and the index,
 because a row has no name of its own and an index alone would collide with another list's.
+
+## Menus and dialogs
+
+### `Menu`
+
+```
+pub struct Menu {
+    name: string
+    title: string
+    items: List
+    open: bool
+    disabled: bool
+}
+```
+
+A title on a menu bar and the items that drop from it.
+
+**A menu is a title and a `List`**, not a new widget with its own selection and scrolling. The
+popup is a list of rows with one highlighted, scrolled when it is long, moved by the same arrows;
+the only honest difference is what a reader calls it, which is why `List.role` is a field.
+
+### `menu_of`
+
+```
+pub fn menu_of(name: string, title: string, items: [string]) -> Menu
+```
+
+### `MenuStep`
+
+```
+pub struct MenuStep {
+    menu: Menu
+    // The item chosen, or -1. An output: the application acts on it and stores the menu.
+    chosen: int
+    // The menu closed without choosing -- Escape, or a click away from it. Separate from `chosen`,
+    // because a caller that treated them alike would act on a dismissal.
+    dismissed: bool
+}
+```
+
+### `menu_input`
+
+```
+pub fn menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect) -> MenuStep
+```
+
+What an input does to a menu.
+
+`title_bounds` is the box of the title on the bar and `popup_bounds` the box of the open popup,
+both needed because **a click's meaning depends on which of the two it is in** -- and on neither,
+which is a dismissal.
+
+The popup is not a child of the title, so this cannot find either box itself: `widget.layer_at`
+explains why an overlay lives in the root's layer list, and the caller that put it there is the
+one that knows where it went.
+
+### `menu_title_widget`
+
+```
+pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget
+```
+
+The title as it sits on the bar. A control in its own right, so Tab reaches the menu and a reader
+announces it.
+
+### `menu_popup_layer`
+
+```
+pub fn menu_popup_layer(m: Menu, style: Style, at: Rect) -> widget.Layer
+```
+
+The open popup, as a layer for the **root's** layer list.
+
+`at` is where the caller decided it goes, from the title's laid bounds -- see `widget.layer_at`
+for why it cannot be a child of the title. A placed layer, so a click away from it falls through
+to what is beneath as well as closing the menu.
+
+Takes the keyboard while it is open, because an open menu owns the arrows.
+
+## Dialogs
+
+### `DialogAnswer`
+
+```
+pub enum DialogAnswer {
+    Confirm
+    Cancel
+    Nothing
+}
+```
+
+What a dialog's keys mean. Returned rather than acted on, for the reason everything here is: this
+module cannot close a window or save a record.
+
+### `dialog_keys`
+
+```
+pub fn dialog_keys(input: Input) -> DialogAnswer
+```
+
+**Escape cancels and Enter confirms**, which are the two keys a dialog owes a user who never
+reaches for the mouse. Everything else belongs to whatever is inside it.
+
+Enter is deliberately not "the focused button": a dialog's default action is the dialog's, not the
+focus's, or tabbing to Cancel and pressing Enter would confirm.
+
+### `dialog_layer`
+
+```
+pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: Style) -> widget.Layer
+```
+
+A modal layer holding `content` under a title.
+
+**Modal, so the geometry shuts the pointer out and `takes_keys` shuts Tab out** -- a click beside
+the dialog lands on the layer, finds no control, and goes nowhere, and the tab order holds only
+what is inside. `widget.modal_layer` is where both of those are explained.
+
+The content is the caller's: a dialog is a frame and a pair of keys, not a thing that knows what
+it is asking.
 
 ## The style
 
