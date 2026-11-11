@@ -252,6 +252,19 @@ while IFS= read -r line; do
     esac
 done < <(BIN="$BIN" tests/run_window_test.sh 2>&1)
 
+# F275's half that only another process can check: the accessibility tree is published over AT-SPI
+# and read back off the session's bus by `tests/tools/atspi_dump.c`, the way a screen reader reads
+# it. Skipped -- not failed -- without the backend (`make gui`), without a session accessibility
+# bus, or without libatspi to build the reader against.
+while IFS= read -r line; do
+    echo "$line"
+    case "$line" in
+        PASS*) pass=$((pass + 1)) ;;
+        FAIL*) fail=$((fail + 1)) ;;
+        SKIP*) skipped=$((skipped + 1)) ;;
+    esac
+done < <(BIN="$BIN" tests/run_a11y_test.sh 2>&1)
+
 echo "----"
 if [ "$skipped" -gt 0 ]; then echo "$pass passed, $fail failed, $skipped skipped"; else echo "$pass passed, $fail failed"; fi
 [ "$fail" -eq 0 ]

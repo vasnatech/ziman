@@ -75,6 +75,7 @@
 #include "compress_source.h"
 #include "io_source.h"
 #include "terminal_source.h"
+#include "atspi_source.h"
 #include "window_source.h"
 #include "mime_source.h"
 #include "jwt_source.h"
@@ -183,6 +184,7 @@ static const CoreModule CORE_MODULES[] = {
     {"io", IO_SOURCE, IO_SOURCE_PATH},
     {"terminal", TERMINAL_SOURCE, TERMINAL_SOURCE_PATH},
     {"window", WINDOW_SOURCE, WINDOW_SOURCE_PATH},
+    {"atspi", ATSPI_SOURCE, ATSPI_SOURCE_PATH},
     {"mime", MIME_SOURCE, MIME_SOURCE_PATH},
     {"jwt", JWT_SOURCE, JWT_SOURCE_PATH},
     {"memdb", MEMDB_SOURCE, MEMDB_SOURCE_PATH},

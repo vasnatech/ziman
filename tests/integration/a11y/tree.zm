@@ -1,0 +1,58 @@
+// Publishes an accessibility tree and holds it there while the harness reads it off the bus.
+//
+// **The assertion is made by another process**, which is the only way to make one that means
+// anything here: a check inside this program could only confirm that `publish` returned `Ok`, and
+// what F275 is about is whether a *reader* can see the tree. `tests/tools/atspi_dump.c` connects to
+// the session's accessibility bus the way Orca does and prints what it finds.
+//
+// The controls are chosen for their roles rather than to look like an application: a button, a text
+// field and a combo box map to three different AT-SPI roles, and the last one is the role added the
+// same day a value picker needed it.
+use a11y
+use atspi
+use clock
+use geom
+use paint
+use widget
+
+val app_name = "ziman a11y fixture"
+
+fn metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 7.0 },
+        fn(size: float) -> float { return size * 1.4 }
+    )
+}
+
+fn labelled(name: string, role: widget.Role, text: string) -> widget.Widget {
+    return widget.control_of(name, role, widget.fixed_of(160.0, 20.0, widget.label_of(text, 11.0, paint.black())))
+}
+
+fn main() {
+    val form = widget.column_of(4.0, [
+        labelled("send", widget.Role.Button, "Send"),
+        labelled("url", widget.Role.TextField, "http://example.test"),
+        labelled("env", widget.Role.ComboBox, "staging"),
+        widget.control_of("rows", widget.Role.List, widget.column_of(2.0, [
+            labelled("first", widget.Role.ListItem, "first"),
+            labelled("second", widget.Role.ListItem, "second")
+        ]))
+    ])
+    val laid = widget.layout(form, geom.rect_of(0.0, 0.0, 300.0, 200.0), metrics())
+    val tree = a11y.tree_of(laid, app_name, "url")
+    switch atspi.publish(tree, app_name) {
+        Ok(_) { print("published") }
+        Err(why) {
+            printf("publish failed: {}\n", why)
+            return
+        }
+    }
+    // Held open while the harness reads, pumping so the bridge can answer. A backstop rather than a
+    // duration: the harness kills this when it is done, and this only bounds a run where that never
+    // happens, so a failing case cannot hang `make test`.
+    val deadline = clock.monotonic_millis() + 30000
+    while clock.monotonic_millis() < deadline {
+        atspi.pump()
+        clock.sleep_millis(50)
+    }
+}

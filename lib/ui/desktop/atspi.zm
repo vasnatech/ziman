@@ -1,0 +1,115 @@
+// Publishing an accessibility tree so a screen reader can read it.
+//
+// **`a11y` builds a tree and this is what reads it out.** F275 split in two on purpose: the half
+// that is expensive to retrofit is the vocabulary -- a role and a state per widget, declared where
+// the widget is built -- and that shipped first, because fifty widgets without it is the retrofit
+// the ordering exists to avoid. This is the other half, and it is plumbing: take the tree `a11y`
+// already produces and put it on the bus.
+//
+// **AT-SPI over D-Bus, through ATK**, which was the choice between two routes. AccessKit's C API
+// would have reached Windows as well and needs a Rust toolchain to build ziman, where a C compiler
+// is all it takes today; this reaches Unix and needs nothing that was not already installed. The
+// narrower reach was taken over the heavier build.
+//
+// A loop publishes once per frame and pumps every frame:
+//
+//     val tree = a11y.tree_of(laid, "curly", focused)
+//     try atspi.publish(tree, "curly")
+//     atspi.pump()
+//
+// Publishing replaces the previous tree rather than patching it, for the same reason `a11y` rebuilds
+// rather than mutating: the widget tree is rebuilt every frame, so there is no identity to diff
+// against. A tree is tens of nodes where the pixels it describes are millions.
+use a11y
+use widget.Role
+
+native fn publish_raw(
+    app: string,
+    names: [string],
+    roles: [int],
+    descriptions: [string],
+    values: [string],
+    parents: [int]
+) -> Result<unit, string>
+
+native fn pump_raw()
+
+// The number `native_a11y.c` reads. **Both halves of this mapping live in one commit and must stay
+// that way** -- `Role` is switched on without a default arm wherever it is used, so a new variant
+// is a compile error that leads here, and the C answers `ATK_ROLE_UNKNOWN` for anything it does not
+// know rather than guessing.
+fn code_of(r: Role) -> int {
+    return switch r {
+        Button { 1 }
+        CheckBox { 2 }
+        RadioButton { 3 }
+        TextField { 4 }
+        Slider { 5 }
+        Link { 6 }
+        List { 7 }
+        ListItem { 8 }
+        Tab { 9 }
+        TabList { 10 }
+        Menu { 11 }
+        MenuItem { 12 }
+        ComboBox { 13 }
+        ScrollBar { 14 }
+        Dialog { 15 }
+        Group { 16 }
+        Label { 17 }
+        Window { 18 }
+        Unknown { 0 }
+    }
+}
+
+// Puts `tree` on the accessibility bus under the application name `app`.
+//
+// **Needs a ziman with the accessibility backend** -- `make gui` builds it, an ordinary `ziman` does
+// not, and without it this answers an error saying so rather than failing quietly. It also needs a
+// session accessibility bus: `at-spi2-registryd`. An application that cannot publish should carry
+// on drawing, so the error is returned rather than raised.
+pub fn publish(tree: a11y.Tree, app: string) -> Result<unit, string> {
+    val names = mutable_array_new<string>()
+    val roles = mutable_array_new<int>()
+    val descriptions = mutable_array_new<string>()
+    val values = mutable_array_new<string>()
+    val parents = mutable_array_new<int>()
+    // Where each key sits, so a child can name its parent by index. `a11y` emits parents before
+    // children, so every lookup below is of something already placed.
+    val at = mutable_map_new<string, int>()
+    var i = 0
+    for node in tree.nodes {
+        set(at, node.key, i)
+        push(names, node.name)
+        push(roles, code_of(node.role))
+        push(descriptions, node.description)
+        push(values, node.value)
+        // Filled in on the second pass: a node does not know its parent, only its children.
+        push(parents, 0 - 1)
+        i = i + 1
+    }
+    var parent = 0
+    for node in tree.nodes {
+        for child in node.children {
+            if Some(index) = get(at, child) {
+                parents[index] = parent
+            }
+        }
+        parent = parent + 1
+    }
+    return publish_raw(
+        app,
+        snapshot(names),
+        snapshot(roles),
+        snapshot(descriptions),
+        snapshot(values),
+        snapshot(parents)
+    )
+}
+
+// Lets the bridge answer what the bus has asked. **Call it every frame**: a window loop is not a
+// glib main loop and the bridge dispatches on glib's, so this lends it a turn. It does not block,
+// so a frame with nothing asking costs nothing.
+pub fn pump() {
+    pump_raw()
+}

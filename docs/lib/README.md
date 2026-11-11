@@ -176,6 +176,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 |---|---|
 | [`window`](window.md) | A window, the pixels in it, and what the user did. |
 | [`desktop`](desktop.md) | The desktop backend's adapter, both ways. |
+| [`atspi`](atspi.md) | Publishing an accessibility tree so a screen reader can read it. |
 
 ## User interface: terminal
 
