@@ -568,6 +568,13 @@ fn draw_text(
     // Font units to scene units. The **negative Y** is the whole conversion: a glyph outline has Y
     // growing upward from its baseline, and this library's coordinates grow downward.
     val scale = run.size / (face.units_per_em as float)
+    // Nothing to draw, and nothing to refuse: an empty run returns before the blitter is built, so
+    // a run of no glyphs under a degenerate transform behaves as it did when the inversion happened
+    // per glyph and therefore never happened.
+    if len(ids) == 0 {
+        return unit
+    }
+    val blitter = try blitter_of(Ink.FromPaint(run.fill), m, clip, o)
     var pen = run.at.x
     for g in ids {
         val origin = transform_point(m, point_of(pen, run.at.y))
@@ -607,7 +614,7 @@ fn draw_text(
                 made
             }
         }
-        try blit(t, tile, ix, iy, Ink.FromPaint(run.fill), m, clip, o)
+        try blit(t, tile, ix, iy, blitter)
         pen = pen + ((try truetype.advance_of(face, g)) as float) * scale
     }
     return unit
@@ -652,19 +659,31 @@ fn rasterise_tile(outline: Path, gm: Matrix, samples: int) -> GlyphTile {
     return GlyphTile { left: left, top: top, width: width, height: height, cover: snapshot(cover) }
 }
 
-fn blit(
-    t: Target,
-    tile: GlyphTile,
-    ix: int,
-    iy: int,
-    k: Ink,
-    m: Matrix,
-    clip: Option<[float]>,
-    o: Options
-) -> Result<unit, string> {
-    if tile.width == 0 {
-        return unit
-    }
+// Everything a blit needs that is the same for every glyph of a run.
+//
+// **Built once per run, because it used to be built once per glyph.** `blit` inverted the group's
+// transform, prepared the ink and unwrapped the clip on every call -- and a run of text calls it
+// once a letter, with the same transform, the same ink and the same clip every time. `geom::invert`
+// alone was 2.1% of a repaint for work whose answer could not change, and in the flat case the
+// inverse is never even read.
+//
+// The same argument `fill_shape` already makes one level down, where these values are hoisted out
+// of the per-*pixel* loop. This is the per-*glyph* loop, and nothing had hoisted them out of it.
+struct Blitter {
+    inv: Matrix
+    ready: Ready
+    // `Some` for a solid colour, which is the case that reaches the native span compositor.
+    flat: Option<Premul>
+    clipped: bool
+    mask_values: [float]
+}
+
+fn blitter_of(k: Ink, m: Matrix, clip: Option<[float]>, o: Options) -> Result<Blitter, string> {
+    // Eager, as it was when it sat inside `blit`: a transform that cannot be inverted is refused
+    // even when the ink is flat and would not have read the inverse. Kept that way deliberately --
+    // this move is about *when* the work happens, not about which inputs are accepted, and `blit`
+    // is called only from `draw_text`, which returns before building this for an empty run so that
+    // a run with no glyphs still refuses nothing.
     val inv = switch invert(m) {
         Ok(i) { i }
         Err(why) { return err(concat("raster: this group's transform cannot be inverted (", why, ")")) }
@@ -677,16 +696,33 @@ fn blit(
         Tiled(_) { Option<Premul>.None }
         Placed(_) { Option<Premul>.None }
     }
-    // Decided once rather than per pixel, as `fill_shape` does with the same two values.
     val clipped = switch clip {
         Some(_) { true }
         None { false }
     }
     val no_mask: [float] = []
     val mask_values = switch clip {
-        Some(m) { m }
+        Some(values) { values }
         None { no_mask }
     }
+    return ok(Blitter {
+        inv: inv,
+        ready: ready,
+        flat: flat,
+        clipped: clipped,
+        mask_values: mask_values
+    })
+}
+
+fn blit(t: Target, tile: GlyphTile, ix: int, iy: int, b: Blitter) -> Result<unit, string> {
+    if tile.width == 0 {
+        return unit
+    }
+    val inv = b.inv
+    val ready = b.ready
+    val flat = b.flat
+    val clipped = b.clipped
+    val mask_values = b.mask_values
     // The tile's x range that lands on the canvas, computed per blit rather than tested per pixel:
     // a glyph half off the left edge otherwise costs a bounds check for every pixel it does not
     // have. `lo`/`hi` are tile coordinates; the canvas column is `ix + tile.left + tx`.
