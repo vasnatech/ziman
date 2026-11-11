@@ -488,6 +488,24 @@ fn clipped_by(c: Changed, clip: Option<shape.Path>, m: Matrix) -> Changed {
     }
 }
 
+// Can a shape with these user-space bounds touch the target's write window?
+//
+// **The cheap test that has to come before the expensive work.** `shape.path_bounds` is the
+// control-point hull -- a walk over the points, no flattening, no allocation -- and it always
+// encloses the curve, so a box that misses the window means a shape that misses it. Transforming
+// the path and building its edge list to find that out costs the flattening of every curve in it,
+// which is what this exists to skip.
+fn reaches_window(t: Target, user: Rect, m: Matrix) -> bool {
+    val device = geom.transform_rect(m, user)
+    if ceil(geom.bottom(device)) < t.win_y0 || floor(device.y) > t.win_y1 {
+        return false
+    }
+    if ceil(geom.right(device)) < t.win_x0 || floor(device.x) > t.win_x1 {
+        return false
+    }
+    return true
+}
+
 fn bounds_of_op(op: Op, m: Matrix, o: Options) -> Changed {
     return switch op_bounds(op, o) {
         Some(r) { if geom.is_empty(r) { nothing_changed() } else { changed_at(r, m) } }
@@ -919,8 +937,25 @@ fn draw_ops(t: Target, ops: [Op], m: Matrix, clip: Option<[float]>, o: Options) 
             // Stroked in user space and transformed afterwards, so a non-uniform scale makes an
             // elliptical pen -- which is what PDF does with the same input.
             StrokePath(s) {
-                val widened = try stroker.outline(s.path, s.stroke)
-                try fill_shape(t, widened, Ink.FromPaint(s.fill), m, clip, o)
+                // **Tested here rather than in `fill_shape`, because the stroker runs first.**
+                // `stroker.outline` is the most expensive single thing in this module and it runs
+                // before any of `fill_shape`'s own checks, so a stroke outside the window would be
+                // fully widened -- joins, caps, dashes -- and then discarded. The pen's reach is
+                // added to the path's own box for the same reason `op_bounds` adds it: the ink
+                // extends half a width either side, and a miter join up to `miter_limit` times that.
+                val reach = s.stroke.width * 0.5 *
+                    (if s.stroke.miter_limit > 1.0 { s.stroke.miter_limit } else { 1.0 })
+                val box = shape.path_bounds(s.path)
+                val grown = rect_of(
+                    box.x - reach,
+                    box.y - reach,
+                    box.width + reach * 2.0,
+                    box.height + reach * 2.0
+                )
+                if reaches_window(t, grown, m) {
+                    val widened = try stroker.outline(s.path, s.stroke)
+                    try fill_shape(t, widened, Ink.FromPaint(s.fill), m, clip, o)
+                }
             }
             Text(run) { try draw_text(t, run, m, clip, o) }
             DrawImage(p) {
@@ -1324,6 +1359,15 @@ fn fill_shape(
     val inv = switch invert(m) {
         Ok(i) { i }
         Err(why) { return err(concat("raster: this group's transform cannot be inverted (", why, ")")) }
+    }
+    // **Asked before the path is transformed and flattened**, which is the point: `edges_of`
+    // flattens every curve, and a regional repaint of a list row was still flattening eight
+    // round-rect buttons outside it, every frame. Profiled at about a quarter of such a frame --
+    // `cubic_is_flat`, `midpoint` and `flatten_cubic_into` together -- for shapes that could not
+    // draw a pixel. The same mistake as shaping a text run before checking whether it is visible,
+    // which `draw_text` had already been fixed for and this had not.
+    if !reaches_window(t, shape.path_bounds(path), m) {
+        return unit
     }
     val device = shape.transform_path(path, m)
     val e = edges_of(device)
