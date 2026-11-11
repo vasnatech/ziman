@@ -46,7 +46,24 @@ typedef struct {
     GPtrArray *kids;
     char *description;
     char *value;
+    int64_t states;
 } ZimanNode;
+
+/* The bits `lib/ui/desktop/atspi.zm` packs a node's state into. One int rather than eight booleans
+ * crossing the boundary, because the alternative is eight parallel arrays for something a reader
+ * consumes as a set. */
+#define ZN_FOCUSED (1 << 0)
+#define ZN_FOCUSABLE (1 << 1)
+#define ZN_DISABLED (1 << 2)
+#define ZN_SELECTED (1 << 3)
+#define ZN_CHECKED (1 << 4)
+#define ZN_MIXED (1 << 5)
+#define ZN_EXPANDED (1 << 6)
+#define ZN_EXPANDABLE (1 << 7)
+#define ZN_READONLY (1 << 8)
+#define ZN_REQUIRED (1 << 9)
+#define ZN_INVALID (1 << 10)
+#define ZN_MULTILINE (1 << 11)
 
 typedef struct {
     AtkObjectClass parent;
@@ -65,6 +82,40 @@ static AtkObject *ziman_node_ref_child(AtkObject *o, gint i) {
     return g_object_ref(g_ptr_array_index(n->kids, i));
 }
 
+/* **What a reader checks before it says anything useful.** A tree of names and roles tells you what
+ * is in a window; the states tell you which of it you are on, what is switched on, and what cannot
+ * be used. Focus is the one that matters most -- a reader follows the focus, and without this it
+ * has nothing to follow. */
+static AtkStateSet *ziman_node_state_set(AtkObject *o) {
+    ZimanNode *n = (ZimanNode *)o;
+    AtkStateSet *set = atk_state_set_new();
+    int64_t bits = n->states;
+    /* Sensitive and enabled unless said otherwise: a reader treats their absence as "cannot be
+     * used", so defaulting them off would make every control sound broken. */
+    if (!(bits & ZN_DISABLED)) {
+        atk_state_set_add_state(set, ATK_STATE_ENABLED);
+        atk_state_set_add_state(set, ATK_STATE_SENSITIVE);
+    }
+    atk_state_set_add_state(set, ATK_STATE_VISIBLE);
+    atk_state_set_add_state(set, ATK_STATE_SHOWING);
+    if (bits & ZN_FOCUSABLE) atk_state_set_add_state(set, ATK_STATE_FOCUSABLE);
+    if (bits & ZN_FOCUSED) atk_state_set_add_state(set, ATK_STATE_FOCUSED);
+    if (bits & ZN_SELECTED) atk_state_set_add_state(set, ATK_STATE_SELECTED);
+    if (bits & ZN_CHECKED) atk_state_set_add_state(set, ATK_STATE_CHECKED);
+    /* A third state is its own thing and not "checked": a reader says "partially checked", which is
+     * the distinction `widget.Toggle` exists to carry. */
+    if (bits & ZN_MIXED) atk_state_set_add_state(set, ATK_STATE_INDETERMINATE);
+    if (bits & ZN_EXPANDABLE) atk_state_set_add_state(set, ATK_STATE_EXPANDABLE);
+    if (bits & ZN_EXPANDED) atk_state_set_add_state(set, ATK_STATE_EXPANDED);
+    if (bits & ZN_READONLY) atk_state_set_add_state(set, ATK_STATE_READ_ONLY);
+    else if (!(bits & ZN_DISABLED)) atk_state_set_add_state(set, ATK_STATE_EDITABLE);
+    if (bits & ZN_REQUIRED) atk_state_set_add_state(set, ATK_STATE_REQUIRED);
+    if (bits & ZN_INVALID) atk_state_set_add_state(set, ATK_STATE_INVALID_ENTRY);
+    if (bits & ZN_MULTILINE) atk_state_set_add_state(set, ATK_STATE_MULTI_LINE);
+    else atk_state_set_add_state(set, ATK_STATE_SINGLE_LINE);
+    return set;
+}
+
 static const gchar *ziman_node_description(AtkObject *o) {
     ZimanNode *n = (ZimanNode *)o;
     return n->description == NULL ? "" : n->description;
@@ -74,12 +125,14 @@ static void ziman_node_init(ZimanNode *n) {
     n->kids = g_ptr_array_new();
     n->description = NULL;
     n->value = NULL;
+    n->states = 0;
 }
 
 static void ziman_node_class_init(ZimanNodeClass *k) {
     ATK_OBJECT_CLASS(k)->get_n_children = ziman_node_n_children;
     ATK_OBJECT_CLASS(k)->ref_child = ziman_node_ref_child;
     ATK_OBJECT_CLASS(k)->get_description = ziman_node_description;
+    ATK_OBJECT_CLASS(k)->ref_state_set = ziman_node_state_set;
 }
 
 static AtkObject *g_root = NULL;
@@ -152,6 +205,7 @@ static Value native_a11y_publish_raw(Value *args, int argc, int line, int col) {
     ArrayObj *descriptions = args[3].as.arr;
     ArrayObj *values = args[4].as.arr;
     ArrayObj *parents = args[5].as.arr;
+    ArrayObj *states = args[6].as.arr;
 
     int count = names == NULL ? 0 : names->count;
     if (roles == NULL || roles->count != count || parents == NULL || parents->count != count) {
@@ -194,6 +248,7 @@ static Value native_a11y_publish_raw(Value *args, int argc, int line, int col) {
         ZimanNode *z = (ZimanNode *)node;
         z->description = g_strdup(item_cstr(descriptions, i));
         z->value = g_strdup(item_cstr(values, i));
+        z->states = (states != NULL && states->ints != NULL && i < states->count) ? states->ints[i] : 0;
         made[i] = node;
     }
     for (int i = 0; i < count; i++) {

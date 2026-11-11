@@ -14,11 +14,45 @@
 #include <stdio.h>
 #include <string.h>
 
+/* The states worth printing: the ones a reader's behaviour actually turns on. Not every state --
+ * a dump of all of them is unreadable and the ones left out (visible, showing, sensitive) are true
+ * of everything here. */
+static void print_states(AtspiAccessible *node) {
+    AtspiStateSet *set = atspi_accessible_get_state_set(node);
+    if (set == NULL) return;
+    struct { AtspiStateType state; const char *word; } interesting[] = {
+        {ATSPI_STATE_FOCUSED, "focused"},
+        {ATSPI_STATE_CHECKED, "checked"},
+        {ATSPI_STATE_INDETERMINATE, "partially checked"},
+        {ATSPI_STATE_EXPANDED, "expanded"},
+        {ATSPI_STATE_MULTI_LINE, "multi line"},
+        {ATSPI_STATE_READ_ONLY, "read only"},
+        {ATSPI_STATE_REQUIRED, "required"},
+    };
+    int first = 1;
+    for (size_t i = 0; i < sizeof interesting / sizeof interesting[0]; i++) {
+        if (atspi_state_set_contains(set, interesting[i].state)) {
+            printf("%s%s", first ? " [" : ", ", interesting[i].word);
+            first = 0;
+        }
+    }
+    /* Said out loud rather than by omission, because "cannot be used" is a fact about a control and
+     * not the absence of one. */
+    if (!atspi_state_set_contains(set, ATSPI_STATE_ENABLED)) {
+        printf("%s%s", first ? " [" : ", ", "disabled");
+        first = 0;
+    }
+    if (!first) printf("]");
+    g_object_unref(set);
+}
+
 static void walk(AtspiAccessible *node, int depth, const char *indent) {
     char *name = atspi_accessible_get_name(node, NULL);
     AtspiRole role = atspi_accessible_get_role(node, NULL);
     char *role_name = atspi_accessible_get_role_name(node, NULL);
-    printf("%*s%s: \"%s\"\n", depth * 2, indent, role_name ? role_name : "?", name ? name : "");
+    printf("%*s%s: \"%s\"", depth * 2, indent, role_name ? role_name : "?", name ? name : "");
+    print_states(node);
+    printf("\n");
     g_free(name);
     g_free(role_name);
     (void)role;

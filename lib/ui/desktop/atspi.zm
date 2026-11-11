@@ -29,7 +29,8 @@ native fn publish_raw(
     roles: [int],
     descriptions: [string],
     values: [string],
-    parents: [int]
+    parents: [int],
+    states: [int]
 ) -> Result<unit, string>
 
 native fn pump_raw()
@@ -62,6 +63,62 @@ fn code_of(r: Role) -> int {
     }
 }
 
+// A node's state as the bits `native_a11y.c` reads. One int rather than eight arrays, because a
+// reader consumes them as a set.
+//
+// **What a reader checks before it says anything useful.** The tree says what is in a window; this
+// says which of it you are on, what is switched on, and what cannot be used. `focused` is the one
+// that matters most, because a reader follows the focus and without it has nothing to follow.
+fn bits_of(node: a11y.Node) -> int {
+    var bits = 0
+    if node.focused {
+        bits = bits + 1
+    }
+    if node.focusable {
+        bits = bits + 2
+    }
+    if node.state.disabled {
+        bits = bits + 4
+    }
+    if node.state.selected {
+        bits = bits + 8
+    }
+    // A checkbox's third state is its own thing rather than "checked", which is what `Toggle`
+    // carries and what a reader says as "partially checked".
+    switch node.state.checked {
+        Some(toggle) {
+            switch toggle {
+                On { bits = bits + 16 }
+                Mixed { bits = bits + 32 }
+                Off { unit }
+            }
+        }
+        None { unit }
+    }
+    switch node.state.expanded {
+        Some(open) {
+            bits = bits + 128
+            if open {
+                bits = bits + 64
+            }
+        }
+        None { unit }
+    }
+    if node.state.readonly {
+        bits = bits + 256
+    }
+    if node.state.required {
+        bits = bits + 512
+    }
+    if node.state.invalid {
+        bits = bits + 1024
+    }
+    if node.state.multiline {
+        bits = bits + 2048
+    }
+    return bits
+}
+
 // Puts `tree` on the accessibility bus under the application name `app`.
 //
 // **Needs a ziman with the accessibility backend** -- `make gui` builds it, an ordinary `ziman` does
@@ -74,6 +131,7 @@ pub fn publish(tree: a11y.Tree, app: string) -> Result<unit, string> {
     val descriptions = mutable_array_new<string>()
     val values = mutable_array_new<string>()
     val parents = mutable_array_new<int>()
+    val states = mutable_array_new<int>()
     // Where each key sits, so a child can name its parent by index. `a11y` emits parents before
     // children, so every lookup below is of something already placed.
     val at = mutable_map_new<string, int>()
@@ -84,6 +142,7 @@ pub fn publish(tree: a11y.Tree, app: string) -> Result<unit, string> {
         push(roles, code_of(node.role))
         push(descriptions, node.description)
         push(values, node.value)
+        push(states, bits_of(node))
         // Filled in on the second pass: a node does not know its parent, only its children.
         push(parents, 0 - 1)
         i = i + 1
@@ -103,7 +162,8 @@ pub fn publish(tree: a11y.Tree, app: string) -> Result<unit, string> {
         snapshot(roles),
         snapshot(descriptions),
         snapshot(values),
-        snapshot(parents)
+        snapshot(parents),
+        snapshot(states)
     )
 }
 

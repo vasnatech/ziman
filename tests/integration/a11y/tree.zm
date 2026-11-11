@@ -33,6 +33,19 @@ fn main() {
         labelled("send", widget.Role.Button, "Send"),
         labelled("url", widget.Role.TextField, "http://example.test"),
         labelled("env", widget.Role.ComboBox, "staging"),
+        // **A disabled control, because "cannot be used" is a fact a reader must be told.** Without
+        // one here, publishing every node as enabled passed every check -- the absence of a state
+        // is invisible to a test that only looks at nodes which have it.
+        widget.Widget.Control(widget.Focusable {
+            name: "revert",
+            role: widget.Role.Button,
+            label: "Revert",
+            description: "nothing to undo yet",
+            value: "",
+            state: with widget.no_state() { disabled: true },
+            tab_stop: true,
+            child: widget.fixed_of(60.0, 20.0, widget.label_of("Revert", 11.0, paint.black()))
+        }),
         widget.control_of("rows", widget.Role.List, widget.column_of(2.0, [
             labelled("first", widget.Role.ListItem, "first"),
             labelled("second", widget.Role.ListItem, "second")

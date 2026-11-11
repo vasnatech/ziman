@@ -86,6 +86,19 @@ check 'combo box: "staging"' combo_box
 check 'list: ""' list
 check 'list item: "first"' list_item
 
+# **The states, which are what a reader acts on.** A tree of names and roles says what is in a
+# window; these say which of it you are on. `tree.zm` focuses the URL field, so exactly one node
+# must report it -- and the body being a text area must say so, or a reader treats it as a one-line
+# field and reads it as one.
+check 'entry: "http://example.test" [focused]' focus_is_published
+check 'button: "Revert" [disabled]' disabled_is_published
+if [ "$(printf '%s\n' "$seen" | grep -c 'focused')" = "1" ]; then
+    echo "PASS a11y_exactly_one_node_is_focused"
+else
+    echo "FAIL a11y_exactly_one_node_is_focused ($(printf '%s' "$seen" | grep -c 'focused') claim it)"
+    fail=1
+fi
+
 # The hierarchy, which is what makes it a tree rather than a bag: the list's items are indented
 # under it, and everything is under the application.
 if printf '%s\n' "$seen" | awk '/list: ""/{d=match($0,/[^ ]/); getline; if (match($0,/[^ ]/) > d) exit 0; exit 1}'; then
