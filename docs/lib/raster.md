@@ -115,6 +115,22 @@ pub struct Options {
     // The same guard `image.decode_png` takes, for the same reason: a scene's size can come from a
     // request, and a 50000x50000 page should be a message rather than 40 GB of allocation.
     max_pixels: int
+    // How many device pixels one unit of the scene becomes.
+    //
+    // **This is what makes the scene's units points rather than pixels**, and it is here rather
+    // than on `scene.Scene` deliberately: a `Scene` still does not know what a unit is -- its own
+    // comment promises that the backend decides -- and this is the backend deciding. The PDF
+    // backend reads the same scene as points at 1/72 inch and wants no such field.
+    //
+    // 1.0 means a point is a pixel, which is the default and what every existing caller gets.
+    // 1.5 means a 100-unit box is drawn 150 pixels wide, with glyph *outlines* scaled before being
+    // rasterised rather than a 12-unit bitmap stretched -- so text at 1.5 is 18 real pixels of
+    // type, not a blurred 12.
+    //
+    // A fractional ratio leaves a one-unit line straddling two pixels, which reads grey rather
+    // than black. Accepted here, as CSS and Flutter accept it: snapping thin edges to whole pixels
+    // is a rendering feature, not a property of the unit.
+    px_per_pt: float
 }
 ```
 
@@ -189,12 +205,17 @@ this is a few hundred distinct glyphs across a handful of sizes.
 ### `surface_of`
 
 ```
-pub fn surface_of(width: int, height: int) -> Result<Surface, string>
+pub fn surface_of(width_pt: float, height_pt: float, px_per_pt: float) -> Result<Surface, string>
 ```
 
 A surface of a fixed pixel size. Reused by `render_into` for as many frames as the window keeps
 that size; a resize makes a new one, which is the right trade because a resize is rare and a
 repaint is not.
+Takes **scene units and the ratio, not pixels, so that a surface and a scene cannot disagree.**
+An application sizes its window in points; the surface has to be however many pixels those points
+come to. Given pixels directly, one number would be derived in two places, and the first caller
+to set a ratio other than 1.0 would meet `render_into`'s size refusal -- a correct error about a
+mistake that did not need to be possible.
 
 ### `surface_width`
 

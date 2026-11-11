@@ -85,6 +85,13 @@ fn digest(img: image.Image) -> string {
     return join(separator: " ", pieces: snapshot(out))
 }
 
+fn ok_or_none<T>(r: Result<T, string>) -> Option<T> {
+    return switch r {
+        Ok(v) { Option<T>.Some(v) }
+        Err(_) { Option<T>.None }
+    }
+}
+
 fn refusal<T>(r: Result<T, string>) -> string {
     return switch r {
         Ok(_) { "UNEXPECTEDLY ACCEPTED" }
@@ -515,7 +522,7 @@ fn main() {
         ]
     )
     val fresh = unwrap_render(raster.render(reuse, raster.options()))
-    val surface = switch raster.surface_of(24, 16) {
+    val surface = switch raster.surface_of(24.0, 16.0, 1.0) {
         Ok(c) { c }
         Err(why) {
             print(concat("surface refused: ", why))
@@ -559,7 +566,7 @@ fn main() {
     // safe if the background clear *writes*, and one that composited would leave last frame's
     // pixels showing through exactly here.
     val washed = with raster.options() { background: Option<paint.Color>.Some(paint.rgba(0.1, 0.8, 0.4, 0.5)) }
-    val lit = switch raster.surface_of(24, 16) {
+    val lit = switch raster.surface_of(24.0, 16.0, 1.0) {
         Ok(c) { c }
         Err(why) {
             print(concat("surface refused: ", why))
@@ -577,14 +584,72 @@ fn main() {
         digest(unwrap_render(raster.render_into(lit, reuse, washed))) == digest(lit_one)
     )))
 
+    // ---- a point is not a pixel
+    //
+    // `Options.px_per_pt` is what makes a scene's units points: the canvas is that many pixels per
+    // unit, and **the content scales with it rather than merely the canvas growing**. A box filling
+    // a quarter of the scene still fills a quarter of the pixels.
+    val quarter = scene.with_ops(
+        scene.scene_of(20.0, 20.0),
+        [scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 10.0, 10.0)), paint.Paint.Solid(paint.black()))]
+    )
+    // **On white, so that outside the box is distinguishable from inside it.** With no background
+    // both read 0,0,0 -- transparent black and opaque black have the same three channels -- and the
+    // two checks below would have passed without the content scaling at all. Caught by reading the
+    // output rather than by thinking about it.
+    val on_white = with raster.options() { background: Option<paint.Color>.Some(paint.white()) }
+    val plain = unwrap_render(raster.render(quarter, on_white))
+    val twice = unwrap_render(raster.render(quarter, with on_white { px_per_pt: 2.0 }))
+    print(concat("at 1.0:  ", str(plain.width), "x", str(plain.height)))
+    print(concat("at 2.0:  ", str(twice.width), "x", str(twice.height)))
+    // The far corner of the scaled box, which only has ink if the content scaled too.
+    print(concat("content scaled:  ", triple(twice, 19, 19)))
+    print(concat("and stopped:     ", triple(twice, 21, 21)))
+    // A fractional ratio rounds the canvas up rather than truncating, or the last row of a scene
+    // would be dropped.
+    val one_and_a_half = unwrap_render(raster.render(quarter, with on_white { px_per_pt: 1.5 }))
+    print(concat("at 1.5:  ", str(one_and_a_half.width), "x", str(one_and_a_half.height)))
+
+    // **`max_pixels` counts pixels, not units.** This scene is 400 units and fits a 500 limit; at
+    // 2.0 it is 1,600 pixels and must not. A guard checked before the ratio would under-count by
+    // its square while still reading as enforced.
+    print(concat("400 pixels fit a 500 limit: ", str(!Option.is_None(ok_or_none(raster.render(
+        quarter,
+        with on_white { max_pixels: 500 }
+    ))))))
+    print(concat("refused at 2.0:  ", refusal(raster.render(
+        quarter,
+        with raster.options() { max_pixels: 500, px_per_pt: 2.0 }
+    ))))
+
+    print(concat("a ratio of zero: ", refusal(raster.render(quarter, with raster.options() { px_per_pt: 0.0 }))))
+    print(concat("a huge ratio:    ", refusal(raster.render(quarter, with raster.options() { px_per_pt: 100.0 }))))
+
+    // A surface takes units and the ratio, so it cannot be sized in the wrong one.
+    val scaled_surface = switch raster.surface_of(20.0, 20.0, 2.0) {
+        Ok(c) { c }
+        Err(why) {
+            print(concat("surface refused: ", why))
+            return
+        }
+    }
+    print(concat(
+        "surface at 2.0:  ",
+        str(raster.surface_width(scaled_surface)),
+        "x",
+        str(raster.surface_height(scaled_surface))
+    ))
+    val into_scaled = unwrap_render(raster.render_into(scaled_surface, quarter, with on_white { px_per_pt: 2.0 }))
+    print(concat("render_into agrees: ", str(digest(into_scaled) == digest(twice))))
+
     // ---- what a surface refuses
     print(concat("a scene of the wrong size: ", refusal(raster.render_into(
         surface,
         scene.with_ops(scene.scene_of(40.0, 16.0), []),
         raster.options()
     ))))
-    print(concat("a zero-size surface:   ", refusal(raster.surface_of(0, 16))))
-    print(concat("too large a surface:   ", refusal(raster.surface_of(20000, 10))))
+    print(concat("a zero-size surface:   ", refusal(raster.surface_of(0.0, 16.0, 1.0))))
+    print(concat("too large a surface:   ", refusal(raster.surface_of(20000.0, 10.0, 1.0))))
 }
 
 fn unwrap_render(r: Result<image.Image, string>) -> image.Image {

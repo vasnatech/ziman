@@ -29,6 +29,9 @@ both frames identical: true
 over the limit:      true
 bounded dropped the first text: true
 unbounded kept both: true
+ratio 2 canvas is 300x48: 300x48
+outlines scale, not bitmaps: true
+  and every pixel agrees:     true
 alone, ink differs:  true
 bold after regular:  107.3961
   matches bold alone: true

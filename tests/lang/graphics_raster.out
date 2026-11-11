@@ -42,6 +42,17 @@ surface size:          24x16
 background, frame 1:   true
   frame 2 matches it:  true
   after a full frame:  true
-a scene of the wrong size: raster: the scene is 40x16 but the surface is 24x16 -- make a new surface when the window resizes
-a zero-size surface:   raster: a surface must be at least 1x1, got 0x16
-too large a surface:   raster: a surface may be at most 16384 on a side, got 20000x10
+at 1.0:  20x20
+at 2.0:  40x40
+content scaled:  0.0,0.0,0.0
+and stopped:     1.0,1.0,1.0
+at 1.5:  30x30
+400 pixels fit a 500 limit: true
+refused at 2.0:  raster: 40x40 is 1600 pixels, past the 500 allowed
+a ratio of zero: raster: px_per_pt must be above 0 and at most 64, got 0.0
+a huge ratio:    raster: px_per_pt must be above 0 and at most 64, got 100.0
+surface at 2.0:  40x40
+render_into agrees: true
+a scene of the wrong size: raster: the scene comes to 40x16 but the surface is 24x16 pixels -- make a new surface when the window resizes or the ratio changes
+a zero-size surface:   raster: a surface must be larger than nothing, got 0.0x16.0
+too large a surface:   raster: a surface may be at most 16384 pixels on a side, got 20000x10

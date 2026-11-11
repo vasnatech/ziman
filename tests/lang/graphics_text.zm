@@ -236,7 +236,7 @@ fn demo() -> Result<unit, string> {
     // rather than beside the surface cases in `graphics_raster.zm`. Two frames of the same text:
     // the first fills the cache and the second finds it already filled, which is what makes a
     // repainting window cheaper than a sequence of one-off renders.
-    val surface = switch raster.surface_of(150, 24) {
+    val surface = switch raster.surface_of(150.0, 24.0, 1.0) {
         Ok(c) { c }
         Err(why) { return err(concat("surface refused: ", why)) }
     }
@@ -266,11 +266,11 @@ fn demo() -> Result<unit, string> {
     // surface ends holding the second text alone, an unbounded one holds both. So it is asserted
     // against a default surface given the same two frames.
     val other = text_scene("QWXZ 1234", 150.0, 24.0, 16.0, 2.0)
-    val bounded = switch raster.surface_of(150, 24) {
+    val bounded = switch raster.surface_of(150.0, 24.0, 1.0) {
         Ok(c) { with c { glyph_limit: 2 } }
         Err(why) { return err(concat("surface refused: ", why)) }
     }
-    val unbounded = switch raster.surface_of(150, 24) {
+    val unbounded = switch raster.surface_of(150.0, 24.0, 1.0) {
         Ok(c) { c }
         Err(why) { return err(concat("surface refused: ", why)) }
     }
@@ -287,6 +287,28 @@ fn demo() -> Result<unit, string> {
     print(concat("unbounded kept both: ", str(
         raster.cached_glyphs(unbounded) > raster.cached_glyphs(bounded) + 1
     )))
+
+    // ---- a point is not a pixel, and the ratio scales outlines rather than bitmaps
+    //
+    // **The sharp test for `Options.px_per_pt`.** Size 24 at a ratio of 1 and size 12 at a ratio of
+    // 2 produce the same glyph transform, so if the ratio scales the *outline* before rasterising,
+    // the two images are identical byte for byte. A renderer that rasterised at the unscaled size
+    // and stretched the result would differ everywhere a curve is -- which is the whole difference
+    // between type that is 18 pixels tall and type that is a blurred 12.
+    //
+    // The pen moves with the ratio too, so the smaller scene places its run at half the
+    // coordinates to land on the same pixel.
+    val at_24 = try raster.render(
+        text_scene("Hamburg", 300.0, 48.0, 24.0, 4.0),
+        with raster.options() { fonts: [f], samples: 4 }
+    )
+    val doubled = try raster.render(
+        text_scene("Hamburg", 150.0, 24.0, 12.0, 2.0),
+        with raster.options() { fonts: [f], samples: 4, px_per_pt: 2.0 }
+    )
+    print(concat("ratio 2 canvas is 300x48: ", str(doubled.width), "x", str(doubled.height)))
+    print(concat("outlines scale, not bitmaps: ", str(ink_sum(at_24) == ink_sum(doubled))))
+    print(concat("  and every pixel agrees:     ", str(same_pixels(at_24, doubled))))
 
     val alone_regular = try one_face("a", f, 0)
     val alone_bold = try one_face("a", bold_ref, 0)
@@ -332,6 +354,28 @@ fn shifted_bold(bold_ref: font.FontRef) -> Result<image.Image, string> {
         ),
         with raster.options() { fonts: [bold_ref], samples: 4 }
     )
+}
+
+// Every pixel of two images compared, rather than a total: `ink_sum` is translation-invariant and
+// would not notice a run drawn in the wrong place at the right weight.
+fn same_pixels(a: image.Image, b: image.Image) -> bool {
+    if a.width != b.width || a.height != b.height {
+        return false
+    }
+    var y = 0
+    while y < a.height {
+        var x = 0
+        while x < a.width {
+            val p = unwrap(image.pixel_at(a, x, y))
+            val q = unwrap(image.pixel_at(b, x, y))
+            if round4(p.red) != round4(q.red) || round4(p.alpha) != round4(q.alpha) {
+                return false
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return true
 }
 
 fn refusal<T>(r: Result<T, string>) -> string {
