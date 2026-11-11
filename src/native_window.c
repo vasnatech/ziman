@@ -93,16 +93,22 @@ static Value window_ok(Type ok, Value v) {
 
 #ifdef ZIMAN_X11
 
+#include <sys/ipc.h>
+#include <sys/shm.h>
+
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/extensions/XShm.h>
 #include <X11/keysym.h>
 
 typedef struct {
     int used;
     Window win;
     GC gc;
-    XImage *image;      /* owns `pixels` below; recreated when the window is resized */
+    XImage *image;      /* owns `pixels` below unless `shm_active`; recreated on resize */
     char *pixels;
+    XShmSegmentInfo shm;
+    int shm_active;     /* `pixels` is a shared-memory segment, not a malloc'd buffer */
     int image_width;
     int image_height;
     int width;
@@ -121,6 +127,23 @@ static Slot g_slots[WINDOW_MAX];
  * where red should be. Reading the masks and computing shifts gets the common case right and the
  * uncommon one right too, and costs one loop at startup. */
 static int g_red_shift, g_green_shift, g_blue_shift;
+
+/* Whether this display can take a shared-memory image: -1 not yet asked, 0 no, 1 yes.
+ *
+ * **Asked by trying, not by asking.** `XShmQueryExtension` answers whether the *server* has the
+ * extension, which a server reached over the network also does -- and there the segment is in this
+ * machine's memory, which that server cannot map. An attach to such a display fails, so the probe
+ * is an attach: X errors arrive asynchronously, so it takes an error handler and an `XSync` to see
+ * one, and that is the whole reason this is a probe rather than a predicate. */
+static int g_shm_usable = -1;
+static int g_shm_failed = 0;
+
+static int shm_error_handler(Display *d, XErrorEvent *e) {
+    (void)d;
+    (void)e;
+    g_shm_failed = 1;
+    return 0;
+}
 
 static int shift_of(unsigned long mask) {
     int shift = 0;
@@ -174,15 +197,154 @@ static void libc_free(void *p) { free(p); }
 #pragma pop_macro("malloc")
 
 static void free_image(Slot *s) {
-    if (s->image != NULL) {
+    if (s->image == NULL) {
+        s->shm_active = 0;
+        return;
+    }
+    if (s->shm_active) {
+        /* **`data` is cleared before `XDestroyImage` on purpose.** An XImage owns the buffer it was
+         * handed and `XDestroyImage` releases it through `XFree`, which is libc's `free` -- and this
+         * buffer came from `shmat`, so freeing it that way is exactly the allocator mismatch this
+         * file's header is about, one allocator further out. The segment is released by `shmdt`,
+         * after the image is gone and after the server has been told to detach. */
+        XShmDetach(g_display, &s->shm);
+        s->image->data = NULL;
+        XDestroyImage(s->image);
+        if (s->shm.shmaddr != NULL) shmdt(s->shm.shmaddr);
+        s->shm.shmaddr = NULL;
+        s->shm.shmid = -1;
+        s->shm_active = 0;
+    } else {
         /* XDestroyImage frees the data pointer too, with libc's free, which is why `pixels` comes
          * from `libc_malloc` and not from the collector. */
         XDestroyImage(s->image);
-        s->image = NULL;
-        s->pixels = NULL;
-        s->image_width = 0;
-        s->image_height = 0;
     }
+    s->image = NULL;
+    s->pixels = NULL;
+    s->image_width = 0;
+    s->image_height = 0;
+}
+
+/* The image as a shared-memory segment: 1 if `s` now has one, 0 to use the ordinary path.
+ *
+ * **Why this is worth the complexity.** `XPutImage` puts the pixels *in the request*, so a frame is
+ * copied into the socket, through the kernel, and out again in the server -- 4 MB per frame at
+ * 1280x800, measured at about a third of the cost of presenting one. A shared segment is mapped by
+ * both processes, so `XShmPutImage` sends a few dozen bytes saying "draw what is already there".
+ * The pixels are written exactly once, by the loop that converts them.
+ *
+ * Every failure here returns 0 and leaves the slot untouched, because the caller has a working path
+ * to fall back to. Nothing about a missing extension, a full segment table or a remote display is
+ * an error a Ziman program should see. */
+static int try_shm_image(Slot *s, int width, int height, Visual *visual, int depth) {
+    if (g_shm_usable == 0) return 0;
+    /* **`ZIMAN_WINDOW_NO_SHM=1` forces the copying path.** Without it the fallback is unreachable on
+     * any machine where shared memory works, which is every local display -- so the branch that
+     * exists for remote displays and exhausted segment tables would never run here, and a defect in
+     * it would wait for someone running over SSH. `tests/run_window_test.sh` presents through both.
+     * Read once: a program does not change its mind about this mid-run. */
+    if (g_shm_usable < 0) {
+        const char *off = getenv("ZIMAN_WINDOW_NO_SHM");
+        if (off != NULL && off[0] != '\0' && off[0] != '0') {
+            g_shm_usable = 0;
+            return 0;
+        }
+    }
+    if (g_shm_usable < 0 && !XShmQueryExtension(g_display)) {
+        g_shm_usable = 0;
+        return 0;
+    }
+
+    /* **The segment info lives in the slot, and `XShmCreateImage` is handed that**, not a local.
+     * This cost a `BadShmSeg` on the first present: `XShmCreateImage` keeps the pointer it is given
+     * in the image's private `obdata`, and `XShmPutImage` reads the segment id back out of it every
+     * frame -- so a local here is a dangling pointer into a dead stack frame the moment this
+     * function returns, and the id the server is asked about is whatever is left on the stack. It
+     * attaches fine and fails at the put, which is why the window gate caught it and the build did
+     * not. A standalone probe of the same sequence *worked*, because there the struct was `main`'s
+     * and outlived the call by accident. */
+    memset(&s->shm, 0, sizeof s->shm);
+    s->shm.shmid = -1;
+    s->shm.shmaddr = NULL;
+    s->shm.readOnly = False;
+
+    /* Created with no data, so the server tells us the stride it wants before anything is sized. */
+    XImage *image = XShmCreateImage(g_display, visual, (unsigned)depth, ZPixmap, NULL, &s->shm,
+                                    (unsigned)width, (unsigned)height);
+    if (image == NULL) return 0;
+    if (image->bytes_per_line <= 0 || image->height <= 0) {
+        XDestroyImage(image);
+        return 0;
+    }
+
+    size_t bytes = (size_t)image->bytes_per_line * (size_t)image->height;
+    s->shm.shmid = shmget(IPC_PRIVATE, bytes, IPC_CREAT | 0600);
+    if (s->shm.shmid < 0) {
+        XDestroyImage(image);
+        return 0;
+    }
+    void *addr = shmat(s->shm.shmid, NULL, 0);
+    if (addr == (void *)-1) {
+        shmctl(s->shm.shmid, IPC_RMID, NULL);
+        s->shm.shmid = -1;
+        XDestroyImage(image);
+        return 0;
+    }
+    s->shm.shmaddr = (char *)addr;
+    image->data = s->shm.shmaddr;
+
+    /* An attach failure is reported asynchronously, so the handler is installed and the sync forces
+     * the answer before this function can claim success. */
+    g_shm_failed = 0;
+    int (*previous)(Display *, XErrorEvent *) = XSetErrorHandler(shm_error_handler);
+    Bool attached = XShmAttach(g_display, &s->shm);
+    XSync(g_display, False);
+    XSetErrorHandler(previous);
+
+    /* **Marked for destruction the moment it is attached**, which is standard and is about crashes
+     * rather than tidiness: a System V segment outlives the process that made it, so a window that
+     * died without detaching would leave 4 MB of kernel memory behind until a reboot. Removed-but-
+     * attached keeps working for everyone already mapped and disappears when the last one detaches. */
+    shmctl(s->shm.shmid, IPC_RMID, NULL);
+
+    if (!attached || g_shm_failed) {
+        shmdt(s->shm.shmaddr);
+        s->shm.shmaddr = NULL;
+        s->shm.shmid = -1;
+        image->data = NULL;
+        XDestroyImage(image);
+        g_shm_usable = 0;
+        return 0;
+    }
+
+    g_shm_usable = 1;
+    s->image = image;
+    s->pixels = s->shm.shmaddr;
+    s->shm_active = 1;
+    s->image_width = width;
+    s->image_height = height;
+    return 1;
+}
+
+/* The frame on screen, by whichever route this slot has.
+ *
+ * **The shared-memory route needs the sync and the copying route does not**, which is the one thing
+ * about it that is easy to get wrong. `XPutImage` copies the pixels into the request, so the buffer
+ * is the caller's again the instant it returns and `XFlush` is enough. With a shared segment the
+ * server reads the buffer *we are still holding*, so presenting the next frame into it before the
+ * server has finished with this one tears -- and `send_event False` asks for no completion event to
+ * wait on. `XSync` is the wait: it returns once the server has processed the request, which costs a
+ * round trip and saves copying 4 MB. One shared helper so the two `present` natives cannot disagree
+ * about that. */
+static void put_image(Slot *s, int width, int height) {
+    if (s->shm_active) {
+        XShmPutImage(g_display, s->win, s->gc, s->image, 0, 0, 0, 0, (unsigned)width,
+                     (unsigned)height, False);
+        XSync(g_display, False);
+        return;
+    }
+    XPutImage(g_display, s->win, s->gc, s->image, 0, 0, 0, 0, (unsigned)width, (unsigned)height);
+    XFlush(g_display);
 }
 
 static const char *ensure_image(Slot *s, int width, int height) {
@@ -191,6 +353,7 @@ static const char *ensure_image(Slot *s, int width, int height) {
     int screen = DefaultScreen(g_display);
     Visual *visual = DefaultVisual(g_display, screen);
     int depth = DefaultDepth(g_display, screen);
+    if (try_shm_image(s, width, height, visual, depth)) return NULL;
     size_t bytes = (size_t)width * (size_t)height * 4u;
     char *data = libc_malloc(bytes); /* xalloc-ok: NULL checked below; XDestroyImage frees it */
     if (data == NULL) return "out of memory for the window's pixel buffer";
@@ -335,8 +498,7 @@ static Value native_window_present_raw(Value *args, int argc, int line, int col)
     }
     free(rgba);
 
-    XPutImage(g_display, s->win, s->gc, s->image, 0, 0, 0, 0, (unsigned)width, (unsigned)height);
-    XFlush(g_display);
+    put_image(s, (int)width, (int)height);
     return window_ok(ok, value_unit());
 #endif
 }
@@ -646,8 +808,7 @@ static Value native_window_present_premul_raw(Value *args, int argc, int line, i
                  | ((uint32_t)(int64_t)b << g_blue_shift);
     }
 
-    XPutImage(g_display, s->win, s->gc, s->image, 0, 0, 0, 0, (unsigned)width, (unsigned)height);
-    XFlush(g_display);
+    put_image(s, (int)width, (int)height);
     return window_ok(ok, value_unit());
 #endif
 }

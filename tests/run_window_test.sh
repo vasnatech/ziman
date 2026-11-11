@@ -121,6 +121,18 @@ check_pixel 240 60 "srgb(0,255,0)" top_right_green
 check_pixel 80 180 "srgb(0,0,255)" bottom_left_blue
 check_pixel 240 180 "srgb(255,255,255)" bottom_right_white
 
+# **The extreme corners, because the four centres above cannot see the frame move.** Giving
+# `XShmPutImage` a destination of 40,40 instead of 0,0 -- a whole frame translated diagonally, and an
+# ordinary mistake in a put -- changed none of those four: each sample sits far enough from the
+# quadrant boundaries that the colour at it survives a 40 pixel shift, exactly as `ink_sum` survived
+# a one-pixel text shift earlier in F270. Two pixels in from each corner cannot survive it: a frame
+# put down at an offset leaves the first rows and columns unwritten, and a frame put at the wrong
+# size leaves the last ones. Found by breaking the put and watching the gate pass.
+check_pixel 2 2 "srgb(255,0,0)" corner_top_left
+check_pixel 317 2 "srgb(0,255,0)" corner_top_right
+check_pixel 2 237 "srgb(0,0,255)" corner_bottom_left
+check_pixel 317 237 "srgb(255,255,255)" corner_bottom_right
+
 # --- the other present path, against the same four triples
 #
 # `window.present` takes premultiplied floats and `present_bytes` takes bytes, and both repack into
@@ -134,7 +146,14 @@ check_pixel 240 180 "srgb(255,255,255)" bottom_right_white
 #
 # A second short-lived window rather than a second mode of the first, so a failure says which path
 # it was. `check_pixel` reads the global `id`, so it is lent to this window and given back.
-WINDOW_PRESENT_MODE=bytes "$BIN" "$PROGRAM" > "$work/bytes.txt" 2>&1 &
+# **`ZIMAN_WINDOW_NO_SHM` rides along on this run, so both transports are gated for free.** The
+# native prefers a shared-memory image and copies through the socket only when it cannot have one --
+# which on any local display means the copying path is unreachable, and a defect in the branch that
+# exists for remote displays would wait for someone running over SSH to find it. The pack loop and
+# the transport are independent, so one run of each pairing covers both of each: the run above is
+# floats over shared memory, this one is bytes over the copying path, and both are held to the same
+# four triples.
+WINDOW_PRESENT_MODE=bytes ZIMAN_WINDOW_NO_SHM=1 "$BIN" "$PROGRAM" > "$work/bytes.txt" 2>&1 &
 bytes_pid=$!
 bytes_id=""
 for _ in $(seq 1 60); do
@@ -153,10 +172,10 @@ if [ -z "$bytes_id" ] || [ "$bytes_drawn" -eq 0 ]; then
 else
     float_id="$id"
     id="$bytes_id"
-    check_pixel 80 60 "srgb(255,0,0)" bytes_top_left_red
-    check_pixel 240 60 "srgb(0,255,0)" bytes_top_right_green
-    check_pixel 80 180 "srgb(0,0,255)" bytes_bottom_left_blue
-    check_pixel 240 180 "srgb(255,255,255)" bytes_bottom_right_white
+    check_pixel 80 60 "srgb(255,0,0)" bytes_nonshm_top_left_red
+    check_pixel 240 60 "srgb(0,255,0)" bytes_nonshm_top_right_green
+    check_pixel 80 180 "srgb(0,0,255)" bytes_nonshm_bottom_left_blue
+    check_pixel 240 180 "srgb(255,255,255)" bytes_nonshm_bottom_right_white
     id="$float_id"
 fi
 kill "$bytes_pid" 2>/dev/null

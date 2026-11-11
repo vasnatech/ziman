@@ -49,7 +49,7 @@ nogc: ziman-nogc
 gui: ziman-gui
 
 ziman-gui: $(SRC) $(HDR) $(CORELIB_HEADERS)
-	$(CC) $(CFLAGS) -DZIMAN_X11 -o $@ $(SRC) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread -lX11
+	$(CC) $(CFLAGS) -DZIMAN_X11 -o $@ $(SRC) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread -lX11 -lXext
 
 $(OBJ): $(CORELIB_HEADERS)
 
