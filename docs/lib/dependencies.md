@@ -106,6 +106,8 @@ flowchart LR
     controls --> geom
     controls --> math
     controls --> paint
+    controls --> scene
+    controls --> shape
     controls --> widget
     crypto --> encoding
     crypto --> random
@@ -356,7 +358,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
-| `controls` | `edit`, `focus`, `geom`, `math`, `paint`, `widget` | `desktop` |
+| `controls` | `edit`, `focus`, `geom`, `math`, `paint`, `scene`, `shape`, `widget` | `desktop` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `io`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `batch`, `eql`, `migrate` |
@@ -412,10 +414,10 @@ otherwise: everything on a layer depends only on lower layers.
 | `raster` | `font`, `geom`, `image`, `math`, `paint`, `scene`, `shape`, `stroker`, `truetype` | `desktop` |
 | `regex` | - | `expr`, `test`, `validate` |
 | `rest` | `clock`, `codec`, `http`, `io`, `metrics`, `mime`, `server`, `url`, `uuid` | - |
-| `scene` | `geom`, `paint`, `shape` | `desktop`, `layout`, `pdf`, `raster`, `widget` |
+| `scene` | `geom`, `paint`, `shape` | `controls`, `desktop`, `layout`, `pdf`, `raster`, `widget` |
 | `schedule` | `clock`, `locale`, `time` | - |
 | `server` | `clock`, `codec`, `compress`, `fs`, `http`, `io`, `json`, `locale`, `metrics`, `mime`, `net`, `number`, `os`, `uuid` | `rest` |
-| `shape` | `geom`, `math` | `layout`, `pdf`, `raster`, `scene`, `stroker`, `truetype`, `widget` |
+| `shape` | `geom`, `math` | `controls`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `truetype`, `widget` |
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |

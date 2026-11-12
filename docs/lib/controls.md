@@ -321,6 +321,13 @@ button would stay drawn pressed for ever. The same reasoning covers a move.
 what a user means: scrolling the list they are pointing at, not the one that happens to have the
 keyboard. Over nothing it goes nowhere rather than to the focus.
 
+**To the nearest *tab stop* under the pointer, not the innermost control**, which is the same
+resolution a press gets and for the same reason. `focus.control_at` answers a list's row or a
+tree's item -- a `part_of`, something a click and a reader can reach and that no application
+holds a state for -- so a wheel routed that way named a control nobody could handle and was
+dropped on the floor. **The wheel had never scrolled a list or a tree in any application.**
+Found by painting a scroll bar: the indicator sat still while the window said it should move.
+
 ## The button
 
 ### `Button`
@@ -1057,6 +1064,31 @@ pub val thumb_name = "thumb"
 ```
 
 The name the thumb's box carries in the laid-out tree, so a test can find it.
+
+### `paint_scroll_bars`
+
+```
+pub fn paint_scroll_bars(l: Laid, over: scene.Scene, style: Style, thickness: float) -> scene.Scene
+```
+
+Every viewport in a laid-out tree gets a bar, painted over the scene that is already there.
+
+**A pass over the laid tree, not a widget**, and that is the whole answer to the question F284
+could not settle: a thumb's length is the view's share of the content, and nothing knows the
+view extent until the layout has run. Measuring that by laying the window out twice costs 5 ms
+a frame at 200 rows. Here the number is simply there -- a viewport's own box is the view, the
+box its child was placed in is the content, and `Viewport.offset_y` is where it sits. This is
+the seam `widget.paint_focused` already uses for the focus ring, which could not be known at
+widget-build time either.
+
+**An indicator, not a control.** It says there is more and where you are; the wheel and the
+arrows are what move it. Dragging needs the bar to have a box of its own that a press can be
+routed to, which means the scrolled control reserving a gutter in its own layout -- a different
+change, with `scroll_bar_input` already written and tested for when it happens.
+
+Drawn **inside** the viewport's right edge, which is where an overlay bar goes and why it is
+translucent: a few points of the content are behind it, and over a list of text that is the
+trailing end of a line nobody reads.
 
 ## Menus and dialogs
 
