@@ -76,12 +76,16 @@ fn main() {
     boxes("toolbar", laid.children[0].bounds)
     boxes("content", laid.children[1].bounds)
 
-    // A name is what a focus or accessibility layer refers to a node by; a path is where it sits.
-    // **Prefer the name**: a path changes when a sibling is inserted above it.
+    // A name is what a focus or accessibility layer refers to a node by; an index is where it
+    // sits. **Prefer the name**: a position changes when a sibling is inserted above it, and
+    // focus that moved because an unrelated widget appeared is a bug a user notices and a test
+    // does not. Joining a node's index with its ancestors' gives the path an accessibility tree
+    // keys an unnamed node by -- `a11y` does that as it walks, so that layout need not build a
+    // string for every node of every pass.
     printf(
-        "the label is named {} at path {}\n",
+        "the label is named {} and is child {}\n",
         laid.children[0].children[0].children[0].name,
-        laid.children[0].children[0].children[0].path
+        laid.children[0].children[0].children[0].index
     )
 
     // Two spacers share leftover space in proportion to their weights, which is why a weight is a
@@ -106,7 +110,7 @@ Output:
 ```
 toolbar: 0.0,0.0 200.0x20.0
 content: 0.0,20.0 200.0x80.0
-the label is named menu-file at path 0/0/0
+the label is named menu-file and is child 0
 weight 1: 0.0,0.0 20.0x10.0
 weight 3: 20.0,0.0 60.0x10.0
 the window is 3 ops
@@ -826,9 +830,17 @@ it is given is leftover space.
 ```
 pub struct Laid {
     bounds: Rect
-    // The position in the tree: "" for the root, then "0", "0/1", "0/1/2". Stable for a tree whose
-    // shape does not change, and the thing to use when no `name` was given.
-    path: string
+    // Which child of its parent this is, and -1 for the root. Joined with its ancestors' it is
+    // the position in the tree -- "0", "0/1", "0/1/2" -- which is what an accessibility tree keys
+    // a node by when no `name` was given.
+    //
+    // **An int, where this used to be that whole path as a string.** `a11y` is the only reader
+    // there has ever been, and the string was *built for every node of every layout*: 9.7% of a
+    // layout pass went to `join_path` and its `concat`, besides the garbage two allocations per
+    // node make. `a11y` joins the indices as it descends instead, which reproduces the same paths
+    // exactly -- every walk it does descends through real children, so the indices it meets are
+    // the ones layout assigned.
+    index: int
     // The widget's own `name`, or the **nearest named ancestor's**, or "".
     //
     // Inherited rather than per node, and that is what makes a click on a button's *label* report

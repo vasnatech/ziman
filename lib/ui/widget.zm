@@ -738,9 +738,17 @@ fn measure_stack(s: Stack, m: Metrics) -> Size {
 // stay in step with this one, which is the bug every retained UI makes once.
 pub struct Laid {
     bounds: Rect
-    // The position in the tree: "" for the root, then "0", "0/1", "0/1/2". Stable for a tree whose
-    // shape does not change, and the thing to use when no `name` was given.
-    path: string
+    // Which child of its parent this is, and -1 for the root. Joined with its ancestors' it is
+    // the position in the tree -- "0", "0/1", "0/1/2" -- which is what an accessibility tree keys
+    // a node by when no `name` was given.
+    //
+    // **An int, where this used to be that whole path as a string.** `a11y` is the only reader
+    // there has ever been, and the string was *built for every node of every layout*: 9.7% of a
+    // layout pass went to `join_path` and its `concat`, besides the garbage two allocations per
+    // node make. `a11y` joins the indices as it descends instead, which reproduces the same paths
+    // exactly -- every walk it does descends through real children, so the indices it meets are
+    // the ones layout assigned.
+    index: int
     // The widget's own `name`, or the **nearest named ancestor's**, or "".
     //
     // Inherited rather than per node, and that is what makes a click on a button's *label* report
@@ -761,7 +769,7 @@ pub struct Laid {
 // parent. Clipping is a decision for a scroll container (F277) and silently shrinking would hide
 // a layout mistake rather than show it.
 pub fn layout(w: Widget, within: Rect, m: Metrics) -> Laid {
-    return place(w, within, m, "", "")
+    return place(w, within, m, 0 - 1, "")
 }
 
 fn largest_layer(it: Stacked, m: Metrics) -> Size {
@@ -781,39 +789,39 @@ fn largest_layer(it: Stacked, m: Metrics) -> Size {
     return size_of(width, height)
 }
 
-fn place(w: Widget, within: Rect, m: Metrics, path: string, parent_name: string) -> Laid {
+fn place(w: Widget, within: Rect, m: Metrics, index: int, parent_name: string) -> Laid {
     val own_name = name_of(w)
     val name = if own_name == "" { parent_name } else { own_name }
     return switch w {
-        Group(it) { place_stack(it, w, within, m, path, name) }
+        Group(it) { place_stack(it, w, within, m, index, name) }
         Sized(it) {
             Laid {
                 bounds: within,
-                path: path,
+                index: index,
                 name: name,
                 widget: w,
-                children: [place(it.child, within, m, join_path(path, 0), name)]
+                children: [place(it.child, within, m, 0, name)]
             }
         }
         Expand(it) {
             Laid {
                 bounds: within,
-                path: path,
+                index: index,
                 name: name,
                 widget: w,
-                children: [place(it.child, within, m, join_path(path, 0), name)]
+                children: [place(it.child, within, m, 0, name)]
             }
         }
         Control(it) {
             Laid {
                 bounds: within,
-                path: path,
+                index: index,
                 name: name,
                 widget: w,
                 // **The name is passed down**, so a label inside a button answers the button's
                 // name and a hit on either reports the same control. Without it, clicking the text
                 // of a button and clicking its padding would be two different events.
-                children: [place(it.child, within, m, join_path(path, 0), name)]
+                children: [place(it.child, within, m, 0, name)]
             }
         }
         Scroll(it) {
@@ -832,10 +840,10 @@ fn place(w: Widget, within: Rect, m: Metrics, path: string, parent_name: string)
             )
             Laid {
                 bounds: within,
-                path: path,
+                index: index,
                 name: name,
                 widget: w,
-                children: [place(it.child, content, m, join_path(path, 0), name)]
+                children: [place(it.child, content, m, 0, name)]
             }
         }
         Layered(it) {
@@ -846,22 +854,22 @@ fn place(w: Widget, within: Rect, m: Metrics, path: string, parent_name: string)
                     Some(r) { r }
                     None { within }
                 }
-                push(placed, place(it.layers[i].content, box, m, join_path(path, i), name))
+                push(placed, place(it.layers[i].content, box, m, i, name))
                 i = i + 1
             }
-            Laid { bounds: within, path: path, name: name, widget: w, children: snapshot(placed) }
+            Laid { bounds: within, index: index, name: name, widget: w, children: snapshot(placed) }
         }
-        Nothing { leaf(w, within, path, name) }
-        Text(_) { leaf(w, within, path, name) }
-        Flex(_) { leaf(w, within, path, name) }
+        Nothing { leaf(w, within, index, name) }
+        Text(_) { leaf(w, within, index, name) }
+        Flex(_) { leaf(w, within, index, name) }
     }
 }
 
-fn leaf(w: Widget, within: Rect, path: string, name: string) -> Laid {
-    return Laid { bounds: within, path: path, name: name, widget: w, children: [] }
+fn leaf(w: Widget, within: Rect, index: int, name: string) -> Laid {
+    return Laid { bounds: within, index: index, name: name, widget: w, children: [] }
 }
 
-fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, path: string, name: string) -> Laid {
+fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, index: int, name: string) -> Laid {
     val inner = geom.rect_of(
         within.x + s.padding.left,
         within.y + s.padding.top,
@@ -891,7 +899,9 @@ fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, path: string, name
 
     val placed = mutable_array_new<Laid>()
     var offset = 0.0
-    var index = 0
+    // The child's number, which is not this node's -- `index` is where *this* stack sits in its
+    // own parent, and the two were one name until the compiler said so.
+    var at = 0
     for child in s.children {
         val extent = switch flex_weight(child) {
             Some(weight) { if weight_total > 0.0 { spare * weight / weight_total } else { 0.0 } }
@@ -901,13 +911,13 @@ fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, path: string, name
             Row { geom.rect_of(inner.x + offset, inner.y, extent, inner.height) }
             Column { geom.rect_of(inner.x, inner.y + offset, inner.width, extent) }
         }
-        push(placed, place(child, child_rect, m, join_path(path, index), name))
+        push(placed, place(child, child_rect, m, at, name))
         offset = offset + extent + s.spacing
-        index = index + 1
+        at = at + 1
     }
     return Laid {
         bounds: within,
-        path: path,
+        index: index,
         name: name,
         widget: w,
         children: snapshot(placed)
@@ -938,13 +948,6 @@ fn along_of(s: Size, direction: Direction) -> float {
         Row { s.width }
         Column { s.height }
     }
-}
-
-fn join_path(path: string, index: int) -> string {
-    if path == "" {
-        return str(index)
-    }
-    return concat(path, "/", str(index))
 }
 
 fn name_of(w: Widget) -> string {

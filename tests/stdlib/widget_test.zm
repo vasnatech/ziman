@@ -219,17 +219,22 @@ fn an_expand_measures_its_child_across_the_other_axis() {
 
 // --- identity
 
-// A path says where a node is; a name says what it is. **Focus follows the name**, because a path
-// changes when a sibling is inserted above it and focus that moved because an unrelated widget
-// appeared is a bug a user notices and a test does not.
+// A position says where a node is; a name says what it is. **Focus follows the name**, because a
+// position changes when a sibling is inserted above it and focus that moved because an unrelated
+// widget appeared is a bug a user notices and a test does not.
+//
+// **Each node carries its own index and nothing joins them here.** It was the whole path as a
+// string until the layout profile showed that building it for every node of every layout cost
+// 9.7% of a pass; `a11y` joins the indices while it walks, and the paths that come out are
+// asserted where they are used -- `a11y_test` keys an unnamed node by one.
 #[test]
-fn paths_number_the_children_in_order() {
+fn children_are_numbered_in_order() {
     val r = widget.row_of(0.0, [a_label("a"), widget.column_of(0.0, [a_label("b"), a_label("c")])])
     val l = laid(r, 100.0, 20.0)
-    test.assert_eq(l.path, "")
-    test.assert_eq(l.children[0].path, "0")
-    test.assert_eq(l.children[1].path, "1")
-    test.assert_eq(l.children[1].children[1].path, "1/1")
+    test.assert_eq(l.index, 0 - 1)
+    test.assert_eq(l.children[0].index, 0)
+    test.assert_eq(l.children[1].index, 1)
+    test.assert_eq(l.children[1].children[1].index, 1)
 }
 
 #[test]

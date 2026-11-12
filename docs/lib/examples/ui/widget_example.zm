@@ -44,12 +44,16 @@ fn main() {
     boxes("toolbar", laid.children[0].bounds)
     boxes("content", laid.children[1].bounds)
 
-    // A name is what a focus or accessibility layer refers to a node by; a path is where it sits.
-    // **Prefer the name**: a path changes when a sibling is inserted above it.
+    // A name is what a focus or accessibility layer refers to a node by; an index is where it
+    // sits. **Prefer the name**: a position changes when a sibling is inserted above it, and
+    // focus that moved because an unrelated widget appeared is a bug a user notices and a test
+    // does not. Joining a node's index with its ancestors' gives the path an accessibility tree
+    // keys an unnamed node by -- `a11y` does that as it walks, so that layout need not build a
+    // string for every node of every pass.
     printf(
-        "the label is named {} at path {}\n",
+        "the label is named {} and is child {}\n",
         laid.children[0].children[0].children[0].name,
-        laid.children[0].children[0].children[0].path
+        laid.children[0].children[0].children[0].index
     )
 
     // Two spacers share leftover space in proportion to their weights, which is why a weight is a

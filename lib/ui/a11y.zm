@@ -89,7 +89,7 @@ pub struct Tree {
 // it: a window's title belongs to the window, and `lib/core/window` is where that is.
 pub fn tree_of(l: Laid, title: string, focus: string) -> Tree {
     val subtree = mutable_array_new<Node>()
-    val top = collect(l, focus, subtree)
+    val top = collect(l, "", focus, subtree)
     val nodes = mutable_array_new<Node>()
     // **The root is always a window, even for a tree of one label.** A reader navigates from a
     // window inwards and an adapter needs a root to attach everything to, so a tree whose root was
@@ -199,18 +199,30 @@ pub fn announce(n: Node) -> string {
 // control, for text outside any control, and for the root, and for nothing else; a layout box emits
 // nothing and its children attach to the nearest ancestor that did emit. That is what the task
 // entry means by mirroring a widget tree that was not designed to be mirrored.
-fn collect(l: Laid, focus: string, nodes: MutableArray<Node>) -> [string] {
+// **`path` is threaded down rather than read off the node**, because the node no longer carries
+// it: `Laid.index` is the child number and this is where the slash-separated path is made, out of
+// the indices of the nodes actually descended through. The result is the string `Laid.path` used
+// to hold, built only for the trees that need one instead of for every node of every layout.
+fn collect(l: Laid, path: string, focus: string, nodes: MutableArray<Node>) -> [string] {
     return switch focusable_in(l) {
-        Some(f) { [emit_control(l, f, focus, nodes)] }
-        None { collect_plain(l, focus, nodes) }
+        Some(f) { [emit_control(l, f, path, focus, nodes)] }
+        None { collect_plain(l, path, focus, nodes) }
     }
 }
 
-fn collect_plain(l: Laid, focus: string, nodes: MutableArray<Node>) -> [string] {
+// The path of a child, as layout would have spelled it.
+fn below(path: string, child: Laid) -> string {
+    if path == "" {
+        return str(child.index)
+    }
+    return concat(path, "/", str(child.index))
+}
+
+fn collect_plain(l: Laid, path: string, focus: string, nodes: MutableArray<Node>) -> [string] {
     val own = text_of(l)
     if own != "" {
         push(nodes, Node {
-            key: path_key(l.path),
+            key: path_key(path),
             role: Role.Label,
             name: own,
             description: "",
@@ -221,20 +233,26 @@ fn collect_plain(l: Laid, focus: string, nodes: MutableArray<Node>) -> [string] 
             bounds: l.bounds,
             children: []
         })
-        return [path_key(l.path)]
+        return [path_key(path)]
     }
     val out = mutable_array_new<string>()
     // The keyboard's children, not every child: a modal layer is the only thing a reader should be
     // offered while it is up, and that rule is `widget.keyboard_children` so that it cannot differ
     // from the one Tab follows.
     for child in widget.keyboard_children(l) {
-        concat(out, collect(child, focus, nodes))
+        concat(out, collect(child, below(path, child), focus, nodes))
     }
     return snapshot(out)
 }
 
-fn emit_control(l: Laid, f: widget.Focusable, focus: string, nodes: MutableArray<Node>) -> string {
-    val key = if f.name == "" { path_key(l.path) } else { f.name }
+fn emit_control(
+    l: Laid,
+    f: widget.Focusable,
+    path: string,
+    focus: string,
+    nodes: MutableArray<Node>
+) -> string {
+    val key = if f.name == "" { path_key(path) } else { f.name }
     // The subtree is collected into a buffer of its own and appended after this node rather than
     // before it, which is what makes `Tree.nodes` read parents before children: the children's keys
     // have to be known before this node can be built, so collecting straight into `nodes` would put
@@ -242,7 +260,7 @@ fn emit_control(l: Laid, f: widget.Focusable, focus: string, nodes: MutableArray
     val subtree = mutable_array_new<Node>()
     val inner = mutable_array_new<string>()
     for child in l.children {
-        concat(inner, collect_inside(child, focus, subtree))
+        concat(inner, collect_inside(child, below(path, child), focus, subtree))
     }
     val disabled = f.state.disabled
     // **Tab-reachable, not merely "a control".** A list row is a control and a node here, and Tab
@@ -274,17 +292,17 @@ fn emit_control(l: Laid, f: widget.Focusable, focus: string, nodes: MutableArray
 // label a reader should read; inside one it has already been spoken as the name. Nested controls
 // *are* emitted, with the ordinary rules resuming inside them, because a row inside a list is a row
 // a user navigates to.
-fn collect_inside(l: Laid, focus: string, nodes: MutableArray<Node>) -> [string] {
+fn collect_inside(l: Laid, path: string, focus: string, nodes: MutableArray<Node>) -> [string] {
     return switch focusable_in(l) {
-        Some(f) { [emit_control(l, f, focus, nodes)] }
-        None { descend_inside(l, focus, nodes) }
+        Some(f) { [emit_control(l, f, path, focus, nodes)] }
+        None { descend_inside(l, path, focus, nodes) }
     }
 }
 
-fn descend_inside(l: Laid, focus: string, nodes: MutableArray<Node>) -> [string] {
+fn descend_inside(l: Laid, path: string, focus: string, nodes: MutableArray<Node>) -> [string] {
     val out = mutable_array_new<string>()
     for child in l.children {
-        concat(out, collect_inside(child, focus, nodes))
+        concat(out, collect_inside(child, below(path, child), focus, nodes))
     }
     return snapshot(out)
 }

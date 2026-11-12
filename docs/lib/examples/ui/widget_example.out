@@ -1,6 +1,6 @@
 toolbar: 0.0,0.0 200.0x20.0
 content: 0.0,20.0 200.0x80.0
-the label is named menu-file at path 0/0/0
+the label is named menu-file and is child 0
 weight 1: 0.0,0.0 20.0x10.0
 weight 3: 20.0,0.0 60.0x10.0
 the window is 3 ops
