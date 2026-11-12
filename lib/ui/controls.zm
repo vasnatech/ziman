@@ -920,7 +920,7 @@ fn sorted_edges(edges: [int], n: int) -> [int] {
     var value = 0
     while value <= n {
         for edge in edges {
-            if edge == value && !contains(snapshot(kept), value) {
+            if edge == value && !contains(kept, value) {
                 push(kept, value)
             }
         }
