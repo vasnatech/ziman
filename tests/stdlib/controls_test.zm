@@ -2312,3 +2312,154 @@ fn a_list_drags_its_bar_too() {
     test.assert_eq(dragged.list.selected, 0)
     test.assert_false(dragged.moved)
 }
+
+// ---- a field with a composition open
+
+fn composing_field() -> controls.Entry {
+    return controls.entry_composing(controls.entry_of("note", "Note", "ab"), "かんじ", 3).entry
+}
+
+val note_box = geom.rect_of(0.0, 0.0, 200.0, 24.0)
+
+// What is drawn is the committed text with the composition spliced in; what is *stored* is not.
+#[test]
+fn a_composing_field_shows_what_is_not_yet_in_it() {
+    val e = composing_field()
+    test.assert_eq(e.editor.text, "ab")
+    test.assert_eq(controls.shown_text(e), "abかんじ")
+}
+
+// **Composing is not a change; committing is.** `changed` is what a form watches to know it is
+// dirty, and a half-typed composition has changed nothing a save would write.
+#[test]
+fn composing_is_not_a_change_and_committing_is() {
+    val start = controls.entry_of("note", "Note", "ab")
+    test.assert_false(controls.entry_composing(start, "か", 1).changed)
+    val composing = controls.entry_composing(start, "かんじ", 3).entry
+    test.assert(controls.entry_commit(composing, "漢字").changed)
+}
+
+#[test]
+fn committing_writes_what_the_method_chose() {
+    val done = controls.entry_commit(composing_field(), "漢字").entry
+    test.assert_eq(done.editor.text, "ab漢字")
+    test.assert_false(Option.is_Some(done.preedit))
+    test.assert_eq(controls.shown_text(done), "ab漢字")
+}
+
+// **An empty commit abandons the composition**: the method says it chose nothing, so the pre-edit
+// goes and the text is as it was.
+#[test]
+fn an_empty_commit_abandons_the_composition() {
+    val done = controls.entry_commit(composing_field(), "").entry
+    test.assert_eq(done.editor.text, "ab")
+    test.assert_false(Option.is_Some(done.preedit))
+    test.assert_false(controls.entry_commit(composing_field(), "").changed)
+}
+
+// A commit with nothing open is ordinary text, which is what a method sends for a compose
+// sequence that never showed a pre-edit -- a dead key followed by a vowel.
+#[test]
+fn a_commit_with_nothing_open_is_ordinary_text() {
+    val typed = controls.entry_commit(controls.entry_of("note", "Note", "ab"), "é").entry
+    test.assert_eq(typed.editor.text, "abé")
+}
+
+// **The pointer does not move the caret while composing**, and the reason is an index rather than
+// a policy: a press is measured against the shown text, which has the composition in it, while
+// the caret is placed in the committed text. Placing one from the other puts the caret a
+// composition's length from where it was clicked.
+#[test]
+fn a_press_while_composing_moves_nothing() {
+    // **Composed in the middle of the text, not at the end**, which the first version of this
+    // test got wrong: with the composition at the end, an index taken from the shown text clamps
+    // to the end of the committed text -- which is where the caret already was, so the test
+    // passed with the guard removed. Mutation is what said so.
+    val mid = with controls.entry_of("note", "Note", "abcdef") {
+        editor: edit.place_caret(edit.editor_of("abcdef"), 2, false)
+    }
+    val e = controls.entry_composing(mid, "XY", 2).entry
+    test.assert_eq(controls.shown_text(e), "abXYcdef")
+    // Six characters in at ten points each, past the field's padding: an index the committed text
+    // can hold, and not the one the caret is at.
+    val pressed = controls.entry_input(
+        e,
+        controls.Input.Press(geom.point_of(controls.default_style().padding.left + 62.0, 10.0)),
+        note_box,
+        controls.default_style(),
+        metrics()
+    )
+    test.assert_eq(pressed.entry.editor.caret, 2)
+    test.assert(Option.is_Some(pressed.entry.preedit))
+
+    // ...and once it is committed, a press places a caret again.
+    val done = controls.entry_commit(e, "Z").entry
+    val after = controls.entry_input(
+        done,
+        controls.Input.Press(geom.point_of(5.0, 10.0)),
+        note_box,
+        controls.default_style(),
+        metrics()
+    )
+    test.assert_eq(after.entry.editor.caret, 0)
+}
+
+// The caret is drawn inside the composition, where the user is typing -- which is only true if
+// the widget places it from `edit.shown_caret` rather than from the editor's own caret.
+#[test]
+fn the_caret_is_drawn_inside_the_composition() {
+    val w = controls.entry_widget(composing_field(), controls.default_style(), metrics())
+    val l = widget.layout(w, note_box, metrics())
+    // Every character is 10 wide under these metrics, so a caret 5 characters in sits at 50 plus
+    // the field's left padding.
+    test.assert_eq(box_named(l, caret_name).x, 50.0 + controls.default_style().padding.left)
+}
+
+// **The run being converted is drawn apart from the rest of the composition**, because the two
+// say different things: one is "not committed yet" and the other is "this is what your next
+// keystroke changes".
+#[test]
+fn the_converting_run_is_drawn_apart_from_the_composition() {
+    val marked = controls.entry_composing_marked(
+        controls.entry_of("note", "Note", "ab"),
+        "かんじ",
+        3,
+        1,
+        3
+    ).entry
+    val l = widget.layout(
+        controls.entry_widget(marked, controls.default_style(), metrics()),
+        note_box,
+        metrics()
+    )
+    // Two points at 10 per character: the composition starts at 2 and the converted run at 3.
+    test.assert_eq(box_named(l, "composing").x, 20.0 + controls.default_style().padding.left)
+    test.assert_eq(box_named(l, "converting").x, 30.0 + controls.default_style().padding.left)
+    test.assert_eq(box_named(l, "converting").width, 20.0)
+}
+
+// A field with no composition draws neither, which is the case every other test in this file is.
+#[test]
+fn a_field_with_no_composition_draws_no_tint() {
+    val l = widget.layout(
+        controls.entry_widget(controls.entry_of("note", "Note", "ab"), controls.default_style(), metrics()),
+        note_box,
+        metrics()
+    )
+    test.assert_eq(box_named(l, "composing").height, 0.0 - 1.0)
+    test.assert_eq(box_named(l, "converting").height, 0.0 - 1.0)
+}
+
+// **A password being typed through an input method is still a password.** The composition is
+// spliced in so the caret arithmetic holds, and the whole of it is masked so none of it is
+// legible -- which is the one combination where the two features meet.
+#[test]
+fn a_masked_field_masks_the_composition_too() {
+    val secret_composing = controls.entry_composing(
+        controls.password_of("pass", "Password", "ab"),
+        "かんじ",
+        3
+    ).entry
+    test.assert_eq(controls.shown_text(secret_composing), "•••••")
+    test.assert_false(contains(controls.shown_text(secret_composing), "か"))
+}

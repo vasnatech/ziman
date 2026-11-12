@@ -484,6 +484,10 @@ pub struct Entry {
     // recompute the caret's line to follow it, which is the control's own arithmetic done twice.
     // Zero and unused for a one-line field.
     scroll: float
+    // Text being composed through an input method, which is **not** in `editor.text` until it is
+    // committed -- see `edit.Preedit`. `None` is the ordinary state and the only one most fields
+    // are ever in.
+    preedit: Option<edit.Preedit>
     // Shown as a run of bullets rather than as itself, and **published to a screen reader the same
     // way**: the real text leaves this module only when the application asks the field for it.
     //
@@ -538,6 +542,34 @@ pub fn shown_text(e: Entry) -> string
 against.** A mask is one bullet per character, so every index into the text is the same index
 into this; measuring the real text and drawing the mask would put the caret under the wrong
 bullet in any font where a bullet is not the width of an `e`.
+
+### `entry_composing`
+
+```
+pub fn entry_composing(e: Entry, text: string, caret: int) -> EntryStep
+```
+
+**How an input method reaches a field, and why it is not an `Input`.** A composition is not
+routed by what is under the pointer or by a focus that falls back; it belongs to whatever holds
+the input-method context, which is the focused text field and nothing else. Making it an
+`Input` would have put two arms on every button, list and tab strip in this module for an event
+none of them can ever receive.
+
+### `entry_composing_marked`
+
+```
+pub fn entry_composing_marked(e: Entry, text: string, caret: int, from: int, to: int) -> EntryStep
+```
+
+### `entry_commit`
+
+```
+pub fn entry_commit(e: Entry, text: string) -> EntryStep
+```
+
+What the method finally chose, which replaces the composition. **An empty commit is how a
+composition is abandoned**: the method says it chose nothing, the pre-edit goes, and the text
+is as it was.
 
 ### `EntryStep`
 
@@ -1294,6 +1326,13 @@ pub struct Style {
     face: Color
     pressed_face: Color
     disabled_ink: Color
+    // Under the text being composed through an input method, and under the run of it the method
+    // is converting right now. **Two, because they mean different things to the person typing**:
+    // the first says "this is not committed yet" and the second says "this is the part your next
+    // keystroke changes", and a field that drew them alike would lose the distinction a candidate
+    // list is navigated by.
+    composing_face: Color
+    converting_face: Color
     // The marks a tree's branch draws when it is closed and when it is open.
     //
     // **In the style rather than written into the control**, because this layer is handed whatever

@@ -408,6 +408,10 @@ pub struct Entry {
     // recompute the caret's line to follow it, which is the control's own arithmetic done twice.
     // Zero and unused for a one-line field.
     scroll: float
+    // Text being composed through an input method, which is **not** in `editor.text` until it is
+    // committed -- see `edit.Preedit`. `None` is the ordinary state and the only one most fields
+    // are ever in.
+    preedit: Option<edit.Preedit>
     // Shown as a run of bullets rather than as itself, and **published to a screen reader the same
     // way**: the real text leaves this module only when the application asks the field for it.
     //
@@ -430,7 +434,8 @@ pub fn entry_of(name: string, label: string, text: string) -> Entry {
         typing: false,
         rows: 1,
         scroll: 0.0,
-        masked: false
+        masked: false,
+        preedit: Option<edit.Preedit>.None
     }
 }
 
@@ -454,10 +459,68 @@ pub fn password_of(name: string, label: string, text: string) -> Entry {
 // into this; measuring the real text and drawing the mask would put the caret under the wrong
 // bullet in any font where a bullet is not the width of an `e`.
 pub fn shown_text(e: Entry) -> string {
+    // **The composition first, the mask second.** A field that is both is a password being typed
+    // through an input method: the composition still has to be where the caret arithmetic expects
+    // it, and it still must not be legible. Masking the spliced text does both.
+    val with_composition = edit.shown(e.editor, e.preedit)
     if !e.masked {
-        return e.editor.text
+        return with_composition
     }
-    return join(separator: "", pieces: mutable_array_filled(len(e.editor.text), bullet))
+    return join(separator: "", pieces: mutable_array_filled(len(with_composition), bullet))
+}
+
+// Where the caret is in what `shown_text` answers: inside the composition while one is open,
+// because that is where the user is typing.
+fn shown_caret_at(e: Entry) -> int {
+    return edit.shown_caret(e.editor, e.preedit)
+}
+
+// **How an input method reaches a field, and why it is not an `Input`.** A composition is not
+// routed by what is under the pointer or by a focus that falls back; it belongs to whatever holds
+// the input-method context, which is the focused text field and nothing else. Making it an
+// `Input` would have put two arms on every button, list and tab strip in this module for an event
+// none of them can ever receive.
+pub fn entry_composing(e: Entry, text: string, caret: int) -> EntryStep {
+    val started = edit.compose(e.editor, text, caret)
+    return composing_step(e, started)
+}
+
+pub fn entry_composing_marked(e: Entry, text: string, caret: int, from: int, to: int) -> EntryStep {
+    return composing_step(e, edit.compose_marked(e.editor, text, caret, from, to))
+}
+
+fn composing_step(e: Entry, c: edit.Composing) -> EntryStep {
+    return EntryStep {
+        entry: with e { editor: c.editor, preedit: Option<edit.Preedit>.Some(c.preedit), typing: false },
+        copied: "",
+        // **Composing is not a change and committing is.** `changed` is what a form watches to
+        // know it is dirty, and a half-typed composition has changed nothing a save would write.
+        changed: false
+    }
+}
+
+// What the method finally chose, which replaces the composition. **An empty commit is how a
+// composition is abandoned**: the method says it chose nothing, the pre-edit goes, and the text
+// is as it was.
+pub fn entry_commit(e: Entry, text: string) -> EntryStep {
+    switch e.preedit {
+        Some(p) {
+            val done = edit.commit(e.editor, p, text)
+            return EntryStep {
+                entry: with e {
+                    editor: done,
+                    preedit: Option<edit.Preedit>.None,
+                    history: edit.record(e.history, e.editor),
+                    typing: false
+                },
+                copied: "",
+                changed: text != ""
+            }
+        }
+        // A commit with nothing open is ordinary text, which is what a method sends for a
+        // compose sequence that never showed a pre-edit at all.
+        None { return typed(e, text) }
+    }
 }
 
 // U+2022, written as itself because this language has no `\u` escape.
@@ -511,6 +574,20 @@ pub fn entry_input(e: Entry, input: Input, bounds: Rect, style: Style, m: widget
 }
 
 fn entry_step(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metrics) -> EntryStep {
+    // **While a composition is open the pointer does not move the caret**, and the reason is an
+    // index rather than a policy: a press is measured against `shown_text`, which has the
+    // composition spliced into it, while `place_caret` works in the committed text -- two
+    // coordinate spaces that agree exactly until something is being composed. Placing one from
+    // the other would put the caret a composition's length away from where it was clicked.
+    //
+    // Doing nothing is also what a user wants often enough: the input method owns the caret while
+    // it is converting, and an application that would rather a click ended the composition calls
+    // `entry_commit` first -- which it has to anyway, to decide what a click *means*.
+    if Option.is_Some(e.preedit) {
+        if pointer_input(input) {
+            return kept(e)
+        }
+    }
     return switch input {
         Text(what) { typed(e, what) }
         Paste(what) { pasted(e, what) }
@@ -545,6 +622,19 @@ fn entry_step(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metr
         }
         Release(_) { kept(with e { dragging: false }) }
         Wheel(_) { kept(e) }
+    }
+}
+
+fn pointer_input(input: Input) -> bool {
+    return switch input {
+        Press(_) { true }
+        Move(_) { true }
+        Release(_) { true }
+        KeyDown(_) { false }
+        KeyUp(_) { false }
+        Text(_) { false }
+        Paste(_) { false }
+        Wheel(_) { false }
     }
 }
 
@@ -720,6 +810,125 @@ pub fn caret_at_x(text: string, size: float, m: widget.Metrics, x: float) -> int
     return n
 }
 
+// The three runs a field without a composition draws: before the selection, the selection, after
+// it -- with the caret standing in for the selection when there is none.
+fn selected_runs(e: Entry, text: string, ink: Color, style: Style, line: float) -> [widget.Widget] {
+    val from = edit.selection_start(e.editor)
+    val to = edit.selection_end(e.editor)
+    val middle = if edit.has_selection(e.editor) {
+        tinted(substring(text, from, to), style.pressed_face, ink, style, "selection")
+    } else {
+        caret_box(ink, line)
+    }
+    return [
+        widget.label_of(substring(text, 0, from), style.text_size, ink),
+        middle,
+        widget.label_of(substring(text, to, len(text)), style.text_size, ink)
+    ]
+}
+
+// A field with a composition open: the committed text either side of it, the composition tinted,
+// the run being converted tinted more strongly, and the caret **inside** the composition.
+//
+// **Built from `shown_text` and `edit.shown_caret` and nothing else**, which is the rule that
+// keeps a caret where it looks: the press that places one measures the same string this draws, so
+// the two cannot disagree about where a character begins.
+fn composed_runs(e: Entry, text: string, ink: Color, style: Style, line: float) -> [widget.Widget] {
+    val out = mutable_array_new<widget.Widget>()
+    val caret = shown_caret_at(e)
+    val span = edit.shown_highlight(e.editor, e.preedit)
+    val marks = switch span {
+        Some(one) { [one.start, one.end] }
+        None { [caret, caret] }
+    }
+    val starts = composition_bounds(e, text)
+    // Every boundary the runs are cut at, in order: the composition's ends, the marked run's
+    // ends, and the caret.
+    var cut = 0
+    for edge in sorted_edges([starts[0], starts[1], marks[0], marks[1], caret], len(text)) {
+        if edge > cut {
+            push(out, run_between(e, text, cut, edge, starts, marks, ink, style))
+            cut = edge
+        }
+        if edge == caret {
+            push(out, caret_box(ink, line))
+        }
+    }
+    if cut < len(text) {
+        push(out, run_between(e, text, cut, len(text), starts, marks, ink, style))
+    }
+    return snapshot(out)
+}
+
+// Where the composition sits in what is shown.
+fn composition_bounds(e: Entry, text: string) -> [int] {
+    switch e.preedit {
+        Some(p) {
+            val at = if p.at > len(e.editor.text) { len(e.editor.text) } else { p.at }
+            return [at, at + len(p.text)]
+        }
+        None { return [0, 0] }
+    }
+}
+
+fn run_between(
+    e: Entry,
+    text: string,
+    from: int,
+    to: int,
+    starts: [int],
+    marks: [int],
+    ink: Color,
+    style: Style
+) -> widget.Widget {
+    val piece = substring(text, from, to)
+    if from >= marks[0] && to <= marks[1] && marks[0] != marks[1] {
+        return tinted(piece, style.converting_face, ink, style, "converting")
+    }
+    if from >= starts[0] && to <= starts[1] {
+        return tinted(piece, style.composing_face, ink, style, "composing")
+    }
+    return widget.label_of(piece, style.text_size, ink)
+}
+
+fn tinted(piece: string, face: Color, ink: Color, style: Style, name: string) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        background: Option<Color>.Some(face),
+        children: [widget.label_of(piece, style.text_size, ink)],
+        name: name
+    })
+}
+
+fn caret_box(ink: Color, line: float) -> widget.Widget {
+    return widget.fixed_of(1.0, line, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        background: Option<Color>.Some(ink),
+        children: [],
+        name: caret_name
+    }))
+}
+
+// The cut points in order and without repeats, clamped into the text. Small and sorted by hand:
+// there are five of them and they are nearly sorted already.
+fn sorted_edges(edges: [int], n: int) -> [int] {
+    val kept = mutable_array_new<int>()
+    var value = 0
+    while value <= n {
+        for edge in edges {
+            if edge == value && !contains(snapshot(kept), value) {
+                push(kept, value)
+            }
+        }
+        value = value + 1
+    }
+    return snapshot(kept)
+}
+
 // The name the caret's box carries in the laid-out tree, so that a test can find it and an
 // application can draw attention to it.
 pub val caret_name = "caret"
@@ -849,28 +1058,13 @@ pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget 
     val height = m.line_height
     val line = height(style.text_size)
     val text = shown_text(e)
-    val from = edit.selection_start(e.editor)
-    val to = edit.selection_end(e.editor)
-    val before = widget.label_of(substring(text, 0, from), style.text_size, ink)
-    val after = widget.label_of(substring(text, to, len(text)), style.text_size, ink)
-    val middle = if edit.has_selection(e.editor) {
-        widget.Widget.Group(widget.Stack {
-            direction: widget.Direction.Row,
-            spacing: 0.0,
-            padding: widget.no_insets(),
-            background: Option<Color>.Some(style.pressed_face),
-            children: [widget.label_of(substring(text, from, to), style.text_size, ink)],
-            name: "selection"
-        })
+    // **A field is never selecting and composing at once**, which is not a simplification taken
+    // but one the model gives: `edit.compose` deletes a selection before it opens a composition,
+    // because that is what typing over one does. So the runs below are one case or the other.
+    val runs = if Option.is_Some(e.preedit) {
+        composed_runs(e, text, ink, style, line)
     } else {
-        widget.fixed_of(1.0, line, widget.Widget.Group(widget.Stack {
-            direction: widget.Direction.Row,
-            spacing: 0.0,
-            padding: widget.no_insets(),
-            background: Option<Color>.Some(ink),
-            children: [],
-            name: caret_name
-        }))
+        selected_runs(e, text, ink, style, line)
     }
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
@@ -878,7 +1072,7 @@ pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget 
         spacing: 0.0,
         padding: style.padding,
         background: Option<Color>.Some(style.face),
-        children: [before, middle, after],
+        children: runs,
         name: ""
     })
     return widget.Widget.Control(widget.Focusable {
@@ -2355,6 +2549,13 @@ pub struct Style {
     face: Color
     pressed_face: Color
     disabled_ink: Color
+    // Under the text being composed through an input method, and under the run of it the method
+    // is converting right now. **Two, because they mean different things to the person typing**:
+    // the first says "this is not committed yet" and the second says "this is the part your next
+    // keystroke changes", and a field that drew them alike would lose the distinction a candidate
+    // list is navigated by.
+    composing_face: Color
+    converting_face: Color
     // The marks a tree's branch draws when it is closed and when it is open.
     //
     // **In the style rather than written into the control**, because this layer is handed whatever
@@ -2380,6 +2581,8 @@ pub fn default_style() -> Style {
         face: paint.rgb(0.9, 0.9, 0.9),
         pressed_face: paint.rgb(0.75, 0.75, 0.78),
         disabled_ink: paint.rgb(0.6, 0.6, 0.6),
+        composing_face: paint.rgb(0.88, 0.91, 0.97),
+        converting_face: paint.rgb(0.70, 0.78, 0.93),
         collapsed_mark: "▸",
         expanded_mark: "▾",
         scrim: paint.rgba(0.0, 0.0, 0.0, 0.35)
