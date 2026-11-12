@@ -897,8 +897,15 @@ pub fn tree_widget(t: Tree, style: Style) -> widget.Widget
 
 The tree as a widget: a `Tree` control over one `TreeItem` part per visible row.
 
-Each row is an indent, then the mark a branch draws (nothing, for a leaf), then the label -- all
-in one row box, so the x the hit test computes from `indent` is the x the mark was drawn at.
+**The parts nest, though the rows are flat and the layout is a plain column.** A reader asks a
+node for its children, so a branch whose rows were siblings of it would tell a user that seven
+things exist and nothing about which is inside which -- an indented list again, from the one
+side that cannot see the indent. The first version of this did exactly that and the AT-SPI dump
+showed it: seven tree items in a row under the tree.
+
+Nesting costs nothing in layout, because a part adds no box of its own and the rows keep their
+absolute indent: a column of columns of fixed-height rows stacks exactly as one column of them
+does, which is what keeps the hit test's `y / row_height` true.
 
 ### `tree_row_name`
 

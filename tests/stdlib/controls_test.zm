@@ -1828,3 +1828,47 @@ fn the_mark_a_press_toggles_is_where_the_layout_drew_it() {
     test.assert_false(left_of_it.toggled)
     test.assert_eq(left_of_it.tree.selected, 1)
 }
+
+// **A reader asks a node for its children, so the parts have to nest.** The rows are flat and the
+// layout is a plain column; if the parts were flat too, a reader would be told that seven things
+// exist and nothing about which is inside which -- an indented list, from the one side that
+// cannot see the indent. The first version of `tree_widget` was exactly that and every other test
+// in this file passed.
+#[test]
+fn a_branch_is_the_parent_of_what_is_under_it() {
+    val t = a11y.tree_of(laid_tree(forest()), "Records", "files")
+    test.assert_eq(kids_of(t, "files/0"), "files/1 files/4")
+    test.assert_eq(kids_of(t, "files/1"), "files/2 files/3")
+    test.assert_eq(kids_of(t, "files/2"), "")
+    // The tree itself holds only the top level, not every row.
+    test.assert_eq(kids_of(t, "files"), "files/0 files/5 files/6")
+}
+
+// Closing a branch takes its children out of the tree a reader walks, not just off the screen.
+#[test]
+fn a_closed_branch_has_no_children_to_walk() {
+    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0))).tree
+    val t = a11y.tree_of(laid_tree(shut), "Records", "files")
+    test.assert_eq(kids_of(t, "files/0"), "")
+    test.assert_eq(kids_of(t, "files"), "files/0 files/5 files/6")
+}
+
+fn kids_of(t: a11y.Tree, name: string) -> string {
+    return switch a11y.node_of(t, name) {
+        Some(one) { join(separator: " ", pieces: named_children(t, one)) }
+        None { concat("(no node named ", name, ")") }
+    }
+}
+
+// The children that are rows of the tree, by name. A part wraps a group, so a node's `children`
+// holds the boxes as well -- this is the walk a reader does, which is for the named ones.
+fn named_children(t: a11y.Tree, node: a11y.Node) -> [string] {
+    val out = mutable_array_new<string>()
+    for key in node.children {
+        switch a11y.node_of(t, key) {
+            Some(child) { if widget.Role.is_TreeItem(child.role) { push(out, key) } }
+            None { unit }
+        }
+    }
+    return snapshot(out)
+}

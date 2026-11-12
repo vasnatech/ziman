@@ -1536,44 +1536,62 @@ fn tree_still(t: Tree) -> TreeStep {
 
 // The tree as a widget: a `Tree` control over one `TreeItem` part per visible row.
 //
-// Each row is an indent, then the mark a branch draws (nothing, for a leaf), then the label -- all
-// in one row box, so the x the hit test computes from `indent` is the x the mark was drawn at.
+// **The parts nest, though the rows are flat and the layout is a plain column.** A reader asks a
+// node for its children, so a branch whose rows were siblings of it would tell a user that seven
+// things exist and nothing about which is inside which -- an indented list again, from the one
+// side that cannot see the indent. The first version of this did exactly that and the AT-SPI dump
+// showed it: seven tree items in a row under the tree.
+//
+// Nesting costs nothing in layout, because a part adds no box of its own and the rows keep their
+// absolute indent: a column of columns of fixed-height rows stacks exactly as one column of them
+// does, which is what keeps the hit test's `y / row_height` true.
 pub fn tree_widget(t: Tree, style: Style) -> widget.Widget {
-    val ink = if t.disabled { style.disabled_ink } else { style.ink }
     val shown = visible_rows(t)
-    val rows = mutable_array_new<widget.Widget>()
-    var i = 0
-    while i < len(shown) {
+    val built = tree_level(t, shown, 0, 0, style)
+    return widget.Widget.Control(widget.Focusable {
+        name: t.name,
+        role: widget.Role.Tree,
+        label: t.label,
+        description: "",
+        value: "",
+        state: with widget.no_state() { disabled: t.disabled },
+        tab_stop: true,
+        child: widget.named_scroll("", 0.0, t.offset, widget.column_of(0.0, built.rows))
+    })
+}
+
+// The widgets for one level, and the index after them. A struct because the walk has to answer
+// both and this language has no tuples.
+struct TreeLevel {
+    rows: [widget.Widget]
+    next: int
+}
+
+fn tree_level(t: Tree, shown: [int], from: int, depth: int, style: Style) -> TreeLevel {
+    val out = mutable_array_new<widget.Widget>()
+    var i = from
+    while i < len(shown) && t.rows[shown[i]].depth >= depth {
         val which = shown[i]
         val row = t.rows[which]
-        val chosen = which == t.selected
-        val face = if chosen { style.pressed_face } else { style.face }
-        val mark = if row.expandable {
-            if row.expanded { style.expanded_mark } else { style.collapsed_mark }
+        if row.depth > depth {
+            // Unreachable while the recursion below consumes the deeper rows, and it still has to
+            // advance: a guard that cannot make progress is a hang rather than a wrong answer.
+            i = i + 1
         } else {
-            ""
-        }
-        val inside = widget.Widget.Group(widget.Stack {
-            direction: widget.Direction.Row,
-            spacing: 0.0,
-            padding: widget.insets_of(0.0, 2.0, 4.0, 2.0),
-            background: Option<Color>.Some(face),
-            children: [
-                widget.fixed_of((row.depth as float) * t.indent, 0.0, widget.flex()),
-                widget.fixed_of(t.indent, 0.0, widget.label_of(mark, style.text_size, ink)),
-                widget.label_of(row.label, style.text_size, ink)
-            ],
-            name: ""
-        })
-        push(rows, widget.fixed_of(
-            0.0,
-            t.row_height,
-            widget.part_of(
+            val kids = tree_level(t, shown, i + 1, depth + 1, style)
+            i = kids.next
+            val own = tree_row_box(t, which, row, style)
+            val inside = if len(kids.rows) == 0 {
+                own
+            } else {
+                widget.column_of(0.0, concat([own], kids.rows))
+            }
+            push(out, widget.part_of(
                 tree_row_name(t, which),
                 widget.Role.TreeItem,
                 row.label,
                 with widget.no_state() {
-                    selected: chosen,
+                    selected: which == t.selected,
                     disabled: t.disabled,
                     // **Declared only for a branch.** `Some(false)` on a leaf publishes
                     // EXPANDABLE, and a reader would offer to open a thing that cannot be opened.
@@ -1584,20 +1602,35 @@ pub fn tree_widget(t: Tree, style: Style) -> widget.Widget {
                     }
                 },
                 inside
-            )
-        ))
-        i = i + 1
+            ))
+        }
     }
-    return widget.Widget.Control(widget.Focusable {
-        name: t.name,
-        role: widget.Role.Tree,
-        label: t.label,
-        description: "",
-        value: "",
-        state: with widget.no_state() { disabled: t.disabled },
-        tab_stop: true,
-        child: widget.named_scroll("", 0.0, t.offset, widget.column_of(0.0, snapshot(rows)))
-    })
+    return TreeLevel { rows: snapshot(out), next: i }
+}
+
+// One row: its indent, the mark a branch draws, and its label. **The indent is absolute rather
+// than one level per nesting**, so the column the hit test computes from `depth * indent` is the
+// column the mark was drawn in whatever the parts do around it.
+fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style) -> widget.Widget {
+    val ink = if t.disabled { style.disabled_ink } else { style.ink }
+    val face = if which == t.selected { style.pressed_face } else { style.face }
+    val mark = if row.expandable {
+        if row.expanded { style.expanded_mark } else { style.collapsed_mark }
+    } else {
+        ""
+    }
+    return widget.fixed_of(0.0, t.row_height, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.insets_of(0.0, 2.0, 4.0, 2.0),
+        background: Option<Color>.Some(face),
+        children: [
+            widget.fixed_of((row.depth as float) * t.indent, 0.0, widget.flex()),
+            widget.fixed_of(t.indent, 0.0, widget.label_of(mark, style.text_size, ink)),
+            widget.label_of(row.label, style.text_size, ink)
+        ],
+        name: ""
+    }))
 }
 
 // A row's name. The tree's name and the index **into `rows`, not into the visible ones**, so that

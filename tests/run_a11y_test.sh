@@ -151,6 +151,18 @@ else
     fail=1
 fi
 
+# **The tree's own hierarchy, which is the half a role and a state cannot carry.** A reader asks a
+# node for its children; a branch whose rows were siblings of it would say that three things exist
+# and nothing about which is inside which -- an indented list, from the one side that cannot see
+# the indent. The first version of `tree_widget` published exactly that and every other line on
+# this page passed.
+if printf '%s\n' "$seen" | awk '/tree item: "api"/{d=match($0,/[^ ]/); getline; if (match($0,/[^ ]/) > d) exit 0; exit 1}'; then
+    echo "PASS a11y_a_branch_is_the_parent_of_its_rows"
+else
+    echo "FAIL a11y_a_branch_is_the_parent_of_its_rows (flat: $(printf '%s' "$seen" | grep 'tree item' | tr '\n' '|'))"
+    fail=1
+fi
+
 # The hierarchy, which is what makes it a tree rather than a bag: the list's items are indented
 # under it, and everything is under the application.
 if printf '%s\n' "$seen" | awk '/list: ""/{d=match($0,/[^ ]/); getline; if (match($0,/[^ ]/) > d) exit 0; exit 1}'; then
