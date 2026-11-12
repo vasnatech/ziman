@@ -820,6 +820,10 @@ pub struct Style {
     face: Color
     pressed_face: Color
     disabled_ink: Color
+    // What covers the window behind a dialog. **Translucent rather than opaque**, because a modal
+    // dialog should say "this is waiting for you" and not "the window is gone" -- a user needs to
+    // see what they were doing to decide what to answer.
+    scrim: Color
 }
 ```
 

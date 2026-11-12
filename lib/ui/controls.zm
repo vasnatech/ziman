@@ -1350,10 +1350,23 @@ pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: 
     })
     // Centred with flexible space, which the box model already does -- a dialog needs no absolute
     // positioning to sit in the middle of a window.
-    return widget.modal_layer(widget.column_of(
-        0.0,
-        [widget.flex(), widget.row_of(0.0, [widget.flex(), titled, widget.flex()]), widget.flex()]
-    ))
+    //
+    // **Over a scrim, which it did not have.** A modal layer took the keys and drew nothing, so a
+    // dialog was text floating on top of the window it was blocking: nothing said which half was
+    // live. Found by the first application to open one. The scrim is part of the dialog rather than
+    // something a caller adds, because a dialog without one is not a thing worth being able to make.
+    return widget.modal_layer(widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        background: Option<Color>.Some(style.scrim),
+        children: [
+            widget.flex(),
+            widget.row_of(0.0, [widget.flex(), titled, widget.flex()]),
+            widget.flex()
+        ],
+        name: "scrim"
+    }))
 }
 
 // ------------------------------------------------------------------- the style
@@ -1368,6 +1381,10 @@ pub struct Style {
     face: Color
     pressed_face: Color
     disabled_ink: Color
+    // What covers the window behind a dialog. **Translucent rather than opaque**, because a modal
+    // dialog should say "this is waiting for you" and not "the window is gone" -- a user needs to
+    // see what they were doing to decide what to answer.
+    scrim: Color
 }
 
 // A plain light style. **Not a theme and not a design** -- F277 says in as many words that pixel
@@ -1380,7 +1397,8 @@ pub fn default_style() -> Style {
         ink: paint.rgb(0.1, 0.1, 0.1),
         face: paint.rgb(0.9, 0.9, 0.9),
         pressed_face: paint.rgb(0.75, 0.75, 0.78),
-        disabled_ink: paint.rgb(0.6, 0.6, 0.6)
+        disabled_ink: paint.rgb(0.6, 0.6, 0.6),
+        scrim: paint.rgba(0.0, 0.0, 0.0, 0.35)
     }
 }
 

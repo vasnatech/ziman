@@ -10,6 +10,7 @@ use focus
 use geom
 use paint
 use scene
+use shape
 use test
 use widget
 
@@ -1298,4 +1299,44 @@ fn the_ring_follows_the_focus() {
     val first = widget.paint_focused(laid, metrics(), "one", paint.rgb(0.0, 0.0, 0.0), 2.0)
     val second = widget.paint_focused(laid, metrics(), "two", paint.rgb(0.0, 0.0, 0.0), 2.0)
     test.assert_false(format("{}", first.ops) == format("{}", second.ops))
+}
+
+// **A dialog draws a scrim over the window behind it**, which it did not until an application
+// opened one: a modal layer took the keys and drew nothing, so the dialog was text floating on the
+// window it was blocking and nothing said which half was live.
+#[test]
+fn a_dialog_covers_what_it_blocks() {
+    val style = controls.default_style()
+    val dialog = controls.dialog_layer("ask", "Are you sure?", widget.label_of("yes or no", 12.0, paint.black()), style)
+    val laid = widget.layout(widget.layered_of([
+        widget.base_layer(widget.label_of("behind", 12.0, paint.black())),
+        dialog
+    ]), geom.rect_of(0.0, 0.0, 200.0, 100.0), metrics())
+    val painted = widget.paint(laid, metrics())
+    // The scrim is a fill the size of the window. Without it the dialog's own face is the only
+    // fill, and that is the size of the dialog.
+    var full_width_fills = 0
+    for op in painted.ops {
+        switch op {
+            Fill(f) {
+                val fill_box = shape.path_bounds(f.path)
+                if fill_box.width >= 200.0 && fill_box.height >= 100.0 {
+                    full_width_fills = full_width_fills + 1
+                }
+            }
+            StrokePath(_) { unit }
+            Text(_) { unit }
+            DrawImage(_) { unit }
+            Nested(_) { unit }
+        }
+    }
+    test.assert_eq(1, full_width_fills)
+}
+
+// **Translucent, not opaque**: a modal dialog should say "this is waiting for you" rather than "the
+// window is gone", and a user needs to see what they were doing to decide what to answer.
+#[test]
+fn the_scrim_is_translucent() {
+    test.assert(controls.default_style().scrim.alpha > 0.0)
+    test.assert(controls.default_style().scrim.alpha < 1.0)
 }
