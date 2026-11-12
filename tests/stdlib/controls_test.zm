@@ -1199,3 +1199,46 @@ fn a_release_off_the_popup_chooses_nothing() {
     test.assert_eq(0 - 1, released.chosen)
     test.assert(released.menu.open)
 }
+
+// **A text area scrolls itself to keep the caret in view**, which a one-line field has no need of
+// and must not do. The case that matters is that *everything* moving the caret scrolls -- naming
+// the movement keys is how a text area ends up with a scroll that works for Down and not for typing.
+#[test]
+fn a_text_area_scrolls_to_follow_its_caret() {
+    val view_box = geom.rect_of(0.0, 0.0, 200.0, 40.0)
+    val many = concat("a\nb\nc\nd\ne\nf\ng\nh\ni\nj")
+    val tall = with area(many) { editor: edit.place_caret(edit.editor_of(many), 0, false) }
+    test.assert_eq(0.0, tall.scroll)
+    // End of the text: the last line is far below a 40 point box, so the view has to move.
+    val toEnd = controls.entry_input(tall, press(controls.Key.End), view_box, controls.default_style(), metrics())
+    val down = controls.entry_input(
+        with toEnd.entry { editor: edit.place_caret(toEnd.entry.editor, len(many), false) },
+        press(controls.Key.Right),
+        box,
+        controls.default_style(),
+        metrics()
+    )
+    test.assert(down.entry.scroll > 0.0)
+}
+
+#[test]
+fn a_one_line_field_never_scrolls() {
+    val view_box = geom.rect_of(0.0, 0.0, 200.0, 20.0)
+    val field = controls.entry_of("name", "Name", "a long value that will not fit in the box at all")
+    val step = controls.entry_input(field, press(controls.Key.End), view_box, controls.default_style(), metrics())
+    test.assert_eq(0.0, step.entry.scroll)
+}
+
+// Typing moves the view as surely as an arrow does: a run of newlines walks off the bottom.
+#[test]
+fn typing_scrolls_a_text_area_too() {
+    val view_box = geom.rect_of(0.0, 0.0, 200.0, 40.0)
+    var a = area("")
+    var i = 0
+    while i < 12 {
+        val step = controls.entry_input(a, press(controls.Key.Enter), view_box, controls.default_style(), metrics())
+        a = step.entry
+        i = i + 1
+    }
+    test.assert(a.scroll > 0.0)
+}

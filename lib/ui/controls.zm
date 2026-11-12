@@ -398,6 +398,11 @@ pub struct Entry {
     // newline has always been an ordinary character in that string. A separate `TextArea` would have
     // been a second copy of all of it to gain a field.
     rows: int
+    // How far the text is scrolled, in points. **A text area scrolls itself**, because the only
+    // thing that knows where the caret went is the code that moved it -- a caller would have to
+    // recompute the caret's line to follow it, which is the control's own arithmetic done twice.
+    // Zero and unused for a one-line field.
+    scroll: float
 }
 
 pub fn entry_of(name: string, label: string, text: string) -> Entry {
@@ -410,7 +415,8 @@ pub fn entry_of(name: string, label: string, text: string) -> Entry {
         readonly: false,
         dragging: false,
         typing: false,
-        rows: 1
+        rows: 1,
+        scroll: 0.0
     }
 }
 
@@ -436,10 +442,38 @@ pub struct EntryStep {
 //
 // `bounds`, `style` and `m` are all here for one reason: a press carries a pixel and a caret is an
 // index, so placing the caret where the user clicked needs the same measurement the layout used.
+// The scroll a text area needs to keep its caret in view, after whatever just happened to it.
+//
+// **Applied to every step rather than to the movement keys**, because everything moves the caret:
+// typing runs off the bottom of the box as surely as Down does, a click places it, Home and End
+// move it, and a delete can pull it up a line. Naming the keys that scroll is how a text area ends
+// up with one that does not.
+fn following_caret(step: EntryStep, bounds: Rect, style: Style, m: widget.Metrics) -> EntryStep {
+    val e = step.entry
+    if e.rows <= 1 {
+        return step
+    }
+    val height = m.line_height
+    val line = height(style.text_size)
+    val at = edit.line_index(e.editor.text, e.editor.caret)
+    val view = bounds.height - style.padding.top - style.padding.bottom
+    return EntryStep {
+        entry: with e {
+            scroll: widget.scroll_to_reveal(view, e.scroll, (at as float) * line, line)
+        },
+        copied: step.copied,
+        changed: step.changed
+    }
+}
+
 pub fn entry_input(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metrics) -> EntryStep {
     if e.disabled {
         return kept(with e { dragging: false })
     }
+    return following_caret(entry_step(e, input, bounds, style, m), bounds, style, m)
+}
+
+fn entry_step(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metrics) -> EntryStep {
     return switch input {
         Text(what) { typed(e, what) }
         Paste(what) { pasted(e, what) }
@@ -746,7 +780,7 @@ fn multi_line_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget
         value: text,
         state: with widget.no_state() { disabled: e.disabled, readonly: e.readonly, multiline: true },
         tab_stop: true,
-        child: widget.named_scroll(concat(e.name, "-scroll"), 0.0, 0.0, inside)
+        child: widget.named_scroll(concat(e.name, "-scroll"), 0.0, e.scroll, inside)
     })
 }
 

@@ -472,6 +472,11 @@ pub struct Entry {
     // newline has always been an ordinary character in that string. A separate `TextArea` would have
     // been a second copy of all of it to gain a field.
     rows: int
+    // How far the text is scrolled, in points. **A text area scrolls itself**, because the only
+    // thing that knows where the caret went is the code that moved it -- a caller would have to
+    // recompute the caret's line to follow it, which is the control's own arithmetic done twice.
+    // Zero and unused for a one-line field.
+    scroll: float
 }
 ```
 
@@ -517,11 +522,6 @@ pub struct EntryStep {
 ```
 pub fn entry_input(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metrics) -> EntryStep
 ```
-
-What an input does to a field.
-
-`bounds`, `style` and `m` are all here for one reason: a press carries a pixel and a caret is an
-index, so placing the caret where the user clicked needs the same measurement the layout used.
 
 ### `caret_at_x`
 
