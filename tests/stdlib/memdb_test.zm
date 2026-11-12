@@ -413,9 +413,40 @@ fn seeding_is_linear_in_the_rows() {
     // is amortised O(1) -- but a uniqueness index rebuilt per statement. Keeping the index on the
     // table made 4,000 single-row inserts go from 48 seconds to half a second. 8x is the slack for
     // a collector pause, and still well under the 16x a return to quadratic would cost.
-    val small = timed_seed(300)
-    val large = timed_seed(1200)
+    //
+    // **Bigger seeds, best of three, after a warm-up -- and none of that is tidiness.** This
+    // assertion was 300 against 1200 and a single sample each, and it failed about half the time
+    // in `make check` while passing every time on its own. **Adding ten tests to an unrelated
+    // file flipped it**: F280's `controls` tests sort before this one, and took the full-suite run
+    // from 0 failures in 4 to 2 in 4 with this file untouched.
+    //
+    // The cause is the collector, and a probe in a clean process shows what is really being
+    // measured -- 150/300/600/1200/2400 rows cost 8/15/29/54/95 ms, so the growth is linear and
+    // 4x the rows is **3.6x** the time, nowhere near the 8x bound. Inside the suite, after seven
+    // hundred other tests have filled the heap, the 1200-row seed read 80 ms against the same
+    // 300-row seed's 10: the pause scales with the heap, not with the rows, and at 10 ms it
+    // swamped the signal. Seeding four times as much makes the measurement big enough to survive
+    // one, the minimum of three throws out the runs that caught a pause (a pause can only *add*
+    // time), and the warm-up keeps one-off allocator growth out of the first sample. What is
+    // asserted has not changed.
+    val _ = timed_seed(300)
+    val small = fastest_seed(600)
+    val large = fastest_seed(2400)
     test.assert_lt(large, math.max(small, 1) * 8)
+}
+
+// The quickest of three, because a collector pause can only make a measurement longer.
+fn fastest_seed(rows: int) -> int {
+    var best = timed_seed(rows)
+    var i = 1
+    while i < 3 {
+        val one = timed_seed(rows)
+        if one < best {
+            best = one
+        }
+        i = i + 1
+    }
+    return best
 }
 
 fn timed_seed(rows: int) -> int {
