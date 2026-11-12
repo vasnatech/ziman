@@ -228,6 +228,7 @@ static AtkRole role_for(int64_t code) {
         case 16: return ATK_ROLE_PANEL;
         case 17: return ATK_ROLE_LABEL;
         case 18: return ATK_ROLE_FRAME;
+        case 19: return ATK_ROLE_PASSWORD_TEXT;
         default: return ATK_ROLE_UNKNOWN;
     }
 }

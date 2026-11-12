@@ -45,6 +45,7 @@ fn code_of(r: Role) -> int {
         CheckBox { 2 }
         RadioButton { 3 }
         TextField { 4 }
+        Password { 19 }
         Slider { 5 }
         Link { 6 }
         List { 7 }

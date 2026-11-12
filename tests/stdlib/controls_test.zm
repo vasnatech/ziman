@@ -1485,3 +1485,124 @@ fn said_of_tree(t: a11y.Tree, name: string) -> string {
         None { concat("(no node named ", name, ")") }
     }
 }
+
+// ---------------------------------------------------- the masked field
+
+fn secret() -> controls.Entry {
+    return controls.password_of("pass", "Password", "hunter2")
+}
+
+val secret_box = geom.rect_of(0.0, 0.0, 200.0, 24.0)
+
+// One bullet per character, so every index into the text is the same index into what is drawn.
+#[test]
+fn a_masked_field_shows_bullets_and_not_the_text() {
+    test.assert_eq(controls.shown_text(secret()), "•••••••")
+    test.assert_eq(len(controls.shown_text(secret())), len("hunter2"))
+    test.assert_eq(controls.shown_text(controls.entry_of("url", "URL", "hunter2")), "hunter2")
+}
+
+// **The secret never enters the accessibility tree**, rather than entering it and being filtered
+// downstream -- a reader, a remote bridge and a test dump all read the one published string.
+#[test]
+fn a_masked_field_publishes_the_mask_and_announces_a_password() {
+    val w = controls.entry_widget(secret(), controls.default_style(), metrics())
+    test.assert_eq(said_of(w, "pass"), "password text, Password, •••••••")
+    test.assert_false(contains(said_of(w, "pass"), "hunter2"))
+}
+
+// A click lands on the bullet it was aimed at, which is only true if the thing measured is the
+// thing drawn. `metrics()` here gives every character the same width, so a press 2.5 characters in
+// must place the caret at 3 -- and it would land somewhere else only if the press measured the
+// real text while the widget drew the mask. (It cannot differ under *these* metrics, which is why
+// the test below exists as well.)
+#[test]
+fn a_press_in_a_masked_field_places_the_caret_where_it_looks() {
+    val taken = controls.entry_input(
+        secret(),
+        controls.Input.Press(geom.point_of(secret_box.x + 8.0 + 25.0, 10.0)),
+        secret_box,
+        controls.default_style(),
+        metrics()
+    )
+    test.assert_eq(taken.entry.editor.caret, 3)
+}
+
+// The real guard on that, in a font where a bullet is **not** the width of the characters it
+// hides: measuring the text instead of the mask puts the caret under a different bullet, and only
+// metrics that tell the two apart can see it.
+#[test]
+fn the_caret_follows_the_mask_in_a_font_where_a_bullet_is_wider() {
+    val wide_bullet = widget.metrics_of(
+        fn(text: string, size: float) -> float {
+            var w = 0.0
+            for c in chars(text) {
+                w = w + (if c == "•" { 20.0 } else { 10.0 })
+            }
+            return w
+        },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+    val taken = controls.entry_input(
+        secret(),
+        controls.Input.Press(geom.point_of(secret_box.x + 8.0 + 50.0, 10.0)),
+        secret_box,
+        controls.default_style(),
+        wide_bullet
+    )
+    // 50 points into a run of 20-point bullets is between the second and the third.
+    test.assert_eq(taken.entry.editor.caret, 3)
+}
+
+// **A masked field will not put its contents on the clipboard.** A control whose whole purpose is
+// that its text is not shown cannot be the one that hands it to every other program on the
+// machine.
+#[test]
+fn a_masked_field_copies_nothing() {
+    val select_all = controls.Input.KeyDown(with controls.keystroke_of(controls.Key.Char("a")) {
+        control: true
+    })
+    val chosen = controls.entry_input(secret(), select_all, secret_box, controls.default_style(), metrics())
+    val copy = controls.Input.KeyDown(with controls.keystroke_of(controls.Key.Char("c")) {
+        control: true
+    })
+    val taken = controls.entry_input(chosen.entry, copy, secret_box, controls.default_style(), metrics())
+    test.assert_eq(taken.copied, "")
+
+    // The same gesture on an ordinary field does copy, or the test above would pass on a field
+    // that simply never copies anything.
+    val plain = controls.entry_of("url", "URL", "hunter2")
+    val plain_chosen = controls.entry_input(plain, select_all, secret_box, controls.default_style(), metrics())
+    val plain_taken = controls.entry_input(plain_chosen.entry, copy, secret_box, controls.default_style(), metrics())
+    test.assert_eq(plain_taken.copied, "hunter2")
+}
+
+// **Cutting still deletes.** What is refused is handing the text out, not the editing -- and the
+// no-op test has to ask the editor rather than the copied string, which is "" for a masked field
+// by design.
+#[test]
+fn a_masked_field_still_cuts_even_though_it_hands_nothing_out() {
+    val select_all = controls.Input.KeyDown(with controls.keystroke_of(controls.Key.Char("a")) {
+        control: true
+    })
+    val chosen = controls.entry_input(secret(), select_all, secret_box, controls.default_style(), metrics())
+    val cut = controls.Input.KeyDown(with controls.keystroke_of(controls.Key.Char("x")) {
+        control: true
+    })
+    val taken = controls.entry_input(chosen.entry, cut, secret_box, controls.default_style(), metrics())
+    test.assert_eq(taken.copied, "")
+    test.assert_eq(taken.entry.editor.text, "")
+    test.assert(taken.changed)
+}
+
+// A multi-line password is not a thing, and the multi-line widget draws the text -- so `rows`
+// cannot be the field that decides, or there is a way to build one that masks in one place and
+// not the other.
+#[test]
+fn a_masked_field_is_one_line_whatever_rows_says() {
+    val tall = with secret() { rows: 4 }
+    test.assert_eq(
+        said_of(controls.entry_widget(tall, controls.default_style(), metrics()), "pass"),
+        "password text, Password, •••••••"
+    )
+}

@@ -88,6 +88,7 @@ check 'combo box: "Environment" = "staging" (7 chars)' combo_box
 # `café ☕` is 6 characters and 9 bytes, so the count is where a byte/character mix-up shows: the
 # text comes back right either way, because the copy stops at the NUL.
 check 'entry: "Note" = "café ☕" (6 chars)' non_ascii_value_round_trips
+check 'password text: "Password" = "•••••••" (7 chars)' password_is_masked_on_the_bus
 check 'list: "Rows"' list
 check 'list item: "first"' list_item
 # **Which row is selected, which is the only thing that changes as a user arrows through a list.**
@@ -112,6 +113,16 @@ if printf '%s\n' "$seen" | grep -q 'combo box: "Environment" = "staging"'; then
 else
     echo "FAIL a11y_a_choice_announces_what_is_chosen (got: $(printf '%s' "$seen" | grep 'combo box' | tr '\n' '|'))"
     fail=1
+fi
+# **The only check here that asserts an absence, and the reason the password field is in the
+# fixture.** Everything else asks whether a fact arrived; this asks whether a secret did not. A
+# masked field that drew bullets and published its contents would pass every other line on this
+# page and read the password out loud to the first person using a screen reader.
+if printf '%s\n' "$seen" | grep -qF 'hunter2'; then
+    echo "FAIL a11y_a_password_never_reaches_the_bus ($(printf '%s' "$seen" | grep -F 'hunter2' | tr '\n' '|'))"
+    fail=1
+else
+    echo "PASS a11y_a_password_never_reaches_the_bus"
 fi
 if [ "$(printf '%s\n' "$seen" | grep -c 'focused')" = "1" ]; then
     echo "PASS a11y_exactly_one_node_is_focused"

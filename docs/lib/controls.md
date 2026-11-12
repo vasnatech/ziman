@@ -477,6 +477,14 @@ pub struct Entry {
     // recompute the caret's line to follow it, which is the control's own arithmetic done twice.
     // Zero and unused for a one-line field.
     scroll: float
+    // Shown as a run of bullets rather than as itself, and **published to a screen reader the same
+    // way**: the real text leaves this module only when the application asks the field for it.
+    //
+    // A field, not a second control, for `rows`'s reason: everything else about a password field
+    // is a text field -- the caret, the selection, the undo, the click that places a caret -- and
+    // the three things that differ are what is drawn, what `Role` it declares, and that it will
+    // not put its contents on the clipboard.
+    masked: bool
 }
 ```
 
@@ -500,6 +508,29 @@ pub fn text_area_of(name: string, label: string, text: string, rows: int) -> Ent
 
 A field `rows` lines tall: Enter inserts a newline, Up and Down move by line, and the text is
 drawn a line at a time.
+
+### `password_of`
+
+```
+pub fn password_of(name: string, label: string, text: string) -> Entry
+```
+
+A field for a secret: drawn as bullets, announced as a password, and refusing the clipboard.
+
+**One line, always.** A multi-line password is not a thing, and the multi-line widget would draw
+the text, so `entry_widget` sends a masked field down the one-line path whatever `rows` says
+rather than leaving a way to build a field that masks in one place and not the other.
+
+### `shown_text`
+
+```
+pub fn shown_text(e: Entry) -> string
+```
+
+**What is drawn and what is published -- which must be the same string the caret is measured
+against.** A mask is one bullet per character, so every index into the text is the same index
+into this; measuring the real text and drawing the mask would put the caret under the wrong
+bullet in any font where a bullet is not the width of an `e`.
 
 ### `EntryStep`
 

@@ -413,6 +413,11 @@ pub enum Role {
     CheckBox
     RadioButton
     TextField
+    // A field whose contents must not be shown or read out. **A role rather than a flag on
+    // `TextField`**, because every layer below has to treat it differently -- a reader announces
+    // it so a user knows not to say what they type aloud, and the platform bridge uses the role to
+    // decide that this node's text is not for speaking.
+    Password
     Slider
     Link
     List

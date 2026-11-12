@@ -7,7 +7,8 @@
 //
 // The controls are chosen for their roles rather than to look like an application: a button, a text
 // field and a combo box map to three different AT-SPI roles, and the last one is the role added the
-// same day a value picker needed it.
+// same day a value picker needed it. The password field is here for the opposite reason -- not to
+// check that something arrives, but that something does **not**.
 use a11y
 use atspi
 use clock
@@ -50,6 +51,15 @@ fn main() {
         // character the first time anyone typed an accent.
         controls.entry_widget(
             controls.entry_of("note", "Note", "café ☕"),
+            controls.default_style(),
+            metrics()
+        ),
+        // **A password, because the one thing this control promises is that its text does not
+        // leave the process -- and the accessibility bus is the way out nobody looks at.** A
+        // masked field that drew bullets and published its contents would look right in every
+        // screenshot and read the secret out loud.
+        controls.entry_widget(
+            controls.password_of("pass", "Password", "hunter2"),
             controls.default_style(),
             metrics()
         ),

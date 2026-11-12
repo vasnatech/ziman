@@ -45,3 +45,4 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F269 to F277 — desktop applications (route B)](f269-f277.md)
 - [F278 to F279 — the builder half of the variadic builtins](f278-f279.md)
 - [F280 — the tab strip](f280.md)
+- [F281 — the masked field](f281.md)

@@ -403,6 +403,14 @@ pub struct Entry {
     // recompute the caret's line to follow it, which is the control's own arithmetic done twice.
     // Zero and unused for a one-line field.
     scroll: float
+    // Shown as a run of bullets rather than as itself, and **published to a screen reader the same
+    // way**: the real text leaves this module only when the application asks the field for it.
+    //
+    // A field, not a second control, for `rows`'s reason: everything else about a password field
+    // is a text field -- the caret, the selection, the undo, the click that places a caret -- and
+    // the three things that differ are what is drawn, what `Role` it declares, and that it will
+    // not put its contents on the clipboard.
+    masked: bool
 }
 
 pub fn entry_of(name: string, label: string, text: string) -> Entry {
@@ -416,7 +424,8 @@ pub fn entry_of(name: string, label: string, text: string) -> Entry {
         dragging: false,
         typing: false,
         rows: 1,
-        scroll: 0.0
+        scroll: 0.0,
+        masked: false
     }
 }
 
@@ -425,6 +434,29 @@ pub fn entry_of(name: string, label: string, text: string) -> Entry {
 pub fn text_area_of(name: string, label: string, text: string, rows: int) -> Entry {
     return with entry_of(name, label, text) { rows: if rows < 1 { 1 } else { rows } }
 }
+
+// A field for a secret: drawn as bullets, announced as a password, and refusing the clipboard.
+//
+// **One line, always.** A multi-line password is not a thing, and the multi-line widget would draw
+// the text, so `entry_widget` sends a masked field down the one-line path whatever `rows` says
+// rather than leaving a way to build a field that masks in one place and not the other.
+pub fn password_of(name: string, label: string, text: string) -> Entry {
+    return with entry_of(name, label, text) { masked: true }
+}
+
+// **What is drawn and what is published -- which must be the same string the caret is measured
+// against.** A mask is one bullet per character, so every index into the text is the same index
+// into this; measuring the real text and drawing the mask would put the caret under the wrong
+// bullet in any font where a bullet is not the width of an `e`.
+pub fn shown_text(e: Entry) -> string {
+    if !e.masked {
+        return e.editor.text
+    }
+    return join(separator: "", pieces: mutable_array_filled(len(e.editor.text), bullet))
+}
+
+// U+2022, written as itself because this language has no `\u` escape.
+val bullet = "•"
 
 pub struct EntryStep {
     entry: Entry
@@ -483,7 +515,10 @@ fn entry_step(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metr
             kept(with e {
                 editor: edit.place_caret(
                     e.editor,
-                    caret_at_x(e.editor.text, style.text_size, m, p.x - text_left(bounds, style)),
+                    // **`shown_text`, not `e.editor.text`** -- a click lands on the bullet the
+                    // user aimed at, which is only the same index if the thing measured is the
+                    // thing drawn.
+                    caret_at_x(shown_text(e), style.text_size, m, p.x - text_left(bounds, style)),
                     false
                 ),
                 dragging: true,
@@ -495,7 +530,7 @@ fn entry_step(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metr
                 kept(with e {
                     editor: edit.place_caret(
                         e.editor,
-                        caret_at_x(e.editor.text, style.text_size, m, p.x - text_left(bounds, style)),
+                        caret_at_x(shown_text(e), style.text_size, m, p.x - text_left(bounds, style)),
                         true
                     )
                 })
@@ -593,12 +628,26 @@ fn changed_by(e: Entry, editor: edit.Editor) -> EntryStep {
 
 // Copying changes nothing, which is why it answers the text and the same field back.
 fn copied_from(e: Entry) -> EntryStep {
-    return EntryStep { entry: with e { typing: false }, copied: edit.copy(e.editor), changed: false }
+    return EntryStep { entry: with e { typing: false }, copied: taken_from(e), changed: false }
+}
+
+// What a copy or a cut hands out. **A masked field hands out nothing**, because a control whose
+// whole purpose is that its contents are not shown cannot be the thing that puts them on a
+// system-wide clipboard every other program can read. The selection still moves and a cut still
+// deletes -- what is refused is the copy, not the editing.
+fn taken_from(e: Entry) -> string {
+    if e.masked {
+        return ""
+    }
+    return edit.copy(e.editor)
 }
 
 fn cut_from(e: Entry) -> EntryStep {
-    val text = edit.copy(e.editor)
-    if e.readonly || text == "" {
+    val text = taken_from(e)
+    // **A masked field still cuts**, which is why this asks the editor rather than `text`: `text`
+    // is "" for one by design, and keying the no-op off it would turn Ctrl-X into a key that does
+    // nothing in the one field where deleting a selection matters most.
+    if e.readonly || !edit.has_selection(e.editor) {
         // **A read-only field still copies**, and cutting from one is a copy rather than nothing:
         // the user asked for the text, and refusing to give it is not what read-only means.
         return EntryStep { entry: with e { typing: false }, copied: text, changed: false }
@@ -785,13 +834,16 @@ fn multi_line_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget
 }
 
 pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget {
-    if e.rows > 1 {
+    // **A masked field takes the one-line path whatever `rows` says.** A multi-line password is
+    // not a thing, and `multi_line_widget` draws the text -- so leaving `rows` able to decide
+    // would leave a way to build a field that masks in one place and not the other.
+    if e.rows > 1 && !e.masked {
         return multi_line_widget(e, style, m)
     }
     val ink = if e.disabled { style.disabled_ink } else { style.ink }
     val height = m.line_height
     val line = height(style.text_size)
-    val text = e.editor.text
+    val text = shown_text(e)
     val from = edit.selection_start(e.editor)
     val to = edit.selection_end(e.editor)
     val before = widget.label_of(substring(text, 0, from), style.text_size, ink)
@@ -826,10 +878,14 @@ pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget 
     })
     return widget.Widget.Control(widget.Focusable {
         name: e.name,
-        role: widget.Role.TextField,
+        role: if e.masked { widget.Role.Password } else { widget.Role.TextField },
         label: e.label,
         description: "",
-        // The field's content, which is what a reader says after the name.
+        // The field's content, which is what a reader says after the name -- and for a masked
+        // field that is `text`, which is already the bullets. **The secret never enters the
+        // accessibility tree at all**, rather than entering it and being filtered somewhere
+        // downstream: a reader, a remote bridge and a test dump all read this one string, and
+        // there is no second place to remember.
         value: text,
         state: with widget.no_state() { disabled: e.disabled, readonly: e.readonly },
         tab_stop: true,

@@ -375,6 +375,7 @@ fn role_word(r: Role) -> string {
         CheckBox { "check box" }
         RadioButton { "radio button" }
         TextField { "text field" }
+        Password { "password text" }
         Slider { "slider" }
         Link { "link" }
         List { "list" }
