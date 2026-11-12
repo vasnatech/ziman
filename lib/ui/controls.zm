@@ -147,7 +147,13 @@ pub enum Input {
 // **A wheel goes to the control under the pointer and ignores the focus entirely**, because that is
 // what a user means: scrolling the list they are pointing at, not the one that happens to have the
 // keyboard. Over nothing it goes nowhere rather than to the focus.
-
+//
+// **To the nearest *tab stop* under the pointer, not the innermost control**, which is the same
+// resolution a press gets and for the same reason. `focus.control_at` answers a list's row or a
+// tree's item -- a `part_of`, something a click and a reader can reach and that no application
+// holds a state for -- so a wheel routed that way named a control nobody could handle and was
+// dropped on the floor. **The wheel had never scrolled a list or a tree in any application.**
+// Found by painting a scroll bar: the indicator sat still while the window said it should move.
 pub fn target(l: Laid, input: Input, focused: string) -> string {
     return switch input {
         KeyDown(_) { focused }
@@ -157,14 +163,9 @@ pub fn target(l: Laid, input: Input, focused: string) -> string {
         Press(p) { focus.clicked(l, p, focused) }
         Release(_) { focused }
         Move(_) { focused }
-        Wheel(w) { under_pointer(l, w.at) }
-    }
-}
-
-fn under_pointer(l: Laid, p: Point) -> string {
-    return switch focus.control_at(l, p) {
-        Some(one) { one.name }
-        None { "" }
+        // `""` as the fallback, which is what keeps "over nothing goes nowhere" true: `clicked`
+        // answers its third argument when the point is over no tab stop at all.
+        Wheel(w) { focus.clicked(l, w.at, "") }
     }
 }
 

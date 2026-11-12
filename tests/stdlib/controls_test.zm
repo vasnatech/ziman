@@ -2186,3 +2186,24 @@ fn fill_box(op: scene.Op) -> geom.Rect {
         Nested(_) { geom.rect_of(0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0) }
     }
 }
+
+// **A wheel over a list's row has to reach the list, not the row.** `control_at` answers the
+// innermost control, which for a list or a tree is a `part_of` -- a thing a click and a reader can
+// reach and that no application holds a state for. So a wheel routed that way named a control
+// nobody could handle, and was dropped: the wheel had never scrolled a list or a tree in any
+// application. Found by painting a scroll bar, which made the absence visible.
+#[test]
+fn a_wheel_over_a_row_is_routed_to_the_list() {
+    val l = laid_list(five())
+    val over_a_row = controls.Input.Wheel(controls.Wheel {
+        at: geom.point_of(20.0, 30.0),
+        vertical: 0 - 1,
+        horizontal: 0
+    })
+    // The row is what `control_at` finds, and it is *not* what the wheel is for.
+    test.assert_eq(switch focus.control_at(l, geom.point_of(20.0, 30.0)) {
+        Some(one) { one.name }
+        None { "(nothing)" }
+    }, controls.row_name(five(), 1))
+    test.assert_eq(controls.target(l, over_a_row, ""), "people")
+}
