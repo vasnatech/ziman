@@ -50,6 +50,8 @@ fn code_of(r: Role) -> int {
         Link { 6 }
         List { 7 }
         ListItem { 8 }
+        Tree { 20 }
+        TreeItem { 21 }
         Tab { 9 }
         TabList { 10 }
         Menu { 11 }

@@ -89,6 +89,17 @@ check 'combo box: "Environment" = "staging" (7 chars)' combo_box
 # text comes back right either way, because the copy stops at the NUL.
 check 'entry: "Note" = "café ☕" (6 chars)' non_ascii_value_round_trips
 check 'password text: "Password" = "•••••••" (7 chars)' password_is_masked_on_the_bus
+# **Three facts a row of a tree carries that no other control here does**: that it is a tree item,
+# that it can be opened, and whether it is open. A reader with only the first cannot tell a folder
+# from a request, and one with only the first two cannot tell an open folder from a shut one.
+check 'tree: "Collections"' tree
+check 'tree item: "api" [selected, expandable, expanded]' tree_branch_says_it_is_open
+check 'tree item: "archive" [expandable]' tree_branch_says_it_is_shut
+# A leaf must publish **neither** state: `expandable` on one offers a reader a way to open
+# something that cannot be opened.
+check 'tree item: "login"' tree_leaf_claims_nothing
+# ...and that line would also match a leaf that published both, since the states print after it --
+# so the absence is asserted on its own below.
 check 'list: "Rows"' list
 check 'list item: "first"' list_item
 # **Which row is selected, which is the only thing that changes as a user arrows through a list.**
@@ -114,7 +125,16 @@ else
     echo "FAIL a11y_a_choice_announces_what_is_chosen (got: $(printf '%s' "$seen" | grep 'combo box' | tr '\n' '|'))"
     fail=1
 fi
-# **The only check here that asserts an absence, and the reason the password field is in the
+# The leaf's states, asserted as an absence because a prefix match cannot see one: `tree item:
+# "login"` matches whatever follows it.
+if printf '%s\n' "$seen" | grep -qE 'tree item: "login" \['; then
+    echo "FAIL a11y_a_leaf_publishes_no_expansion_state ($(printf '%s' "$seen" | grep -F 'tree item: "login"' | tr '\n' '|'))"
+    fail=1
+else
+    echo "PASS a11y_a_leaf_publishes_no_expansion_state"
+fi
+
+# **The only other check here that asserts an absence, and the reason the password field is in the
 # fixture.** Everything else asks whether a fact arrived; this asks whether a secret did not. A
 # masked field that drew bullets and published its contents would pass every other line on this
 # page and read the password out loud to the first person using a screen reader.

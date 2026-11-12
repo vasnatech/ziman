@@ -76,6 +76,17 @@ fn main() {
             tab_stop: true,
             child: widget.fixed_of(60.0, 20.0, widget.label_of("Revert", 11.0, paint.black()))
         }),
+        // **A tree, because a row of it carries a fact no other control here has**: whether it
+        // can be opened, and whether it is. A reader that hears "tree item, api" and nothing else
+        // cannot tell a folder from a request.
+        controls.tree_widget(
+            controls.tree_of("files", "Collections", [
+                controls.tree_branch("api", 0, true),
+                controls.tree_row("login", 1),
+                controls.tree_branch("archive", 0, false)
+            ]),
+            controls.default_style()
+        ),
         // **A real list, not two labels standing in for one.** `control_of` sets no state, so a
         // hand-built list asserts the roles and nothing about the selection -- and a reader that
         // cannot tell which row is selected tells a user nothing as they arrow through it.

@@ -1255,6 +1255,357 @@ pub fn tab_name(t: Tabs, index: int) -> string {
     return concat(t.name, "/", str(index))
 }
 
+// -------------------------------------------------------------------- the tree
+
+// A row of a tree, as the application hands it over.
+//
+// **Flat with a depth, not nested.** A nested structure would have to be walked to draw, walked to
+// hit-test and walked again to move the selection, and every one of those walks is the same
+// projection -- the rows in order, with the ones under a closed branch left out. Doing it once, as
+// a list, is what lets the rest of this control be the list's code with an indent.
+pub struct TreeRow {
+    label: string
+    // How deep, 0 at the top.
+    depth: int
+    // Whether it can be opened. **Declared rather than worked out from the next row's depth**,
+    // because a branch with nothing in it yet is still a branch: a tree that inferred this would
+    // draw an empty folder as a leaf, and a user would have no way to see that it is empty rather
+    // than missing.
+    expandable: bool
+    expanded: bool
+}
+
+pub fn tree_row(label: string, depth: int) -> TreeRow {
+    return TreeRow { label: label, depth: depth, expandable: false, expanded: false }
+}
+
+pub fn tree_branch(label: string, depth: int, expanded: bool) -> TreeRow {
+    return TreeRow { label: label, depth: depth, expandable: true, expanded: expanded }
+}
+
+// A tree: rows at depths, branches that open and close, one selected.
+//
+// **One tab stop and a node per visible row**, which is `List`'s bargain again. Not a `List` with
+// a depth, though: the arrows mean different things here -- Left closes a branch or climbs to its
+// parent, Right opens one or steps into it -- and that contract is the difference between a tree
+// and an indented list.
+pub struct Tree {
+    name: string
+    label: string
+    rows: [TreeRow]
+    // The selected row, **as an index into `rows` and not into the visible ones**. Collapsing a
+    // branch must not silently move the selection onto a different thing, and an index into a
+    // projection does exactly that.
+    selected: int
+    offset: float
+    row_height: float
+    // How far one level indents, and the width of the mark a branch draws -- one number, because
+    // the press that toggles a branch has to find the mark where the widget drew it. The hit test
+    // and the layout each compute it from this, as the tab strip's `tab_width` is shared.
+    indent: float
+    disabled: bool
+}
+
+pub fn tree_of(name: string, label: string, rows: [TreeRow]) -> Tree {
+    return Tree {
+        name: name,
+        label: label,
+        rows: rows,
+        selected: if len(rows) == 0 { 0 - 1 } else { 0 },
+        offset: 0.0,
+        row_height: 20.0,
+        indent: 16.0,
+        disabled: false
+    }
+}
+
+// The rows that are on screen, in order, as indices into `rows`: everything except what sits under
+// a closed branch. **One pass, not a visibility test per row** -- the test is "is any ancestor
+// closed", and walking back up from each row to answer it is the same walk done n times.
+pub fn visible_rows(t: Tree) -> [int] {
+    val out = mutable_array_new<int>()
+    // The depth of the closed branch currently hiding things, or -1.
+    var hidden_under = 0 - 1
+    var i = 0
+    while i < len(t.rows) {
+        val row = t.rows[i]
+        if hidden_under >= 0 && row.depth > hidden_under {
+            i = i + 1
+        } else {
+            hidden_under = 0 - 1
+            push(out, i)
+            if row.expandable && !row.expanded {
+                hidden_under = row.depth
+            }
+            i = i + 1
+        }
+    }
+    return snapshot(out)
+}
+
+pub struct TreeStep {
+    tree: Tree
+    // The selection changed.
+    moved: bool
+    // A row was chosen -- Enter or Space on it. A branch opening is not a choice.
+    activated: bool
+    // A branch was opened or closed, which is a different thing from either: what is on screen
+    // changed and the selection did not.
+    toggled: bool
+}
+
+// What an input does to a tree.
+//
+// `bounds` turns a press into a row the way the list does, and into a *column* besides: a press on
+// the mark at the left of a branch opens or closes it, and a press anywhere else on the row selects
+// it. Both computed from `indent`, which the widget also lays out by.
+pub fn tree_input(t: Tree, input: Input, bounds: Rect) -> TreeStep {
+    if t.disabled {
+        return tree_still(t)
+    }
+    return switch input {
+        Wheel(w) { tree_scrolled(t, t.offset - (w.vertical as float) * t.row_height, bounds) }
+        Press(p) { tree_pressed(t, p, bounds) }
+        KeyDown(k) { tree_key(t, k, bounds) }
+        KeyUp(_) { tree_still(t) }
+        Text(_) { tree_still(t) }
+        Paste(_) { tree_still(t) }
+        Release(_) { tree_still(t) }
+        Move(_) { tree_still(t) }
+    }
+}
+
+fn tree_pressed(t: Tree, p: Point, bounds: Rect) -> TreeStep {
+    val shown = visible_rows(t)
+    val at = floor((p.y - bounds.y + t.offset) / t.row_height)
+    if at < 0 || at >= len(shown) {
+        return tree_still(t)
+    }
+    val which = shown[at]
+    val row = t.rows[which]
+    // The mark sits in the one indent-wide column at this row's own depth.
+    val mark_from = bounds.x + (row.depth as float) * t.indent
+    if row.expandable && p.x >= mark_from && p.x < mark_from + t.indent {
+        return tree_toggled(t, which)
+    }
+    return TreeStep {
+        tree: with t { selected: which },
+        moved: which != t.selected,
+        activated: false,
+        toggled: false
+    }
+}
+
+fn tree_key(t: Tree, k: Keystroke, bounds: Rect) -> TreeStep {
+    val shown = visible_rows(t)
+    if len(shown) == 0 {
+        return tree_still(t)
+    }
+    val per_page = tree_page_rows(t, bounds)
+    val here = shown_index_of(shown, t.selected)
+    if Key.is_Down(k.key) { return tree_to(t, shown, here + 1, bounds) }
+    if Key.is_Up(k.key) { return tree_to(t, shown, here - 1, bounds) }
+    if Key.is_PageDown(k.key) { return tree_to(t, shown, here + per_page, bounds) }
+    if Key.is_PageUp(k.key) { return tree_to(t, shown, here - per_page, bounds) }
+    if Key.is_Home(k.key) { return tree_to(t, shown, 0, bounds) }
+    if Key.is_End(k.key) { return tree_to(t, shown, len(shown) - 1, bounds) }
+    // **Right opens a branch, and opens it only once**: on a branch already open it steps to the
+    // first child, which is what every tree does and what makes Right-Right-Right walk downwards
+    // rather than stopping on the first folder.
+    if Key.is_Right(k.key) {
+        if t.selected >= 0 && t.selected < len(t.rows) {
+            val row = t.rows[t.selected]
+            if row.expandable && !row.expanded {
+                return tree_toggled(t, t.selected)
+            }
+            if row.expandable && row.expanded {
+                return tree_to(t, shown, here + 1, bounds)
+            }
+        }
+        return tree_still(t)
+    }
+    // **Left closes a branch, and from a leaf climbs to the parent**, which is the move that makes
+    // a deep tree navigable: without it the only way out of a folder is Up past every sibling.
+    if Key.is_Left(k.key) {
+        if t.selected >= 0 && t.selected < len(t.rows) {
+            val row = t.rows[t.selected]
+            if row.expandable && row.expanded {
+                return tree_toggled(t, t.selected)
+            }
+            val up = parent_of(t, t.selected)
+            if up >= 0 {
+                return tree_to(t, shown, shown_index_of(shown, up), bounds)
+            }
+        }
+        return tree_still(t)
+    }
+    if Key.is_Enter(k.key) || Key.is_Space(k.key) {
+        if t.selected >= 0 {
+            return TreeStep { tree: t, moved: false, activated: true, toggled: false }
+        }
+    }
+    return tree_still(t)
+}
+
+// The row this one hangs under: the nearest earlier row one level shallower. -1 at the top.
+pub fn parent_of(t: Tree, index: int) -> int {
+    if index < 0 || index >= len(t.rows) {
+        return 0 - 1
+    }
+    val want = t.rows[index].depth - 1
+    if want < 0 {
+        return 0 - 1
+    }
+    var at = index - 1
+    while at >= 0 {
+        if t.rows[at].depth == want {
+            return at
+        }
+        at = at - 1
+    }
+    return 0 - 1
+}
+
+// Where the selection sits among the visible rows, or 0 when it is not visible at all -- which can
+// happen only if a caller collapsed a branch over it, and landing on the top is better than
+// answering -1 and having every arrow key do nothing.
+fn shown_index_of(shown: [int], selected: int) -> int {
+    var i = 0
+    while i < len(shown) {
+        if shown[i] == selected {
+            return i
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+fn tree_to(t: Tree, shown: [int], want: int, bounds: Rect) -> TreeStep {
+    val last = len(shown) - 1
+    val at = if want < 0 { 0 } else { if want > last { last } else { want } }
+    val which = shown[at]
+    val revealed = widget.clamp_offset(
+        widget.scroll_to_reveal(bounds.height, t.offset, (at as float) * t.row_height, t.row_height),
+        bounds.height,
+        (len(shown) as float) * t.row_height
+    )
+    return TreeStep {
+        tree: with t { selected: which, offset: revealed },
+        moved: which != t.selected,
+        activated: false,
+        toggled: false
+    }
+}
+
+// Opening or closing one branch. **The selection does not move** -- a user who opened a folder is
+// still on the folder, and a tree that jumped into it would make Right-then-Left not a round trip.
+fn tree_toggled(t: Tree, index: int) -> TreeStep {
+    val rows = mutable_array_new<TreeRow>()
+    var i = 0
+    while i < len(t.rows) {
+        val row = t.rows[i]
+        push(rows, if i == index { with row { expanded: !row.expanded } } else { row })
+        i = i + 1
+    }
+    return TreeStep {
+        tree: with t { rows: snapshot(rows), selected: index },
+        moved: index != t.selected,
+        activated: false,
+        toggled: true
+    }
+}
+
+fn tree_page_rows(t: Tree, bounds: Rect) -> int {
+    val fits = floor(bounds.height / t.row_height)
+    return if fits < 1 { 1 } else { fits }
+}
+
+fn tree_scrolled(t: Tree, want: float, bounds: Rect) -> TreeStep {
+    val content = (len(visible_rows(t)) as float) * t.row_height
+    return TreeStep {
+        tree: with t { offset: widget.clamp_offset(want, bounds.height, content) },
+        moved: false,
+        activated: false,
+        toggled: false
+    }
+}
+
+fn tree_still(t: Tree) -> TreeStep {
+    return TreeStep { tree: t, moved: false, activated: false, toggled: false }
+}
+
+// The tree as a widget: a `Tree` control over one `TreeItem` part per visible row.
+//
+// Each row is an indent, then the mark a branch draws (nothing, for a leaf), then the label -- all
+// in one row box, so the x the hit test computes from `indent` is the x the mark was drawn at.
+pub fn tree_widget(t: Tree, style: Style) -> widget.Widget {
+    val ink = if t.disabled { style.disabled_ink } else { style.ink }
+    val shown = visible_rows(t)
+    val rows = mutable_array_new<widget.Widget>()
+    var i = 0
+    while i < len(shown) {
+        val which = shown[i]
+        val row = t.rows[which]
+        val chosen = which == t.selected
+        val face = if chosen { style.pressed_face } else { style.face }
+        val mark = if row.expandable {
+            if row.expanded { style.expanded_mark } else { style.collapsed_mark }
+        } else {
+            ""
+        }
+        val inside = widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.insets_of(0.0, 2.0, 4.0, 2.0),
+            background: Option<Color>.Some(face),
+            children: [
+                widget.fixed_of((row.depth as float) * t.indent, 0.0, widget.flex()),
+                widget.fixed_of(t.indent, 0.0, widget.label_of(mark, style.text_size, ink)),
+                widget.label_of(row.label, style.text_size, ink)
+            ],
+            name: ""
+        })
+        push(rows, widget.fixed_of(
+            0.0,
+            t.row_height,
+            widget.part_of(
+                tree_row_name(t, which),
+                widget.Role.TreeItem,
+                row.label,
+                with widget.no_state() {
+                    selected: chosen,
+                    disabled: t.disabled,
+                    // **Declared only for a branch.** `Some(false)` on a leaf publishes
+                    // EXPANDABLE, and a reader would offer to open a thing that cannot be opened.
+                    expanded: if row.expandable {
+                        Option<bool>.Some(row.expanded)
+                    } else {
+                        Option<bool>.None
+                    }
+                },
+                inside
+            )
+        ))
+        i = i + 1
+    }
+    return widget.Widget.Control(widget.Focusable {
+        name: t.name,
+        role: widget.Role.Tree,
+        label: t.label,
+        description: "",
+        value: "",
+        state: with widget.no_state() { disabled: t.disabled },
+        tab_stop: true,
+        child: widget.named_scroll("", 0.0, t.offset, widget.column_of(0.0, snapshot(rows)))
+    })
+}
+
+// A row's name. The tree's name and the index **into `rows`, not into the visible ones**, so that
+// opening a branch above a row does not rename it.
+pub fn tree_row_name(t: Tree, index: int) -> string {
+    return concat(t.name, "/", str(index))
+}
+
 // -------------------------------------------------------- menus and dialogs
 
 // A title on a menu bar and the items that drop from it.
@@ -1602,6 +1953,14 @@ pub struct Style {
     face: Color
     pressed_face: Color
     disabled_ink: Color
+    // The marks a tree's branch draws when it is closed and when it is open.
+    //
+    // **In the style rather than written into the control**, because this layer is handed whatever
+    // font bytes an application found and cannot know what is in them: a face without triangles
+    // would draw two empty boxes and leave every folder looking identical. An application that
+    // knows its font can put anything here, including `">"` and `"v"`.
+    collapsed_mark: string
+    expanded_mark: string
     // What covers the window behind a dialog. **Translucent rather than opaque**, because a modal
     // dialog should say "this is waiting for you" and not "the window is gone" -- a user needs to
     // see what they were doing to decide what to answer.
@@ -1619,6 +1978,8 @@ pub fn default_style() -> Style {
         face: paint.rgb(0.9, 0.9, 0.9),
         pressed_face: paint.rgb(0.75, 0.75, 0.78),
         disabled_ink: paint.rgb(0.6, 0.6, 0.6),
+        collapsed_mark: "▸",
+        expanded_mark: "▾",
         scrim: paint.rgba(0.0, 0.0, 0.0, 0.35)
     }
 }

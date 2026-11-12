@@ -380,6 +380,8 @@ fn role_word(r: Role) -> string {
         Link { "link" }
         List { "list" }
         ListItem { "list item" }
+        Tree { "tree" }
+        TreeItem { "tree item" }
         Tab { "tab" }
         TabList { "tab list" }
         Menu { "menu" }

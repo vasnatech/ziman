@@ -547,6 +547,10 @@ pub enum Role {
     Link
     List
     ListItem
+    // A tree and its rows. `State.expanded` has existed since accessibility was built and nothing
+    // declared these two, which is the same gap `Tab` and `TabList` were in before F280.
+    Tree
+    TreeItem
     Tab
     TabList
     Menu

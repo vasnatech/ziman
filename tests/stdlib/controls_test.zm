@@ -1606,3 +1606,225 @@ fn a_masked_field_is_one_line_whatever_rows_says() {
         "password text, Password, •••••••"
     )
 }
+
+// --------------------------------------------------------------- the tree
+
+// Two collections, one with a folder in it -- the shape curly's sidebar has, which is the shape
+// this control was written for.
+//
+//   api            0  branch, open
+//     auth         1  branch, open
+//       login      2
+//       refresh    2
+//     health       1
+//   empty          0  branch, open, and EMPTY -- the case a derived `expandable` gets wrong
+//   scratch        0  leaf at the top, so "depth 0" and "branch" are not the same thing
+fn forest() -> controls.Tree {
+    return with controls.tree_of("files", "Collections", [
+        controls.tree_branch("api", 0, true),
+        controls.tree_branch("auth", 1, true),
+        controls.tree_row("login", 2),
+        controls.tree_row("refresh", 2),
+        controls.tree_row("health", 1),
+        controls.tree_branch("empty", 0, true),
+        controls.tree_row("scratch", 0)
+    ]) { row_height: 20.0, indent: 16.0 }
+}
+
+val tree_box = geom.rect_of(0.0, 0.0, 200.0, 140.0)
+
+fn to_tree(t: controls.Tree, input: controls.Input) -> controls.TreeStep {
+    return controls.tree_input(t, input, tree_box)
+}
+
+fn tree_key(t: controls.Tree, k: controls.Key) -> controls.TreeStep {
+    return to_tree(t, controls.Input.KeyDown(controls.keystroke_of(k)))
+}
+
+fn labels_shown(t: controls.Tree) -> [string] {
+    val out = mutable_array_new<string>()
+    for at in controls.visible_rows(t) {
+        push(out, t.rows[at].label)
+    }
+    return snapshot(out)
+}
+
+#[test]
+fn everything_is_visible_while_every_branch_is_open() {
+    test.assert_eq(
+        join(separator: " ", pieces: labels_shown(forest())),
+        "api auth login refresh health empty scratch"
+    )
+}
+
+// **A closed branch hides its whole subtree, not just its children.** Closing `api` has to take
+// `login` and `refresh` with it, and a visibility test that only looked one level up would leave
+// two rows on screen with nothing above them.
+#[test]
+fn closing_a_branch_hides_everything_under_it() {
+    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0)))
+    test.assert(shut.toggled)
+    test.assert_eq(join(separator: " ", pieces: labels_shown(shut.tree)), "api empty scratch")
+}
+
+// A press on the label selects; a press on the mark opens or closes. The two are a few points
+// apart on the same row, which is why the hit test needs the column as well as the row.
+#[test]
+fn a_press_on_the_label_selects_where_a_press_on_the_mark_toggles() {
+    val chose = to_tree(forest(), controls.Input.Press(geom.point_of(60.0, 30.0)))
+    test.assert_false(chose.toggled)
+    test.assert_eq(chose.tree.selected, 1)
+    test.assert(chose.moved)
+
+    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(20.0, 30.0)))
+    test.assert(shut.toggled)
+    test.assert_false(shut.tree.rows[1].expanded)
+}
+
+// **A leaf has no mark, so the column it would be in is part of the label.** Pressing there must
+// select rather than quietly do nothing, or a third of every leaf row is dead.
+#[test]
+fn pressing_where_a_leaf_has_no_mark_still_selects_it() {
+    val chose = to_tree(forest(), controls.Input.Press(geom.point_of(36.0, 50.0)))
+    test.assert_false(chose.toggled)
+    test.assert_eq(chose.tree.selected, 2)
+}
+
+// The arrows walk what is on screen, not the array: with `api` closed, Down from it lands on
+// `empty` and not on `auth`.
+#[test]
+fn the_arrows_step_over_what_is_hidden() {
+    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0))).tree
+    test.assert_eq(tree_key(shut, controls.Key.Down).tree.selected, 5)
+    test.assert_eq(t_label(tree_key(shut, controls.Key.Down).tree), "empty")
+}
+
+fn t_label(t: controls.Tree) -> string {
+    if t.selected < 0 || t.selected >= len(t.rows) {
+        return "(none)"
+    }
+    return t.rows[t.selected].label
+}
+
+// **Right opens a closed branch and steps into an open one**, which is what makes Right-Right walk
+// downwards instead of stopping on the first folder.
+#[test]
+fn right_opens_a_branch_then_steps_into_it() {
+    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0))).tree
+    val opened = tree_key(shut, controls.Key.Right)
+    test.assert(opened.toggled)
+    test.assert_eq(t_label(opened.tree), "api")
+    test.assert_eq(t_label(tree_key(opened.tree, controls.Key.Right).tree), "auth")
+}
+
+// **Left closes an open branch and climbs out of a leaf**, which is the move that makes a deep
+// tree navigable: without it the only way out of a folder is Up past every sibling.
+#[test]
+fn left_closes_a_branch_then_climbs_to_the_parent() {
+    val on_login = with forest() { selected: 2 }
+    val up = tree_key(on_login, controls.Key.Left)
+    test.assert_false(up.toggled)
+    test.assert_eq(t_label(up.tree), "auth")
+    val shut = tree_key(up.tree, controls.Key.Left)
+    test.assert(shut.toggled)
+    test.assert_eq(t_label(shut.tree), "auth")
+    test.assert_false(shut.tree.rows[1].expanded)
+}
+
+// Left on a top-level leaf has nowhere to climb to and must not move the selection to row 0 by
+// accident -- `parent_of` answers -1 and the key does nothing.
+#[test]
+fn left_at_the_top_of_the_tree_does_nothing() {
+    val on_scratch = with forest() { selected: 6 }
+    val step = tree_key(on_scratch, controls.Key.Left)
+    test.assert_eq(t_label(step.tree), "scratch")
+    test.assert_false(step.moved)
+    test.assert_false(step.toggled)
+}
+
+// **Opening a branch does not move the selection off it**, or Right-then-Left is not a round trip
+// and a user loses their place every time they look inside a folder.
+#[test]
+fn toggling_leaves_the_selection_where_it_was() {
+    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0)))
+    test.assert_eq(shut.tree.selected, 0)
+    test.assert_false(shut.activated)
+}
+
+// An empty branch is still a branch. A tree that worked `expandable` out from the next row's depth
+// would draw `empty` as a leaf, and a user could not tell an empty folder from a missing one.
+#[test]
+fn an_empty_branch_still_opens_and_closes() {
+    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 110.0)))
+    test.assert(shut.toggled)
+    test.assert_eq(shut.tree.selected, 5)
+    // Nothing was hidden, because there is nothing under it -- but the state changed, which is
+    // what a reader is told.
+    test.assert_eq(join(separator: " ", pieces: labels_shown(shut.tree)), "api auth login refresh health empty scratch")
+}
+
+#[test]
+fn enter_chooses_and_the_arrows_do_not() {
+    test.assert(tree_key(forest(), controls.Key.Enter).activated)
+    test.assert_false(tree_key(forest(), controls.Key.Down).activated)
+}
+
+#[test]
+fn a_disabled_tree_ignores_everything() {
+    val off = with forest() { disabled: true }
+    test.assert_false(to_tree(off, controls.Input.Press(geom.point_of(8.0, 10.0))).toggled)
+    test.assert_false(tree_key(off, controls.Key.Down).moved)
+}
+
+fn laid_tree(t: controls.Tree) -> widget.Laid {
+    return widget.layout(controls.tree_widget(t, controls.default_style()), tree_box, metrics())
+}
+
+// One stop for Tab, one node per **visible** row -- a reader should not be told about rows that
+// are not on screen any more than a sighted user should see them.
+#[test]
+fn a_tree_is_one_tab_stop_and_a_node_per_visible_row() {
+    val open_tree = a11y.tree_of(laid_tree(forest()), "Records", "files")
+    // The window, the tree, and seven rows.
+    test.assert_len(9, open_tree.nodes)
+
+    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0))).tree
+    val shut_tree = a11y.tree_of(laid_tree(shut), "Records", "files")
+    // The window, the tree, and three rows.
+    test.assert_len(5, shut_tree.nodes)
+    test.assert_len(1, focus.controls(laid_tree(shut)))
+}
+
+// **A branch says whether it is open; a leaf says nothing.** `Some(false)` on a leaf publishes
+// EXPANDABLE, and a reader would offer to open a thing that cannot be opened.
+#[test]
+fn a_branch_says_it_is_open_and_a_leaf_says_nothing_about_it() {
+    val t = a11y.tree_of(laid_tree(forest()), "Records", "files")
+    test.assert_eq(said_of_tree(t, "files/0"), "tree item, api, expanded, selected")
+    test.assert_eq(said_of_tree(t, "files/2"), "tree item, login")
+    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0))).tree
+    test.assert_eq(
+        said_of_tree(a11y.tree_of(laid_tree(shut), "Records", "files"), "files/0"),
+        "tree item, api, collapsed, selected"
+    )
+}
+
+#[test]
+fn the_tree_announces_itself_as_a_tree() {
+    test.assert_eq(said_of_tree(a11y.tree_of(laid_tree(forest()), "Records", ""), "files"), "tree, Collections")
+}
+
+// **The hit test and the layout agree on where a row's mark is**, the tab strip's rule again: the
+// widget indents by `indent` per level and the press divides by it, so a sweep across the row must
+// put the mark exactly where the layout drew the label's left edge minus one indent.
+#[test]
+fn the_mark_a_press_toggles_is_where_the_layout_drew_it() {
+    // `auth` sits at depth 1, so its mark is the second indent-wide column.
+    val on_mark = to_tree(forest(), controls.Input.Press(geom.point_of(16.0 + 8.0, 30.0)))
+    test.assert(on_mark.toggled)
+    // One indent to the left is `api`'s column, which on this row is empty space, so a press there
+    // selects rather than toggling -- the thing that breaks if the two disagree by one level.
+    val left_of_it = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 30.0)))
+    test.assert_false(left_of_it.toggled)
+    test.assert_eq(left_of_it.tree.selected, 1)
+}

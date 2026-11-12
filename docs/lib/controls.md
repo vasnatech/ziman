@@ -773,6 +773,142 @@ A tab's name, which focus and accessibility both address it by. The strip's name
 as a list's rows are: a tab has no name of its own and a bare index would collide with another
 strip's.
 
+## The tree
+
+### `TreeRow`
+
+```
+pub struct TreeRow {
+    label: string
+    // How deep, 0 at the top.
+    depth: int
+    // Whether it can be opened. **Declared rather than worked out from the next row's depth**,
+    // because a branch with nothing in it yet is still a branch: a tree that inferred this would
+    // draw an empty folder as a leaf, and a user would have no way to see that it is empty rather
+    // than missing.
+    expandable: bool
+    expanded: bool
+}
+```
+
+A row of a tree, as the application hands it over.
+
+**Flat with a depth, not nested.** A nested structure would have to be walked to draw, walked to
+hit-test and walked again to move the selection, and every one of those walks is the same
+projection -- the rows in order, with the ones under a closed branch left out. Doing it once, as
+a list, is what lets the rest of this control be the list's code with an indent.
+
+### `tree_row`
+
+```
+pub fn tree_row(label: string, depth: int) -> TreeRow
+```
+
+### `tree_branch`
+
+```
+pub fn tree_branch(label: string, depth: int, expanded: bool) -> TreeRow
+```
+
+### `Tree`
+
+```
+pub struct Tree {
+    name: string
+    label: string
+    rows: [TreeRow]
+    // The selected row, **as an index into `rows` and not into the visible ones**. Collapsing a
+    // branch must not silently move the selection onto a different thing, and an index into a
+    // projection does exactly that.
+    selected: int
+    offset: float
+    row_height: float
+    // How far one level indents, and the width of the mark a branch draws -- one number, because
+    // the press that toggles a branch has to find the mark where the widget drew it. The hit test
+    // and the layout each compute it from this, as the tab strip's `tab_width` is shared.
+    indent: float
+    disabled: bool
+}
+```
+
+A tree: rows at depths, branches that open and close, one selected.
+
+**One tab stop and a node per visible row**, which is `List`'s bargain again. Not a `List` with
+a depth, though: the arrows mean different things here -- Left closes a branch or climbs to its
+parent, Right opens one or steps into it -- and that contract is the difference between a tree
+and an indented list.
+
+### `tree_of`
+
+```
+pub fn tree_of(name: string, label: string, rows: [TreeRow]) -> Tree
+```
+
+### `visible_rows`
+
+```
+pub fn visible_rows(t: Tree) -> [int]
+```
+
+The rows that are on screen, in order, as indices into `rows`: everything except what sits under
+a closed branch. **One pass, not a visibility test per row** -- the test is "is any ancestor
+closed", and walking back up from each row to answer it is the same walk done n times.
+
+### `TreeStep`
+
+```
+pub struct TreeStep {
+    tree: Tree
+    // The selection changed.
+    moved: bool
+    // A row was chosen -- Enter or Space on it. A branch opening is not a choice.
+    activated: bool
+    // A branch was opened or closed, which is a different thing from either: what is on screen
+    // changed and the selection did not.
+    toggled: bool
+}
+```
+
+### `tree_input`
+
+```
+pub fn tree_input(t: Tree, input: Input, bounds: Rect) -> TreeStep
+```
+
+What an input does to a tree.
+
+`bounds` turns a press into a row the way the list does, and into a *column* besides: a press on
+the mark at the left of a branch opens or closes it, and a press anywhere else on the row selects
+it. Both computed from `indent`, which the widget also lays out by.
+
+### `parent_of`
+
+```
+pub fn parent_of(t: Tree, index: int) -> int
+```
+
+The row this one hangs under: the nearest earlier row one level shallower. -1 at the top.
+
+### `tree_widget`
+
+```
+pub fn tree_widget(t: Tree, style: Style) -> widget.Widget
+```
+
+The tree as a widget: a `Tree` control over one `TreeItem` part per visible row.
+
+Each row is an indent, then the mark a branch draws (nothing, for a leaf), then the label -- all
+in one row box, so the x the hit test computes from `indent` is the x the mark was drawn at.
+
+### `tree_row_name`
+
+```
+pub fn tree_row_name(t: Tree, index: int) -> string
+```
+
+A row's name. The tree's name and the index **into `rows`, not into the visible ones**, so that
+opening a branch above a row does not rename it.
+
 ## Menus and dialogs
 
 ### `Menu`
@@ -946,6 +1082,14 @@ pub struct Style {
     face: Color
     pressed_face: Color
     disabled_ink: Color
+    // The marks a tree's branch draws when it is closed and when it is open.
+    //
+    // **In the style rather than written into the control**, because this layer is handed whatever
+    // font bytes an application found and cannot know what is in them: a face without triangles
+    // would draw two empty boxes and leave every folder looking identical. An application that
+    // knows its font can put anything here, including `">"` and `"v"`.
+    collapsed_mark: string
+    expanded_mark: string
     // What covers the window behind a dialog. **Translucent rather than opaque**, because a modal
     // dialog should say "this is waiting for you" and not "the window is gone" -- a user needs to
     // see what they were doing to decide what to answer.

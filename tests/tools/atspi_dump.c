@@ -25,6 +25,7 @@ static void print_states(AtspiAccessible *node) {
         {ATSPI_STATE_SELECTED, "selected"},
         {ATSPI_STATE_CHECKED, "checked"},
         {ATSPI_STATE_INDETERMINATE, "partially checked"},
+        {ATSPI_STATE_EXPANDABLE, "expandable"},
         {ATSPI_STATE_EXPANDED, "expanded"},
         {ATSPI_STATE_MULTI_LINE, "multi line"},
         {ATSPI_STATE_READ_ONLY, "read only"},
