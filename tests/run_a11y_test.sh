@@ -88,8 +88,11 @@ check 'combo box: "Environment" = "staging" (7 chars)' combo_box
 # `café ☕` is 6 characters and 9 bytes, so the count is where a byte/character mix-up shows: the
 # text comes back right either way, because the copy stops at the NUL.
 check 'entry: "Note" = "café ☕" (6 chars)' non_ascii_value_round_trips
-check 'list: ""' list
+check 'list: "Rows"' list
 check 'list item: "first"' list_item
+# **Which row is selected, which is the only thing that changes as a user arrows through a list.**
+# A reader that cannot hear it reads the same four names however far down you go.
+check 'list item: "second" [selected]' selection_is_published
 
 # **The states, which are what a reader acts on.** A tree of names and roles says what is in a
 # window; these say which of it you are on. `tree.zm` focuses the URL field, so exactly one node

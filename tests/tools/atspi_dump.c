@@ -22,6 +22,7 @@ static void print_states(AtspiAccessible *node) {
     if (set == NULL) return;
     struct { AtspiStateType state; const char *word; } interesting[] = {
         {ATSPI_STATE_FOCUSED, "focused"},
+        {ATSPI_STATE_SELECTED, "selected"},
         {ATSPI_STATE_CHECKED, "checked"},
         {ATSPI_STATE_INDETERMINATE, "partially checked"},
         {ATSPI_STATE_EXPANDED, "expanded"},

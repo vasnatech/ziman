@@ -66,10 +66,13 @@ fn main() {
             tab_stop: true,
             child: widget.fixed_of(60.0, 20.0, widget.label_of("Revert", 11.0, paint.black()))
         }),
-        widget.control_of("rows", widget.Role.List, widget.column_of(2.0, [
-            labelled("first", widget.Role.ListItem, "first"),
-            labelled("second", widget.Role.ListItem, "second")
-        ]))
+        // **A real list, not two labels standing in for one.** `control_of` sets no state, so a
+        // hand-built list asserts the roles and nothing about the selection -- and a reader that
+        // cannot tell which row is selected tells a user nothing as they arrow through it.
+        controls.list_widget(
+            with controls.list_of("rows", "Rows", ["first", "second"]) { selected: 1 },
+            controls.default_style()
+        )
     ])
     val laid = widget.layout(form, geom.rect_of(0.0, 0.0, 300.0, 200.0), metrics())
     val tree = a11y.tree_of(laid, app_name, "url")
