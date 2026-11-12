@@ -2103,3 +2103,86 @@ fn a_skipped_level_still_hangs_off_its_parent() {
     test.assert_eq(kids_of(t, "files"), "files/0 files/2")
     test.assert_eq(kids_of(t, "files/0"), "files/1")
 }
+
+// ---- the bars painted over a laid-out tree
+
+// A viewport 100 tall onto 250 of content, scrolled by 60.
+fn scrolled_tree() -> widget.Laid {
+    val rows = mutable_array_new<widget.Widget>()
+    var i = 0
+    while i < 25 {
+        push(rows, widget.fixed_of(0.0, 10.0, widget.label_of(concat("row ", str(i)), 8.0, paint.black())))
+        i = i + 1
+    }
+    val w = widget.named_scroll("list", 0.0, 60.0, widget.column_of(0.0, snapshot(rows)))
+    return widget.layout(w, geom.rect_of(0.0, 0.0, 80.0, 100.0), metrics())
+}
+
+fn bars_over(l: widget.Laid) -> [scene.Op] {
+    val empty = scene.scene_of(l.bounds.width, l.bounds.height)
+    return controls.paint_scroll_bars(l, empty, controls.default_style(), 10.0).ops
+}
+
+// **The pass takes its numbers off the laid tree and nowhere else**, which is the whole reason it
+// exists: the view is the viewport's own box, the content is the box its child was placed in, and
+// the offset is on the widget. Nothing has to lay the window out twice to learn them.
+#[test]
+fn a_viewport_gets_a_track_and_a_thumb() {
+    val ops = bars_over(scrolled_tree())
+    test.assert_len(2, ops)
+    val track = fill_box(ops[0])
+    val thumb = fill_box(ops[1])
+    // Hard against the viewport's right edge, the width it was given.
+    test.assert_eq(track.x, 70.0)
+    test.assert_eq(track.width, 10.0)
+    test.assert_eq(track.height, 100.0)
+    // 100 of 250 visible, so the thumb is two fifths of the track; 60 of the 150 points of
+    // overhang, so it sits two fifths of the way down the 60 points of room.
+    test.assert_eq(thumb.height, 40.0)
+    test.assert_eq(thumb.y, 24.0)
+}
+
+// **Nothing to scroll, nothing drawn.** A bar over content that fits is a bar that lies.
+#[test]
+fn a_viewport_that_fits_gets_no_bar() {
+    val w = widget.named_scroll("list", 0.0, 0.0, widget.fixed_of(0.0, 20.0, widget.flex()))
+    val l = widget.layout(w, geom.rect_of(0.0, 0.0, 80.0, 100.0), metrics())
+    test.assert_len(0, bars_over(l))
+}
+
+// The ops already in the scene are kept, because this paints *over* what is there rather than
+// instead of it -- and a pass that quietly dropped the window would be a very loud bug.
+#[test]
+fn the_scene_underneath_is_kept() {
+    val l = scrolled_tree()
+    val under = scene.with_ops(
+        scene.scene_of(80.0, 100.0),
+        [scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 80.0, 100.0)), paint.Paint.Solid(paint.black()))]
+    )
+    val after = controls.paint_scroll_bars(l, under, controls.default_style(), 10.0)
+    test.assert_len(3, after.ops)
+    test.assert_eq(fill_box(after.ops[0]).width, 80.0)
+}
+
+// Every viewport, not the first one found: a window has a sidebar and a response pane, and the
+// walk has to keep going after it has drawn one.
+#[test]
+fn every_viewport_in_the_tree_gets_one() {
+    val two = widget.row_of(0.0, [
+        widget.fixed_of(80.0, 0.0, widget.named_scroll("a", 0.0, 10.0, widget.fixed_of(0.0, 400.0, widget.flex()))),
+        widget.fixed_of(80.0, 0.0, widget.named_scroll("b", 0.0, 10.0, widget.fixed_of(0.0, 400.0, widget.flex())))
+    ])
+    val l = widget.layout(two, geom.rect_of(0.0, 0.0, 160.0, 100.0), metrics())
+    test.assert_len(4, bars_over(l))
+}
+
+// The rectangle a `Fill` covers, which is the only thing these tests look at.
+fn fill_box(op: scene.Op) -> geom.Rect {
+    return switch op {
+        Fill(f) { shape.path_bounds(f.path) }
+        StrokePath(_) { geom.rect_of(0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0) }
+        Text(_) { geom.rect_of(0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0) }
+        DrawImage(_) { geom.rect_of(0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0) }
+        Nested(_) { geom.rect_of(0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0) }
+    }
+}

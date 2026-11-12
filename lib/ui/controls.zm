@@ -20,11 +20,14 @@
 // for the control that input was for.
 use edit
 use focus
+use geom
 use geom.Point
 use geom.Rect
 use math.floor
 use paint
 use paint.Color
+use scene
+use shape
 use widget
 use widget.Insets
 use widget.Laid
@@ -144,6 +147,7 @@ pub enum Input {
 // **A wheel goes to the control under the pointer and ignores the focus entirely**, because that is
 // what a user means: scrolling the list they are pointing at, not the one that happens to have the
 // keyboard. Over nothing it goes nowhere rather than to the focus.
+
 pub fn target(l: Laid, input: Input, focused: string) -> string {
     return switch input {
         KeyDown(_) { focused }
@@ -1845,6 +1849,62 @@ pub fn scroll_bar_widget(
 
 // The name the thumb's box carries in the laid-out tree, so a test can find it.
 pub val thumb_name = "thumb"
+
+// Every viewport in a laid-out tree gets a bar, painted over the scene that is already there.
+//
+// **A pass over the laid tree, not a widget**, and that is the whole answer to the question F284
+// could not settle: a thumb's length is the view's share of the content, and nothing knows the
+// view extent until the layout has run. Measuring that by laying the window out twice costs 5 ms
+// a frame at 200 rows. Here the number is simply there -- a viewport's own box is the view, the
+// box its child was placed in is the content, and `Viewport.offset_y` is where it sits. This is
+// the seam `widget.paint_focused` already uses for the focus ring, which could not be known at
+// widget-build time either.
+//
+// **An indicator, not a control.** It says there is more and where you are; the wheel and the
+// arrows are what move it. Dragging needs the bar to have a box of its own that a press can be
+// routed to, which means the scrolled control reserving a gutter in its own layout -- a different
+// change, with `scroll_bar_input` already written and tested for when it happens.
+//
+// Drawn **inside** the viewport's right edge, which is where an overlay bar goes and why it is
+// translucent: a few points of the content are behind it, and over a list of text that is the
+// trailing end of a line nobody reads.
+pub fn paint_scroll_bars(l: Laid, over: scene.Scene, style: Style, thickness: float) -> scene.Scene {
+    val ops = mutable_array_new<scene.Op>()
+    for op in over.ops {
+        push(ops, op)
+    }
+    collect_bars(l, style, thickness, ops)
+    return scene.with_ops(over, snapshot(ops))
+}
+
+fn collect_bars(l: Laid, style: Style, thickness: float, ops: MutableArray<scene.Op>) {
+    if Scroll(it) = l.widget {
+        if len(l.children) > 0 {
+            val view = l.bounds.height
+            val content = l.children[0].bounds.height
+            if scrolls(content, view) {
+                val thumb = thumb_of(view, content, view, it.offset_y)
+                val x = l.bounds.x + l.bounds.width - thickness
+                push(ops, scene.fill(
+                    shape.rect_path(geom.rect_of(x, l.bounds.y, thickness, view)),
+                    paint.Paint.Solid(style.face)
+                ))
+                push(ops, scene.fill(
+                    shape.rect_path(geom.rect_of(
+                        x + 1.0,
+                        l.bounds.y + thumb.start,
+                        thickness - 2.0,
+                        thumb.length
+                    )),
+                    paint.Paint.Solid(style.disabled_ink)
+                ))
+            }
+        }
+    }
+    for child in l.children {
+        collect_bars(child, style, thickness, ops)
+    }
+}
 
 // -------------------------------------------------------- menus and dialogs
 
