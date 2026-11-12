@@ -621,6 +621,8 @@ pub struct List {
     // handling to rename two roles would have been the alternative.
     role: widget.Role
     item_role: widget.Role
+    // The drag state of the bar down its right edge, as a tree has.
+    bar: ScrollBar
 }
 ```
 
@@ -834,6 +836,10 @@ pub struct Tree {
     // the press that toggles a branch has to find the mark where the widget drew it. The hit test
     // and the layout each compute it from this, as the tab strip's `tab_width` is shared.
     indent: float
+    // The drag state of the bar down its right edge. **Only the drag**: where the thumb sits
+    // comes from `offset` and the row count, which this already has, and a second copy of either
+    // is a second thing to keep in step.
+    bar: ScrollBar
     disabled: bool
 }
 ```
@@ -990,11 +996,36 @@ pub val min_thumb = 20.0
 
 The shortest a thumb may be drawn. Below about this there is nothing to aim at with a pointer.
 
+### `bar_thickness`
+
+```
+pub val bar_thickness = 8.0
+```
+
+How wide a bar is, **as one number shared by everything that draws or touches one**. The
+painter lays the track out from it and a scrolled control decides from it whether a press was
+meant for the bar or for a row; two numbers here would be a bar you can see in one place and
+grab in another, which is the failure this module keeps designing against.
+
 ### `thumb_of`
 
 ```
 pub fn thumb_of(track: float, content: float, view: float, offset: float) -> Thumb
 ```
+
+### `on_the_bar`
+
+```
+pub fn on_the_bar(bounds: Rect, p: Point, content: float, view: float) -> bool
+```
+
+Whether a point is in the strip a bar is drawn in, down the inside of a box's right edge.
+
+**Over the content, not beside it**, which is what overlay bars do everywhere and what keeps
+this from being a layout change: a gutter reserved in a control's own box would have to be
+reserved by the control, measured by the painter and subtracted by the hit test, and the three
+would be three chances to disagree about one number. What it costs is the last few points of a
+row, which on a list of text is the empty end of a line.
 
 ### `scrolls`
 
@@ -1068,7 +1099,7 @@ The name the thumb's box carries in the laid-out tree, so a test can find it.
 ### `paint_scroll_bars`
 
 ```
-pub fn paint_scroll_bars(l: Laid, over: scene.Scene, style: Style, thickness: float) -> scene.Scene
+pub fn paint_scroll_bars(l: Laid, over: scene.Scene, style: Style) -> scene.Scene
 ```
 
 Every viewport in a laid-out tree gets a bar, painted over the scene that is already there.

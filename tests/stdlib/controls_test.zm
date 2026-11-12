@@ -345,6 +345,7 @@ fn only_a_key_or_text_could_change_a_field() {
 
 // --- the text entry
 
+use controls.bar_thickness
 use controls.caret_name
 use controls.min_thumb
 use controls.thumb_name
@@ -2120,7 +2121,7 @@ fn scrolled_tree() -> widget.Laid {
 
 fn bars_over(l: widget.Laid) -> [scene.Op] {
     val empty = scene.scene_of(l.bounds.width, l.bounds.height)
-    return controls.paint_scroll_bars(l, empty, controls.default_style(), 10.0).ops
+    return controls.paint_scroll_bars(l, empty, controls.default_style()).ops
 }
 
 // **The pass takes its numbers off the laid tree and nowhere else**, which is the whole reason it
@@ -2132,9 +2133,10 @@ fn a_viewport_gets_a_track_and_a_thumb() {
     test.assert_len(2, ops)
     val track = fill_box(ops[0])
     val thumb = fill_box(ops[1])
-    // Hard against the viewport's right edge, the width it was given.
-    test.assert_eq(track.x, 70.0)
-    test.assert_eq(track.width, 10.0)
+    // Hard against the viewport's right edge, the one width everything that draws or grabs a bar
+    // shares.
+    test.assert_eq(track.x, 80.0 - bar_thickness)
+    test.assert_eq(track.width, bar_thickness)
     test.assert_eq(track.height, 100.0)
     // 100 of 250 visible, so the thumb is two fifths of the track; 60 of the 150 points of
     // overhang, so it sits two fifths of the way down the 60 points of room.
@@ -2159,7 +2161,7 @@ fn the_scene_underneath_is_kept() {
         scene.scene_of(80.0, 100.0),
         [scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 80.0, 100.0)), paint.Paint.Solid(paint.black()))]
     )
-    val after = controls.paint_scroll_bars(l, under, controls.default_style(), 10.0)
+    val after = controls.paint_scroll_bars(l, under, controls.default_style())
     test.assert_len(3, after.ops)
     test.assert_eq(fill_box(after.ops[0]).width, 80.0)
 }
@@ -2206,4 +2208,107 @@ fn a_wheel_over_a_row_is_routed_to_the_list() {
         None { "(nothing)" }
     }, controls.row_name(five(), 1))
     test.assert_eq(controls.target(l, over_a_row, ""), "people")
+}
+
+// ---- dragging the bar a tree and a list draw
+
+// 25 rows of 20 in a 100-tall box: 500 of content in a 100 view, 400 of overhang.
+fn long_tree() -> controls.Tree {
+    val rows = mutable_array_new<controls.TreeRow>()
+    var i = 0
+    while i < 25 {
+        push(rows, controls.tree_row(concat("row ", str(i)), 0))
+        i = i + 1
+    }
+    return controls.tree_of("files", "Files", snapshot(rows))
+}
+
+val long_box = geom.rect_of(0.0, 0.0, 200.0, 100.0)
+
+fn on_long(t: controls.Tree, input: controls.Input) -> controls.TreeStep {
+    return controls.tree_input(t, input, long_box)
+}
+
+// **A press in the strip down the right edge takes the bar, not the row behind it.** The row is
+// still there -- the bar is painted over the content, not beside it -- so the only thing that
+// separates the two gestures is where in the row the press landed.
+#[test]
+fn a_press_in_the_strip_grabs_the_bar_and_not_the_row() {
+    val grabbed = on_long(long_tree(), controls.Input.Press(geom.point_of(196.0, 10.0)))
+    test.assert_false(grabbed.moved)
+    test.assert_eq(grabbed.tree.selected, 0)
+    test.assert(Option.is_Some(grabbed.tree.bar.grabbed))
+
+    // Four points to the left of the strip is the row, and it selects.
+    val row = on_long(long_tree(), controls.Input.Press(geom.point_of(200.0 - bar_thickness - 4.0, 30.0)))
+    test.assert_eq(row.tree.selected, 1)
+    test.assert_false(Option.is_Some(row.tree.bar.grabbed))
+}
+
+// **Nothing to scroll, no strip.** A bar that is not drawn must not take a press either, or the
+// last few points of every row in a short list are dead.
+#[test]
+fn a_short_tree_has_no_strip_to_grab() {
+    val short = with long_tree() { rows: [controls.tree_row("only", 0)] }
+    val step = on_long(short, controls.Input.Press(geom.point_of(196.0, 10.0)))
+    test.assert_false(Option.is_Some(step.tree.bar.grabbed))
+    test.assert_eq(step.tree.selected, 0)
+}
+
+// **The drag keeps the point the thumb was taken hold of, and moves the view.** 500 of content in
+// a 100 view gives a 20-point thumb with 80 points of room over 400 of overhang, so a pointer 20
+// points further down is 100 further into the content.
+#[test]
+fn dragging_the_bar_scrolls_without_moving_the_selection() {
+    val held = on_long(long_tree(), controls.Input.Press(geom.point_of(196.0, 5.0))).tree
+    val dragged = on_long(held, controls.Input.Move(geom.point_of(196.0, 25.0)))
+    test.assert_eq(dragged.tree.offset, 100.0)
+    test.assert_eq(dragged.tree.selected, 0)
+    test.assert_false(dragged.moved)
+}
+
+// **A drag that wanders off the strip keeps dragging.** The release is routed to the focus rather
+// than to what is under the pointer, so a thumb still holding on after the pointer left would
+// follow it around the window.
+#[test]
+fn a_drag_off_the_strip_still_drags_and_still_lets_go() {
+    val held = on_long(long_tree(), controls.Input.Press(geom.point_of(196.0, 5.0))).tree
+    val away = on_long(held, controls.Input.Move(geom.point_of(10.0, 55.0)))
+    test.assert_eq(away.tree.offset, 250.0)
+    val let_go = on_long(away.tree, controls.Input.Release(geom.point_of(10.0, 55.0)))
+    test.assert_false(Option.is_Some(let_go.tree.bar.grabbed))
+    // ...and once it has let go, a press in the rows selects again -- row 13, because the view is
+    // 250 points down and the press is 10 into it.
+    test.assert_eq(on_long(let_go.tree, controls.Input.Press(geom.point_of(40.0, 10.0))).tree.selected, 13)
+}
+
+// A wheel over the strip scrolls the tree the ordinary way rather than being taken for a grab:
+// only a press decides, which is what `for_the_bar` tests.
+#[test]
+fn a_wheel_over_the_strip_is_still_a_wheel() {
+    val step = on_long(long_tree(), controls.Input.Wheel(controls.Wheel {
+        at: geom.point_of(196.0, 50.0),
+        vertical: 0 - 1,
+        horizontal: 0
+    }))
+    test.assert_eq(step.tree.offset, 20.0)
+    test.assert_false(Option.is_Some(step.tree.bar.grabbed))
+}
+
+// The list has the same bar, and the same rule about the selection.
+#[test]
+fn a_list_drags_its_bar_too() {
+    val many = mutable_array_new<string>()
+    var i = 0
+    while i < 25 {
+        push(many, concat("row ", str(i)))
+        i = i + 1
+    }
+    val l = controls.list_of("rows", "Rows", snapshot(many))
+    val held = controls.list_input(l, controls.Input.Press(geom.point_of(196.0, 5.0)), long_box)
+    test.assert(Option.is_Some(held.list.bar.grabbed))
+    val dragged = controls.list_input(held.list, controls.Input.Move(geom.point_of(196.0, 25.0)), long_box)
+    test.assert_eq(dragged.list.offset, 100.0)
+    test.assert_eq(dragged.list.selected, 0)
+    test.assert_false(dragged.moved)
 }

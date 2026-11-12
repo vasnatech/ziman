@@ -929,6 +929,8 @@ pub struct List {
     // handling to rename two roles would have been the alternative.
     role: widget.Role
     item_role: widget.Role
+    // The drag state of the bar down its right edge, as a tree has.
+    bar: ScrollBar
 }
 
 pub fn list_of(name: string, label: string, items: [string]) -> List {
@@ -941,7 +943,8 @@ pub fn list_of(name: string, label: string, items: [string]) -> List {
         row_height: 20.0,
         disabled: false,
         role: widget.Role.List,
-        item_role: widget.Role.ListItem
+        item_role: widget.Role.ListItem,
+        bar: scroll_bar_of(concat(name, "/bar"), 20.0)
     }
 }
 
@@ -964,6 +967,11 @@ pub fn list_input(l: List, input: Input, bounds: Rect) -> ListStep {
     if l.disabled {
         return held_still(l)
     }
+    // The bar first, and a drag in progress before anything else -- see `tree_input`, which has
+    // the same three lines for the same reasons.
+    if Option.is_Some(l.bar.grabbed) || list_for_the_bar(l, input, bounds) {
+        return list_bar_step(l, input, bounds)
+    }
     val last = len(l.items) - 1
     return switch input {
         // **The wheel scrolls and does not move the selection.** Every list does this and it is
@@ -985,6 +993,27 @@ pub fn list_input(l: List, input: Input, bounds: Rect) -> ListStep {
         Paste(_) { held_still(l) }
         Release(_) { held_still(l) }
         Move(_) { held_still(l) }
+    }
+}
+
+fn list_for_the_bar(l: List, input: Input, bounds: Rect) -> bool {
+    if Press(p) = input {
+        return on_the_bar(bounds, p, list_content(l), bounds.height)
+    }
+    return false
+}
+
+fn list_content(l: List) -> float {
+    return (len(l.items) as float) * l.row_height
+}
+
+fn list_bar_step(l: List, input: Input, bounds: Rect) -> ListStep {
+    val taken = scroll_bar_input(l.bar, input, bar_box(bounds), list_content(l), bounds.height, l.offset)
+    // A bar moves the view and never the selection, as a tree's does.
+    return ListStep {
+        list: with l { bar: taken.bar, offset: taken.offset },
+        moved: false,
+        activated: false
     }
 }
 
@@ -1308,6 +1337,10 @@ pub struct Tree {
     // the press that toggles a branch has to find the mark where the widget drew it. The hit test
     // and the layout each compute it from this, as the tab strip's `tab_width` is shared.
     indent: float
+    // The drag state of the bar down its right edge. **Only the drag**: where the thumb sits
+    // comes from `offset` and the row count, which this already has, and a second copy of either
+    // is a second thing to keep in step.
+    bar: ScrollBar
     disabled: bool
 }
 
@@ -1320,6 +1353,7 @@ pub fn tree_of(name: string, label: string, rows: [TreeRow]) -> Tree {
         offset: 0.0,
         row_height: 20.0,
         indent: 16.0,
+        bar: scroll_bar_of(concat(name, "/bar"), 20.0),
         disabled: false
     }
 }
@@ -1368,6 +1402,13 @@ pub fn tree_input(t: Tree, input: Input, bounds: Rect) -> TreeStep {
     if t.disabled {
         return tree_still(t)
     }
+    // **The bar first, and a drag in progress before anything else.** A press that took hold of
+    // the thumb moved the focus to the tree, so the moves and the release that follow are routed
+    // here -- and they have to reach the bar wherever the pointer has wandered to, or a thumb
+    // dragged off the strip is left holding on while the rows move under the pointer instead.
+    if dragging_bar(t) || for_the_bar(t, input, bounds) {
+        return bar_step(t, input, bounds)
+    }
     return switch input {
         Wheel(w) { tree_scrolled(t, t.offset - (w.vertical as float) * t.row_height, bounds) }
         Press(p) { tree_pressed(t, p, bounds) }
@@ -1378,6 +1419,46 @@ pub fn tree_input(t: Tree, input: Input, bounds: Rect) -> TreeStep {
         Release(_) { tree_still(t) }
         Move(_) { tree_still(t) }
     }
+}
+
+fn dragging_bar(t: Tree) -> bool {
+    return Option.is_Some(t.bar.grabbed)
+}
+
+// Only a press decides: a wheel over the strip should scroll the tree the ordinary way, and a key
+// is aimed at nothing in particular.
+fn for_the_bar(t: Tree, input: Input, bounds: Rect) -> bool {
+    if Press(p) = input {
+        return on_the_bar(bounds, p, tree_content(t), bounds.height)
+    }
+    return false
+}
+
+fn tree_content(t: Tree) -> float {
+    return (len(visible_rows(t)) as float) * t.row_height
+}
+
+fn bar_step(t: Tree, input: Input, bounds: Rect) -> TreeStep {
+    val taken = scroll_bar_input(t.bar, input, bar_box(bounds), tree_content(t), bounds.height, t.offset)
+    return TreeStep {
+        tree: with t { bar: taken.bar, offset: taken.offset },
+        // **A bar moves the view, never the selection.** Dragging a scrollbar in any list on any
+        // platform leaves the highlighted row where it was, and moving it here would make a drag
+        // a destructive gesture in a tree whose selection loads a request.
+        moved: false,
+        activated: false,
+        toggled: false
+    }
+}
+
+// The strip the bar lives in, which is where `paint_scroll_bars` draws it.
+fn bar_box(bounds: Rect) -> Rect {
+    return geom.rect_of(
+        bounds.x + bounds.width - bar_thickness,
+        bounds.y,
+        bar_thickness,
+        bounds.height
+    )
 }
 
 fn tree_pressed(t: Tree, p: Point, bounds: Rect) -> TreeStep {
@@ -1695,6 +1776,12 @@ pub struct Thumb {
 // The shortest a thumb may be drawn. Below about this there is nothing to aim at with a pointer.
 pub val min_thumb = 20.0
 
+// How wide a bar is, **as one number shared by everything that draws or touches one**. The
+// painter lays the track out from it and a scrolled control decides from it whether a press was
+// meant for the bar or for a row; two numbers here would be a bar you can see in one place and
+// grab in another, which is the failure this module keeps designing against.
+pub val bar_thickness = 8.0
+
 pub fn thumb_of(track: float, content: float, view: float, offset: float) -> Thumb {
     if content <= view || track <= 0.0 {
         return Thumb { start: 0.0, length: track }
@@ -1709,6 +1796,20 @@ pub fn thumb_of(track: float, content: float, view: float, offset: float) -> Thu
     val room = track - length
     val at = if overhang <= 0.0 || room <= 0.0 { 0.0 } else { room * offset / overhang }
     return Thumb { start: at, length: length }
+}
+
+// Whether a point is in the strip a bar is drawn in, down the inside of a box's right edge.
+//
+// **Over the content, not beside it**, which is what overlay bars do everywhere and what keeps
+// this from being a layout change: a gutter reserved in a control's own box would have to be
+// reserved by the control, measured by the painter and subtracted by the hit test, and the three
+// would be three chances to disagree about one number. What it costs is the last few points of a
+// row, which on a list of text is the empty end of a line.
+pub fn on_the_bar(bounds: Rect, p: Point, content: float, view: float) -> bool {
+    if !scrolls(content, view) {
+        return false
+    }
+    return p.x >= bounds.x + bounds.width - bar_thickness
 }
 
 // Whether there is anything to scroll. An application asks before placing a bar at all; a bar with
@@ -1869,32 +1970,32 @@ pub val thumb_name = "thumb"
 // Drawn **inside** the viewport's right edge, which is where an overlay bar goes and why it is
 // translucent: a few points of the content are behind it, and over a list of text that is the
 // trailing end of a line nobody reads.
-pub fn paint_scroll_bars(l: Laid, over: scene.Scene, style: Style, thickness: float) -> scene.Scene {
+pub fn paint_scroll_bars(l: Laid, over: scene.Scene, style: Style) -> scene.Scene {
     val ops = mutable_array_new<scene.Op>()
     for op in over.ops {
         push(ops, op)
     }
-    collect_bars(l, style, thickness, ops)
+    collect_bars(l, style, ops)
     return scene.with_ops(over, snapshot(ops))
 }
 
-fn collect_bars(l: Laid, style: Style, thickness: float, ops: MutableArray<scene.Op>) {
+fn collect_bars(l: Laid, style: Style, ops: MutableArray<scene.Op>) {
     if Scroll(it) = l.widget {
         if len(l.children) > 0 {
             val view = l.bounds.height
             val content = l.children[0].bounds.height
             if scrolls(content, view) {
                 val thumb = thumb_of(view, content, view, it.offset_y)
-                val x = l.bounds.x + l.bounds.width - thickness
+                val x = l.bounds.x + l.bounds.width - bar_thickness
                 push(ops, scene.fill(
-                    shape.rect_path(geom.rect_of(x, l.bounds.y, thickness, view)),
+                    shape.rect_path(geom.rect_of(x, l.bounds.y, bar_thickness, view)),
                     paint.Paint.Solid(style.face)
                 ))
                 push(ops, scene.fill(
                     shape.rect_path(geom.rect_of(
                         x + 1.0,
                         l.bounds.y + thumb.start,
-                        thickness - 2.0,
+                        bar_thickness - 2.0,
                         thumb.length
                     )),
                     paint.Paint.Solid(style.disabled_ink)
@@ -1903,7 +2004,7 @@ fn collect_bars(l: Laid, style: Style, thickness: float, ops: MutableArray<scene
         }
     }
     for child in l.children {
-        collect_bars(child, style, thickness, ops)
+        collect_bars(child, style, ops)
     }
 }
 
