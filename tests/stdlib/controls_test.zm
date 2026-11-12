@@ -2071,3 +2071,35 @@ fn a_scroll_bar_is_not_in_the_tab_order() {
         "scroll bar"
     )
 }
+
+// **Rows that do not start at depth 0, and a skipped level.** Neither is how a sidebar is built,
+// which is why neither was tested -- and `tree_widget` dropped them silently: its walk took rows
+// while `depth >= level`, and a row *deeper* than the level it was first met at fell into a guard
+// that advanced past it without building anything. A tree whose rows all sat at depth 1 drew
+// nothing at all. Found by a profiler reporting that a layout benchmark had no work to do.
+#[test]
+fn every_row_is_drawn_whatever_depth_it_starts_at() {
+    val deep = controls.tree_of("files", "Collections", [
+        controls.tree_row("one", 1),
+        controls.tree_row("two", 1),
+        controls.tree_row("three", 1)
+    ])
+    val t = a11y.tree_of(laid_tree(deep), "Records", "files")
+    // The window, the tree, and three rows.
+    test.assert_len(5, t.nodes)
+    test.assert_eq(kids_of(t, "files"), "files/0 files/1 files/2")
+}
+
+// A level skipped in the middle nests under what is above it rather than vanishing.
+#[test]
+fn a_skipped_level_still_hangs_off_its_parent() {
+    val gap = controls.tree_of("files", "Collections", [
+        controls.tree_branch("top", 0, true),
+        controls.tree_row("deep", 2),
+        controls.tree_row("next", 0)
+    ])
+    val t = a11y.tree_of(laid_tree(gap), "Records", "files")
+    test.assert_len(5, t.nodes)
+    test.assert_eq(kids_of(t, "files"), "files/0 files/2")
+    test.assert_eq(kids_of(t, "files/0"), "files/1")
+}

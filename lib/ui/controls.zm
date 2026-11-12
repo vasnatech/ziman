@@ -1573,37 +1573,38 @@ fn tree_level(t: Tree, shown: [int], from: int, depth: int, style: Style) -> Tre
     while i < len(shown) && t.rows[shown[i]].depth >= depth {
         val which = shown[i]
         val row = t.rows[which]
-        if row.depth > depth {
-            // Unreachable while the recursion below consumes the deeper rows, and it still has to
-            // advance: a guard that cannot make progress is a hang rather than a wrong answer.
-            i = i + 1
+        // **Children are taken relative to this row's own depth, not the level it was met at.**
+        // The two differ whenever a tree's rows skip a level -- rows that all sit at depth 1, or
+        // a depth-2 row under a depth-0 one -- and the first version of this walk guarded that
+        // case by *advancing past the row*, so a tree whose rows never reached depth 0 drew
+        // nothing at all. Every sidebar built here starts at 0, which is why no test and no
+        // screenshot showed it; a profiler reporting that a layout benchmark had no work to do
+        // is what showed it.
+        val kids = tree_level(t, shown, i + 1, row.depth + 1, style)
+        i = kids.next
+        val own = tree_row_box(t, which, row, style)
+        val inside = if len(kids.rows) == 0 {
+            own
         } else {
-            val kids = tree_level(t, shown, i + 1, depth + 1, style)
-            i = kids.next
-            val own = tree_row_box(t, which, row, style)
-            val inside = if len(kids.rows) == 0 {
-                own
-            } else {
-                widget.column_of(0.0, concat([own], kids.rows))
-            }
-            push(out, widget.part_of(
-                tree_row_name(t, which),
-                widget.Role.TreeItem,
-                row.label,
-                with widget.no_state() {
-                    selected: which == t.selected,
-                    disabled: t.disabled,
-                    // **Declared only for a branch.** `Some(false)` on a leaf publishes
-                    // EXPANDABLE, and a reader would offer to open a thing that cannot be opened.
-                    expanded: if row.expandable {
-                        Option<bool>.Some(row.expanded)
-                    } else {
-                        Option<bool>.None
-                    }
-                },
-                inside
-            ))
+            widget.column_of(0.0, concat([own], kids.rows))
         }
+        push(out, widget.part_of(
+            tree_row_name(t, which),
+            widget.Role.TreeItem,
+            row.label,
+            with widget.no_state() {
+                selected: which == t.selected,
+                disabled: t.disabled,
+                // **Declared only for a branch.** `Some(false)` on a leaf publishes EXPANDABLE,
+                // and a reader would offer to open a thing that cannot be opened.
+                expanded: if row.expandable {
+                    Option<bool>.Some(row.expanded)
+                } else {
+                    Option<bool>.None
+                }
+            },
+            inside
+        ))
     }
     return TreeLevel { rows: snapshot(out), next: i }
 }
