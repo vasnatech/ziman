@@ -199,11 +199,24 @@ fn demo() -> Result<unit, string> {
     }
     print(concat("gray8 darkest pixel: ", str(darkest)))
 
-    // ---- a character the face cannot draw is named, not skipped
+    // ---- a character the face cannot draw becomes .notdef, and `covers` is what names it
     //
-    // U+4E2D is Chinese; this is a Latin face. The refusal has to say which code point, because a
-    // caller's only other option is to guess which character of a long string was the problem.
-    print(concat("missing glyph:       ", refusal(font.glyphs_of(face, "ok 中"))))
+    // U+4E2D is Chinese; this is a Latin face. **This used to refuse**, on the argument that a
+    // caller needs to know which code point was missing -- but `covers` already answers that, and
+    // refusing meant that any character a user could type, or a server could send, killed the
+    // program drawing it. Substituting glyph 0 is what every text stack does and what TrueType
+    // reserves it for; the diagnostic lives in `covers`, which a caller that would rather refuse
+    // than draw a box asks first.
+    val mixed = try font.glyphs_of(face, "ok 中")
+    print(concat("missing glyph:       ", glyph_list(mixed)))
+    val missing = try font.covers(f, "ok 中")
+    print(concat("covers names it:     ", switch missing {
+        Some(cp) { concat("U+", font.hex4(cp)) }
+        None { "every character" }
+    }))
+    // The same substitution on the measuring side, or a string measures as one width and draws as
+    // another -- which is a caret in the wrong place rather than a crash, and so harder to find.
+    print(concat("notdef has a width:  ", str((try font.advance(f, "中", 100.0)) > 0.0)))
 
     // ---- two faces in one scene get their own glyphs
     //
@@ -376,6 +389,14 @@ fn same_pixels(a: image.Image, b: image.Image) -> bool {
         y = y + 1
     }
     return true
+}
+
+fn glyph_list(ids: [int]) -> string {
+    val out = mutable_array_new<string>()
+    for g in ids {
+        push(out, str(g))
+    }
+    return join(separator: " ", pieces: snapshot(out))
 }
 
 fn refusal<T>(r: Result<T, string>) -> string {

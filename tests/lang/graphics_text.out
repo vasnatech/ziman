@@ -17,7 +17,9 @@ clipped run has ink: true
 half-pixel shift moves ink: true
 gray8 channels:      1
 gray8 darkest pixel: 1
-missing glyph:       font.glyphs_of: the face cannot draw U+4E2D
+missing glyph:       82 78 3 0
+covers names it:     U+4E2D
+notdef has a width:  true
 bold units per em:   1000
 same metrics:        true
 face ids differ:     true

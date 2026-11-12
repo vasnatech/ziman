@@ -135,6 +135,10 @@ pub fn covers(f: FontRef, text: string) -> Result<Option<int>, string>
 
 The first code point `f` cannot draw, or `None` when it can draw all of `text`.
 
+**The way to ask, now that drawing no longer refuses.** `glyphs_of` and `advance` substitute
+`.notdef` rather than failing, because the text a program draws is not all its own; a caller
+that would rather refuse than draw a row of boxes -- an export, say -- checks here first.
+
 **Answers *which* character is missing, not whether any is**, because a caller choosing between
 faces or producing an error needs to name it, and a bool would make every caller scan again to
 find it.

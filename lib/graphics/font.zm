@@ -81,7 +81,15 @@ pub fn load(data: [byte]) -> Result<FontRef, string> {
     return ok(FontRef.Embedded(try truetype.parse(data)))
 }
 
+// Glyph 0. **Required by TrueType to exist and to be `.notdef`**, so this is the one glyph id a
+// face can be asked for without looking anything up.
+val notdef = 0
+
 // The first code point `f` cannot draw, or `None` when it can draw all of `text`.
+//
+// **The way to ask, now that drawing no longer refuses.** `glyphs_of` and `advance` substitute
+// `.notdef` rather than failing, because the text a program draws is not all its own; a caller
+// that would rather refuse than draw a row of boxes -- an export, say -- checks here first.
 //
 // **Answers *which* character is missing, not whether any is**, because a caller choosing between
 // faces or producing an error needs to name it, and a bool would make every caller scan again to
@@ -149,15 +157,11 @@ pub fn advance(f: FontRef, text: string, size: float) -> Result<float, string> {
             var total = 0
             for ch in chars(text) {
                 val cp = codepoint_of(ch)
+                // `.notdef` as in `glyphs_of`, and for the same reason -- and it has to be the
+                // same substitution, or a string measures as one width and draws as another.
                 switch try truetype.glyph_for(face, cp) {
                     Some(g) { total = total + (try truetype.advance_of(face, g)) }
-                    None {
-                        return err(concat(
-                            "font.advance: the face cannot draw U+",
-                            hex4(cp),
-                            "; check `covers` first"
-                        ))
-                    }
+                    None { total = total + (try truetype.advance_of(face, notdef)) }
                 }
             }
             return ok((total as float) * size / (face.units_per_em as float))
@@ -239,11 +243,18 @@ pub fn glyphs_of(f: Face, text: string) -> Result<[int], string> {
                 }
             }
         }
+        // **A code point the face has no glyph for becomes `.notdef`, which is what every text
+        // stack does and what TrueType reserves glyph 0 for.** This used to refuse, on the
+        // argument that a caller needs to know *which* character was missing -- but `covers`
+        // already answers that, and refusing here meant something far worse: the text a program
+        // draws is not all its own. `curly gui` died on its first frame because the face it
+        // vendors has no U+25BE, and then died again on an HTTP response body containing `U+263A`.
+        // **Any character a user can type, or a server can send, was a way to kill a window.**
+        // A caller that would rather refuse than draw a row of boxes asks `covers` first, which is
+        // the sentence the old error ended with.
         switch try truetype.glyph_for(f, cp) {
             Some(g) { push(out, g) }
-            None {
-                return err(concat("font.glyphs_of: the face cannot draw U+", hex4(cp)))
-            }
+            None { push(out, notdef) }
         }
         i = i + width
     }
