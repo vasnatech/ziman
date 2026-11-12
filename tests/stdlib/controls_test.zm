@@ -346,6 +346,8 @@ fn only_a_key_or_text_could_change_a_field() {
 // --- the text entry
 
 use controls.caret_name
+use controls.min_thumb
+use controls.thumb_name
 use edit
 
 // Ten units per character, from `metrics()` above, so a caret after three characters sits at 30
@@ -1871,4 +1873,201 @@ fn named_children(t: a11y.Tree, node: a11y.Node) -> [string] {
         }
     }
     return snapshot(out)
+}
+
+// ------------------------------------------------------------- the scroll bar
+
+// The box a named group was laid out in, or a rectangle of -1 when there is none. A sentinel
+// rather than an `Option`, for `said_of`'s reason: it reads better in the failure than a `None`.
+fn box_named(l: widget.Laid, name: string) -> geom.Rect {
+    if l.name == name {
+        return l.bounds
+    }
+    for child in l.children {
+        val found = box_named(child, name)
+        if found.height >= 0.0 {
+            return found
+        }
+    }
+    return geom.rect_of(0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0, 0.0 - 1.0)
+}
+
+// A hundred points of content in a forty-point view, so the thumb is two fifths of the track and
+// there are sixty points of overhang.
+val bar_box = geom.rect_of(0.0, 0.0, 12.0, 100.0)
+val bar_content = 250.0
+val bar_view = 100.0
+
+fn bar() -> controls.ScrollBar {
+    return controls.scroll_bar_of("scroll", 20.0)
+}
+
+fn to_bar(b: controls.ScrollBar, input: controls.Input, offset: float) -> controls.ScrollBarStep {
+    return controls.scroll_bar_input(b, input, bar_box, bar_content, bar_view, offset)
+}
+
+#[test]
+fn the_thumb_is_the_views_share_of_the_content() {
+    val t = controls.thumb_of(100.0, 250.0, 100.0, 0.0)
+    test.assert_eq(t.length, 40.0)
+    test.assert_eq(t.start, 0.0)
+    // Scrolled to the end, the thumb sits at the end of the track and not past it.
+    val end = controls.thumb_of(100.0, 250.0, 100.0, 150.0)
+    test.assert_eq(end.start, 60.0)
+    test.assert_eq(end.start + end.length, 100.0)
+}
+
+// **A very long list still leaves something to take hold of.** The share of a thousand rows in a
+// five-row view is a thumb too small to aim at, which is why the floor exists -- and the floor
+// must not push the thumb past the end of its track.
+#[test]
+fn a_tiny_thumb_is_floored_and_still_fits() {
+    val t = controls.thumb_of(100.0, 100000.0, 100.0, 100000.0 - 100.0)
+    test.assert_eq(t.length, min_thumb)
+    test.assert_eq(t.start + t.length, 100.0)
+}
+
+// **A track shorter than the floor is the case the floor itself can break.** A bar beside a
+// two-row list is fifteen points tall; flooring its thumb at twenty would draw a thumb longer
+// than the track it is in, hanging out of the bottom of the bar. Found by mutation: without the
+// second clamp every other test here still passed, because they all use a track of a hundred.
+#[test]
+fn a_thumb_never_outgrows_a_short_track() {
+    val t = controls.thumb_of(15.0, 250.0, 100.0, 0.0)
+    test.assert_eq(t.length, 15.0)
+    test.assert(t.start + t.length <= 15.0)
+}
+
+// Nothing to scroll: a full track and no thumb, rather than a thumb of zero length or a bar that
+// disappears and moves the layout.
+#[test]
+fn a_view_bigger_than_its_content_has_no_thumb() {
+    test.assert_false(controls.scrolls(40.0, 100.0))
+    test.assert_eq(controls.thumb_of(100.0, 40.0, 100.0, 0.0).length, 100.0)
+}
+
+// A press on the track pages **towards the pointer**, which is what a track click does
+// everywhere: above the thumb goes back a viewful, below it goes forward one.
+#[test]
+fn a_press_on_the_track_pages_towards_the_pointer() {
+    val down = to_bar(bar(), controls.Input.Press(geom.point_of(6.0, 80.0)), 0.0)
+    test.assert_eq(down.offset, 100.0)
+    test.assert(down.moved)
+    val up = to_bar(bar(), controls.Input.Press(geom.point_of(6.0, 5.0)), 150.0)
+    test.assert_eq(up.offset, 50.0)
+}
+
+// Paging stops at the end rather than running past it, or a user clicking twice at the bottom
+// scrolls into empty space.
+#[test]
+fn paging_stops_at_the_ends() {
+    test.assert_eq(to_bar(bar(), controls.Input.Press(geom.point_of(6.0, 95.0)), 120.0).offset, 150.0)
+    test.assert_eq(to_bar(bar(), controls.Input.Press(geom.point_of(6.0, 2.0)), 30.0).offset, 0.0)
+}
+
+// **A press on the thumb takes hold of it and scrolls nothing**, which is the whole of the
+// difference between grabbing and paging -- a press that also jumped would move the content out
+// from under the pointer before the drag began.
+#[test]
+fn a_press_on_the_thumb_grabs_without_moving() {
+    val held = to_bar(bar(), controls.Input.Press(geom.point_of(6.0, 10.0)), 0.0)
+    test.assert_eq(held.offset, 0.0)
+    test.assert_false(held.moved)
+    test.assert(Option.is_Some(held.bar.grabbed))
+}
+
+// **The drag keeps the point the thumb was taken hold of.** Grabbing the middle of the thumb and
+// moving ten points must move the content by ten points' worth, not jump the thumb's middle to
+// the pointer -- which is the single thing every hand-written scrollbar gets wrong.
+#[test]
+fn a_drag_keeps_where_the_thumb_was_grabbed() {
+    val held = to_bar(bar(), controls.Input.Press(geom.point_of(6.0, 20.0)), 0.0).bar
+    val moved = to_bar(held, controls.Input.Move(geom.point_of(6.0, 50.0)), 0.0)
+    // Grabbed 20 points down a thumb starting at 0, so the thumb's start is now 30 of the 60
+    // points of room, which is half the 150 points of overhang.
+    test.assert_eq(moved.offset, 75.0)
+}
+
+#[test]
+fn a_drag_stops_at_the_ends_too() {
+    val held = to_bar(bar(), controls.Input.Press(geom.point_of(6.0, 20.0)), 0.0).bar
+    test.assert_eq(to_bar(held, controls.Input.Move(geom.point_of(6.0, 900.0)), 0.0).offset, 150.0)
+    test.assert_eq(to_bar(held, controls.Input.Move(geom.point_of(6.0, 0.0 - 900.0)), 0.0).offset, 0.0)
+}
+
+// A move with nothing held is a pointer passing over, not a drag.
+#[test]
+fn a_move_without_a_grab_scrolls_nothing() {
+    val step = to_bar(bar(), controls.Input.Move(geom.point_of(6.0, 90.0)), 0.0)
+    test.assert_eq(step.offset, 0.0)
+    test.assert_false(step.moved)
+}
+
+// **A release lets go wherever it happens**, as a button's does: a thumb still holding on after
+// the pointer came up follows it around the window.
+#[test]
+fn a_release_lets_go_even_off_the_bar() {
+    val held = to_bar(bar(), controls.Input.Press(geom.point_of(6.0, 20.0)), 0.0).bar
+    val let_go = to_bar(held, controls.Input.Release(geom.point_of(500.0, 500.0)), 0.0)
+    test.assert_false(Option.is_Some(let_go.bar.grabbed))
+}
+
+#[test]
+fn the_wheel_moves_by_the_step_it_was_given() {
+    test.assert_eq(to_bar(bar(), controls.Input.Wheel(controls.Wheel {
+        at: geom.point_of(6.0, 50.0),
+        vertical: 0 - 1,
+        horizontal: 0
+    }), 40.0).offset, 60.0)
+}
+
+#[test]
+fn a_disabled_bar_ignores_everything() {
+    val off = with bar() { disabled: true }
+    test.assert_false(to_bar(off, controls.Input.Press(geom.point_of(6.0, 80.0)), 0.0).moved)
+}
+
+fn laid_bar(offset: float) -> widget.Laid {
+    return widget.layout(
+        controls.scroll_bar_widget(bar(), controls.default_style(), 12.0, 100.0, bar_content, bar_view, offset),
+        bar_box,
+        metrics()
+    )
+}
+
+// **The thumb the layout draws is the thumb the press reads**, the rule this module keeps
+// relearning: a bar drawn by one calculation and dragged by another jumps under the pointer.
+#[test]
+fn the_drawn_thumb_is_where_the_hit_test_looks_for_it() {
+    val drawn = box_named(laid_bar(75.0), thumb_name)
+    val figured = controls.thumb_of(100.0, bar_content, bar_view, 75.0)
+    test.assert_eq(drawn.y, figured.start)
+    test.assert_eq(drawn.height, figured.length)
+    // And a press at the drawn thumb's own middle grabs rather than pages.
+    val step = to_bar(bar(), controls.Input.Press(geom.point_of(6.0, drawn.y + drawn.height / 2.0)), 75.0)
+    test.assert_eq(step.offset, 75.0)
+    test.assert(Option.is_Some(step.bar.grabbed))
+}
+
+// Nothing to scroll means no thumb drawn at all, not a thumb filling the track -- the track says
+// "there is nothing below" by being empty.
+#[test]
+fn an_unscrollable_bar_draws_no_thumb() {
+    val l = widget.layout(
+        controls.scroll_bar_widget(bar(), controls.default_style(), 12.0, 100.0, 40.0, 100.0, 0.0),
+        bar_box,
+        metrics()
+    )
+    test.assert_eq(box_named(l, thumb_name).height, 0.0 - 1.0)
+}
+
+// Not a tab stop: the content takes the focus and its arrows scroll it, so a stop here would be
+// one a keyboard user tabs through and cannot use.
+#[test]
+fn a_scroll_bar_is_not_in_the_tab_order() {
+    test.assert_len(0, focus.controls(laid_bar(0.0)))
+    test.assert_eq(
+        said_of_tree(a11y.tree_of(laid_bar(0.0), "Records", ""), "scroll"),
+        "scroll bar"
+    )
 }

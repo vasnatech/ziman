@@ -87,6 +87,18 @@ fn main() {
             ]),
             controls.default_style()
         ),
+        // **A scroll bar, which is here to prove it is NOT a tab stop.** It declares a role and
+        // takes no focus, so the only way to check that is a tree a reader walks: the node has to
+        // be there, and `focus` has to not offer it.
+        controls.scroll_bar_widget(
+            controls.scroll_bar_of("scroll", 20.0),
+            controls.default_style(),
+            12.0,
+            60.0,
+            250.0,
+            60.0,
+            30.0
+        ),
         // **A real list, not two labels standing in for one.** `control_of` sets no state, so a
         // hand-built list asserts the roles and nothing about the selection -- and a reader that
         // cannot tell which row is selected tells a user nothing as they arrow through it.

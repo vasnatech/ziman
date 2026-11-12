@@ -100,6 +100,7 @@ check 'tree item: "archive" [expandable]' tree_branch_says_it_is_shut
 check 'tree item: "login"' tree_leaf_claims_nothing
 # ...and that line would also match a leaf that published both, since the states print after it --
 # so the absence is asserted on its own below.
+check 'scroll bar: ""' scroll_bar
 check 'list: "Rows"' list
 check 'list item: "first"' list_item
 # **Which row is selected, which is the only thing that changes as a user arrows through a list.**

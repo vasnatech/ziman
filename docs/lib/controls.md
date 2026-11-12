@@ -916,6 +916,148 @@ pub fn tree_row_name(t: Tree, index: int) -> string
 A row's name. The tree's name and the index **into `rows`, not into the visible ones**, so that
 opening a branch above a row does not rename it.
 
+## The scroll bar
+
+### `ScrollBar`
+
+```
+pub struct ScrollBar {
+    name: string
+    // Where in the thumb the pointer took hold, measured from the thumb's start, or `None` when
+    // nothing is being dragged.
+    grabbed: Option<float>
+    // What one notch of the wheel moves. **Given rather than guessed**, because the only sensible
+    // amount is a row of whatever is being scrolled and this control cannot know what that is.
+    step: float
+    disabled: bool
+}
+```
+
+Where a scrolled view is, and how much of it there is, drawn beside what it scrolls.
+
+**A view of someone else's offset, not the owner of one.** The offset lives in the control that
+scrolls -- a `List`, a `Tree`, an `Entry` -- and a bar keeping a second copy is two numbers that
+can disagree about one thing. So this holds only what a bar has that nothing else does: whether
+a drag is in progress and where the thumb was taken hold of. Everything else is passed in and
+handed back.
+
+**Beside what it scrolls, never over it.** An overlaid bar is inside the scrolled control's own
+box, so a press on the bar is a press the control reads as a row -- and the control would have
+to know the bar's width to tell them apart, which is the bar's geometry computed in two places.
+Laid out as a sibling, the two boxes do not overlap and neither has to know about the other.
+
+**Not a tab stop.** Every platform agrees: the content takes the focus and its arrows scroll it,
+so a scrollbar in the tab order is a stop that does nothing a keyboard user needs. It is also
+why this control publishes no value -- a reader walks the rows, which this layer publishes
+whether they are scrolled into view or not, so the bar is an affordance for the eye and the one
+reader who needs it is the one who cannot see.
+
+### `scroll_bar_of`
+
+```
+pub fn scroll_bar_of(name: string, step: float) -> ScrollBar
+```
+
+### `Thumb`
+
+```
+pub struct Thumb {
+    start: float
+    length: float
+}
+```
+
+How tall the thumb is and where it starts, inside a track of `track` points.
+
+**One function, used by the widget and by every gesture**, which is the rule this layer keeps
+learning: a thumb drawn by one calculation and dragged by another is a thumb that jumps under
+the pointer. `length` is the view's share of the content, floored at `min_thumb` so that a very
+long list still leaves something to take hold of; `start` is the offset's share of the overhang,
+spread over the track that is left.
+
+### `min_thumb`
+
+```
+pub val min_thumb = 20.0
+```
+
+The shortest a thumb may be drawn. Below about this there is nothing to aim at with a pointer.
+
+### `thumb_of`
+
+```
+pub fn thumb_of(track: float, content: float, view: float, offset: float) -> Thumb
+```
+
+### `scrolls`
+
+```
+pub fn scrolls(content: float, view: float) -> bool
+```
+
+Whether there is anything to scroll. An application asks before placing a bar at all; a bar with
+nothing to do draws an empty track rather than vanishing, so the layout does not move when a
+list grows past its box.
+
+### `ScrollBarStep`
+
+```
+pub struct ScrollBarStep {
+    bar: ScrollBar
+    // The offset the scrolled control should take. Handed back rather than stored, because the
+    // control owns it.
+    offset: float
+    moved: bool
+}
+```
+
+### `scroll_bar_input`
+
+```
+pub fn scroll_bar_input(
+    b: ScrollBar,
+    input: Input,
+    bounds: Rect,
+    content: float,
+    view: float,
+    offset: float
+) -> ScrollBarStep
+```
+
+What an input does to a bar, given the numbers whose owner is elsewhere.
+
+A press on the thumb takes hold of it; a press on the track above or below pages towards the
+pointer by a viewful, which is what a track click does everywhere; a move while held drags; a
+release lets go. A wheel scrolls by `step`.
+
+### `scroll_bar_widget`
+
+```
+pub fn scroll_bar_widget(
+    b: ScrollBar,
+    style: Style,
+    width: float,
+    track: float,
+    content: float,
+    view: float,
+    offset: float
+) -> widget.Widget
+```
+
+The bar as a widget: a track with the thumb inside it.
+
+The thumb is a fixed box above a flexible one, which is what places it without arithmetic the
+hit test would have to repeat -- the space above the thumb is `thumb_of`'s `start`, drawn as a
+gap, so the layout and `scroll_bar_input` are reading the one calculation.
+
+### `thumb_name`
+
+```
+pub val thumb_name = "thumb"
+```
+
+The name the thumb's box carries in the laid-out tree, so a test can find it.
+
 ## Menus and dialogs
 
 ### `Menu`
