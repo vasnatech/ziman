@@ -1034,6 +1034,171 @@ pub fn row_name(l: List, index: int) -> string {
     return concat(l.name, "/", str(index))
 }
 
+// -------------------------------------------------------------------- the tabs
+
+// A strip of tabs, one of them selected, choosing what is shown beneath it.
+//
+// **Selection follows the focus.** Arrowing along the strip changes what is shown, with no second
+// keystroke to confirm -- the automatic-activation model, which is the one to use unless revealing
+// a panel is expensive. So `TabStep` reports only that the selection `moved`, and there is no
+// `activated` beside it: a tab that had to be opened as well as reached is the manual model, and
+// nothing has asked for it.
+//
+// **One tab stop, as a list is**: Tab reaches the strip and the arrows move within it, so a window
+// with four tabs does not spend four stops on them. Each tab is a `widget.part_of` -- something a
+// click and a reader can reach and Tab cannot.
+//
+// **Not a `List` with another role**, though a menu is one. A menu differs from a list only in what
+// a reader calls it, which is why `List.role` is a field; a tab strip differs in three ways -- it
+// runs along a row, its arrows are Left and Right, and it does not scroll -- and three differences
+// is a control.
+pub struct Tabs {
+    name: string
+    label: string
+    items: [string]
+    // The selected tab. **Not -1**, unlike a list's: a strip says what is shown beneath it, and
+    // "nothing is shown" is not a state a tab strip can be in. A strip with no tabs is the one
+    // exception, and an application with no tabs should not be building one.
+    selected: int
+    // The width of every tab. **One number, used by both the widget and the hit test**, which is
+    // what keeps a click landing on the tab it looks like it landed on: tabs measured to fit their
+    // own labels would need the font metrics in `tabs_input` as well, and a layout computed twice
+    // is a layout that can disagree with itself. A caller wanting a snug strip sets this to fit
+    // the longest label.
+    tab_width: float
+    disabled: bool
+}
+
+pub fn tabs_of(name: string, label: string, items: [string]) -> Tabs {
+    return Tabs {
+        name: name,
+        label: label,
+        items: items,
+        selected: 0,
+        tab_width: 100.0,
+        disabled: false
+    }
+}
+
+pub struct TabStep {
+    tabs: Tabs
+    // The selection changed, so what is beneath the strip has to change with it.
+    moved: bool
+}
+
+// What an input does to a tab strip.
+//
+// `bounds` is the box the layout gave the strip, which turns a press's x into a tab -- the same
+// trick `list_input` plays with y and `row_height`, and sound for the same reason: the widget lays
+// every tab out at `tab_width` from the strip's left edge, so the arithmetic here is the layout's
+// own and not a guess at it.
+//
+// **A press selects, where a button fires on the release.** Dragging off a tab and letting go still
+// leaves it chosen, which is what every tab strip does and what a list does here: a tab is a place
+// to be rather than an action to commit to, so there is nothing to cancel.
+pub fn tabs_input(t: Tabs, input: Input, bounds: Rect) -> TabStep {
+    if t.disabled {
+        return tabs_still(t)
+    }
+    return switch input {
+        Press(p) {
+            val at = floor((p.x - bounds.x) / t.tab_width)
+            if at < 0 || at >= len(t.items) {
+                tabs_still(t)
+            } else {
+                tabs_to(t, at)
+            }
+        }
+        KeyDown(k) { tabs_key(t, k) }
+        KeyUp(_) { tabs_still(t) }
+        Text(_) { tabs_still(t) }
+        Paste(_) { tabs_still(t) }
+        Release(_) { tabs_still(t) }
+        Move(_) { tabs_still(t) }
+        // **A wheel over a tab strip does nothing.** Some toolkits cycle the tabs with it; the
+        // result is a user scrolling a page and changing what the page is.
+        Wheel(_) { tabs_still(t) }
+    }
+}
+
+fn tabs_key(t: Tabs, k: Keystroke) -> TabStep {
+    val last = len(t.items) - 1
+    if last < 0 {
+        return tabs_still(t)
+    }
+    if Key.is_Right(k.key) { return tabs_to(t, t.selected + 1) }
+    if Key.is_Left(k.key) { return tabs_to(t, t.selected - 1) }
+    if Key.is_Home(k.key) { return tabs_to(t, 0) }
+    if Key.is_End(k.key) { return tabs_to(t, last) }
+    return tabs_still(t)
+}
+
+// Clamped rather than wrapped, as the list's arrows are. The end of a strip is a place a user can
+// feel, and a Right that jumped back to the first tab takes that away to save one keystroke.
+fn tabs_to(t: Tabs, want: int) -> TabStep {
+    val last = len(t.items) - 1
+    val at = if want < 0 { 0 } else { if want > last { last } else { want } }
+    return TabStep { tabs: with t { selected: at }, moved: at != t.selected }
+}
+
+fn tabs_still(t: Tabs) -> TabStep {
+    return TabStep { tabs: t, moved: false }
+}
+
+// The strip as a widget: a `TabList` control holding one `Tab` part per label.
+//
+// The parts carry `selected`, as a list's rows do, because that is what a reader reads -- "tab,
+// History, selected" -- and an index on the container would make every adapter work out for itself
+// which child the number meant.
+pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget {
+    val ink = if t.disabled { style.disabled_ink } else { style.ink }
+    val cells = mutable_array_new<widget.Widget>()
+    var i = 0
+    while i < len(t.items) {
+        val chosen = i == t.selected
+        val face = if chosen { style.pressed_face } else { style.face }
+        val cell = widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: style.padding,
+            background: Option<Color>.Some(face),
+            children: [widget.label_of(t.items[i], style.text_size, ink)],
+            name: ""
+        })
+        push(cells, widget.fixed_of(
+            t.tab_width,
+            0.0,
+            widget.part_of(
+                tab_name(t, i),
+                widget.Role.Tab,
+                t.items[i],
+                with widget.no_state() { selected: chosen, disabled: t.disabled },
+                cell
+            )
+        ))
+        i = i + 1
+    }
+    return widget.Widget.Control(widget.Focusable {
+        name: t.name,
+        role: widget.Role.TabList,
+        label: t.label,
+        description: "",
+        value: "",
+        state: with widget.no_state() { disabled: t.disabled },
+        tab_stop: true,
+        // **No spacing between the tabs**, because the hit test divides the strip by `tab_width`
+        // and a gap would put a dead stripe between two tabs that the arithmetic here cannot see.
+        child: widget.row_of(0.0, snapshot(cells))
+    })
+}
+
+// A tab's name, which focus and accessibility both address it by. The strip's name and the index,
+// as a list's rows are: a tab has no name of its own and a bare index would collide with another
+// strip's.
+pub fn tab_name(t: Tabs, index: int) -> string {
+    return concat(t.name, "/", str(index))
+}
+
 // -------------------------------------------------------- menus and dialogs
 
 // A title on a menu bar and the items that drop from it.

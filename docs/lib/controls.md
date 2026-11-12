@@ -647,6 +647,101 @@ pub fn row_name(l: List, index: int) -> string
 A row's name, which focus and accessibility both address it by. The list's name and the index,
 because a row has no name of its own and an index alone would collide with another list's.
 
+## The tabs
+
+### `Tabs`
+
+```
+pub struct Tabs {
+    name: string
+    label: string
+    items: [string]
+    // The selected tab. **Not -1**, unlike a list's: a strip says what is shown beneath it, and
+    // "nothing is shown" is not a state a tab strip can be in. A strip with no tabs is the one
+    // exception, and an application with no tabs should not be building one.
+    selected: int
+    // The width of every tab. **One number, used by both the widget and the hit test**, which is
+    // what keeps a click landing on the tab it looks like it landed on: tabs measured to fit their
+    // own labels would need the font metrics in `tabs_input` as well, and a layout computed twice
+    // is a layout that can disagree with itself. A caller wanting a snug strip sets this to fit
+    // the longest label.
+    tab_width: float
+    disabled: bool
+}
+```
+
+A strip of tabs, one of them selected, choosing what is shown beneath it.
+
+**Selection follows the focus.** Arrowing along the strip changes what is shown, with no second
+keystroke to confirm -- the automatic-activation model, which is the one to use unless revealing
+a panel is expensive. So `TabStep` reports only that the selection `moved`, and there is no
+`activated` beside it: a tab that had to be opened as well as reached is the manual model, and
+nothing has asked for it.
+
+**One tab stop, as a list is**: Tab reaches the strip and the arrows move within it, so a window
+with four tabs does not spend four stops on them. Each tab is a `widget.part_of` -- something a
+click and a reader can reach and Tab cannot.
+
+**Not a `List` with another role**, though a menu is one. A menu differs from a list only in what
+a reader calls it, which is why `List.role` is a field; a tab strip differs in three ways -- it
+runs along a row, its arrows are Left and Right, and it does not scroll -- and three differences
+is a control.
+
+### `tabs_of`
+
+```
+pub fn tabs_of(name: string, label: string, items: [string]) -> Tabs
+```
+
+### `TabStep`
+
+```
+pub struct TabStep {
+    tabs: Tabs
+    // The selection changed, so what is beneath the strip has to change with it.
+    moved: bool
+}
+```
+
+### `tabs_input`
+
+```
+pub fn tabs_input(t: Tabs, input: Input, bounds: Rect) -> TabStep
+```
+
+What an input does to a tab strip.
+
+`bounds` is the box the layout gave the strip, which turns a press's x into a tab -- the same
+trick `list_input` plays with y and `row_height`, and sound for the same reason: the widget lays
+every tab out at `tab_width` from the strip's left edge, so the arithmetic here is the layout's
+own and not a guess at it.
+
+**A press selects, where a button fires on the release.** Dragging off a tab and letting go still
+leaves it chosen, which is what every tab strip does and what a list does here: a tab is a place
+to be rather than an action to commit to, so there is nothing to cancel.
+
+### `tabs_widget`
+
+```
+pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget
+```
+
+The strip as a widget: a `TabList` control holding one `Tab` part per label.
+
+The parts carry `selected`, as a list's rows do, because that is what a reader reads -- "tab,
+History, selected" -- and an index on the container would make every adapter work out for itself
+which child the number meant.
+
+### `tab_name`
+
+```
+pub fn tab_name(t: Tabs, index: int) -> string
+```
+
+A tab's name, which focus and accessibility both address it by. The strip's name and the index,
+as a list's rows are: a tab has no name of its own and a bare index would collide with another
+strip's.
+
 ## Menus and dialogs
 
 ### `Menu`

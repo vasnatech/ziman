@@ -1340,3 +1340,148 @@ fn the_scrim_is_translucent() {
     test.assert(controls.default_style().scrim.alpha > 0.0)
     test.assert(controls.default_style().scrim.alpha < 1.0)
 }
+
+// --------------------------------------------------------------- the tab strip
+
+fn panes() -> controls.Tabs {
+    return with controls.tabs_of("panes", "Panes", ["Response", "History", "Timing"]) {
+        tab_width: 50.0
+    }
+}
+
+val strip_box = geom.rect_of(0.0, 0.0, 300.0, 24.0)
+
+fn to_tabs(t: controls.Tabs, input: controls.Input) -> controls.TabStep {
+    return controls.tabs_input(t, input, strip_box)
+}
+
+fn tab_arrow(t: controls.Tabs, k: controls.Key) -> controls.TabStep {
+    return to_tabs(t, controls.Input.KeyDown(controls.keystroke_of(k)))
+}
+
+#[test]
+fn a_press_chooses_the_tab_it_landed_on() {
+    val step = to_tabs(panes(), controls.Input.Press(geom.point_of(75.0, 10.0)))
+    test.assert_eq(1, step.tabs.selected)
+    test.assert(step.moved)
+}
+
+// `moved` is what the application acts on, so a press on the tab already showing must not report
+// one: a pane that reloaded itself every time a user clicked where they already were would do the
+// expensive thing on the one gesture that asks for nothing.
+#[test]
+fn pressing_the_selected_tab_moves_nothing() {
+    val step = to_tabs(panes(), controls.Input.Press(geom.point_of(25.0, 10.0)))
+    test.assert_eq(0, step.tabs.selected)
+    test.assert_false(step.moved)
+}
+
+// A strip is usually narrower than the row it sits in, and the space past the last tab belongs to
+// nothing. Dividing the whole box by `tab_width` would make that space tab 3, 4 and 5.
+#[test]
+fn a_press_past_the_last_tab_chooses_nothing() {
+    val step = to_tabs(panes(), controls.Input.Press(geom.point_of(280.0, 10.0)))
+    test.assert_eq(0, step.tabs.selected)
+    test.assert_false(step.moved)
+}
+
+#[test]
+fn the_arrows_walk_the_strip_and_stop_at_its_ends() {
+    test.assert_eq(1, tab_arrow(panes(), controls.Key.Right).tabs.selected)
+    test.assert_eq(0, tab_arrow(panes(), controls.Key.Left).tabs.selected)
+    test.assert_eq(2, tab_arrow(panes(), controls.Key.End).tabs.selected)
+    test.assert_eq(0, tab_arrow(with panes() { selected: 2 }, controls.Key.Home).tabs.selected)
+}
+
+// Clamped, not wrapped -- and the clamp has to report `moved: false`, or a Right held down at the
+// end of the strip reloads the last pane as fast as the keyboard repeats.
+#[test]
+fn the_end_of_the_strip_is_a_place_you_can_feel() {
+    val step = tab_arrow(with panes() { selected: 2 }, controls.Key.Right)
+    test.assert_eq(2, step.tabs.selected)
+    test.assert_false(step.moved)
+}
+
+// Some toolkits cycle the tabs with the wheel. The result is a user scrolling a page and changing
+// what the page is, which is why this one does not.
+#[test]
+fn a_wheel_over_the_strip_changes_nothing() {
+    val step = to_tabs(panes(), controls.Input.Wheel(controls.Wheel {
+        at: geom.point_of(75.0, 10.0),
+        vertical: 0 - 1,
+        horizontal: 0
+    }))
+    test.assert_eq(0, step.tabs.selected)
+    test.assert_false(step.moved)
+}
+
+#[test]
+fn a_disabled_strip_ignores_everything() {
+    val off = with panes() { disabled: true }
+    test.assert_false(to_tabs(off, controls.Input.Press(geom.point_of(75.0, 10.0))).moved)
+    test.assert_false(tab_arrow(off, controls.Key.Right).moved)
+}
+
+fn laid_strip(t: controls.Tabs) -> widget.Laid {
+    return widget.layout(controls.tabs_widget(t, controls.default_style()), strip_box, metrics())
+}
+
+// **The test this control exists to have.** `tabs_input` divides the strip by `tab_width` and
+// `tabs_widget` lays every tab out at `tab_width`: two computations of one layout, which is the
+// arrangement that lets a click land on the tab beside the one it looks like it hit. This asserts
+// they agree by pressing at the centre of the box the *layout* gave tab 2 and asking the *input*
+// which tab that was.
+#[test]
+fn the_hit_test_and_the_layout_agree_on_where_a_tab_is() {
+    val l = laid_strip(panes())
+    // Swept rather than sampled once, and stepped by a width that divides neither tab, so the walk
+    // crosses both boundaries instead of landing in the middle of the same tab three times.
+    var x = 5.0
+    var crossed = 0
+    while x < 150.0 {
+        val at = geom.point_of(x, 10.0)
+        val by_layout = switch focus.control_at(l, at) {
+            Some(one) { one.name }
+            None { "(nothing there)" }
+        }
+        val chose = to_tabs(panes(), controls.Input.Press(at)).tabs.selected
+        test.assert_eq(by_layout, controls.tab_name(panes(), chose))
+        crossed = crossed + 1
+        x = x + 7.0
+    }
+    test.assert(crossed > 15)
+}
+
+// One stop for Tab, one node per tab for a reader -- the list's bargain, for the same reason.
+#[test]
+fn a_strip_is_one_tab_stop_and_one_node_per_tab() {
+    val l = laid_strip(panes())
+    test.assert_len(1, focus.controls(l))
+    test.assert_eq(focus.controls(l)[0].name, "panes")
+
+    val t = a11y.tree_of(l, "Records", "panes")
+    // The window, the strip, and one node per tab.
+    test.assert_len(5, t.nodes)
+}
+
+// A reader has to be told which tab is showing, and an index on the container would make every
+// adapter work out for itself which child the number meant.
+#[test]
+fn the_selected_tab_says_so_and_the_others_do_not() {
+    val t = a11y.tree_of(laid_strip(with panes() { selected: 1 }), "Records", "panes")
+    test.assert_eq(said_of_tree(t, "panes/1"), "tab, History, selected")
+    test.assert_eq(said_of_tree(t, "panes/0"), "tab, Response")
+}
+
+// The strip itself is a tab list, not a list: "Panes, list" would send a reader looking for rows.
+#[test]
+fn the_strip_announces_itself_as_a_tab_list() {
+    test.assert_eq(said_of_tree(a11y.tree_of(laid_strip(panes()), "Records", ""), "panes"), "tab list, Panes")
+}
+
+fn said_of_tree(t: a11y.Tree, name: string) -> string {
+    return switch a11y.node_of(t, name) {
+        Some(one) { a11y.announce(one) }
+        None { concat("(no node named ", name, ")") }
+    }
+}
