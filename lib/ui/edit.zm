@@ -626,3 +626,149 @@ pub fn redo(h: History, current: Editor) -> Step {
         history: History { past: snapshot(past), future: future, limit: h.limit }
     }
 }
+
+// ---------------------------------------------------- composing with an input method
+
+// Text being composed and not yet committed.
+//
+// docs/reviews/tasks/f269-f277.md F274, first instalment: the model, which every input method
+// protocol agrees on even though none of them agrees on anything else. XIM, ibus, SDL3, Windows
+// TSF and macOS all deliver the same two things -- a pre-edit string with a caret and a
+// highlighted run inside it, and a commit string that replaces it -- so this can be built and
+// tested before the platform half is chosen, and will not have to change when it is.
+//
+// **Beside the text, never in it.** A pre-edit spliced into `Editor.text` would be seen by every
+// move, selection and undo as ordinary text, and none of them means anything over a composition:
+// a caret cannot leave a pre-edit, and an undo cannot step into one. Holding it apart is what
+// keeps `Editor` exactly as true as it was -- `text` is what is committed, always, and a field
+// that loses its connection to the input method loses the composition rather than silently
+// keeping half a word.
+pub struct Preedit {
+    // What is being composed. Not in `Editor.text` until a commit.
+    text: string
+    // Where in `Editor.text` it sits.
+    at: int
+    // Where the caret is **inside `text`**, which the input method moves as a user converts.
+    caret: int
+    // The run being converted right now, as code-point indices into `text`. Equal when there is
+    // no such run, which is the ordinary case for a dead key or a compose sequence.
+    highlight_start: int
+    highlight_end: int
+}
+
+// An editor and the composition sitting in it, which `compose` answers together because starting
+// one can change both: the selection it replaces is gone from the editor, and the pre-edit has to
+// know where it landed.
+pub struct Composing {
+    editor: Editor
+    preedit: Preedit
+}
+
+// Start or update a composition at the caret.
+//
+// **A selection is deleted first, as typing would.** Beginning to compose over selected text
+// replaces it -- that is what every platform does, and the alternative leaves a user watching
+// their selection survive a word they have already started typing over.
+//
+// Updating is the same call: an input method sends the whole pre-edit each time it changes rather
+// than a delta, so there is nothing to merge, and the editor already has no selection by then.
+pub fn compose(e: Editor, text: string, caret: int) -> Composing {
+    // `insert` with nothing is how this module already spells "delete the selection".
+    val cleared = if has_selection(e) { insert(e, "") } else { e }
+    val at = cleared.caret
+    return Composing {
+        editor: cleared,
+        preedit: Preedit {
+            text: text,
+            at: at,
+            caret: clamped_into(caret, text),
+            highlight_start: 0,
+            highlight_end: 0
+        }
+    }
+}
+
+// The same, with the run the input method is converting marked.
+pub fn compose_marked(e: Editor, text: string, caret: int, from: int, to: int) -> Composing {
+    val started = compose(e, text, caret)
+    val low = clamped_into(if from < to { from } else { to }, text)
+    val high = clamped_into(if from < to { to } else { from }, text)
+    return Composing {
+        editor: started.editor,
+        preedit: with started.preedit { highlight_start: low, highlight_end: high }
+    }
+}
+
+// What a commit leaves behind: the composed text becomes ordinary text, and the caret follows it.
+//
+// **The committed string is the input method's, not the pre-edit's.** They are usually the same
+// and are allowed not to be -- a conversion commits what was chosen, which may be neither what was
+// typed nor what was last shown.
+pub fn commit(e: Editor, p: Preedit, text: string) -> Editor {
+    val at = clamped_into(p.at, e.text)
+    val before = substring(e.text, 0, at)
+    val after = substring(e.text, at, len(e.text))
+    val put = concat(before, text, after)
+    val landed = at + len(text)
+    return Editor { text: put, caret: landed, anchor: landed }
+}
+
+// The text as it looks while composing: what is committed, with the pre-edit spliced in where it
+// sits.
+//
+// **One function for what is drawn and what is measured**, which is the rule a caret lives or
+// dies by: a field that measures the committed text and draws the composed one puts the caret
+// under the wrong character for as long as a composition lasts.
+pub fn shown(e: Editor, p: Option<Preedit>) -> string {
+    switch p {
+        Some(one) {
+            val at = clamped_into(one.at, e.text)
+            return concat(substring(e.text, 0, at), one.text, substring(e.text, at, len(e.text)))
+        }
+        None { return e.text }
+    }
+}
+
+// Where the caret is in what `shown` answers. **Inside the pre-edit while one is open**, because
+// that is where a user is typing -- an input method moves it through the composition as the
+// conversion changes, and a caret pinned to the start of it would not follow.
+pub fn shown_caret(e: Editor, p: Option<Preedit>) -> int {
+    switch p {
+        Some(one) { return clamped_into(one.at, e.text) + one.caret }
+        None { return e.caret }
+    }
+}
+
+// The highlighted run, in the coordinates `shown` answers, or `None` when there is nothing marked.
+pub fn shown_highlight(e: Editor, p: Option<Preedit>) -> Option<Span> {
+    switch p {
+        Some(one) {
+            if one.highlight_start == one.highlight_end {
+                return Option<Span>.None
+            }
+            val base = clamped_into(one.at, e.text)
+            return Option<Span>.Some(Span {
+                start: base + one.highlight_start,
+                end: base + one.highlight_end
+            })
+        }
+        None { return Option<Span>.None }
+    }
+}
+
+// A run of text, as two code-point indices.
+pub struct Span {
+    start: int
+    end: int
+}
+
+fn clamped_into(at: int, text: string) -> int {
+    val n = len(text)
+    if at < 0 {
+        return 0
+    }
+    if at > n {
+        return n
+    }
+    return at
+}

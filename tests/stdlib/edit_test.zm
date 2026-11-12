@@ -357,3 +357,133 @@ fn moving_by_line_can_extend_a_selection() {
     test.assert_eq(7, extended.caret)
     test.assert_eq("cd\nef", edit.selected_text(extended))
 }
+
+// ---- composing with an input method
+//
+// **The model, before the platform.** Every input method protocol delivers the same two things --
+// a pre-edit string with a caret and a marked run inside it, and a commit string that replaces it
+// -- so these are the rules whichever of XIM, ibus or SDL3 ends up underneath.
+
+fn at_end(text: string) -> edit.Editor {
+    return edit.editor_of(text)
+}
+
+#[test]
+fn a_preedit_is_not_in_the_text_until_it_is_committed() {
+    val c = edit.compose(at_end("ab"), "か", 1)
+    // What is committed has not changed, which is the whole point of holding it apart.
+    test.assert_eq(c.editor.text, "ab")
+    // What is shown has.
+    test.assert_eq(edit.shown(c.editor, Option<edit.Preedit>.Some(c.preedit)), "abか")
+    test.assert_eq(edit.shown_caret(c.editor, Option<edit.Preedit>.Some(c.preedit)), 3)
+}
+
+// **A composition opens where the caret is**, and in the middle of a word as readily as at the end.
+#[test]
+fn a_preedit_opens_at_the_caret() {
+    val mid = edit.place_caret(at_end("abcd"), 2, false)
+    val c = edit.compose(mid, "XY", 2)
+    test.assert_eq(edit.shown(c.editor, Option<edit.Preedit>.Some(c.preedit)), "abXYcd")
+    test.assert_eq(edit.shown_caret(c.editor, Option<edit.Preedit>.Some(c.preedit)), 4)
+}
+
+// **A selection is deleted first, as typing would.** Composing over selected text replaces it;
+// leaving it would have a user watching their selection survive a word typed over it.
+#[test]
+fn composing_over_a_selection_replaces_it() {
+    val all = edit.select_all(at_end("hello"))
+    val c = edit.compose(all, "か", 1)
+    test.assert_eq(c.editor.text, "")
+    test.assert_false(edit.has_selection(c.editor))
+    test.assert_eq(edit.shown(c.editor, Option<edit.Preedit>.Some(c.preedit)), "か")
+}
+
+// An input method sends the whole pre-edit each time rather than a delta, so updating is the same
+// call -- and it must not walk the composition along the text.
+#[test]
+fn updating_a_preedit_does_not_move_it() {
+    val first = edit.compose(at_end("ab"), "か", 1)
+    val again = edit.compose(first.editor, "かん", 2)
+    test.assert_eq(again.preedit.at, first.preedit.at)
+    test.assert_eq(edit.shown(again.editor, Option<edit.Preedit>.Some(again.preedit)), "abかん")
+    test.assert_eq(edit.shown_caret(again.editor, Option<edit.Preedit>.Some(again.preedit)), 4)
+}
+
+// **The caret sits inside the composition**, where the user is typing: an input method moves it
+// through the pre-edit as a conversion changes, and one pinned to the start would not follow.
+#[test]
+fn the_caret_is_inside_the_preedit() {
+    val c = edit.compose(at_end("ab"), "かんじ", 1)
+    test.assert_eq(edit.shown_caret(c.editor, Option<edit.Preedit>.Some(c.preedit)), 3)
+    val moved = edit.compose(c.editor, "かんじ", 3)
+    test.assert_eq(edit.shown_caret(moved.editor, Option<edit.Preedit>.Some(moved.preedit)), 5)
+}
+
+// **The committed string is the input method's, not the pre-edit's.** A conversion commits what
+// was chosen, which may be neither what was typed nor what was last shown.
+#[test]
+fn a_commit_writes_what_the_method_chose() {
+    val c = edit.compose(at_end("ab"), "かんじ", 3)
+    val done = edit.commit(c.editor, c.preedit, "漢字")
+    test.assert_eq(done.text, "ab漢字")
+    test.assert_eq(done.caret, 4)
+    test.assert_false(edit.has_selection(done))
+    // And with the composition gone, what is shown is simply the text.
+    test.assert_eq(edit.shown(done, Option<edit.Preedit>.None), "ab漢字")
+}
+
+#[test]
+fn a_commit_in_the_middle_lands_where_the_composition_was() {
+    val mid = edit.place_caret(at_end("abcd"), 2, false)
+    val c = edit.compose(mid, "XY", 2)
+    val done = edit.commit(c.editor, c.preedit, "Z")
+    test.assert_eq(done.text, "abZcd")
+    test.assert_eq(done.caret, 3)
+}
+
+// Abandoning a composition leaves the text exactly as it was: there is nothing to undo, because
+// nothing was ever written.
+#[test]
+fn abandoning_a_composition_leaves_no_trace() {
+    val c = edit.compose(at_end("ab"), "かんじ", 3)
+    test.assert_eq(edit.shown(c.editor, Option<edit.Preedit>.None), "ab")
+    test.assert_eq(edit.shown_caret(c.editor, Option<edit.Preedit>.None), 2)
+}
+
+// The marked run is what a field underlines differently while converting.
+#[test]
+fn the_marked_run_is_reported_in_the_shown_coordinates() {
+    val c = edit.compose_marked(at_end("ab"), "かんじ", 3, 1, 3)
+    switch edit.shown_highlight(c.editor, Option<edit.Preedit>.Some(c.preedit)) {
+        Some(span) {
+            test.assert_eq(span.start, 3)
+            test.assert_eq(span.end, 5)
+        }
+        None { test.fail("the marked run was lost") }
+    }
+}
+
+// Nothing marked is the ordinary case -- a dead key, a compose sequence -- and must answer `None`
+// rather than an empty span at zero, which a caller would draw.
+#[test]
+fn nothing_marked_answers_nothing() {
+    val c = edit.compose(at_end("ab"), "é", 1)
+    test.assert_false(Option.is_Some(edit.shown_highlight(c.editor, Option<edit.Preedit>.Some(c.preedit))))
+    test.assert_false(Option.is_Some(edit.shown_highlight(c.editor, Option<edit.Preedit>.None)))
+}
+
+// A method that reports a caret or a mark outside its own pre-edit is clamped rather than
+// trusted: the alternative is a `substring` past the end, on data from another process.
+#[test]
+fn a_caret_or_a_mark_outside_the_preedit_is_clamped() {
+    val c = edit.compose(at_end("ab"), "か", 99)
+    test.assert_eq(edit.shown_caret(c.editor, Option<edit.Preedit>.Some(c.preedit)), 3)
+    val marked = edit.compose_marked(at_end("ab"), "か", 0, 0 - 5, 99)
+    switch edit.shown_highlight(marked.editor, Option<edit.Preedit>.Some(marked.preedit)) {
+        Some(span) {
+            test.assert_eq(span.start, 2)
+            test.assert_eq(span.end, 3)
+        }
+        None { test.fail("a clamped mark should still be a mark") }
+    }
+}
