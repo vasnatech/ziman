@@ -9,6 +9,7 @@ use controls
 use focus
 use geom
 use paint
+use scene
 use test
 use widget
 
@@ -1241,4 +1242,60 @@ fn typing_scrolls_a_text_area_too() {
         i = i + 1
     }
     test.assert(a.scroll > 0.0)
+}
+
+// ---- the focus ring
+//
+// **Nothing drew the focus, which a keyboard user needs to see.** Tab moved it, every control took
+// its keys, and the window looked identical either way -- so the only way to find out what was
+// focused was to type into something. These assert the ring is drawn, is drawn once, and follows
+// the focus rather than sitting wherever the first control is.
+
+fn ring_count(scene_now: scene.Scene) -> int {
+    var strokes = 0
+    for op in scene_now.ops {
+        switch op {
+            StrokePath(_) { strokes = strokes + 1 }
+            Fill(_) { unit }
+            Text(_) { unit }
+            DrawImage(_) { unit }
+            Nested(_) { unit }
+        }
+    }
+    return strokes
+}
+
+fn two_fields() -> widget.Laid {
+    val style = controls.default_style()
+    val tree = widget.column_of(4.0, [
+        widget.fixed_of(0.0, 20.0, controls.entry_widget(controls.entry_of("one", "One", "a"), style, metrics())),
+        widget.fixed_of(0.0, 20.0, controls.entry_widget(controls.entry_of("two", "Two", "b"), style, metrics()))
+    ])
+    return widget.layout(tree, geom.rect_of(0.0, 0.0, 100.0, 60.0), metrics())
+}
+
+#[test]
+fn the_focus_ring_is_drawn_once_around_the_focused_control() {
+    val laid = two_fields()
+    test.assert_eq(0, ring_count(widget.paint(laid, metrics())))
+    val ringed = widget.paint_focused(laid, metrics(), "two", paint.rgb(0.0, 0.4, 0.9), 2.0)
+    test.assert_eq(1, ring_count(ringed))
+}
+
+// **A name the tree does not hold draws nothing rather than refusing**, because a focus naming a
+// control that is gone is an ordinary moment between two frames: a row was removed, a dialog
+// closed. Refusing there would make a repaint fail for a reason the user cannot see.
+#[test]
+fn an_unknown_focus_draws_no_ring() {
+    test.assert_eq(0, ring_count(widget.paint_focused(two_fields(), metrics(), "gone", paint.rgb(0.0, 0.0, 0.0), 2.0)))
+}
+
+// The ring has to move with the focus, not merely exist: a ring that always framed the first
+// control would pass the count above and tell a user nothing.
+#[test]
+fn the_ring_follows_the_focus() {
+    val laid = two_fields()
+    val first = widget.paint_focused(laid, metrics(), "one", paint.rgb(0.0, 0.0, 0.0), 2.0)
+    val second = widget.paint_focused(laid, metrics(), "two", paint.rgb(0.0, 0.0, 0.0), 2.0)
+    test.assert_false(format("{}", first.ops) == format("{}", second.ops))
 }

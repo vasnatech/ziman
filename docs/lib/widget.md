@@ -910,6 +910,28 @@ Text is placed on its **baseline**, which is why a label's y is its bounds' top 
 height rather than the top itself: a glyph drawn at the top of its box has its ascenders above
 the box and looks like it has escaped.
 
+### `paint_focused`
+
+```
+pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: float) -> scene.Scene
+```
+
+The tree as a `Scene`, with a ring around whichever control has the focus.
+
+**A keyboard user has to be able to see where they are, and nothing drew that.** Tab moved the
+focus, every control took its keys correctly, and the window looked identical either way -- so
+the only way to find out what was focused was to type into it. It was found by an application
+whose accessibility tree published a focus that the pixels never showed.
+
+**Here rather than on each control**, which is the whole reason this is one function and not a
+`focused: bool` on every `*_widget`: a control does not know whether it has the focus and should
+not have to be told. The application knows, the layout knows where everything is, and this is
+where the two meet -- the same seam `a11y.tree_of` already uses, which takes the focus for the
+same reason.
+
+An unknown name draws nothing rather than refusing: a focus naming a control this tree no longer
+holds is an ordinary moment between two frames, not an error.
+
 ### `paint_ops`
 
 ```
