@@ -52,7 +52,7 @@ fn main() {
     )
     val back = geom.transform_point(unwrap(geom.invert(m)), geom.transform_point(m, p))
     print(concat("invert round trip:   ", show_point(back)))
-    print(concat("invert singular:     ", format("{}", geom.invert(geom.scaling(0.0, 1.0)))))
+    print(format("invert singular:     {}", geom.invert(geom.scaling(0.0, 1.0))))
 
     // A rotated rectangle is not a rectangle, so this is the bounding box of the four corners.
     print(concat("transform_rect:      ", show_rect(geom.transform_rect(quarter, geom.rect_of(0.0, 0.0, 2.0, 4.0)))))
@@ -122,11 +122,11 @@ fn main() {
     print(concat("empty polygon:       ", str(len(shape.polygon_path([], true).segments))))
 
     // ---- paint
-    print(concat("hex #336699:         ", format("{}", unwrap(paint.hex("#336699")))))
+    print(format("hex #336699:         {}", unwrap(paint.hex("#336699"))))
     print(concat("hex fff is white:    ", str(unwrap(paint.hex("fff")) == paint.white())))
     print(concat("hex with alpha:      ", round4(unwrap(paint.hex("#00000080")).alpha)))
-    print(concat("hex bad digit:       ", format("{}", paint.hex("#xyz"))))
-    print(concat("hex bad length:      ", format("{}", paint.hex("#12345"))))
+    print(format("hex bad digit:       {}", paint.hex("#xyz")))
+    print(format("hex bad length:      {}", paint.hex("#12345")))
     print(concat("default stroke:      ", round4(paint.stroke_of(2.0).miter_limit)))
 
     // ---- the display list

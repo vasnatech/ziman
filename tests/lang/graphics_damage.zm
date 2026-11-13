@@ -113,7 +113,7 @@ fn differences(a: raster.Surface, b: raster.Surface, x0: int, y0: int, x1: int, 
 fn run() -> Result<unit, string> {
     val data = switch fs.read_bytes("vendor/fonts/Caladea-Regular.ttf") {
         Ok(d) { d }
-        Err(why) { return err(concat("font: ", format("{}", why))) }
+        Err(why) { return err(format("font: {}", why)) }
     }
     val f = switch font.load(data) {
         Ok(x) { x }

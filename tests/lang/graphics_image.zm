@@ -137,7 +137,7 @@ fn main() {
         image.channels_of(alpha.format) == 1 && alpha.width == 4 && alpha.height == 4
     )))
     print(concat("colours without alpha:    ", str(image.channels_of(image.without_alpha(rgba).format))))
-    print(concat("rgb has no alpha channel: ", format("{}", image.alpha_channel(rgb))))
+    print(format("rgb has no alpha channel: {}", image.alpha_channel(rgb)))
 
     // ---- PNG
     round_trip("gray round trip ", image.Pixels.Gray8)
@@ -164,7 +164,7 @@ fn main() {
 
     // ---- JPEG: shape only, which is all `DCTDecode` pass-through needs
     val jpeg = bytes_of([255, 216, 255, 192, 0, 17, 8, 0, 30, 0, 40, 3])
-    print(concat("jpeg 40x30, 3 comps: ", format("{}", image.jpeg_dimensions(jpeg))))
+    print(format("jpeg 40x30, 3 comps: {}", image.jpeg_dimensions(jpeg)))
     print(concat("not a JPEG:          ", refusal(image.jpeg_dimensions(bytes_of([1, 2, 3, 4])))))
     print(concat(
         "a JPEG with no frame: ",
@@ -181,7 +181,7 @@ fn main() {
         scene.with_ops(scene.scene_of(80.0, 80.0), [scene.image(0, geom.rect_of(10.0, 10.0, 60.0, 60.0))]),
         with pdf.options() { size: pdf.page_size_of(80.0, 80.0), images: [rgba], compress: false }
     ))
-    print(concat("rgba page:           ", str(len(doc)), " bytes, sound: ", format("{}", pdfobj.check(doc))))
+    print(format("rgba page:           {} bytes, sound: {}", len(doc), pdfobj.check(doc)))
     print(concat("  has an /SMask:     ", str(has(doc, "/SMask"))))
     print(concat("  places it with Do: ", str(has(doc, "/Im0 Do"))))
     print(concat("  mask is DeviceGray: ", str(has(doc, "/DeviceGray"))))

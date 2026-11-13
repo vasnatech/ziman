@@ -77,12 +77,12 @@ fn main() {
     // words need 54pt and three need 84pt. In an 84pt frame the break is after exactly the third.
     val six = layout.text_block("aaaa bbbb cccc dddd eeee ffff", 0, 10.0, ink, plain)
     val d6 = doc_of([six])
-    print(concat("width 84 gives:   ", format("{}", lines_drawn(six, 84.0, d6))))
-    print(concat("width 54 gives:   ", format("{}", lines_drawn(six, 54.0, d6))))
+    print(format("width 84 gives:   {}", lines_drawn(six, 84.0, d6)))
+    print(format("width 54 gives:   {}", lines_drawn(six, 54.0, d6)))
     // One word wider than the frame still occupies a line of its own: breaking inside a word would
     // need hyphenation, which this phase does not do, so it overflows rather than vanishing.
     val longword = layout.text_block("aaaaaaaaaaaaaaaaaaaa bb", 0, 10.0, ink, plain)
-    print(concat("an over-wide word:", format("{}", lines_drawn(longword, 60.0, doc_of([longword])))))
+    print(format("an over-wide word:{}", lines_drawn(longword, 60.0, doc_of([longword]))))
 
     // ---- heights
     //
@@ -217,8 +217,8 @@ fn main() {
         Some(x) { lines_drawn(x, 200.0, dt) }
         None { nothing }
     }
-    print(concat("page 1 starts:        ", format("{}", shown[0])))
-    print(concat("page 2 starts:        ", format("{}", carried[0])))
+    print(format("page 1 starts:        {}", shown[0]))
+    print(format("page 2 starts:        {}", carried[0]))
     print(concat("rows split 1 / 2:     ", str(len(shown)), " and ", str(len(carried))))
 
     // `Auto` sizes a column to its widest content, which is the fix for the hand-tuned magic

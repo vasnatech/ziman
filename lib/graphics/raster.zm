@@ -245,7 +245,7 @@ pub val glyph_cache_limit = 8192
 // mistake that did not need to be possible.
 pub fn surface_of(width_pt: float, height_pt: float, px_per_pt: float) -> Result<Surface, string> {
     if px_per_pt <= 0.0 || px_per_pt > 64.0 {
-        return err(concat("raster: px_per_pt must be above 0 and at most 64, got ", format("{}", px_per_pt)))
+        return err(format("raster: px_per_pt must be above 0 and at most 64, got {}", px_per_pt))
     }
     if width_pt <= 0.0 || height_pt <= 0.0 {
         return err(concat(
@@ -724,7 +724,7 @@ fn frame_size(s: Scene, o: Options) -> Result<Frame, string> {
         ))
     }
     if s.width <= 0.0 || s.height <= 0.0 {
-        return err(concat("raster: a ", format("{}", s.width), "x", format("{}", s.height), " scene has no pixels"))
+        return err(format("raster: a {}x{} scene has no pixels", s.width, s.height))
     }
     // **The pixels, not the units.** `max_pixels` guards an absurd allocation, so it has to count
     // what is actually allocated: a 1280x800 scene is 1,024,000 units and 2,304,000 pixels at 1.5,
@@ -1014,7 +1014,7 @@ fn draw_text(
         ))
     }
     if run.size <= 0.0 {
-        return err(concat("raster: a text run needs a positive size, got ", format("{}", run.size)))
+        return err(format("raster: a text run needs a positive size, got {}", run.size))
     }
     val face = switch o.fonts[run.font] {
         Embedded(f) { f }

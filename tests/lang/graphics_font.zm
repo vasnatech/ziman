@@ -87,9 +87,9 @@ fn main() {
 
     // `covers` answers *which* character is missing rather than whether any is, because a caller
     // producing an error needs to name it.
-    print(concat("covers ascii:     ", format("{}", unwrap(font.covers(helv, "Hello, world!")))))
-    print(concat("covers em dash:   ", format("{}", unwrap(font.covers(helv, "a — b")))))
-    print(concat("covers turkish:   ", format("{}", unwrap(font.covers(helv, "şeker")))))
+    print(format("covers ascii:     {}", unwrap(font.covers(helv, "Hello, world!"))))
+    print(format("covers em dash:   {}", unwrap(font.covers(helv, "a — b"))))
+    print(format("covers turkish:   {}", unwrap(font.covers(helv, "şeker"))))
     print(concat("U+015F is:        ", font.hex4(351)))
 
     // The code-point decoder the encodings are built on, across all four UTF-8 lengths.

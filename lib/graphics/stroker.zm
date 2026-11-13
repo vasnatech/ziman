@@ -41,7 +41,7 @@ pub fn outline(p: Path, how: Stroke) -> Result<Path, string> {
 
 pub fn outline_with(p: Path, how: Stroke, tolerance: float) -> Result<Path, string> {
     if how.width <= 0.0 {
-        return err(concat("stroker: a stroke needs a positive width, got ", format("{}", how.width)))
+        return err(format("stroker: a stroke needs a positive width, got {}", how.width))
     }
     // The ratio a miter limit bounds is `1/sin(angle/2)`, which is never below 1, so a limit under
     // 1 would bevel every join including a straight one -- a mistake rather than a choice.
@@ -319,7 +319,7 @@ fn dashed(lines: [Polyline], dash: [float], phase: float) -> Result<[Polyline], 
     var total = 0.0
     for d in dash {
         if d < 0.0 {
-            return err(concat("stroker: a dash length cannot be negative, got ", format("{}", d)))
+            return err(format("stroker: a dash length cannot be negative, got {}", d))
         }
         total = total + d
     }
@@ -327,7 +327,7 @@ fn dashed(lines: [Polyline], dash: [float], phase: float) -> Result<[Polyline], 
         return err("stroker: a dash pattern needs at least one positive length")
     }
     if phase < 0.0 {
-        return err(concat("stroker: a dash phase cannot be negative, got ", format("{}", phase)))
+        return err(format("stroker: a dash phase cannot be negative, got {}", phase))
     }
     val out = mutable_array_new<Polyline>()
     for line in lines {

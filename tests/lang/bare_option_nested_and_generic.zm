@@ -76,11 +76,11 @@ fn lookup(found: bool) -> Result<Option<int>, string> {
 // and gets the same "needs a context" message it always did.
 
 fn main() {
-    print(concat("ok(Some(x)):     ", format("{}", asked(true))))
-    print(concat("ok(None):        ", format("{}", asked(false))))
-    print(concat("Some(Some(4)):   ", format("{}", nested())))
-    print(concat("ok(Some(Some)):  ", format("{}", deeper())))
-    print(concat("Result wrap:     ", format("{}", lookup(true)), " ", format("{}", lookup(false))))
+    print(format("ok(Some(x)):     {}", asked(true)))
+    print(format("ok(None):        {}", asked(false)))
+    print(format("Some(Some(4)):   {}", nested()))
+    print(format("ok(Some(Some)):  {}", deeper()))
+    print(format("Result wrap:     {} {}", lookup(true), lookup(false)))
     print(concat(
         "assign/compare:  ",
         describe(Record { status: Some("ACTIVE") }),

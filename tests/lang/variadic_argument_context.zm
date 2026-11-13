@@ -60,5 +60,5 @@ fn main() {
     push(out, Some(1))
     push(out, None)
     push(out, Some(2), None)
-    print(concat("pushed:              ", format("{}", snapshot(out))))
+    print(format("pushed:              {}", snapshot(out)))
 }
