@@ -7,7 +7,15 @@
 // The advice is different for this shape, and better: all four mutable collections iterate directly
 // as of F111, so the fix is to drop the conversion rather than to reach for a reader.
 //
-// `tally` below is the harmless shape that must stay unflagged -- convert once, after the loop.
+// **`tally` is flagged too, and that is the 2026-11-13 change.** The rule above only ever ran on a
+// loop's body, so a `for x in snapshot(b)` anywhere else -- including at the top of a function --
+// was never looked at, and the shape went on being written: twelve instances were sitting in
+// `lib/` unflagged, six of them real. A `for` reads all four mutable collections directly, so the
+// conversion copies the whole builder to read it whatever encloses it.
+//
+// `grow` below is the one that must stay unflagged, and it is the opposite case: a loop whose own
+// body adds to what it is iterating. There the copy is the point, and advising it away would be
+// advising a different program.
 fn first_duplicate(names: [string]) -> string {
     val seen = mutable_array_new<string>()
     for name in names {
@@ -36,4 +44,17 @@ fn tally(words: [string]) -> int {
 fn main() {
     print(first_duplicate(["a", "b", "a"]))
     print(tally(["a", "b"]))
+}
+
+// The exemption: the body appends to the collection being iterated, so the copy is what stops the
+// loop from seeing what it adds.
+fn grow(seeds: [int]) -> int {
+    val items = mutable_array_new<int>()
+    for s in seeds {
+        push(items, s)
+    }
+    for x in snapshot(items) {
+        push(items, x + 1)
+    }
+    return len(items)
 }

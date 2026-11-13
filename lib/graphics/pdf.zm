@@ -868,7 +868,7 @@ fn set_alpha(out: MutableString, b: Built, alpha: float) -> Result<unit, string>
 }
 
 fn remember(seen: MutableArray<int>, value: int) -> unit {
-    for v in snapshot(seen) {
+    for v in seen {
         if v == value {
             return unit
         }

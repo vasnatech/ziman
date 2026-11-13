@@ -1201,7 +1201,7 @@ fn fetch_page(sock: Socket, id: int, statement: int, columns: [Column]) -> Curso
     }
     val names = column_names(columns)
     val rows = mutable_array_new<Row>()
-    for body in snapshot(raw) {
+    for body in raw {
         switch decode_binary_row(body, columns) {
             Ok(v) { push(rows, Row { columns: names, values: v }) }
             Err(e) {

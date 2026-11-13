@@ -660,7 +660,7 @@ pub fn format(rows: Json, sep: string) -> Result<string, string> {
     val names = to_array(columns)
     val out = mutable_string_new()
     write_row(out, names, sep)
-    for cells in snapshot(flat) {
+    for cells in flat {
         var first = true
         for name in names {
             if !first {

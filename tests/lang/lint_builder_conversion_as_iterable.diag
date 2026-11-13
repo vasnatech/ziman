@@ -1,4 +1,9 @@
-# Exactly one: the inner `for already in snapshot(seen)` in a loop that appends to `seen`. `tally`
-# is the convert-once-after-the-loop shape and must not be flagged, which is what makes this a test
-# of the rule rather than of the keyword.
-lint 14:9 'snapshot' converts the whole of 'seen' on every pass of this loop, and the loop keeps adding to it (quadratic); iterate it directly with 'for ... in seen'
+# Two, and `grow` is not among them. `first_duplicate` converts inside a loop that appends, which
+# is the quadratic shape; `tally` converts once at the top of a function, which is merely pointless
+# -- and was never looked at before 2026-11-13, because the rule only ran on loop bodies. The
+# advice is the same for both, so they get the same message.
+#
+# `grow` iterates a builder its own body appends to, where the copy is the point: a warning there
+# would be advising a different program.
+lint 22:9 'snapshot' copies the whole of 'seen' to read it, and a 'for' reads one directly -- drop the conversion and iterate 'seen'
+lint 38:5 'snapshot' copies the whole of 'counts' to read it, and a 'for' reads one directly -- drop the conversion and iterate 'counts'

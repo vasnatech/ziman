@@ -1441,7 +1441,7 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
         }
     }
     val groups = mutable_map_new<K, [T]>()
-    for k, group in snapshot(builders) {
+    for k, group in builders {
         set(groups, k, snapshot(group))
     }
     return snapshot(groups)
@@ -1462,7 +1462,7 @@ pub fn group_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map
         }
     }
     val groups = mutable_map_new<K, [T]>()
-    for k, group in snapshot(builders) {
+    for k, group in builders {
         set(groups, k, snapshot(group))
     }
     return snapshot(groups)

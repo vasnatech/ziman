@@ -836,6 +836,63 @@ static const char *readers_for_appending_stmt(const Stmt *stmt, const char *buil
     return NULL;
 }
 
+/* Whether anything inside `s` appends to `builder` -- the statement form above only looks at one
+ * expression statement, and a loop body is a block. Needed because **iterating a collection while
+ * adding to it is the one case where the copy is the point**: telling someone to drop it there
+ * would be telling them to write a different program. */
+static int block_appends_to(const Stmt *s, const char *builder) {
+    if (s == NULL) return 0;
+    if (readers_for_appending_stmt(s, builder) != NULL) return 1;
+    switch (s->kind) {
+        case STMT_BLOCK:
+            for (int i = 0; i < s->as.block.stmts.count; i++) {
+                if (block_appends_to(s->as.block.stmts.items[i], builder)) return 1;
+            }
+            return 0;
+        case STMT_IF:
+            return block_appends_to(s->as.if_stmt.then_block, builder)
+                   || block_appends_to(s->as.if_stmt.else_block, builder);
+        case STMT_WHILE: return block_appends_to(s->as.while_stmt.body, builder);
+        case STMT_FOR: return block_appends_to(s->as.for_stmt.body, builder);
+        case STMT_SWITCH:
+            for (int i = 0; i < s->as.switch_stmt.arm_count; i++) {
+                if (block_appends_to(s->as.switch_stmt.arms[i].body, builder)) return 1;
+            }
+            return 0;
+        default: return 0;
+    }
+}
+
+/* **A `for` over a converted builder copies the whole thing to read it.** All four mutable
+ * collections iterate directly as of F111, so the conversion buys nothing -- and this is the shape
+ * that kept being written, because the quadratic rule above is only ever started from inside a
+ * loop body, so a `for x in snapshot(b)` anywhere else was never looked at. Twelve were sitting in
+ * `lib/` unflagged when this was added. */
+static void lint_for_over_converted_builder(const Stmt *s) {
+    /* **The conversion has to be the iterable itself, not one buried inside it.**
+     * `finds_builder_conversion` recurses into call arguments, which is right for the quadratic
+     * rule -- a conversion anywhere in the expression is paid every pass -- and wrong here. The
+     * prelude's own `sort(items: MutableArray<T>)` is `for i, v in sort(snapshot(items))`, where
+     * the snapshot converts for the `[T]` overload and the `for` walks *that* result: advising it
+     * away would have broken the function. It was the first thing this rule flagged. */
+    const Expr *it = s->as.for_stmt.iterable;
+    if (it == NULL || it->kind != EXPR_CALL) return;
+    const char *conversion = NULL, *builder = NULL;
+    if (!finds_builder_conversion(it, &conversion, &builder)) return;
+    const char *head = callee_tail(it);
+    if (head == NULL || strcmp(head, "snapshot") != 0) return;
+    if (block_appends_to(s->as.for_stmt.body, builder)) return;
+    ziman_warning(g_lint_file, s->line, s->col,
+                  "'%s' copies the whole of '%s' to read it, and a 'for' reads one directly -- "
+                  "drop the conversion and iterate '%s'",
+                  conversion, builder, builder);
+    /* **Counted, or the finding does not fail anything.** `ziman_warning` only prints;
+     * `typecheck_lint_count` is what makes `--lint` exit non-zero, and a rule that warns without
+     * counting is a rule the build ignores. The lang fixture caught it -- a `.diag` test requires
+     * a non-zero exit, and this one exited 0 with two warnings on screen. */
+    g_lint_count++;
+}
+
 /* Whether `s` assigns to `builder`, which resets it and ends the run. */
 static int statement_reassigns(const Stmt *s, const char *builder) {
     return s != NULL && s->kind == STMT_ASSIGN && s->as.assign.name != NULL
@@ -892,13 +949,13 @@ static void lint_builder_read_by_conversion(const Stmt *body) {
             const char *readers = readers_for_appending_stmt(stmts->items[j], builder);
             if (readers == NULL) continue;
             if (s->kind == STMT_FOR) {
-                /* All four mutable collections iterate directly as of F111, so the advice for this
-                 * shape is not the reader list -- it is to drop the conversion entirely. */
-                ziman_warning(g_lint_file, s->line, s->col,
-                              "'%s' converts the whole of '%s' on every pass of this loop, and the loop keeps "
-                              "adding to it (quadratic); iterate it directly with 'for ... in %s'",
-                              conversion, builder, builder);
-            } else {
+                /* **Left to `lint_for_over_converted_builder`**, which says the same thing -- all
+                 * four mutable collections iterate directly as of F111, so the advice either way
+                 * is to drop the conversion -- and says it everywhere rather than only inside a
+                 * loop. Reporting from both put two warnings on one line for one mistake. */
+                break;
+            }
+            {
                 ziman_warning(g_lint_file, s->line, s->col,
                               "'%s' converts the whole of '%s' on every pass of this loop, and the loop keeps "
                               "adding to it (quadratic); read it in place with %s",
@@ -7003,6 +7060,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 push_loop_binder(s->as.for_stmt.binder1, iterable->kind == EXPR_IDENT && iterable->resolved_type.kind == TY_ARRAY ? iterable->as.ident_name : NULL);
             }
             if (g_lint_active) lint_builder_read_by_conversion(s->as.for_stmt.body);
+            if (g_lint_active) lint_for_over_converted_builder(s);
             check_stmts_in_scope(module, scope, s->as.for_stmt.body, fn_return_type, 1);
             g_loop_binder_count = binders_pushed_from;
             env_free(scope);

@@ -403,7 +403,7 @@ fn park_loop(
         }
         if len(parked) > 0 {
             var socks: [Socket] = []
-            for idx, c in snapshot(parked) {
+            for idx, c in parked {
                 socks = push(socks, c.session.sock)
             }
             val ready = net.wait_readable(socks, poll_slice_ms)
