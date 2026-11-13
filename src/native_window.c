@@ -549,7 +549,19 @@ static Value native_window_poll_raw(Value *args, int argc, int line, int col) {
             if (e.type == KeyPress) {
                 /* The text the key produced, as well as the key itself. Both, because a shortcut
                  * wants the key and a text field wants the character, and deriving either from the
-                 * other is what makes keyboard layouts go wrong. */
+                 * other is what makes keyboard layouts go wrong.
+                 *
+                 * **The field carries a code point, not a byte.** XLookupString answers ISO
+                 * Latin-1, whose values are Unicode U+0000..U+00FF at the same numbers, so the
+                 * byte it gives *is* the code point and no conversion belongs here. The Ziman
+                 * half encodes it as UTF-8. It read this as a byte until 2026-11-13, which made
+                 * `Event.Char` ASCII only: anything above 127 failed the UTF-8 check on the way
+                 * in and the event was dropped, so an accented letter did nothing at all.
+                 *
+                 * Only the first character is taken. A keysym mapping to several Latin-1
+                 * characters at once does not occur in the standard table, and composition --
+                 * the thing that really produces more than one -- goes through ibus (F274), not
+                 * through here. */
                 char buf[16];
                 KeySym ignored;
                 int len = XLookupString(&e.xkey, buf, sizeof buf, &ignored, NULL);

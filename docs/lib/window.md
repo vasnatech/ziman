@@ -116,9 +116,10 @@ Close requested
 pub enum Event {
     KeyDown(KeyPress)
     KeyUp(KeyPress)
-    // One character of text the server composed. Today this is a single byte's worth, which is
-    // ASCII only -- F274 is where composed and multi-byte text arrives, and until then a program
-    // that needs more than Latin text should know this is the limit rather than discover it.
+    // One character of text the server composed, as a string, which is **one code point and not
+    // one byte**. It was a byte until 2026-11-13, and that made it ASCII only: the native sends a
+    // code point, this read it as a byte, and anything above 127 failed the UTF-8 check on the way
+    // in and was dropped. Typing an accented letter did nothing at all, silently.
     Char(string)
     PointerDown(PointerPress)
     PointerUp(PointerPress)

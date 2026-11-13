@@ -157,6 +157,67 @@ fn the_modifier_bits_are_read_independently() {
     }
 }
 
+// The text of a `Char` event, or a word saying it was not one. Written once because the enum has
+// twelve variants and a `switch` over it is eleven lines of noise per assertion.
+fn char_text(e: Event) -> string {
+    return switch e {
+        Char(text) { text }
+        KeyDown(_) { "(KeyDown)" }
+        KeyUp(_) { "(KeyUp)" }
+        PointerDown(_) { "(PointerDown)" }
+        PointerUp(_) { "(PointerUp)" }
+        PointerMove(_) { "(PointerMove)" }
+        Scroll(_) { "(Scroll)" }
+        Resize(_) { "(Resize)" }
+        Close { "(Close)" }
+        FocusIn { "(FocusIn)" }
+        FocusOut { "(FocusOut)" }
+        Exposed { "(Exposed)" }
+    }
+}
+
+// **The field the native sends is a code point, not a byte**, and reading it as a byte is what
+// made this ASCII only: every one of these but the first failed `bytes_to_string` on a single
+// out-of-range byte and the event was dropped, so typing an accented letter did nothing at all.
+// One case per UTF-8 length, because the boundaries are where an encoder written by hand goes
+// wrong.
+#[test]
+fn a_char_event_carries_a_code_point_and_not_a_byte() {
+    test.assert_eq(char_text(one(ev(3, 97, 0, 0, 0))), "a")
+    // U+00E9, two bytes. The one that was silently dropped.
+    test.assert_eq(char_text(one(ev(3, 233, 0, 0, 0))), "é")
+    // U+00FF, the top of Latin-1, which is as far as X11's XLookupString reaches.
+    test.assert_eq(char_text(one(ev(3, 255, 0, 0, 0))), "ÿ")
+    // U+07FF and U+0800, the two-byte/three-byte boundary.
+    test.assert_eq(char_text(one(ev(3, 2047, 0, 0, 0))), "߿")
+    test.assert_eq(char_text(one(ev(3, 2048, 0, 0, 0))), "ࠀ")
+    // U+4E2D, three bytes.
+    test.assert_eq(char_text(one(ev(3, 20013, 0, 0, 0))), "中")
+    // U+FFFF and U+10000, the three-byte/four-byte boundary.
+    test.assert_eq(char_text(one(ev(3, 65536, 0, 0, 0))), "𐀀")
+    // U+1F600, four bytes -- past the basic plane, which `truetype`'s private copy of this
+    // encoder gets wrong to this day.
+    test.assert_eq(char_text(one(ev(3, 128512, 0, 0, 0))), "😀")
+    // U+10FFFF, the last code point there is.
+    test.assert_eq(char_text(one(ev(3, 1114111, 0, 0, 0))), "􏿿")
+}
+
+// **A number that names no character is dropped, not encoded.** A surrogate or anything above
+// U+10FFFF would come out as bytes that `bytes_to_string` refuses, so the event is refused at the
+// edge instead of becoming a string nothing downstream can read.
+#[test]
+fn a_code_point_that_names_no_character_is_dropped() {
+    test.assert_len(0, window.decode_events(ev(3, 55296, 0, 0, 0)))
+    test.assert_len(0, window.decode_events(ev(3, 57343, 0, 0, 0)))
+    test.assert_len(0, window.decode_events(ev(3, 1114112, 0, 0, 0)))
+    test.assert_len(0, window.decode_events(ev(3, 0 - 1, 0, 0, 0)))
+    // ...and the key that came with it still arrives, which is what makes the drop safe: a
+    // shortcut still fires when the text is unusable.
+    val events = window.decode_events(concat(ev(1, 97, 0, 0, 0), ev(3, 55296, 0, 0, 0)))
+    test.assert_len(1, events)
+    test.assert(Event.is_KeyDown(events[0]))
+}
+
 // **A keystroke produces two events and both are kept.** A program dispatching Ctrl-S needs the
 // key; a text field needs the character. The native emits the key first and the text second, and a
 // decoder that dropped either would make one of those two jobs impossible.

@@ -344,6 +344,31 @@ else
     fail=1
 fi
 
+# **A character above ASCII, which was dropped outright until 2026-11-13.** The native sends a code
+# point and the Ziman half read it as a byte, so everything from 128 up failed the UTF-8 check on
+# the way in and the event never arrived -- typing an accented letter did nothing, silently. No
+# test over `decode_events` could have found it either, because the unit tests fed it the byte the
+# decoder expected rather than the number the native actually sends. Only a real key through a real
+# server says which of the two it is.
+#
+# Opportunistic, because which Latin-1 keysyms exist is the user's keyboard layout and not ours:
+# the first one the server admits to having is used, and a layout with none skips rather than
+# fails. Each candidate must sit at level 0 to be reached by a press with no modifier.
+latin1_text=""
+for candidate in "plusminus ±" "section §" "degree °" "sterling £" "mu µ" "eacute é" "adiaeresis ä" "ccedilla ç"; do
+    # shellcheck disable=SC2086
+    set -- $candidate
+    if inject key "$1" 2>/dev/null; then
+        latin1_text="$2"
+        break
+    fi
+done
+if [ -n "$latin1_text" ]; then
+    check_event "event Char [$latin1_text]" "char_above_ascii"
+else
+    echo "SKIP window_event_char_above_ascii (no Latin-1 keysym on this keymap)"
+fi
+
 # Shift: the keysym stays unshifted and the flag carries the shift, while the *text* is the capital.
 # That split is the module's design -- a shortcut wants the key, a text field wants the character --
 # so this is the case that proves neither is derived from the other.
