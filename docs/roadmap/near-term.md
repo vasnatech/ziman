@@ -843,3 +843,37 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
     with the reason required and a bare marker refused. Each is bounded by something that is not
     input: a datetime format pattern, a foreign key's column count, the SET clauses of one
     UPDATE, the `@template`s in one sheet, a configured header limit.
+
+- **`lib/ui` cannot centre anything, and a stretched button shows it.** Found 2026-11-12 while
+  checking whether F286's widened box was enough for a second look and feel. It is a plain defect
+  rather than a theming limitation, and it has been there since F271.
+
+  **The evidence, measured rather than looked at.** A `Send` button laid out in a 200-point-wide
+  box has a face 200 wide and its label at **x=8** -- the left padding, and nothing else. Every
+  platform centres a button's label. Shrink-wrapped, the same button is 44 points and looks right,
+  which is why nobody has seen it: `curly gui` puts `widget.expand` on the field beside its
+  buttons, so they take exactly the width of their text and the bug never appears.
+
+  A second consequence is what led here. **A check box's face is 9x22 points** -- taller than it is
+  wide -- because the box is a `Stack` whose only child is the mark glyph, so its width is one
+  glyph's advance and its height is a line height. A square mark box needs the glyph centred in it,
+  and there is no way to say that. A rounded theme renders it as a capsule, which is how it was
+  found.
+
+  **The gap was deliberate and then forgotten.** `Fixed`'s own comment says a stack hands every
+  child the parent's full extent across its direction, and that "choosing otherwise means an
+  alignment rule (top, centre, end), which belongs with the widget set rather than here". The
+  widget set never built one, and nothing in `widget.zm` mentions alignment anywhere else.
+
+  **The shape of the fix is known and standard**: a cross-axis alignment (where a child sits across
+  the stack's direction) and a main-axis one (how spare room is distributed along it) -- flexbox's
+  two, which is also what every other box model converged on. Defaulting both to `Start` makes the
+  change additive, the way F286's inert `Style` fields were: nothing moves until something asks.
+
+  Two things to settle in the design pass. Whether alignment belongs on `Stack`, on `Fixed`, or on
+  a wrapper widget -- `Stack` is where the spare room is known, which argues for it. And what it
+  costs: F285 declined a layout rewrite on measurement and F284 found build-and-lay-out already
+  dominating the frame at 6.3 ms over 200 rows, so an alignment pass that walks children twice
+  needs the same interleaved measurement before it lands.
+
+  Not started. Nothing here is blocked on a decision from anyone.
