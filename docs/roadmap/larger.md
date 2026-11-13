@@ -2455,8 +2455,54 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   afternoon rather than a module. A format designed from a list of controls tends to be a format
   that fits no screen anybody has.
 
-  Not started, and **the decision needed first is which of the three purposes above is the point**
-  -- hot reload, tooling, or reviewability. Everything else follows from it.
+  > **Answered and largely built, 2026-11-12/13 -- and almost none of it the way this entry
+  > recommended.** The decision the entry was waiting on is made: the point is **tooling** -- a
+  > builder, eventually visual, producing screens that a window draws with the existing controls.
+  >
+  > **The format recommendation above is wrong for that purpose, and the ranking inverts.** Every
+  > argument for a brace DSL was an argument about *typing* it: a generator rewriting a file
+  > destroys hand-written comments, so "comments for free" evaporates, and compactness stops
+  > mattering when nobody types it. JSON, ranked worst, is the best of the three named -- one way
+  > to say a thing, where XML's attribute-or-child is two and invites an editor and a generator to
+  > disagree.
+  >
+  > **But the format is none of them. It is Ziman, restricted.** The user's proposal, and it is
+  > better than anything above because of what it deletes: no parser, no formatter, no
+  > error-message design, no second vocabulary, and no two-artifact sync gate. The type checker
+  > does the binding check directly. A `*_ui.zm` file holds one expression per function, calls to
+  > `widget.*`/`controls.*` and sibling design functions, literals, field paths off a parameter,
+  > and module-level constants -- no `if`, no loops, no arithmetic in a body, no local `val`.
+  >
+  > **The restriction is what makes it machine-readable**, which is the insight the entry above
+  > does not have. Full Ziman needs a Ziman parser; that subset is about as hard to parse as JSON.
+  > So the lint forbidding logic is load-bearing -- it is what keeps a builder able to read its own
+  > output -- and `--fmt` supplies canonical rendering for free, where a JSON pipeline would have
+  > needed key-ordering discipline to avoid spurious diffs.
+  >
+  > **Built in curly, which is where the files are**: `gui/request_ui.zm` is the whole request
+  > screen, `tools/lint_design.zm` is the gate (written in Ziman, textual, sound because the
+  > formatter runs first), and `run-all.sh` has a phase that also proves the lint still bites
+  > against a fixture breaking one rule per function. Every step was checked by dumping the
+  > laid-out bounds of every named control -- 172 of them across six states -- and diffing against
+  > the committed baseline, because the suite finds controls by name and is blind to movement.
+  >
+  > **What the conversion taught, none of which was predicted here.** A design file imports no
+  > application type: giving it the whole `State` does not compile, because the logic module must
+  > use the design module to draw itself. It declares its own input struct instead, so the
+  > dependency runs outwards and the cycle cannot form. Repetition is a row template plus a
+  > repeated slot, and conditional children turn out to be the same mechanism -- *which* children
+  > appear is a list the caller supplies, exactly as *how many* was -- so the dialect needs no
+  > conditional construct at all. A slot briefly grew into "a widget and its size" and then shrank
+  > back, because both places that computed a height by hand were spacing expressed in the wrong
+  > place: the box says `padding` now and the column measures it. **The dialect's refusals found
+  > two workarounds rather than costing two features.**
+  >
+  > **Still open.** `pub` is the wrong signal for "component" -- an editor keying off it offers a
+  > text helper in the palette -- and marking one properly wants an attribute, which is language
+  > support rather than convention. An editor must preserve function order and cannot safely
+  > rename across files. The Save As dialog is the one piece not pinned by geometry, since the
+  > probe cannot reach the state that draws it. And the builder itself does not exist: everything
+  > above is what makes it possible, not a start on it.
 
 - **Right-to-left: an Arabic UI is three problems, and only one of them is about layout.** Asked
   for 2026-11-12: English left-to-right, Arabic right-to-left. The three differ by two orders of
