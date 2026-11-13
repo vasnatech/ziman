@@ -383,6 +383,93 @@ fn a_row_scrolled_out_of_sight_cannot_be_clicked() {
     test.assert_eq(hit_name(l, 10.0, 0.0 - 25.0), "(none)")
 }
 
+// --- the chain under a point
+
+fn chain_names(l: widget.Laid, x: float, y: float) -> string {
+    val out = mutable_array_new<string>()
+    for one in widget.chain_at(l, geom.point_of(x, y)) {
+        push(out, if one.name == "" { "-" } else { one.name })
+    }
+    return join(separator: " ", pieces: snapshot(out))
+}
+
+// **The chain ends where `at` stops**, and that is the property worth holding: two walks that
+// disagree about which branch they took would make a builder select one thing and the window
+// route the click to another.
+#[test]
+fn the_chain_ends_at_the_node_at_would_return() {
+    val l = laid(
+        widget.focusable_of("panel", widget.row_of(0.0, [widget.focusable_of("inner", a_label("x"))])),
+        40.0,
+        20.0
+    )
+    val deepest = switch widget.at(l, geom.point_of(5.0, 5.0)) {
+        Some(one) { one.name }
+        None { "(none)" }
+    }
+    val chain = widget.chain_at(l, geom.point_of(5.0, 5.0))
+    test.assert_eq(chain[len(chain) - 1].name, deepest)
+}
+
+// **The outer name is still reachable**, which is the whole reason this exists: a click inside a
+// control made by `controls` reports that control, and whoever placed the panel it sits in has no
+// other way back to its own node.
+#[test]
+fn the_chain_keeps_the_names_above_the_deepest() {
+    val l = laid(
+        widget.focusable_of("panel", widget.row_of(0.0, [widget.focusable_of("inner", a_label("x"))])),
+        40.0,
+        20.0
+    )
+    test.assert_eq(chain_names(l, 5.0, 5.0), "panel panel inner inner")
+}
+
+// Every box in the chain contains the point, it starts at the root, and it ends where `at` ends.
+//
+// **It is not "each box contains the next", which is what this test asserted first.** A viewport
+// lays its content out whole and shifts it, so the content is routinely *taller than the
+// viewport* -- 80x200 inside 80x50 here -- and a containment check on the boxes fails on the
+// first scrollable thing it meets. What `walk_at` actually promises is about the point, not about
+// the boxes, and the clip is already handled by refusing to descend into a box the point is
+// outside of.
+#[test]
+fn every_box_in_the_chain_contains_the_point() {
+    val l = scrolled(0.0)
+    val p = geom.point_of(10.0, 25.0)
+    val chain = widget.chain_at(l, p)
+    test.assert(len(chain) > 1)
+    for one in chain {
+        test.assert(widget.contains(one.bounds, p))
+    }
+    test.assert_eq(rect_text(chain[0].bounds), rect_text(l.bounds))
+    test.assert_eq(chain[len(chain) - 1].name, "r0")
+}
+
+// The case that made the invariant above the right one: the content of a viewport is bigger than
+// the viewport, and both are in the chain.
+#[test]
+fn a_viewports_content_is_bigger_than_the_viewport_and_both_are_in_the_chain() {
+    val chain = widget.chain_at(scrolled(0.0), geom.point_of(10.0, 25.0))
+    test.assert_eq(rect_text(chain[0].bounds), "0.0,0.0 80.0x50.0")
+    test.assert_eq(rect_text(chain[1].bounds), "0.0,0.0 80.0x200.0")
+}
+
+// A point outside the tree is an empty chain, not a chain of one.
+#[test]
+fn a_point_outside_the_tree_has_no_chain() {
+    val l = scrolled(0.0)
+    test.assert_len(0, widget.chain_at(l, geom.point_of(0.0 - 1.0, 10.0)))
+    test.assert_len(0, widget.chain_at(l, geom.point_of(10.0, 400.0)))
+}
+
+// The clip agrees, the same way it does for `at`: a row shifted out of the viewport is not in the
+// chain, because the viewport is rejected before its rows are looked at.
+#[test]
+fn a_row_scrolled_out_of_sight_is_not_in_the_chain() {
+    val l = scrolled(100.0)
+    test.assert_eq(chain_names(l, 10.0, 75.0), "")
+}
+
 fn hit_name(l: widget.Laid, x: float, y: float) -> string {
     return switch focus.control_at(l, geom.point_of(x, y)) {
         Some(one) { one.name }

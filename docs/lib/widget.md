@@ -1081,6 +1081,26 @@ The deepest node whose bounds contain `p`, or `None` when the point is outside t
 and keeping the first match would report the node *underneath* an overlapping one, which is the
 bug that makes a dialog's buttons unclickable while looking perfectly correct in a screenshot.
 
+### `chain_at`
+
+```
+pub fn chain_at(l: Laid, p: Point) -> [Laid]
+```
+
+Every node `at` passed through on its way down, outermost first, ending at the one it would
+have returned. Empty when the point is outside the tree.
+
+**`at` answers "what is here", and that is not the only question.** Routing an input wants the
+innermost thing, which is what `at` gives. A tool that has placed some of this tree and not the
+rest -- a builder drawing a screen from a file, a recogniser mapping a click back to source --
+wants the innermost thing *it* placed, and a list row or a tab is not that: those are made by
+`controls`, below the level anyone else named. Without the chain the only way back up is to
+take the name apart on a "/", which is a private convention of `controls` and not a promise.
+
+It walks the same way `at` does rather than being built on it: later siblings first, and the
+first child whose bounds contain the point wins, so the two can never disagree about which
+branch they took.
+
 ### `contains`
 
 ```

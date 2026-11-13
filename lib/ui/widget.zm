@@ -1196,6 +1196,40 @@ pub fn at(l: Laid, p: Point) -> Option<Laid> {
     return Option<Laid>.Some(l)
 }
 
+// Every node `at` passed through on its way down, outermost first, ending at the one it would
+// have returned. Empty when the point is outside the tree.
+//
+// **`at` answers "what is here", and that is not the only question.** Routing an input wants the
+// innermost thing, which is what `at` gives. A tool that has placed some of this tree and not the
+// rest -- a builder drawing a screen from a file, a recogniser mapping a click back to source --
+// wants the innermost thing *it* placed, and a list row or a tab is not that: those are made by
+// `controls`, below the level anyone else named. Without the chain the only way back up is to
+// take the name apart on a "/", which is a private convention of `controls` and not a promise.
+//
+// It walks the same way `at` does rather than being built on it: later siblings first, and the
+// first child whose bounds contain the point wins, so the two can never disagree about which
+// branch they took.
+pub fn chain_at(l: Laid, p: Point) -> [Laid] {
+    val out = mutable_array_new<Laid>()
+    walk_at(l, p, out)
+    return snapshot(out)
+}
+
+fn walk_at(l: Laid, p: Point, out: MutableArray<Laid>) {
+    if !contains(l.bounds, p) {
+        return
+    }
+    push(out, l)
+    var i = prelude.len(l.children) - 1
+    while i >= 0 {
+        if contains(l.children[i].bounds, p) {
+            walk_at(l.children[i], p, out)
+            return
+        }
+        i = i - 1
+    }
+}
+
 // **Half-open on the right and bottom**, so two boxes that share an edge do not both contain the
 // point on it -- a click on the boundary between two list rows must select one of them, and which
 // one it is should not depend on which was searched first.
