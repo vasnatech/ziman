@@ -1059,3 +1059,44 @@ fn padding_is_taken_off_before_anything_is_aligned() {
     // 20 of inner height for 10 of child, so 5 each side, plus the 10.
     test.assert_eq(box.y, 15.0)
 }
+
+// ------------------------------------------------------- padding (2026-11-13)
+
+#[test]
+fn padding_adds_itself_to_what_the_child_measured() {
+    val child = widget.fixed_of(40.0, 20.0, widget.Widget.Nothing)
+    val bare = widget.measure(child, fake_metrics())
+    val padded = widget.measure(widget.padded_of(widget.insets_all(6.0), child), fake_metrics())
+    test.assert_eq(padded.width, bare.width + 12.0)
+    test.assert_eq(padded.height, bare.height + 12.0)
+}
+
+#[test]
+fn padding_moves_the_child_inside_it() {
+    val child = widget.fixed_of(40.0, 20.0, widget.Widget.Nothing)
+    val laid = widget.layout(
+        widget.padded_of(widget.insets_of(5.0, 7.0, 0.0, 0.0), child),
+        geom.rect_of(0.0, 0.0, 100.0, 50.0),
+        fake_metrics()
+    )
+    test.assert_eq(laid.children[0].bounds.x, 5.0)
+    test.assert_eq(laid.children[0].bounds.y, 7.0)
+}
+
+// **No insets is not the same as no wrapper, and it should be.** A design file that pads nothing
+// still writes the call, so the node has to be transparent when its insets are zero.
+#[test]
+fn no_padding_leaves_the_child_where_it_was() {
+    val child = widget.fixed_of(40.0, 20.0, widget.Widget.Nothing)
+    val laid = widget.layout(
+        widget.padded_of(widget.no_insets(), child),
+        geom.rect_of(0.0, 0.0, 100.0, 50.0),
+        fake_metrics()
+    )
+    test.assert_eq(laid.children[0].bounds.x, 0.0)
+    test.assert_eq(laid.children[0].bounds.y, 0.0)
+    test.assert_eq(
+        widget.measure(widget.padded_of(widget.no_insets(), child), fake_metrics()).width,
+        widget.measure(child, fake_metrics()).width
+    )
+}

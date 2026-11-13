@@ -374,6 +374,25 @@ pub fn row_of(spacing: float, children: [Widget]) -> Widget
 pub fn column_of(spacing: float, children: [Widget]) -> Widget
 ```
 
+### `padded_of`
+
+```
+pub fn padded_of(padding: Insets, child: Widget) -> Widget
+```
+
+A child with space around it.
+
+**One helper rather than a padded variant of each container.** `row_of` and `column_of` take no
+insets, and adding `padded_row_of` and `padded_column_of` would be two more names for one idea
+-- then four, once a surface or an alignment wants the same treatment. Wrapping composes
+instead: `padded_of(insets, column_of(4.0, kids))` says it, and costs one node that measures
+its child plus the insets.
+
+**It is also what a design file needs.** A `*_ui.zm` describing a padded column had to spell out
+a whole `Stack` literal -- seven fields, every one of which anything reading the file has to
+understand -- where a named call is one entry in a registry. A format meant to be read by a tool
+should not need its reader to know the shape of a struct.
+
 ### `Fixed`
 
 ```
