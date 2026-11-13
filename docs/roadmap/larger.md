@@ -2327,3 +2327,107 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   **Not started. The next step is a decision about data, not code**: bundled, host-provided, or a
   deliberately tiny table for a handful of languages. Everything above is reachable from either
   answer, and the measurement is here so the next pass does not have to re-take it.
+
+- **`lib/ui` supports one look and feel, and the thing in the way is not the palette.** Asked for
+  2026-11-12. A control's colours are already replaceable: `controls.Style` is 11 fields and
+  `controls.default_style()` says in its own comment that it is "a legible default and the thing an
+  application replaces", so an application can ship a dark palette today without a line changing
+  here. **What it cannot ship is a different-looking button.**
+
+  **The block is that `widget.Stack`'s box is one colour wide.** It carries
+  `background: Option<Color>` and nothing else -- no border, no corner radius, no outline, no
+  gradient -- so every container in every look and feel is a flat rectangle. That is the whole
+  reason a second look and feel is not a palette away: what distinguishes a native-looking button
+  from a flat one, or a focus halo from a focus underline, is *shape*, and shape is not expressible
+  at this layer.
+
+  **The capability already exists one layer down, which is what makes this cheap to start.**
+  `lib/graphics/shape.zm` has `round_rect_path`, `circle_path`, `ellipse_path` and `rect_path`, and
+  `stroker` strokes a path. So nothing has to be invented -- `widget` simply cannot ask for any of
+  it. **Measure before abstracting**: widening the box (a border colour and width, a corner radius)
+  is the step that unblocks every second look and feel, and it is a change to one struct and the
+  one place that paints it, not an architecture.
+
+  **The architecture question comes second and may not be needed.** A full look and feel in the
+  classic sense is a replaceable *builder* per control -- `Skin { button: fn(Button, Style) ->
+  Widget, ... }`, which Ziman's function values support -- because a look and feel can differ in
+  structure too: a check box as a tick beside a label or as a filled square, a tab as a raised
+  rectangle or as an underlined word. That is one field per control, every application replacing one
+  must get the rest from a default, and it moves the drawing of every control out of the function
+  that owns its behaviour. **Worth doing only if widening the box turns out not to be enough**, and
+  the way to find that out is to write a second look and feel against the widened box and see what
+  it cannot say. `curly gui` is the application that would use it, which makes it the test.
+
+  **A cost to weigh, because it is already the biggest number in this area.** F284 measured
+  build-and-lay-out at 6.3 ms per frame at 200 rows and 43 ms at 1000, against F270's 0.7-1.0 ms
+  regional repaint -- so the frame is dominated by building and laying out, not painting. Borders
+  and radii add painting, which is the cheap half, but they also add stroking per box, and a
+  rounded rectangle is a path where a rectangle is a span fill. **The number to take before
+  shipping a second look and feel, not after.**
+
+  Not started. The first step is the box widening, which needs no decision from anyone.
+
+- **A UI design format: compact, human-readable, and checked.** Asked for 2026-11-12, with the
+  format itself left open between XML, JSON and "something more compact".
+
+  **The prior question is what the format is *for*, because it picks the format.** A UI built in
+  Ziman functions -- which is what `curly gui` does today -- is type-checked, refactorable,
+  greppable, and gated by everything in `make check`. A format gives up all of that. It buys three
+  things, and which of them is wanted changes the answer:
+
+  1. **Hot reload** -- change a layout and see it without a rebuild. Wants a format a running
+     program can re-read, and makes a parser-in-the-product rather than a tool.
+  2. **Tooling and non-programmer editing** -- a designer, or a generator, or an eventual visual
+     editor. Wants a format that is trivial to *write* mechanically, which argues for regularity
+     over compactness.
+  3. **Reviewability** -- a screen as 20 lines of structure rather than 120 lines of builder calls.
+     Wants compactness above all, and is the only one of the three that the existing code already
+     *nearly* satisfies.
+
+  **On the three candidates named, with a recommendation.** JSON is the worst fit: no comments, a
+  quote around every key, and a UI is a deep tree where JSON's punctuation grows with depth. XML
+  suits properties well -- attributes are exactly name-value pairs, and Android and WPF both chose
+  it -- but a closing tag per container is the opposite of compact, and `lib/data/xml.zm` already
+  exists so the temptation is availability rather than fit. TOML is the wrong *shape*: it is flat
+  and a UI is a tree. YAML is compact and does trees, and `yaml.zm` exists, but significant
+  whitespace in a hand-edited tree is a known footgun and it would inherit every one.
+
+  **The recommendation is a small brace DSL**, which is where every toolkit that took this question
+  seriously converged -- QML, Slint, Kivy -- because the noise in the data formats *is* the closing
+  tags and the quotes:
+
+  ```
+  column spacing: 8 padding: 8 {
+      label "Request"
+      row spacing: 4 {
+          entry name: "url" flex: 1
+          button name: "send" label: "Send"
+      }
+      tree name: "sidebar" rows: @collections
+  }
+  ```
+
+  Twelve lines against the forty the same tree is in builder calls, every property a name and a
+  value, no closing tag, no quote on a key, and comments for free.
+
+  **The part that makes it a Ziman format rather than a generic one: it must refuse.** This project's
+  whole argument -- the one the LinkedIn series is built on -- is that a format's value is what it
+  will not accept. So the design pass owes answers to: an unknown control name is an error, not an
+  ignored node; an unknown property is an error, not a silently dropped attribute; a property's
+  value is type-checked against what the control declares; and `@collections` resolves against a
+  real field of a real state struct, at check time, not at the first frame. **Without that it is a
+  worse way to write the same UI**: the builder calls at least fail to compile.
+
+  And it owes the two gates every other surface here has: **a formatter**, because `--fmt --check`
+  over every source file is this project's proof that the tool understands what it is pointed at,
+  and **an error message that is a UI**, since a layout file will be edited by whoever is least
+  equipped to read a parser's complaint.
+
+  **The cheapest honest first step is not a parser.** It is to write one `curly gui` screen in the
+  proposed syntax *by hand*, beside the builder code it would replace, and compare them -- which
+  settles whether the compactness is real, shows which properties actually occur, and costs an
+  afternoon rather than a module. A format designed from a list of controls tends to be a format
+  that fits no screen anybody has.
+
+  Not started, and **the decision needed first is which of the three purposes above is the point**
+  -- hot reload, tooling, or reviewability. Everything else follows from it.
