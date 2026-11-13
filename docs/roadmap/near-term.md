@@ -938,3 +938,34 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   `lib/core/` module should own text-encoding conversions the way `encoding.zm` owns base-N ones.
   The first is a language-surface decision; the second is a module nobody has needed twice until
   now. Either way `truetype.zm`'s copy should go.
+
+- **A scene costs the sum of its ops' areas, not the surface's, and a full repaint of a window-sized
+  one is near a second.** Measured 2026-11-13 while building curly's design builder, whose clicks
+  took seconds to show.
+
+  At 1400x900 points, one pass of `raster.render_into` with `samples: 1`:
+
+  | | |
+  |---|---|
+  | an empty scene | 21 ms |
+  | one label | 19 ms |
+  | curly's own `gui` window (77 ops) | 572 ms |
+  | the builder's window (77 ops) | 900 ms |
+  | the builder with a design drawn in it (128 ops) | 1180 ms |
+  | the same, at `px_per_pt: 2.0` | 4444 ms |
+
+  **The floor is nothing and the ops are everything**: clearing the surface is 21 ms, and the next
+  77 ops cost 11 ms each. These are not small ops -- they are panel-sized fills, a list's rows, a
+  text area -- so the reading is that cost follows *painted area summed over ops*, and overlapping
+  full-width panels each pay a full pass over their own box.
+
+  **`desktop.repaint`'s damage tracking is what makes any of these windows usable**, which was not
+  obvious until these numbers: it clips the pass to what changed, so a caret blink is cheap and a
+  frame that changes everything is not. That is also why the builder feels slow and `curly gui`
+  does not -- selecting a node moves an outline, rewrites the inspector and restyles a list, which
+  is close to the whole window.
+
+  Worth knowing before deciding anything: whether the per-op cost is the bounding box or the real
+  coverage, whether a fill behind another could be skipped, and whether the 4x at 2.0 scale is
+  pixels alone or pixels plus a per-op constant that scales too. None of this is measured yet; the
+  table above is the floor and the ceiling, with nothing in between.
