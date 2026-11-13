@@ -348,7 +348,7 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.no_insets(),
-        surface: face_of(style, face),
+        surface: face_within(style, face, side),
         // Centred both ways inside the square -- which is the thing F287 existed to make possible
         // and the reason this could not be fixed before it.
         align: widget.centred(),
@@ -2664,6 +2664,29 @@ fn face_of(style: Style, colour: Color) -> widget.Surface {
         fill: Option<Color>.Some(colour),
         border: style.face_border,
         corner_radius: style.corner_radius
+    }
+}
+
+// A face on a control small enough that the style's radius would round it away.
+//
+// **One radius cannot serve a 90-point button and a 16-point check box.** A theme picks its number
+// for the thing it is looking at, which is a button; the check box is a sixth of the width, and at
+// `corner_radius: 6` it comes out very nearly a circle -- `round_rect_path` clamps at half the
+// shorter side, which on a small square is still a semicircle. Capping at a quarter of the side
+// keeps it a rounded square at any radius a theme picks.
+//
+// **Here rather than in the painter**, which would be the blanket fix and the wrong one: a radius
+// of half the shorter side is a capsule, and a capsule is a thing a design asks for on purpose --
+// a pill badge, a switch. Clamping everywhere would make those unsayable. The check box is the
+// only control whose face is as small as a line of text, and it is the one that knows its own
+// side.
+fn face_within(style: Style, colour: Color, side: float) -> widget.Surface {
+    val cap = side * 0.25
+    val radius = if style.corner_radius > cap { cap } else { style.corner_radius }
+    return widget.Surface {
+        fill: Option<Color>.Some(colour),
+        border: style.face_border,
+        corner_radius: radius
     }
 }
 

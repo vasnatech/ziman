@@ -2704,3 +2704,72 @@ fn a_tall_row_leaves_the_check_box_square() {
     val face = face_box(laid)
     test.assert_eq(face.width, face.height)
 }
+
+// The x a rounded box's path starts at is `bounds.x + radius` -- `round_rect_path` moves to the
+// end of the top-left arc -- so the radius a control actually used is readable from what it drew.
+fn first_fill_radius(ops: [scene.Op], left: float) -> float {
+    for op in ops {
+        if Fill(it) = op {
+            for segment in it.path.segments {
+                if MoveTo(at) = segment {
+                    return at.x - left
+                }
+            }
+        }
+        if Nested(group) = op {
+            val found = first_fill_radius(group.ops, left)
+            if found >= 0.0 {
+                return found
+            }
+        }
+    }
+    return 0.0 - 1.0
+}
+
+// **A theme's radius is chosen for a button, and a check box is a sixth of its width.** At
+// `corner_radius: 6` a 16-point square comes out nearly circular, so the check box caps its own
+// corners at a quarter of its side. Read back off the path it drew.
+#[test]
+fn a_check_box_caps_the_radius_its_size_cannot_carry() {
+    val m = metrics()
+    val height = m.line_height
+    val side = height(controls.default_style().text_size)
+    // A radius the square cannot carry: 10 against a side of 24, where the cap is 6.
+    val asking = with edged_style() { corner_radius: 10.0 }
+    val laid = widget.layout(
+        controls.check_box_widget(a_check_box(), asking, metrics()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    val face = face_box(laid)
+    val ops = widget.paint_ops(laid, metrics())
+    test.assert_eq(face.width, side)
+    test.assert_eq(first_fill_radius(ops, face.x), side * 0.25)
+}
+
+// And a control big enough keeps what the theme asked for, which is what makes the cap a cap
+// rather than a different radius.
+#[test]
+fn a_button_keeps_the_radius_the_theme_asked_for() {
+    val laid = widget.layout(
+        controls.button_widget(controls.button_of("save", "Save"), edged_style()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    val ops = widget.paint_ops(laid, metrics())
+    test.assert_eq(first_fill_radius(ops, 0.0), 5.0)
+}
+
+// **And a radius the square can carry is kept**, which is what makes this a cap rather than a
+// different radius for check boxes. Without this, "always use the cap" passes every other test.
+#[test]
+fn a_check_box_keeps_a_radius_that_fits() {
+    val asking = with edged_style() { corner_radius: 2.0 }
+    val laid = widget.layout(
+        controls.check_box_widget(a_check_box(), asking, metrics()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    val ops = widget.paint_ops(laid, metrics())
+    test.assert_eq(first_fill_radius(ops, face_box(laid).x), 2.0)
+}
