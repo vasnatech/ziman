@@ -326,24 +326,45 @@ fn next(t: Toggle) -> Toggle {
 
 // The check box as a widget: the mark, then the label, and the state declared so that a reader says
 // "check box, Notify me, partly checked" without anything else being told.
-pub fn check_box_widget(c: CheckBox, style: Style) -> widget.Widget {
+pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.Widget {
     val ink = if c.disabled { style.disabled_ink } else { style.ink }
     val face = if c.held { style.pressed_face } else { style.face }
-    val box = widget.Widget.Group(widget.Stack {
+    // **A square, and it takes the metrics to be one.** The mark box used to be a stack holding
+    // one glyph, so it measured one glyph's advance wide and one line tall -- 9x22 points at the
+    // default style, because a glyph is always narrower than a line is tall. Nothing noticed while
+    // it was a flat grey rectangle; F286's rounded theme drew it as a capsule, which is how the
+    // shape was found.
+    //
+    // **One line tall, which is the only side that needs no guess.** `style.text_size` would be
+    // metric-free and wrong: the mark's own line box is `line_height(text_size)`, and the painter
+    // puts a glyph's baseline a full line below its box's top -- so a square smaller than that
+    // hangs the mark out of the bottom of the box it is supposed to sit in. Asking the metrics is
+    // also what makes the box exactly as tall as the label beside it, which is the relationship a
+    // check box has on every platform. `entry_widget` and `multi_line_widget` already take a
+    // `Metrics` for the same kind of reason, so this is the pattern rather than a new one.
+    val line = m.line_height
+    val side = line(style.text_size)
+    val box = widget.fixed_of(side, side, widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
-        padding: widget.insets_all(1.0),
+        padding: widget.no_insets(),
         surface: face_of(style, face),
-        align: widget.stretched(),
+        // Centred both ways inside the square -- which is the thing F287 existed to make possible
+        // and the reason this could not be fixed before it.
+        align: widget.centred(),
         children: [widget.label_of(mark(c.checked), style.text_size, ink)],
         name: ""
-    })
+    }))
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: style.text_size * 0.5,
         padding: style.padding,
         surface: widget.no_surface(),
-        align: widget.stretched(),
+        // **`Across.Centre` rather than the default, or the square is not square.** A stretched
+        // row hands every child its full height, so the fixed box would come out `side` wide and
+        // as tall as the row -- a stack cannot be given a square child, it can only be told not to
+        // stretch it. It also centres the mark against the label, which is where it belongs.
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
         children: [box, widget.label_of(c.label, style.text_size, ink)],
         name: ""
     })

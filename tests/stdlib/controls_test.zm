@@ -146,14 +146,14 @@ fn a_click_toggles_an_unchecked_box_on_and_a_checked_box_off() {
     val on = click(off)
     test.assert(on.toggled)
     test.assert_eq(
-        said_of(controls.check_box_widget(on.check_box, controls.default_style()), "notify"),
+        said_of(controls.check_box_widget(on.check_box, controls.default_style(), metrics()), "notify"),
         "check box, Notify me, checked"
     )
 
     val back = click(on.check_box)
     test.assert(back.toggled)
     test.assert_eq(
-        said_of(controls.check_box_widget(back.check_box, controls.default_style()), "notify"),
+        said_of(controls.check_box_widget(back.check_box, controls.default_style(), metrics()), "notify"),
         "check box, Notify me, unchecked"
     )
 }
@@ -167,7 +167,7 @@ fn a_mixed_box_becomes_checked() {
     val after = click(mixed)
     test.assert(after.toggled)
     test.assert_eq(
-        said_of(controls.check_box_widget(after.check_box, controls.default_style()), "all"),
+        said_of(controls.check_box_widget(after.check_box, controls.default_style(), metrics()), "all"),
         "check box, Select all, checked"
     )
 }
@@ -299,8 +299,8 @@ fn a_check_box_does_not_read_its_own_mark_aloud() {
     val style = controls.default_style()
     // The name is the label exactly. Were the label not declared, `a11y` would take the name from
     // the text inside -- which is the mark and then the label -- and this would read "x Notify me".
-    test.assert_eq(name_of(controls.check_box_widget(on, style), "notify"), "Notify me")
-    test.assert_eq(said_of(controls.check_box_widget(on, style), "notify"), "check box, Notify me, checked")
+    test.assert_eq(name_of(controls.check_box_widget(on, style, metrics()), "notify"), "Notify me")
+    test.assert_eq(said_of(controls.check_box_widget(on, style, metrics()), "notify"), "check box, Notify me, checked")
 
     // The contrast, built by hand around the same children, which is what makes the line above an
     // assertion about the declaration rather than about the fixture: without it, the mark is read.
@@ -2563,7 +2563,11 @@ fn an_edged_style_reaches_every_control_that_has_a_face() {
     val style = edged_style()
     test.assert_eq(strokes(painted(controls.entry_widget(controls.entry_of("u", "URL", ""), style, metrics()))), 1)
     test.assert_eq(
-        strokes(painted(controls.check_box_widget(controls.check_box_of("n", "Notify", widget.Toggle.Off), style))),
+        strokes(painted(controls.check_box_widget(
+            controls.check_box_of("n", "Notify", widget.Toggle.Off),
+            style,
+            metrics()
+        ))),
         1
     )
     test.assert_eq(strokes(painted(controls.menu_title_widget(controls.menu_of("m", "File", []), style))), 1)
@@ -2632,4 +2636,71 @@ fn a_shrink_wrapped_button_is_where_it_always_was() {
     ])
     val laid = widget.layout(row, geom.rect_of(0.0, 0.0, 200.0, 30.0), metrics())
     test.assert_eq(text_x(laid), 8.0)
+}
+
+// The first filled box in a laid tree -- a control's own face, which is what a look and feel
+// draws and therefore what has to be the right shape.
+fn face_box(l: widget.Laid) -> geom.Rect {
+    if Group(it) = l.widget {
+        switch it.surface.fill {
+            Some(_) { return l.bounds }
+            None { unit }
+        }
+    }
+    for child in l.children {
+        val found = face_box(child)
+        if found.width > 0.0 {
+            return found
+        }
+    }
+    return geom.rect_of(0.0, 0.0, 0.0, 0.0)
+}
+
+fn a_check_box() -> controls.CheckBox {
+    return controls.check_box_of("tls", "Verify TLS", widget.Toggle.On)
+}
+
+// **A check box is square**, which it was not: the mark box used to be a stack holding one glyph,
+// so it measured one advance wide and one line tall -- 9x22 at the default style. A flat grey
+// rectangle hid it; F286's rounded theme drew it as a capsule.
+#[test]
+fn a_check_box_is_square() {
+    val laid = widget.layout(
+        controls.check_box_widget(a_check_box(), controls.default_style(), metrics()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    val face = face_box(laid)
+    test.assert_eq(face.width, face.height)
+}
+
+// **And it is one line square**, which is the side that needs no guess: the mark's own line box is
+// a full line tall, and the painter puts a glyph's baseline a line below its box's top -- so any
+// smaller square hangs the mark out of the bottom. It also makes the box exactly as tall as the
+// label beside it.
+#[test]
+fn a_check_box_is_one_line_square() {
+    val m = metrics()
+    val height = m.line_height
+    val laid = widget.layout(
+        controls.check_box_widget(a_check_box(), controls.default_style(), metrics()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        m
+    )
+    test.assert_eq(face_box(laid).height, height(controls.default_style().text_size))
+}
+
+// **A row taller than the control does not stretch the square**, which is the whole reason the
+// outer stack asks for `Across.Centre`: a stretched row hands every child its full height, and a
+// square that grows with its container is not a square. Laid out in a box twice as tall, so a
+// stretch would be visible.
+#[test]
+fn a_tall_row_leaves_the_check_box_square() {
+    val laid = widget.layout(
+        controls.check_box_widget(a_check_box(), controls.default_style(), metrics()),
+        geom.rect_of(0.0, 0.0, 200.0, 80.0),
+        metrics()
+    )
+    val face = face_box(laid)
+    test.assert_eq(face.width, face.height)
 }

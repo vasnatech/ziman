@@ -33,7 +33,7 @@ fn view(w: Window) -> widget.Widget {
         6.0,
         [
             controls.entry_widget(w.email, style, metrics()),
-            controls.check_box_widget(w.notify, style),
+            controls.check_box_widget(w.notify, style, metrics()),
             controls.button_widget(w.save, style)
         ]
     )

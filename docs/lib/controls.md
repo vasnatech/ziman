@@ -61,7 +61,7 @@ fn view(w: Window) -> widget.Widget {
         6.0,
         [
             controls.entry_widget(w.email, style, metrics()),
-            controls.check_box_widget(w.notify, style),
+            controls.check_box_widget(w.notify, style, metrics()),
             controls.button_widget(w.save, style)
         ]
     )
@@ -438,7 +438,7 @@ already made.
 ### `check_box_widget`
 
 ```
-pub fn check_box_widget(c: CheckBox, style: Style) -> widget.Widget
+pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.Widget
 ```
 
 The check box as a widget: the mark, then the label, and the state declared so that a reader says
