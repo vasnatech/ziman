@@ -2457,3 +2457,67 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
 
   Not started, and **the decision needed first is which of the three purposes above is the point**
   -- hot reload, tooling, or reviewability. Everything else follows from it.
+
+- **Right-to-left: an Arabic UI is three problems, and only one of them is about layout.** Asked
+  for 2026-11-12: English left-to-right, Arabic right-to-left. The three differ by two orders of
+  magnitude in cost, and an entry that treated them as one job would badly mislead whoever picks
+  it up.
+
+  **1. Mirroring the layout. Small, and nothing is in the way.** A row's children run from the
+  right, padding's `left` and `right` swap, a scroll bar moves to the left edge, a tree indents
+  from the right, and `Left`/`Right` arrows swap their meaning. The work is mechanical and every
+  bit of it is assertable from coordinates in a unit test, with no Arabic text and no font
+  involved.
+
+  Two things already help. **F287's `Along.Start`/`End` are named for the direction and not for
+  the screen**, so a stack that packs "from the start" already means "from the right" the moment
+  something tells it the direction -- that vocabulary was chosen for the box model's own sake and
+  happens to be the one this needs. Against that, **`widget.Insets` is `left`/`top`/`right`/
+  `bottom`**, which is physical: it would become `start`/`end` or grow a resolution step, and
+  that is a rename across every control.
+
+  **2. The caret and the selection. Medium, and full of traps.** In right-to-left text the Left
+  arrow moves *forward* through the string, a selection that is contiguous in logical order can be
+  two runs on screen, and `edit`'s `move_left`/`move_word_left` are named for the key rather than
+  the direction. `edit` is pure and well tested, which makes this tractable -- but every one of
+  its movement rules needs re-reading with the question "logical or visual?" and the answer is not
+  the same for all of them.
+
+  **3. Rendering Arabic at all. Large, and it is the one that decides this entry.** Two separate
+  pieces, neither of which exists here:
+
+  * **Shaping.** Arabic letters join, and a letter takes one of four forms -- isolated, initial,
+    medial, final -- chosen by its neighbours. That mapping lives in the font's `GSUB` table.
+    `font.glyphs_of` is a **straight cmap lookup, one codepoint to one glyph**, and
+    `lib/graphics/truetype.zm` parses no `GSUB` at all. So Arabic today renders as disconnected
+    letterforms: **wrong, not merely ugly**, and no amount of layout mirroring improves it.
+  * **Bidi.** Mixed content -- an English product name or a number inside an Arabic sentence --
+    has to be reordered by the Unicode Bidirectional Algorithm before it can be drawn. Nothing in
+    `lib/` mentions bidi.
+
+  Both are large, standard, and precisely what HarfBuzz (shaping) and ICU or fribidi (bidi) exist
+  for. Hand-writing either is a multi-month project and a specification to track afterwards.
+
+  **So the decision is the same one the locale entry above is already holding**, and they should be
+  taken together: a host library or nothing. That entry measured the cost honestly -- `make/c.mk`
+  already links five libraries unconditionally, so a sixth is a kind already accepted rather than a
+  first of a new kind, and on this machine ICU is present with 31.9 MB of data. Shaping would add
+  HarfBuzz beside it. The alternative is to decline Arabic rendering and say so, which is a
+  defensible answer for a language whose UI layer is one X11 backend.
+
+  **One cheap half-measure, named so it can be declined deliberately.** Unicode's Arabic
+  Presentation Forms (U+FE70-FEFF) let a naive contextual pass pick joined shapes without touching
+  `GSUB`, which is what simple implementations do. It is discouraged by Unicode, it depends on a
+  font carrying those codepoints, and it does nothing for Urdu's additional forms or for any other
+  complex script -- so it buys a demo rather than support. Worth knowing it exists; not worth
+  shipping as the answer.
+
+  **Staging, if it is taken.** (1) alone is worth doing and verifiable on its own: it makes the
+  structure right, it is gated by coordinate assertions, and it is a prerequisite for the rest.
+  But **shipping (1) without (3) produces a mirrored window full of unreadable text**, so it should
+  not be sold as "Arabic support" -- it is the layout half, and the entry should say which half a
+  given commit bought. (2) follows the text work, because a caret in text that has not been shaped
+  or reordered has nothing stable to move through.
+
+  Not started, and **blocked on the same host-library decision as the locale entry**, which is why
+  it sits beside it rather than in near-term.
