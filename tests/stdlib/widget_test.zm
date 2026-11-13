@@ -1100,3 +1100,29 @@ fn no_padding_leaves_the_child_where_it_was() {
         widget.measure(child, fake_metrics()).width
     )
 }
+
+#[test]
+fn a_rounded_surface_fills_and_curves_but_does_not_edge() {
+    val ops = ops_of(widget.rounded(paint.white(), 6.0))
+    test.assert_len(1, ops)
+    test.assert(scene.Op.is_Fill(ops[0]))
+    test.assert(has_curve(fill_path(ops[0])))
+}
+
+// **Nothing behind it**, which is the whole point of an outline: a ghost panel shows what is
+// under it. A fill of any colour, including a transparent one, would be an op that paints.
+#[test]
+fn an_outlined_surface_paints_no_fill_at_all() {
+    val ops = ops_of(widget.outlined(paint.black(), 2.0, 4.0))
+    test.assert_len(1, ops)
+    test.assert(scene.Op.is_StrokePath(ops[0]))
+}
+
+#[test]
+fn an_edged_surface_does_both_in_order() {
+    val ops = ops_of(widget.edged(paint.white(), paint.black(), 2.0, 5.0))
+    test.assert_len(2, ops)
+    test.assert(scene.Op.is_Fill(ops[0]))
+    test.assert(scene.Op.is_StrokePath(ops[1]))
+    test.assert(has_curve(fill_path(ops[0])))
+}

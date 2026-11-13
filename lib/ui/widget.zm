@@ -155,6 +155,42 @@ pub fn border_of(colour: Color, width: float) -> Border {
     return Border { colour: colour, width: width }
 }
 
+// A filled surface with rounded corners.
+//
+// **These three exist because a `Surface` literal cannot be written in a design file.** `fill` and
+// `border` are `Option`s, and `*_ui.zm`'s dialect -- deliberately small enough for a tool to parse
+// -- has no syntax for one: `Option<paint.Color>.Some(...)` is three tokens outside it. So a
+// design could say a container's padding and its alignment but not its border or its corners,
+// which is half of what `Surface` was added for. A call says it without an `Option` in sight.
+//
+// Three rather than one, because the cases a caller means are "filled", "outlined" and "both" --
+// and the one-constructor alternative needs a sentinel for the absent half, which is what
+// `Option` is here to avoid.
+pub fn rounded(fill: Color, corner_radius: float) -> Surface {
+    return Surface {
+        fill: Option<Color>.Some(fill),
+        border: Option<Border>.None,
+        corner_radius: corner_radius
+    }
+}
+
+// A border and nothing behind it -- a "ghost" panel, where whatever is underneath shows through.
+pub fn outlined(border: Color, width: float, corner_radius: float) -> Surface {
+    return Surface {
+        fill: Option<Color>.None,
+        border: Option<Border>.Some(border_of(border, width)),
+        corner_radius: corner_radius
+    }
+}
+
+pub fn edged(fill: Color, border: Color, width: float, corner_radius: float) -> Surface {
+    return Surface {
+        fill: Option<Color>.Some(fill),
+        border: Option<Border>.Some(border_of(border, width)),
+        corner_radius: corner_radius
+    }
+}
+
 // Where a child sits **across** the stack's direction -- vertically in a row, horizontally in a
 // column.
 //

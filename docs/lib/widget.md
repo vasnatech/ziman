@@ -279,6 +279,38 @@ caller that wanted only a background says so in the same number of words.
 pub fn border_of(colour: Color, width: float) -> Border
 ```
 
+### `rounded`
+
+```
+pub fn rounded(fill: Color, corner_radius: float) -> Surface
+```
+
+A filled surface with rounded corners.
+
+**These three exist because a `Surface` literal cannot be written in a design file.** `fill` and
+`border` are `Option`s, and `*_ui.zm`'s dialect -- deliberately small enough for a tool to parse
+-- has no syntax for one: `Option<paint.Color>.Some(...)` is three tokens outside it. So a
+design could say a container's padding and its alignment but not its border or its corners,
+which is half of what `Surface` was added for. A call says it without an `Option` in sight.
+
+Three rather than one, because the cases a caller means are "filled", "outlined" and "both" --
+and the one-constructor alternative needs a sentinel for the absent half, which is what
+`Option` is here to avoid.
+
+### `outlined`
+
+```
+pub fn outlined(border: Color, width: float, corner_radius: float) -> Surface
+```
+
+A border and nothing behind it -- a "ghost" panel, where whatever is underneath shows through.
+
+### `edged`
+
+```
+pub fn edged(fill: Color, border: Color, width: float, corner_radius: float) -> Surface
+```
+
 ### `Across`
 
 ```
