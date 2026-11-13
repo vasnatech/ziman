@@ -2594,3 +2594,42 @@ fn the_scrim_ignores_the_look_and_feel() {
     // The scrim is the first thing painted, behind the panel: square, whatever the style asked.
     test.assert(square_fills(ops) > 0)
 }
+
+// The x of the first text in a laid tree, which is where a label actually ended up.
+fn text_x(l: widget.Laid) -> float {
+    if Text(_) = l.widget {
+        return l.bounds.x
+    }
+    for child in l.children {
+        val found = text_x(child)
+        if found >= 0.0 {
+            return found
+        }
+    }
+    return 0.0 - 1.0
+}
+
+// **A button given more room than its text centres its label**, which it did not do before
+// alignment existed: it sat against the left padding, and had since F271. Unseen because every
+// button in the only application on this layer shrink-wraps -- `curly gui` puts `widget.expand`
+// on the field beside them -- so the spare room that shows the bug is zero.
+#[test]
+fn a_stretched_button_centres_its_label() {
+    val button = controls.button_widget(controls.button_of("send", "Send"), controls.default_style())
+    val laid = widget.layout(button, geom.rect_of(0.0, 0.0, 200.0, 30.0), metrics())
+    val at = text_x(laid)
+    // "Send" is 4 characters at 10 points each under these metrics, so 40 wide in 200: 80 each side.
+    test.assert_eq(at, 80.0)
+}
+
+// And a button that is only as wide as its text is unchanged, which is what kept every existing
+// window looking the same: the spare room is zero, so every alignment comes to the same place.
+#[test]
+fn a_shrink_wrapped_button_is_where_it_always_was() {
+    val row = widget.row_of(0.0, [
+        controls.button_widget(controls.button_of("send", "Send"), controls.default_style()),
+        widget.flex()
+    ])
+    val laid = widget.layout(row, geom.rect_of(0.0, 0.0, 200.0, 30.0), metrics())
+    test.assert_eq(text_x(laid), 8.0)
+}

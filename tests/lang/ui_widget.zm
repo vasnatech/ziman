@@ -34,6 +34,7 @@ fn window(w: float, h: float) -> widget.Widget {
         spacing: 4.0,
         padding: widget.insets_all(2.0),
         surface: widget.filled(paint.rgb(1.0, 0.0, 0.0)),
+        align: widget.stretched(),
         children: [widget.label_of("File", 8.0, paint.black()), widget.flex()],
         name: "toolbar"
     })
@@ -42,6 +43,7 @@ fn window(w: float, h: float) -> widget.Widget {
         spacing: 0.0,
         padding: widget.no_insets(),
         surface: widget.filled(paint.rgb(0.0, 1.0, 0.0)),
+        align: widget.stretched(),
         children: [widget.flex()],
         name: "sidebar"
     })
@@ -50,6 +52,7 @@ fn window(w: float, h: float) -> widget.Widget {
         spacing: 0.0,
         padding: widget.no_insets(),
         surface: widget.filled(paint.rgb(0.0, 0.0, 1.0)),
+        align: widget.stretched(),
         children: [widget.flex()],
         name: "content"
     })

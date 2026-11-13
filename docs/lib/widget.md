@@ -61,6 +61,7 @@ fn main() {
         spacing: 4.0,
         padding: widget.insets_all(2.0),
         surface: widget.filled(paint.rgb(0.9, 0.9, 0.9)),
+        align: widget.stretched(),
         // A `flex` after the label pushes everything before it to the left: leftover space is a
         // widget, not a property of its neighbours.
         children: [widget.named_label("File", 8.0, paint.black(), "menu-file"), widget.flex()],
@@ -278,6 +279,73 @@ caller that wanted only a background says so in the same number of words.
 pub fn border_of(colour: Color, width: float) -> Border
 ```
 
+### `Across`
+
+```
+pub enum Across {
+    Stretch
+    Start
+    Centre
+    End
+}
+```
+
+Where a child sits **across** the stack's direction -- vertically in a row, horizontally in a
+column.
+
+**`Stretch` is the default because it is what this layer has always done**, and it is what every
+box model defaults to: a stack hands each child the parent's full extent across its direction,
+so a `Fixed(40, 80)` in a row 60 tall is laid out 40 wide and 60 tall. The other three give the
+child its natural size across and place it, which is the thing that was missing.
+
+### `Along`
+
+```
+pub enum Along {
+    Start
+    Centre
+    End
+}
+```
+
+Where the children sit **along** the stack's direction, when they do not fill it.
+
+Only meaningful when there is room left over, which means **no flexible child** -- a `flex()`
+eats the spare room by definition, so a stack holding one is already full and this does nothing.
+That is not a special case to remember: it falls out of the arithmetic.
+
+### `Alignment`
+
+```
+pub struct Alignment {
+    across: Across
+    along: Along
+}
+```
+
+How a stack places its children in the room it has.
+
+One field on `Stack` rather than two, for the reason `Surface` is one field rather than four: a
+literal names every field in this language, so a struct keeps the churn to one line per site and
+keeps the two halves of one idea together.
+
+### `stretched`
+
+```
+pub fn stretched() -> Alignment
+```
+
+What every stack did before alignment existed, and still does unless it says otherwise: children
+stretched across, packed from the start along.
+
+### `centred`
+
+```
+pub fn centred() -> Alignment
+```
+
+Centred both ways, which is what a button's label and a check box's mark want.
+
 ### `Stack`
 
 ```
@@ -286,6 +354,7 @@ pub struct Stack {
     spacing: float
     padding: Insets
     surface: Surface
+    align: Alignment
     children: [Widget]
     name: string
 }

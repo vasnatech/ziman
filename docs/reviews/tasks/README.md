@@ -51,3 +51,4 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F284 — the scroll bar](f284.md)
 - [F285 — the layout rewrite, declined on measurement](f285.md)
 - [F286 — the box widening](f286.md)
+- [F287 — the box model learns to centre](f287.md)

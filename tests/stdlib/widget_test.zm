@@ -170,6 +170,7 @@ fn padding_insets_the_children_only() {
         spacing: 0.0,
         padding: widget.insets_all(5.0),
         surface: widget.no_surface(),
+        align: widget.stretched(),
         children: [inner],
         name: ""
     })
@@ -304,6 +305,7 @@ fn a_background_paints_before_its_children() {
         spacing: 0.0,
         padding: widget.no_insets(),
         surface: widget.filled(paint.white()),
+        align: widget.stretched(),
         children: [a_label("hi")],
         name: ""
     })
@@ -646,6 +648,7 @@ fn layers_paint_in_order() {
                 spacing: 0.0,
                 padding: widget.no_insets(),
                 surface: widget.filled(black()),
+                align: widget.stretched(),
                 children: [],
                 name: "under"
             })),
@@ -654,6 +657,7 @@ fn layers_paint_in_order() {
                 spacing: 0.0,
                 padding: widget.no_insets(),
                 surface: widget.filled(black()),
+                align: widget.stretched(),
                 children: [],
                 name: "over"
             }))
@@ -704,6 +708,7 @@ fn surfaced(s: widget.Surface) -> widget.Widget {
         spacing: 0.0,
         padding: widget.no_insets(),
         surface: s,
+        align: widget.stretched(),
         children: [],
         name: ""
     })
@@ -893,4 +898,164 @@ fn the_clamp_is_the_borders_and_not_the_fills() {
     test.assert_len(2, ops)
     test.assert(has_curve(fill_path(ops[0])))
     test.assert_false(has_curve(fill_path(ops[1])))
+}
+
+// ----------------------------------------------------- alignment (2026-11-12)
+
+fn aligned_row(a: widget.Alignment, children: [widget.Widget]) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: a,
+        children: children,
+        name: ""
+    })
+}
+
+fn aligned_column(a: widget.Alignment, children: [widget.Widget]) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: a,
+        children: children,
+        name: ""
+    })
+}
+
+fn of(across: widget.Across, along: widget.Along) -> widget.Alignment {
+    return widget.Alignment { across: across, along: along }
+}
+
+// A 20x10 box, so that "stretched" and "its natural size" are different numbers.
+fn small() -> widget.Widget {
+    return widget.fixed_of(20.0, 10.0, widget.Widget.Nothing)
+}
+
+fn child_box(w: widget.Widget, width: float, height: float) -> geom.Rect {
+    return widget.layout(w, geom.rect_of(0.0, 0.0, width, height), fake_metrics()).children[0].bounds
+}
+
+// **The default is what this layer always did**, and the whole change rests on it: a stack hands
+// each child the parent's full extent across its direction. Everything existing keeps its layout
+// because `stretched()` is what every literal was given.
+#[test]
+fn the_default_stretches_across_and_packs_from_the_start() {
+    val box = child_box(aligned_row(widget.stretched(), [small()]), 100.0, 40.0)
+    test.assert_eq(box.x, 0.0)
+    test.assert_eq(box.y, 0.0)
+    test.assert_eq(box.height, 40.0)
+}
+
+#[test]
+fn across_start_gives_a_child_its_natural_size() {
+    val box = child_box(aligned_row(of(widget.Across.Start, widget.Along.Start), [small()]), 100.0, 40.0)
+    test.assert_eq(box.y, 0.0)
+    test.assert_eq(box.height, 10.0)
+}
+
+#[test]
+fn across_centre_halves_the_room_left_over() {
+    val box = child_box(aligned_row(of(widget.Across.Centre, widget.Along.Start), [small()]), 100.0, 40.0)
+    test.assert_eq(box.height, 10.0)
+    test.assert_eq(box.y, 15.0)
+}
+
+#[test]
+fn across_end_puts_the_child_against_the_far_side() {
+    val box = child_box(aligned_row(of(widget.Across.End, widget.Along.Start), [small()]), 100.0, 40.0)
+    test.assert_eq(box.y, 30.0)
+}
+
+// A column aligns across its *width*, which is the axis a row does not. Both directions, because
+// one `switch` getting them the wrong way round is the obvious bug here and it would pass every
+// row-only test.
+#[test]
+fn a_column_aligns_across_its_width() {
+    val box = child_box(aligned_column(of(widget.Across.Centre, widget.Along.Start), [small()]), 100.0, 40.0)
+    test.assert_eq(box.width, 20.0)
+    test.assert_eq(box.x, 40.0)
+}
+
+#[test]
+fn along_centre_shifts_the_first_child_by_half_the_spare() {
+    val box = child_box(aligned_row(of(widget.Across.Stretch, widget.Along.Centre), [small()]), 100.0, 40.0)
+    test.assert_eq(box.x, 40.0)
+}
+
+#[test]
+fn along_end_packs_the_children_against_the_end() {
+    val box = child_box(aligned_row(of(widget.Across.Stretch, widget.Along.End), [small()]), 100.0, 40.0)
+    test.assert_eq(box.x, 80.0)
+}
+
+// **Several children keep their gaps and move together.** Aligning along the direction shifts
+// where the run starts; it does not redistribute the space between them, which is a different
+// feature (`space-between`) and not one anything has asked for.
+#[test]
+fn along_centre_moves_the_whole_run_and_not_the_gaps() {
+    val row = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 10.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: of(widget.Across.Stretch, widget.Along.Centre),
+        children: [small(), small()],
+        name: ""
+    })
+    val laid = widget.layout(row, geom.rect_of(0.0, 0.0, 100.0, 40.0), fake_metrics())
+    // 20 + 10 + 20 = 50 of content in 100, so 25 of spare before the first.
+    test.assert_eq(laid.children[0].bounds.x, 25.0)
+    test.assert_eq(laid.children[1].bounds.x, 55.0)
+}
+
+// **A flexible child eats the spare room, so aligning along the direction does nothing** -- and
+// that falls out of the arithmetic rather than being a case anyone has to remember. Asserted
+// because the obvious implementation adds the shift unconditionally and pushes the content off
+// the end of a container it exactly fills.
+#[test]
+fn a_flexible_child_leaves_no_spare_to_align_into() {
+    val row = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: of(widget.Across.Stretch, widget.Along.End),
+        children: [small(), widget.flex()],
+        name: ""
+    })
+    val laid = widget.layout(row, geom.rect_of(0.0, 0.0, 100.0, 40.0), fake_metrics())
+    test.assert_eq(laid.children[0].bounds.x, 0.0)
+}
+
+// A child bigger than its room overflows at the end rather than being centred off the near side,
+// which is what an unclamped `(room - natural) / 2` would do: a negative shift puts a child above
+// the top of its own parent.
+#[test]
+fn a_child_too_big_to_align_is_not_pushed_backwards() {
+    val big = widget.fixed_of(20.0, 80.0, widget.Widget.Nothing)
+    val box = child_box(aligned_row(of(widget.Across.Centre, widget.Along.Start), [big]), 100.0, 40.0)
+    test.assert_eq(box.y, 0.0)
+    test.assert_eq(box.height, 40.0)
+}
+
+#[test]
+fn padding_is_taken_off_before_anything_is_aligned() {
+    val row = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.insets_all(10.0),
+        surface: widget.no_surface(),
+        align: of(widget.Across.Centre, widget.Along.Centre),
+        children: [small()],
+        name: ""
+    })
+    val box = widget.layout(row, geom.rect_of(0.0, 0.0, 100.0, 40.0), fake_metrics()).children[0].bounds
+    // 80 of inner width for 20 of child, so 30 each side, plus the 10 of padding.
+    test.assert_eq(box.x, 40.0)
+    // 20 of inner height for 10 of child, so 5 each side, plus the 10.
+    test.assert_eq(box.y, 15.0)
 }

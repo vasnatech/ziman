@@ -876,4 +876,15 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   dominating the frame at 6.3 ms over 200 rows, so an alignment pass that walks children twice
   needs the same interleaved measurement before it lands.
 
-  Not started. Nothing here is blocked on a decision from anyone.
+  **DONE 2026-11-12 as F287** -- see docs/reviews/tasks/f287.md. `Across` (Stretch, Start, Centre,
+  End) and `Along` (the three without Stretch) in one `Alignment` on `Stack`, defaulting to what
+  the layer already did, so all 227 existing tests passed untouched and the lang fixture is
+  byte-identical. The button centres: in a 200-point box its label moved from x=8 to x=86.
+
+  **It costs nothing measurable** -- 47-50 ms stretched against 49-51 centred over ten layouts of
+  200 rows, inside the noise -- because `measure` already ran for every fixed child and `Sized`
+  short-circuits it, so the extra call an aligned stack makes hits the same bound. That is F285's
+  declined rewrite paying for itself.
+
+  The check box is still 9x22: squaring it is now possible but wants a decision about what a check
+  box's side should be, which f287.md records as the next user of this feature.

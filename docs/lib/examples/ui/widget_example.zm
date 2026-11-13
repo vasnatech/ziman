@@ -29,6 +29,7 @@ fn main() {
         spacing: 4.0,
         padding: widget.insets_all(2.0),
         surface: widget.filled(paint.rgb(0.9, 0.9, 0.9)),
+        align: widget.stretched(),
         // A `flex` after the label pushes everything before it to the left: leftover space is a
         // widget, not a property of its neighbours.
         children: [widget.named_label("File", 8.0, paint.black(), "menu-file"), widget.flex()],

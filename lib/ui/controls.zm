@@ -257,6 +257,12 @@ pub fn button_widget(b: Button, style: Style) -> widget.Widget {
         spacing: 0.0,
         padding: style.padding,
         surface: face_of(style, face),
+        // **Centred, which it could not be until `widget` had an alignment rule.** A button given
+        // more width than its text -- one in a row of equal columns, one stretched to a panel's
+        // edge -- put its label hard against the left padding, and had since F271. It was never
+        // seen because `curly gui` puts `widget.expand` on the field beside its buttons, so they
+        // take exactly the width of their text and the spare room that shows the bug is zero.
+        align: widget.centred(),
         children: [widget.label_of(b.label, style.text_size, ink)],
         name: ""
     })
@@ -328,6 +334,7 @@ pub fn check_box_widget(c: CheckBox, style: Style) -> widget.Widget {
         spacing: 0.0,
         padding: widget.insets_all(1.0),
         surface: face_of(style, face),
+        align: widget.stretched(),
         children: [widget.label_of(mark(c.checked), style.text_size, ink)],
         name: ""
     })
@@ -336,6 +343,7 @@ pub fn check_box_widget(c: CheckBox, style: Style) -> widget.Widget {
         spacing: style.text_size * 0.5,
         padding: style.padding,
         surface: widget.no_surface(),
+        align: widget.stretched(),
         children: [box, widget.label_of(c.label, style.text_size, ink)],
         name: ""
     })
@@ -897,6 +905,7 @@ fn tinted(piece: string, face: Color, ink: Color, style: Style, name: string) ->
         spacing: 0.0,
         padding: widget.no_insets(),
         surface: widget.filled(face),
+        align: widget.stretched(),
         children: [widget.label_of(piece, style.text_size, ink)],
         name: name
     })
@@ -908,6 +917,7 @@ fn caret_box(ink: Color, line: float) -> widget.Widget {
         spacing: 0.0,
         padding: widget.no_insets(),
         surface: widget.filled(ink),
+        align: widget.stretched(),
         children: [],
         name: caret_name
     }))
@@ -973,6 +983,7 @@ fn entry_line(
             spacing: 0.0,
             padding: widget.no_insets(),
             surface: widget.filled(style.pressed_face),
+            align: widget.stretched(),
             children: [widget.label_of(substring(text, lo, hi), style.text_size, ink)],
             name: "selection"
         }))
@@ -986,6 +997,7 @@ fn entry_line(
                 spacing: 0.0,
                 padding: widget.no_insets(),
                 surface: widget.filled(ink),
+                align: widget.stretched(),
                 children: [],
                 name: caret_name
             })))
@@ -999,6 +1011,7 @@ fn entry_line(
         spacing: 0.0,
         padding: widget.no_insets(),
         surface: widget.no_surface(),
+        align: widget.stretched(),
         children: snapshot(pieces),
         name: ""
     }))
@@ -1032,6 +1045,7 @@ fn multi_line_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget
         spacing: 0.0,
         padding: style.padding,
         surface: face_of(style, style.face),
+        align: widget.stretched(),
         children: snapshot(lines),
         name: ""
     })
@@ -1072,6 +1086,7 @@ pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget 
         spacing: 0.0,
         padding: style.padding,
         surface: face_of(style, style.face),
+        align: widget.stretched(),
         children: runs,
         name: ""
     })
@@ -1284,6 +1299,7 @@ pub fn list_widget(l: List, style: Style) -> widget.Widget {
             spacing: 0.0,
             padding: widget.insets_of(4.0, 2.0, 4.0, 2.0),
             surface: highlight_of(style, face),
+            align: widget.stretched(),
             children: [widget.label_of(l.items[i], style.text_size, ink)],
             name: ""
         })
@@ -1446,6 +1462,7 @@ pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget {
             spacing: 0.0,
             padding: style.padding,
             surface: face_of(style, face),
+            align: widget.stretched(),
             children: [widget.label_of(t.items[i], style.text_size, ink)],
             name: ""
         })
@@ -1905,6 +1922,7 @@ fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style) -> widget.Widge
         spacing: 0.0,
         padding: widget.insets_of(0.0, 2.0, 4.0, 2.0),
         surface: highlight_of(style, face),
+        align: widget.stretched(),
         children: [
             widget.fixed_of((row.depth as float) * t.indent, 0.0, widget.flex()),
             widget.fixed_of(t.indent, 0.0, widget.label_of(mark, style.text_size, ink)),
@@ -2118,6 +2136,7 @@ pub fn scroll_bar_widget(
             spacing: 0.0,
             padding: widget.insets_of(2.0, 0.0, 2.0, 0.0),
             surface: face_of(style, face),
+            align: widget.stretched(),
             children: [],
             name: thumb_name
         })))
@@ -2137,6 +2156,7 @@ pub fn scroll_bar_widget(
             spacing: 0.0,
             padding: widget.no_insets(),
             surface: face_of(style, style.face),
+            align: widget.stretched(),
             children: snapshot(parts),
             name: ""
         }))
@@ -2430,6 +2450,7 @@ pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
         spacing: 0.0,
         padding: style.padding,
         surface: face_of(style, face),
+        align: widget.stretched(),
         children: [widget.label_of(collapsed_text(m), style.text_size, ink)],
         name: ""
     })
@@ -2503,6 +2524,7 @@ pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: 
         spacing: style.text_size * 0.5,
         padding: style.padding,
         surface: face_of(style, style.face),
+        align: widget.stretched(),
         children: [widget.label_of(title, style.text_size, style.ink), content],
         name: ""
     })
@@ -2528,6 +2550,7 @@ pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: 
         spacing: 0.0,
         padding: widget.no_insets(),
         surface: widget.filled(style.scrim),
+        align: widget.stretched(),
         children: [
             widget.flex(),
             widget.row_of(0.0, [widget.flex(), titled, widget.flex()]),

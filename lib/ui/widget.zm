@@ -155,12 +155,59 @@ pub fn border_of(colour: Color, width: float) -> Border {
     return Border { colour: colour, width: width }
 }
 
+// Where a child sits **across** the stack's direction -- vertically in a row, horizontally in a
+// column.
+//
+// **`Stretch` is the default because it is what this layer has always done**, and it is what every
+// box model defaults to: a stack hands each child the parent's full extent across its direction,
+// so a `Fixed(40, 80)` in a row 60 tall is laid out 40 wide and 60 tall. The other three give the
+// child its natural size across and place it, which is the thing that was missing.
+pub enum Across {
+    Stretch
+    Start
+    Centre
+    End
+}
+
+// Where the children sit **along** the stack's direction, when they do not fill it.
+//
+// Only meaningful when there is room left over, which means **no flexible child** -- a `flex()`
+// eats the spare room by definition, so a stack holding one is already full and this does nothing.
+// That is not a special case to remember: it falls out of the arithmetic.
+pub enum Along {
+    Start
+    Centre
+    End
+}
+
+// How a stack places its children in the room it has.
+//
+// One field on `Stack` rather than two, for the reason `Surface` is one field rather than four: a
+// literal names every field in this language, so a struct keeps the churn to one line per site and
+// keeps the two halves of one idea together.
+pub struct Alignment {
+    across: Across
+    along: Along
+}
+
+// What every stack did before alignment existed, and still does unless it says otherwise: children
+// stretched across, packed from the start along.
+pub fn stretched() -> Alignment {
+    return Alignment { across: Across.Stretch, along: Along.Start }
+}
+
+// Centred both ways, which is what a button's label and a check box's mark want.
+pub fn centred() -> Alignment {
+    return Alignment { across: Across.Centre, along: Along.Centre }
+}
+
 // Children in a row or a column, with space between them and around them.
 pub struct Stack {
     direction: Direction
     spacing: float
     padding: Insets
     surface: Surface
+    align: Alignment
     children: [Widget]
     name: string
 }
@@ -171,6 +218,7 @@ pub fn row_of(spacing: float, children: [Widget]) -> Widget {
         spacing: spacing,
         padding: no_insets(),
         surface: no_surface(),
+        align: stretched(),
         children: children,
         name: ""
     })
@@ -182,6 +230,7 @@ pub fn column_of(spacing: float, children: [Widget]) -> Widget {
         spacing: spacing,
         padding: no_insets(),
         surface: no_surface(),
+        align: stretched(),
         children: children,
         name: ""
     })
@@ -960,18 +1009,51 @@ fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, index: int, name: 
     val spare = if room - fixed_total > 0.0 { room - fixed_total } else { 0.0 }
 
     val placed = mutable_array_new<Laid>()
-    var offset = 0.0
+    // Where the first child starts along the direction. **Spare room only exists when nothing is
+    // flexible** -- a `flex()` consumes it by definition -- so a stack holding one is already full
+    // and every option below comes to zero, which is the arithmetic rather than a special case.
+    var offset = if weight_total > 0.0 {
+        0.0
+    } else {
+        switch s.align.along {
+            Start { 0.0 }
+            Centre { spare * 0.5 }
+            End { spare }
+        }
+    }
     // The child's number, which is not this node's -- `index` is where *this* stack sits in its
     // own parent, and the two were one name until the compiler said so.
     var at = 0
+    val room_across = switch s.direction {
+        Row { inner.height }
+        Column { inner.width }
+    }
     for child in s.children {
         val extent = switch flex_weight(child) {
             Some(weight) { if weight_total > 0.0 { spare * weight / weight_total } else { 0.0 } }
             None { along_of(measure(child, m), s.direction) }
         }
+        // **`Stretch` measures nothing**, which is what keeps the default free: every other option
+        // needs the child's natural size across the direction, and that is a `measure` this layer
+        // did not use to do. A stack that does not ask pays exactly what it paid before.
+        val natural = switch s.align.across {
+            Stretch { room_across }
+            Start { across_of(measure(child, m), s.direction) }
+            Centre { across_of(measure(child, m), s.direction) }
+            End { across_of(measure(child, m), s.direction) }
+        }
+        // Clamped, because a child wider than its room is not pushed off the far side: an
+        // over-full container overflows at its end, which is where `place_stack` already leaves it.
+        val span = if natural > room_across { room_across } else { natural }
+        val shift = switch s.align.across {
+            Stretch { 0.0 }
+            Start { 0.0 }
+            Centre { (room_across - span) * 0.5 }
+            End { room_across - span }
+        }
         val child_rect = switch s.direction {
-            Row { geom.rect_of(inner.x + offset, inner.y, extent, inner.height) }
-            Column { geom.rect_of(inner.x, inner.y + offset, inner.width, extent) }
+            Row { geom.rect_of(inner.x + offset, inner.y + shift, extent, span) }
+            Column { geom.rect_of(inner.x + shift, inner.y + offset, span, extent) }
         }
         push(placed, place(child, child_rect, m, at, name))
         offset = offset + extent + s.spacing
@@ -1009,6 +1091,13 @@ fn along_of(s: Size, direction: Direction) -> float {
     return switch direction {
         Row { s.width }
         Column { s.height }
+    }
+}
+
+fn across_of(s: Size, direction: Direction) -> float {
+    return switch direction {
+        Row { s.height }
+        Column { s.width }
     }
 }
 
