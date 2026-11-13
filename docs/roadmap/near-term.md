@@ -917,3 +917,24 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   The curly side currently reports it as a note rather than a failure, because with invented
   preview data an overflow is as likely to be the placeholder's fault as the design's -- three
   tabs drawn into a strip the file sized `tab_width * pane_tabs` for two.
+
+- **Four hand-rolled UTF-8 encoders in the library, and one of them is wrong.** Found 2026-11-13
+  while fixing `window.Event.Char`, which needed a fifth.
+
+  `toml.zm` and `yaml.zm` have `append_utf8(out, cp)`, `truetype.zm` has `codepoint_text(cp)`, and
+  `lib/ui/desktop/window.zm` now has `text_of_codepoint(cp)`. All private, all the same arithmetic.
+  **`truetype.zm`'s has no four-byte branch**, so any code point at or above U+10000 -- every
+  emoji, and the whole of the supplementary planes -- comes out as three wrong bytes. Nothing has
+  noticed because the PDF path it serves has not been given one.
+
+  **There is no obvious home, which is why there are four.** The prelude has no code points in it
+  on purpose: its unit is a one-character string (`chars`, `char_at`), and `bytes_to_string` is the
+  only door between text and bytes. `font.codepoint_of` is the decode direction and lives in
+  `lib/graphics`, which `lib/core` cannot depend on and which `lib/ui/desktop/window.zm` refuses to
+  depend on by design -- its header says so, and the narrow seam is the point.
+
+  So the question is whether the prelude should gain a code-point pair (`codepoint_of` and its
+  inverse) and admit the `int` unit alongside the one-character-string one, or whether a
+  `lib/core/` module should own text-encoding conversions the way `encoding.zm` owns base-N ones.
+  The first is a language-surface decision; the second is a module nobody has needed twice until
+  now. Either way `truetype.zm`'s copy should go.
