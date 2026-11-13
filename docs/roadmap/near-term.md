@@ -888,3 +888,32 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
 
   The check box is still 9x22: squaring it is now possible but wants a decision about what a check
   box's side should be, which f287.md records as the next user of this feature.
+
+- **A box laid outside its parent is painted and cannot be clicked.** Found 2026-11-13 while
+  building curly's click-to-source lookup, which reported a tab that no press could reach.
+
+  `widget.fixed_of(w, h, child)` sizes; it does not clip. A `Stack` inside one lays its children
+  at their natural extent, so a row of three 100-point tabs inside a 200-point `Fixed` puts the
+  third at x=200..300 -- outside its parent's bounds. `paint` walks the tree and paints it; `at`
+  walks the same tree and refuses to descend into a box the point is outside of, so it never
+  reaches the third tab. The result is a control that is visible, looks enabled, and is dead.
+
+  **`Scroll` has the same arrangement on purpose and it is the reason hit testing is right
+  there**: a viewport's content really is laid out larger and shifted, and `at` rejecting the
+  viewport first is exactly what makes a scrolled-out row unclickable (`widget_test.zm`,
+  `a_row_scrolled_out_of_sight_cannot_be_clicked`). So the behaviour is not a bug in `at`. The
+  question is whether `Fixed` meant to be in the same business.
+
+  Three ways out, and they are not equivalent:
+    * **Paint clips to the laid box**, so what overflows is invisible rather than dead. Matches
+      what a user infers from a fixed size, and makes the two walks agree. Costs a clip per
+      `Fixed`, which the raster backend charges for.
+    * **Lay children into the parent's extent** -- a `Stack` that measures wider than it is given
+      shrinks or wraps. That is a layout policy decision, not a clip, and F287's measurements are
+      the ones it would have to answer to.
+    * **Leave it and say so**, with a `--lint`-style check that a laid tree has no box outside its
+      parent. Cheapest, and it catches the case at the only moment anyone can act on it.
+
+  The curly side currently reports it as a note rather than a failure, because with invented
+  preview data an overflow is as likely to be the placeholder's fault as the design's -- three
+  tabs drawn into a strip the file sized `tab_width * pane_tabs` for two.
