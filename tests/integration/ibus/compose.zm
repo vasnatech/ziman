@@ -1,0 +1,102 @@
+// F274's fixture: a composition driven by a real input method, landing in `edit`'s model.
+//
+// Prints a transcript `tests/run_ibus_test.sh` checks. **Structural rather than literal**: which
+// characters an engine produces is the engine's business -- anthy, libpinyin and hangul all differ
+// -- so this says that a key was taken, that a pre-edit arrived, that a commit arrived and where
+// it landed, and the script checks those. Asserting "かな" would gate the engine rather than the
+// binding.
+use ibus
+use window
+use edit
+
+fn key(keysym: int, keycode: int) -> window.KeyPress {
+    return window.KeyPress {
+        keysym: keysym, keycode: keycode,
+        shift: false, control: false, alt: false, meta: false
+    }
+}
+
+// Where the caret is, in the document this fixture composes into. Non-empty on purpose: a pre-edit
+// spliced at zero would pass with the `at` arithmetic broken.
+val document = "name: "
+val caret_at = 6
+
+fn main() {
+    switch ibus.open("ziman-ibus-fixture") {
+        Ok(_) { print("OPEN ok") }
+        Err(message) {
+            print(concat("OPEN failed: ", message))
+            return
+        }
+    }
+    ibus.focused(true)
+    ibus.caret_at(40, 80, 2, 16)
+
+    var editor = edit.Editor { text: document, caret: caret_at, anchor: caret_at }
+    var held = Option<edit.Preedit>.None
+    var taken = 0
+    var changes = 0
+
+    // "kana", then space to convert, then Return to commit -- romaji any Japanese method turns
+    // into kana, and keys a Chinese or Korean one also answers.
+    val keysyms = [107, 97, 110, 97, 32, 65293]
+    val keycodes = [45, 38, 57, 38, 65, 36]
+    var i = 0
+    while i < len(keysyms) {
+        if ibus.press(key(keysyms[i], keycodes[i])) {
+            taken = taken + 1
+        }
+        // Several turns, because a conversion is a dictionary lookup in another process and the
+        // answer does not have to be ready in the frame that asked.
+        var turn = 0
+        while turn < 60 {
+            for change in ibus.changes() {
+                changes = changes + 1
+                switch change {
+                    Composing(c) {
+                        val composing = edit.compose_marked(
+                            editor, c.text, c.caret, c.marked_start, c.marked_end
+                        )
+                        editor = composing.editor
+                        held = Option<edit.Preedit>.Some(composing.preedit)
+                        print(format("PREEDIT \"{}\" caret={} marked=[{},{}) shown=\"{}\"",
+                            c.text, str(c.caret), str(c.marked_start), str(c.marked_end),
+                            edit.shown(editor, held)))
+                        switch edit.shown_highlight(editor, held) {
+                            Some(span) {
+                                print(format("HIGHLIGHT [{},{})", str(span.start), str(span.end)))
+                            }
+                            None { print("HIGHLIGHT none") }
+                        }
+                    }
+                    Committed(text) {
+                        switch held {
+                            Some(one) { editor = edit.commit(editor, one, text) }
+                            None { editor = edit.insert(editor, text) }
+                        }
+                        held = Option<edit.Preedit>.None
+                        print(format("COMMIT \"{}\"", text))
+                    }
+                    Closed {
+                        held = Option<edit.Preedit>.None
+                        print("CLOSED_PREEDIT")
+                    }
+                }
+            }
+            turn = turn + 1
+        }
+        i = i + 1
+    }
+
+    print(format("TAKEN {}", str(taken)))
+    print(format("CHANGES {}", str(changes)))
+    print(format("FINAL \"{}\" caret={}", editor.text, str(editor.caret)))
+    switch held {
+        Some(_) { print("STILL_COMPOSING yes") }
+        None { print("STILL_COMPOSING no") }
+    }
+    ibus.reset()
+    ibus.focused(false)
+    ibus.close()
+    print("DONE")
+}

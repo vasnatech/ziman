@@ -540,6 +540,11 @@ static Value native_window_poll_raw(Value *args, int argc, int line, int col) {
             fields[0] = e.type == KeyPress ? EV_KEY_DOWN : EV_KEY_UP;
             fields[1] = (int64_t)sym;
             fields[2] = (int64_t)(e.xkey.state & (ShiftMask | ControlMask | Mod1Mask | Mod4Mask));
+            /* The hardware keycode as well as the keysym, in a field the five-wide stride already
+             * had spare. An input method is defined to take both -- see src/native_ibus.c -- and a
+             * binding that passed a fabricated zero for it would be guessing on the application's
+             * behalf. Nothing else reads it. */
+            fields[3] = (int64_t)e.xkey.keycode;
             have = 1;
             if (e.type == KeyPress) {
                 /* The text the key produced, as well as the key itself. Both, because a shortcut

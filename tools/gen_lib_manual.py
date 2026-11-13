@@ -76,7 +76,7 @@ GROUPS = [
     # A folder per backend under lib/ui: what only one of them does. `terminal` moved here from
     # lib/core and `window` from lib/core too -- both are a way of putting a user interface on a
     # screen, which is what this group is.
-    ("User interface: desktop", "ui", ["window", "desktop", "atspi"]),
+    ("User interface: desktop", "ui", ["window", "desktop", "atspi", "ibus"]),
     ("User interface: terminal", "ui", ["terminal"]),
 ]
 

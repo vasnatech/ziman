@@ -11,7 +11,7 @@ use widget
 use window
 
 fn press(keysym: int, shift: bool, control: bool) -> window.KeyPress {
-    return window.KeyPress { keysym: keysym, shift: shift, control: control, alt: false, meta: false }
+    return window.KeyPress { keysym: keysym, keycode: 0, shift: shift, control: control, alt: false, meta: false }
 }
 
 fn one_to_one() -> widget.Density {

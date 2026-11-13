@@ -1,0 +1,134 @@
+// `ibus`'s decoder, with no daemon, no engine and no user.
+//
+// **This is the half of F274's platform instalment that can be gated everywhere**, and it is the
+// half with the bug potential: `decode` is a pure function from the three arrays the native
+// produces to `Change`s, so every kind, the numbers stride and a truncated queue are reachable
+// from `ziman test` on a machine with no input method at all. The other half -- that a real engine
+// really composes -- needs a session bus and an engine that is not a plain keyboard layout, and
+// lives in tests/run_ibus_test.sh.
+//
+// The kind numbers here mirror src/native_ibus.c by hand, which is the point: if C renumbers an
+// event, these fail rather than the decoder quietly producing the wrong change.
+use test
+use ibus
+use ibus.Change
+
+fn one(kinds: [int], texts: [string], numbers: [int]) -> Change {
+    val changes = ibus.decode(kinds, texts, numbers)
+    if len(changes) != 1 {
+        test.fail(concat("expected exactly one change, got ", str(len(changes))))
+        return Change.Closed
+    }
+    return changes[0]
+}
+
+#[test]
+fn a_composition_carries_its_text_caret_and_marked_run() {
+    switch one([1], ["かな"], [2, 0, 2]) {
+        Composing(c) {
+            test.assert_eq(c.text, "かな")
+            test.assert_eq(c.caret, 2)
+            test.assert_eq(c.marked_start, 0)
+            test.assert_eq(c.marked_end, 2)
+        }
+        Committed(_) { test.fail("a composition decoded as a commit") }
+        Closed { test.fail("a composition decoded as a close") }
+    }
+}
+
+// Nothing marked is the ordinary case -- a dead key, a compose sequence, and every Japanese
+// composition before its first conversion -- and it arrives as an empty run rather than as an
+// absence, which is what `edit.Preedit` means by equal indices.
+#[test]
+fn a_composition_with_nothing_marked_has_an_empty_run() {
+    switch one([1], ["か"], [1, 0, 0]) {
+        Composing(c) {
+            test.assert_eq(c.marked_start, c.marked_end)
+        }
+        Committed(_) { test.fail("wrong kind") }
+        Closed { test.fail("wrong kind") }
+    }
+}
+
+#[test]
+fn a_commit_carries_the_text() {
+    switch one([2], ["私の名前"], [0, 0, 0]) {
+        Composing(_) { test.fail("wrong kind") }
+        Committed(text) { test.assert_eq(text, "私の名前") }
+        Closed { test.fail("wrong kind") }
+    }
+}
+
+#[test]
+fn a_close_carries_nothing() {
+    switch one([3], [""], [0, 0, 0]) {
+        Composing(_) { test.fail("wrong kind") }
+        Committed(_) { test.fail("wrong kind") }
+        Closed { test.assert(true) }
+    }
+}
+
+// **A kind this module does not know is dropped rather than turned into something.** A new event
+// in C must not arrive here as a wrong change: a composition the application never opened is worse
+// than one it never hears about.
+#[test]
+fn an_unknown_kind_is_dropped() {
+    test.assert_eq(len(ibus.decode([99], ["x"], [0, 0, 0])), 0)
+    test.assert_eq(len(ibus.decode([0], ["x"], [0, 0, 0])), 0)
+}
+
+// **Each change reads its own three numbers**, which is the one piece of arithmetic here and so the
+// one place a stride bug can hide: a second change that read the first's caret would place the
+// caret correctly in every test with a single change.
+#[test]
+fn each_change_reads_its_own_numbers() {
+    val changes = ibus.decode([1, 1], ["か", "かな"], [1, 0, 0, 2, 0, 2])
+    test.assert_eq(len(changes), 2)
+    switch changes[0] {
+        Composing(c) {
+            test.assert_eq(c.caret, 1)
+            test.assert_eq(c.marked_end, 0)
+        }
+        Committed(_) { test.fail("wrong kind") }
+        Closed { test.fail("wrong kind") }
+    }
+    switch changes[1] {
+        Composing(c) {
+            test.assert_eq(c.caret, 2)
+            test.assert_eq(c.marked_end, 2)
+        }
+        Committed(_) { test.fail("wrong kind") }
+        Closed { test.fail("wrong kind") }
+    }
+}
+
+// A composition and the commit that ends it arrive in one pump, and **in order**: a commit applied
+// before the composition it replaces would insert the text and then reopen a pre-edit over it.
+#[test]
+fn a_composition_and_its_commit_keep_their_order() {
+    val changes = ibus.decode([1, 2], ["かな", "かな"], [2, 0, 2, 0, 0, 0])
+    test.assert_eq(len(changes), 2)
+    test.assert(Change.is_Composing(changes[0]))
+    test.assert(Change.is_Committed(changes[1]))
+}
+
+// **A change whose numbers are missing is dropped rather than guessed at.** The three arrays come
+// from three separate calls across the boundary, so a reader that trusted the first array's length
+// would index past the end of the others.
+#[test]
+fn a_change_without_its_numbers_is_dropped() {
+    test.assert_eq(len(ibus.decode([1], ["か"], [])), 0)
+    test.assert_eq(len(ibus.decode([1], ["か"], [1, 0])), 0)
+    test.assert_eq(len(ibus.decode([1, 1], ["か", "かな"], [1, 0, 0])), 1)
+}
+
+#[test]
+fn a_change_without_its_text_is_dropped() {
+    test.assert_eq(len(ibus.decode([1], [], [1, 0, 0])), 0)
+    test.assert_eq(len(ibus.decode([1, 2], ["か"], [1, 0, 0, 0, 0, 0])), 1)
+}
+
+#[test]
+fn an_empty_queue_decodes_to_nothing() {
+    test.assert_eq(len(ibus.decode([], [], [])), 0)
+}

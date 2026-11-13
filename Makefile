@@ -49,11 +49,15 @@ GC_LIB_TSAN := $(GC_DIR)/libgc-tsan.a
 BUILD := build
 PLAIN_CFLAGS := -std=c11 -O2 -fwrapv -Wall -Wextra -Wpedantic -Wvla -Wshadow -g -pthread -I$(BUILD)
 CFLAGS := $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)"' $(GC_FLAGS) -MMD -MP
-# The accessibility backend's flags, asked of pkg-config and only used by `make gui`. Empty if the
-# libraries are absent, in which case that build simply has no accessibility either -- the natives
-# answer the same error the non-gui build does.
-ATSPI_CFLAGS := $(shell pkg-config --cflags atk atk-bridge-2.0 glib-2.0 gobject-2.0 2>/dev/null)
-ATSPI_LIBS := $(shell pkg-config --libs atk atk-bridge-2.0 glib-2.0 gobject-2.0 2>/dev/null)
+# The flags `make gui` needs beyond the plain build, asked of pkg-config. Empty if the libraries
+# are absent, in which case that build simply has no accessibility and no input method -- the
+# natives answer the same error the non-gui build does.
+#
+# Named for the build rather than for AT-SPI, which it was until the input method arrived: `gio` is
+# here for `src/native_ibus.c`, and it costs nothing, because at-spi2-atk already brought it. That
+# is the whole reason ibus is a binding and not a second backend -- see native_ibus.c.
+GUI_CFLAGS := $(shell pkg-config --cflags atk atk-bridge-2.0 glib-2.0 gobject-2.0 gio-2.0 2>/dev/null)
+GUI_LIBS := $(shell pkg-config --libs atk atk-bridge-2.0 glib-2.0 gobject-2.0 gio-2.0 2>/dev/null)
 
 SRC := $(wildcard src/*.c)
 # Every header, as a blunt prerequisite for the targets that compile all of $(SRC) in one `cc`
@@ -107,7 +111,7 @@ install-hooks:
 # -MMD/-MP header tracking only kicks in from the second build onward,
 # once a .d file already mentions it. Add a new core module by adding
 # its name here and one line to corelib.c's CORE_MODULES table.
-CORELIB_MODULES := meta template batch derive_ord derive_row derive_properties derive_json derive_reflect derive_entity derive_repository derive_validate derive_xml expr validate process url fs log metrics regex random uuid clock time schedule json codec paging number math bits encoding thread datasource sqlite mysql memdb sql eql db net crypto pg http derive_routes os properties io terminal window ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp locale test geom shape paint scene pdfobj pdf truetype font image stroker raster layout widget focus edit a11y controls desktop atspi
+CORELIB_MODULES := meta template batch derive_ord derive_row derive_properties derive_json derive_reflect derive_entity derive_repository derive_validate derive_xml expr validate process url fs log metrics regex random uuid clock time schedule json codec paging number math bits encoding thread datasource sqlite mysql memdb sql eql db net crypto pg http derive_routes os properties io terminal window ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp locale test geom shape paint scene pdfobj pdf truetype font image stroker raster layout widget focus edit a11y controls desktop atspi ibus
 
 # The prelude is not a module and is deliberately NOT in CORELIB_MODULES: it has
 # no line in corelib.c's CORE_MODULES table, nothing can `use` it, and

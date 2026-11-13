@@ -160,6 +160,12 @@ pub struct KeyPress {
     // makes and for the same reason -- a program that logs an unknown key is how the gap gets
     // closed.
     keysym: int
+    // The hardware keycode, which is the number the keyboard sent rather than the meaning a layout
+    // gave it. Nothing in this module uses it and an application almost never should -- `keysym` is
+    // what a shortcut compares against. It is here because an **input method is defined to take
+    // both** (`ibus.key`), and a layout-sensitive method handed a fabricated zero would be a
+    // silently wrong answer rather than a missing one.
+    keycode: int
     shift: bool
     control: bool
     alt: bool

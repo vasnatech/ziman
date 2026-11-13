@@ -27,11 +27,54 @@ fn one(raw: [int]) -> Event {
     return events[0]
 }
 
+// The hardware keycode travels in the third field, which the stride already had spare. **Its own
+// test, because nothing in this module reads it**: `key_name` goes by the keysym and so does every
+// shortcut, so a keycode that arrived as zero would be invisible here and wrong only inside an
+// input method -- where a layout-sensitive engine would compose the wrong character and the cause
+// would be two layers away.
+#[test]
+fn a_key_press_carries_the_hardware_keycode() {
+    switch one(ev(1, 97, 0, 38, 0)) {
+        KeyDown(k) {
+            test.assert_eq(k.keysym, 97)
+            test.assert_eq(k.keycode, 38)
+        }
+        KeyUp(_) { test.fail("a press decoded as a release") }
+        Char(_) { test.fail("a press decoded as text") }
+        PointerDown(_) { test.fail("wrong kind") }
+        PointerUp(_) { test.fail("wrong kind") }
+        PointerMove(_) { test.fail("wrong kind") }
+        Scroll(_) { test.fail("wrong kind") }
+        Resize(_) { test.fail("wrong kind") }
+        Close { test.fail("wrong kind") }
+        FocusIn { test.fail("wrong kind") }
+        FocusOut { test.fail("wrong kind") }
+        Exposed { test.fail("wrong kind") }
+    }
+    // A release carries it too: a method is told about both, and a dead key is decided on one and
+    // released on the other.
+    switch one(ev(2, 97, 0, 38, 0)) {
+        KeyUp(k) { test.assert_eq(k.keycode, 38) }
+        KeyDown(_) { test.fail("a release decoded as a press") }
+        Char(_) { test.fail("wrong kind") }
+        PointerDown(_) { test.fail("wrong kind") }
+        PointerUp(_) { test.fail("wrong kind") }
+        PointerMove(_) { test.fail("wrong kind") }
+        Scroll(_) { test.fail("wrong kind") }
+        Resize(_) { test.fail("wrong kind") }
+        Close { test.fail("wrong kind") }
+        FocusIn { test.fail("wrong kind") }
+        FocusOut { test.fail("wrong kind") }
+        Exposed { test.fail("wrong kind") }
+    }
+}
+
 #[test]
 fn a_key_press_carries_its_keysym_and_no_modifiers() {
     switch one(ev(1, 97, 0, 0, 0)) {
         KeyDown(k) {
             test.assert_eq(k.keysym, 97)
+            test.assert_eq(k.keycode, 0)
             test.assert_false(k.shift)
             test.assert_false(k.control)
             test.assert_false(k.alt)

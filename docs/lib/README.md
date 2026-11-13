@@ -177,6 +177,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`window`](window.md) | A window, the pixels in it, and what the user did. |
 | [`desktop`](desktop.md) | The desktop backend's adapter, both ways. |
 | [`atspi`](atspi.md) | Publishing an accessibility tree so a screen reader can read it. |
+| [`ibus`](ibus.md) | Composing text through an ibus input method, so that Japanese, Chinese and Korean reach `edit`'s pre-edit model. |
 
 ## User interface: terminal
 

@@ -38,6 +38,7 @@
 #include "native_terminal.h"
 #include "native_raster.h"
 #include "native_a11y.h"
+#include "native_ibus.h"
 #include "native_window.h"
 #include "native_locale.h"
 #include "native_regex.h"
@@ -199,6 +200,7 @@ static void register_all_natives(void) {
     native_raster_register();
     native_window_register();
     native_a11y_register();
+    native_ibus_register();
     native_iter_register();
     native_locale_register();
     native_regex_register();
