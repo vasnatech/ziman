@@ -33,7 +33,7 @@ fn window(w: float, h: float) -> widget.Widget {
         direction: widget.Direction.Row,
         spacing: 4.0,
         padding: widget.insets_all(2.0),
-        background: Option<paint.Color>.Some(paint.rgb(1.0, 0.0, 0.0)),
+        surface: widget.filled(paint.rgb(1.0, 0.0, 0.0)),
         children: [widget.label_of("File", 8.0, paint.black()), widget.flex()],
         name: "toolbar"
     })
@@ -41,7 +41,7 @@ fn window(w: float, h: float) -> widget.Widget {
         direction: widget.Direction.Column,
         spacing: 0.0,
         padding: widget.no_insets(),
-        background: Option<paint.Color>.Some(paint.rgb(0.0, 1.0, 0.0)),
+        surface: widget.filled(paint.rgb(0.0, 1.0, 0.0)),
         children: [widget.flex()],
         name: "sidebar"
     })
@@ -49,7 +49,7 @@ fn window(w: float, h: float) -> widget.Widget {
         direction: widget.Direction.Column,
         spacing: 0.0,
         padding: widget.no_insets(),
-        background: Option<paint.Color>.Some(paint.rgb(0.0, 0.0, 1.0)),
+        surface: widget.filled(paint.rgb(0.0, 0.0, 1.0)),
         children: [widget.flex()],
         name: "content"
     })

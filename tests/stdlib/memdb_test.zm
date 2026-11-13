@@ -430,16 +430,31 @@ fn seeding_is_linear_in_the_rows() {
     // time), and the warm-up keeps one-off allocator growth out of the first sample. What is
     // asserted has not changed.
     val _ = timed_seed(300)
-    val small = fastest_seed(600)
-    val large = fastest_seed(2400)
+    val small = fastest_seed(600, 5)
+    val large = fastest_seed(2400, 5)
     test.assert_lt(large, math.max(small, 1) * 8)
 }
 
-// The quickest of three, because a collector pause can only make a measurement longer.
-fn fastest_seed(rows: int) -> int {
+// The quickest of `tries`, because **a collector pause can only make a measurement longer** -- so
+// the minimum over more samples is a strictly better estimate of the pause-free cost, and taking
+// more of them strengthens the estimator rather than weakening the assertion.
+//
+// **Three was not enough, which this test found for the second time on 2026-11-12.** F286 added
+// fifteen tests to `widget_test` and `controls_test`, which sort before this file and grow the heap
+// ahead of it -- the same mechanism F280 hit, recorded above. It failed once in `make check` at
+// 138 ms against a bound of 136 (a 600-row seed of 17 ms times eight) and passed four times out of
+// four on its own. A clean-process probe puts 4x the rows at 3.6x the time, so a `large` of 138
+// against a `small` of 17 is a measurement that caught a pause in all three of its samples, not a
+// seeding that went quadratic.
+//
+// **Five rather than a looser bound**, which was the other option and the wrong one: the bound is
+// what gives the test its power -- 8x against the 16x a return to quadratic would cost -- and
+// raising it to buy quiet would have spent exactly the margin the assertion exists for. Two more
+// samples at each size cost about a third of a second on a 75-second suite.
+fn fastest_seed(rows: int, tries: int) -> int {
     var best = timed_seed(rows)
     var i = 1
-    while i < 3 {
+    while i < tries {
         val one = timed_seed(rows)
         if one < best {
             best = one

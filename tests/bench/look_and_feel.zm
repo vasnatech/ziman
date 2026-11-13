@@ -1,0 +1,202 @@
+// What a second look and feel costs per frame: a flat default against a bordered, rounded one.
+//
+// **The number the roadmap entry demanded before shipping one, not after.** F284 measured
+// build-and-lay-out at 6.3 ms per frame at 200 rows against F270's 0.7-1.0 ms regional repaint, so
+// the frame is dominated by building and laying out rather than painting. A border adds painting --
+// a stroked path per box where there was a span fill -- and a radius turns four lines into four
+// cubics. The question is whether that is noise against a frame already dominated by layout.
+//
+// Interleaved, flat then edged, three passes, for the reason every F270 and F284 measurement
+// repeats: this machine's absolutes have moved about 2x between batches an hour apart with no code
+// change. Read the pair within a pass, never a number here against a number elsewhere.
+use clock
+use controls
+use font
+use fs
+use geom
+use paint
+use raster
+use widget
+
+fn metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 7.0 },
+        fn(size: float) -> float { return size * 1.3 }
+    )
+}
+
+// A form of the shape an application actually lays out: rows of a label and a field, with buttons
+// at the foot -- which is where the faces are, and faces are what a look and feel touches. Built
+// from the shape `curly gui` has rather than one that isolates the variable, which is F284's
+// lesson about probes.
+fn form(rows: int, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    val children = mutable_array_new<widget.Widget>()
+    for i in 0..rows {
+        push(children, widget.row_of(6.0, [
+            controls.button_widget(controls.button_of(concat("b", str(i)), "Label"), style),
+            widget.expand(controls.entry_widget(
+                controls.entry_of(concat("f", str(i)), "Field", "a value"),
+                style,
+                m
+            ))
+        ]))
+    }
+    push(children, widget.row_of(6.0, [
+        controls.button_widget(controls.button_of("ok", "Save"), style),
+        controls.button_widget(controls.button_of("no", "Cancel"), style)
+    ]))
+    return widget.column_of(4.0, snapshot(children))
+}
+
+fn edged() -> controls.Style {
+    return with controls.default_style() {
+        face_border: Option<widget.Border>.Some(widget.border_of(paint.rgb(0.4, 0.4, 0.45), 1.0)),
+        corner_radius: 4.0
+    }
+}
+
+// Build, lay out and paint one frame, which is what an application pays per frame -- not the paint
+// alone, because the point is the *share* a look and feel adds to a real frame.
+fn frame(rows: int, style: controls.Style, m: widget.Metrics) -> int {
+    val w = form(rows, style, m)
+    val laid = widget.layout(w, geom.rect_of(0.0, 0.0, 900.0, 40.0 * (rows as float) + 60.0), m)
+    return len(widget.paint_ops(laid, m))
+}
+
+// And the paint alone, so the two halves can be told apart: if the whole frame moves and the paint
+// does not, the cost is not the look and feel.
+fn paint_only(laid: widget.Laid, m: widget.Metrics) -> int {
+    return len(widget.paint_ops(laid, m))
+}
+
+// And the pixels, which is the number that actually decides affordability: `paint_ops` only builds
+// the op list, and a stroked rounded path is where rasterising gets expensive against a span fill.
+// **The op-building figures above would have been read as the answer and they are not** -- they are
+// the cheap part of it.
+fn rasterised(
+    rows: int,
+    style: controls.Style,
+    m: widget.Metrics,
+    width: float,
+    height: float,
+    rounds: int
+) -> Result<int, string> {
+    val laid = widget.layout(form(rows, style, m), geom.rect_of(0.0, 0.0, width, height), m)
+    val s = widget.paint(laid, m)
+    val data = switch fs.read_bytes("vendor/fonts/Caladea-Regular.ttf") {
+        Ok(d) { d }
+        Err(why) { return err(format("font: {}", why)) }
+    }
+    val face = switch font.load(data) {
+        Ok(x) { x }
+        Err(why) { return err(format("load: {}", why)) }
+    }
+    // A real face, 4x sampling and a white page -- the rasteriser refuses a text run with no font,
+    // and anti-aliasing is where a stroked curve costs more than a straight edge, so turning it off
+    // would measure a frame nobody ships.
+    val o = with raster.options() {
+        fonts: [face],
+        samples: 4,
+        background: Option<paint.Color>.Some(paint.white()),
+        max_pixels: 4000000
+    }
+    val surface = try raster.surface_of(width, height, 1.0)
+    // Drawn once before the clock starts, so a first frame's one-off costs are not in the figure.
+    try raster.draw_into(surface, s, o)
+    val t0 = clock.monotonic_millis()
+    for _ in 0..rounds {
+        try raster.draw_into(surface, s, o)
+    }
+    return ok(clock.monotonic_millis() - t0)
+}
+
+fn main() {
+    val m = metrics()
+    val flat = controls.default_style()
+    val fancy = edged()
+
+    // Warmed up, because the first pass through any of this pays for the code it touches once.
+    val warm = frame(40, flat, m) + frame(40, fancy, m)
+    print(format("warm-up produced {} ops", str(warm)))
+
+    for rows in [40, 200] {
+        print(format("--- {} rows ---", str(rows)))
+        for pass in 0..3 {
+            val t0 = clock.monotonic_millis()
+            var flat_ops = 0
+            for _ in 0..5 {
+                flat_ops = frame(rows, flat, m)
+            }
+            val flat_ms = clock.monotonic_millis() - t0
+
+            val t1 = clock.monotonic_millis()
+            var fancy_ops = 0
+            for _ in 0..5 {
+                fancy_ops = frame(rows, fancy, m)
+            }
+            val fancy_ms = clock.monotonic_millis() - t1
+
+            print(format(
+                "  pass {}: whole frame flat {} ms / edged {} ms (x5)   ops {} -> {}",
+                str(pass),
+                str(flat_ms),
+                str(fancy_ms),
+                str(flat_ops),
+                str(fancy_ops)
+            ))
+        }
+
+        // The paint half on its own, laid out once and painted repeatedly.
+        val flat_laid = widget.layout(
+            form(rows, flat, m),
+            geom.rect_of(0.0, 0.0, 900.0, 40.0 * (rows as float) + 60.0),
+            m
+        )
+        val fancy_laid = widget.layout(
+            form(rows, fancy, m),
+            geom.rect_of(0.0, 0.0, 900.0, 40.0 * (rows as float) + 60.0),
+            m
+        )
+        for pass in 0..3 {
+            val p0 = clock.monotonic_millis()
+            for _ in 0..20 {
+                paint_only(flat_laid, m)
+            }
+            val flat_paint = clock.monotonic_millis() - p0
+            val p1 = clock.monotonic_millis()
+            for _ in 0..20 {
+                paint_only(fancy_laid, m)
+            }
+            val fancy_paint = clock.monotonic_millis() - p1
+            print(format(
+                "  pass {}: paint only  flat {} ms / edged {} ms (x20)",
+                str(pass),
+                str(flat_paint),
+                str(fancy_paint)
+            ))
+        }
+    }
+
+    // The pixels, at a window's size, on the smaller form -- interleaved, three passes.
+    val width = 900.0
+    val height = 40.0 * 40.0 + 60.0
+    print("--- rasterised, 40 rows, 900x1660 ---")
+    for pass in 0..3 {
+        switch rasterised(40, flat, m, width, height, 5) {
+            Ok(flat_ms) {
+                switch rasterised(40, fancy, m, width, height, 5) {
+                    Ok(fancy_ms) {
+                        print(format(
+                            "  pass {}: raster flat {} ms / edged {} ms (x5)",
+                            str(pass),
+                            str(flat_ms),
+                            str(fancy_ms)
+                        ))
+                    }
+                    Err(message) { print(concat("  raster failed: ", message)) }
+                }
+            }
+            Err(message) { print(concat("  raster failed: ", message)) }
+        }
+    }
+}

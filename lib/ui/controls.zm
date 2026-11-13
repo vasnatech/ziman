@@ -256,7 +256,7 @@ pub fn button_widget(b: Button, style: Style) -> widget.Widget {
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: style.padding,
-        background: Option<Color>.Some(face),
+        surface: face_of(style, face),
         children: [widget.label_of(b.label, style.text_size, ink)],
         name: ""
     })
@@ -327,7 +327,7 @@ pub fn check_box_widget(c: CheckBox, style: Style) -> widget.Widget {
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.insets_all(1.0),
-        background: Option<Color>.Some(face),
+        surface: face_of(style, face),
         children: [widget.label_of(mark(c.checked), style.text_size, ink)],
         name: ""
     })
@@ -335,7 +335,7 @@ pub fn check_box_widget(c: CheckBox, style: Style) -> widget.Widget {
         direction: widget.Direction.Row,
         spacing: style.text_size * 0.5,
         padding: style.padding,
-        background: Option<Color>.None,
+        surface: widget.no_surface(),
         children: [box, widget.label_of(c.label, style.text_size, ink)],
         name: ""
     })
@@ -896,7 +896,7 @@ fn tinted(piece: string, face: Color, ink: Color, style: Style, name: string) ->
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.no_insets(),
-        background: Option<Color>.Some(face),
+        surface: widget.filled(face),
         children: [widget.label_of(piece, style.text_size, ink)],
         name: name
     })
@@ -907,7 +907,7 @@ fn caret_box(ink: Color, line: float) -> widget.Widget {
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.no_insets(),
-        background: Option<Color>.Some(ink),
+        surface: widget.filled(ink),
         children: [],
         name: caret_name
     }))
@@ -972,7 +972,7 @@ fn entry_line(
             direction: widget.Direction.Row,
             spacing: 0.0,
             padding: widget.no_insets(),
-            background: Option<Color>.Some(style.pressed_face),
+            surface: widget.filled(style.pressed_face),
             children: [widget.label_of(substring(text, lo, hi), style.text_size, ink)],
             name: "selection"
         }))
@@ -985,7 +985,7 @@ fn entry_line(
                 direction: widget.Direction.Row,
                 spacing: 0.0,
                 padding: widget.no_insets(),
-                background: Option<Color>.Some(ink),
+                surface: widget.filled(ink),
                 children: [],
                 name: caret_name
             })))
@@ -998,7 +998,7 @@ fn entry_line(
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.no_insets(),
-        background: Option<Color>.None,
+        surface: widget.no_surface(),
         children: snapshot(pieces),
         name: ""
     }))
@@ -1031,7 +1031,7 @@ fn multi_line_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget
         direction: widget.Direction.Column,
         spacing: 0.0,
         padding: style.padding,
-        background: Option<Color>.Some(style.face),
+        surface: face_of(style, style.face),
         children: snapshot(lines),
         name: ""
     })
@@ -1071,7 +1071,7 @@ pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget 
         // Zero, and it has to be: any spacing here would push the caret off the boundary it marks.
         spacing: 0.0,
         padding: style.padding,
-        background: Option<Color>.Some(style.face),
+        surface: face_of(style, style.face),
         children: runs,
         name: ""
     })
@@ -1283,7 +1283,7 @@ pub fn list_widget(l: List, style: Style) -> widget.Widget {
             direction: widget.Direction.Row,
             spacing: 0.0,
             padding: widget.insets_of(4.0, 2.0, 4.0, 2.0),
-            background: Option<Color>.Some(face),
+            surface: highlight_of(style, face),
             children: [widget.label_of(l.items[i], style.text_size, ink)],
             name: ""
         })
@@ -1445,7 +1445,7 @@ pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget {
             direction: widget.Direction.Row,
             spacing: 0.0,
             padding: style.padding,
-            background: Option<Color>.Some(face),
+            surface: face_of(style, face),
             children: [widget.label_of(t.items[i], style.text_size, ink)],
             name: ""
         })
@@ -1904,7 +1904,7 @@ fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style) -> widget.Widge
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.insets_of(0.0, 2.0, 4.0, 2.0),
-        background: Option<Color>.Some(face),
+        surface: highlight_of(style, face),
         children: [
             widget.fixed_of((row.depth as float) * t.indent, 0.0, widget.flex()),
             widget.fixed_of(t.indent, 0.0, widget.label_of(mark, style.text_size, ink)),
@@ -2117,7 +2117,7 @@ pub fn scroll_bar_widget(
             direction: widget.Direction.Column,
             spacing: 0.0,
             padding: widget.insets_of(2.0, 0.0, 2.0, 0.0),
-            background: Option<Color>.Some(face),
+            surface: face_of(style, face),
             children: [],
             name: thumb_name
         })))
@@ -2136,7 +2136,7 @@ pub fn scroll_bar_widget(
             direction: widget.Direction.Column,
             spacing: 0.0,
             padding: widget.no_insets(),
-            background: Option<Color>.Some(style.face),
+            surface: face_of(style, style.face),
             children: snapshot(parts),
             name: ""
         }))
@@ -2429,7 +2429,7 @@ pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: style.padding,
-        background: Option<Color>.Some(face),
+        surface: face_of(style, face),
         children: [widget.label_of(collapsed_text(m), style.text_size, ink)],
         name: ""
     })
@@ -2502,7 +2502,7 @@ pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: 
         direction: widget.Direction.Column,
         spacing: style.text_size * 0.5,
         padding: style.padding,
-        background: Option<Color>.Some(style.face),
+        surface: face_of(style, style.face),
         children: [widget.label_of(title, style.text_size, style.ink), content],
         name: ""
     })
@@ -2527,7 +2527,7 @@ pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: 
         direction: widget.Direction.Column,
         spacing: 0.0,
         padding: widget.no_insets(),
-        background: Option<Color>.Some(style.scrim),
+        surface: widget.filled(style.scrim),
         children: [
             widget.flex(),
             widget.row_of(0.0, [widget.flex(), titled, widget.flex()]),
@@ -2568,6 +2568,23 @@ pub struct Style {
     // dialog should say "this is waiting for you" and not "the window is gone" -- a user needs to
     // see what they were doing to decide what to answer.
     scrim: Color
+    // How a control's face is edged, and how far its corners are rounded.
+    //
+    // **The two properties a second look and feel needs that a palette could never express.** Every
+    // other field here is a colour, and swapping all of them gives a different *theme* of the same
+    // widgets -- which is why an application could ship a dark palette long before it could ship a
+    // button that looked different. What distinguishes a flat look from a bevelled one, or a
+    // rounded field from a square one, is shape, and until `widget.Surface` existed this layer had
+    // no way to ask for any.
+    //
+    // **Absent and zero in `default_style`, on purpose**: the default look is byte-for-byte what it
+    // was before this widened, so nothing that compared pixels had to be re-blessed and nothing an
+    // application already ships moved by a point. A look and feel is what you get by setting them.
+    face_border: Option<widget.Border>
+    // One radius, shared by every control's face and by a list's and a tree's selected row -- the
+    // same rule `tab_width` and `bar_thickness` follow. A theme with four-point buttons and
+    // square selection is not a theme, it is two.
+    corner_radius: float
 }
 
 // A plain light style. **Not a theme and not a design** -- F277 says in as many words that pixel
@@ -2585,7 +2602,38 @@ pub fn default_style() -> Style {
         converting_face: paint.rgb(0.70, 0.78, 0.93),
         collapsed_mark: "▸",
         expanded_mark: "▾",
-        scrim: paint.rgba(0.0, 0.0, 0.0, 0.35)
+        scrim: paint.rgba(0.0, 0.0, 0.0, 0.35),
+        face_border: Option<widget.Border>.None,
+        corner_radius: 0.0
+    }
+}
+
+// A control's own face: its fill, edged and rounded as the style asks.
+//
+// **Every control that has a face goes through here**, which is the point: a look and feel set on
+// `Style` reaches a button, a field, a tab, a menu title, a dialog's panel and a scroll bar's thumb
+// without each of them being taught about borders. A control that painted its own
+// `widget.filled(...)` would be the one that stayed flat when the theme changed, and the way that
+// bug presents is one widget out of fifteen looking wrong.
+fn face_of(style: Style, colour: Color) -> widget.Surface {
+    return widget.Surface {
+        fill: Option<Color>.Some(colour),
+        border: style.face_border,
+        corner_radius: style.corner_radius
+    }
+}
+
+// A selected row's highlight: rounded like a face, but **never edged**.
+//
+// A border round a list's selected row is a box drawn inside a box, and in a list of twenty rows it
+// reads as a table rather than a selection -- where the rounded pill is what a modern look and feel
+// actually does. So these two share the radius and part company over the border, which is why this
+// is a second function rather than a parameter on the first.
+fn highlight_of(style: Style, colour: Color) -> widget.Surface {
+    return widget.Surface {
+        fill: Option<Color>.Some(colour),
+        border: Option<widget.Border>.None,
+        corner_radius: style.corner_radius
     }
 }
 

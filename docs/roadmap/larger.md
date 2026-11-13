@@ -2365,7 +2365,33 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   rounded rectangle is a path where a rectangle is a span fill. **The number to take before
   shipping a second look and feel, not after.**
 
-  Not started. The first step is the box widening, which needs no decision from anyone.
+  **The box widening is DONE (2026-11-12, F286) -- see docs/reviews/tasks/f286.md.**
+  `widget.Border`, `widget.Surface`, `Stack.surface`, and `Style.face_border` /
+  `Style.corner_radius` reaching every control with a face through one helper. The default style
+  leaves both inert, so the default look did not move by a pixel and all 211 existing tests passed
+  untouched.
+
+  **The cost this entry asked for, measured before shipping:** an edged, rounded look triples the
+  scene-building cost (0.6 to 2.0 ms at 40 rows) and, the number that actually decides it,
+  **triples the rasterising -- about 105 ms a frame against 30 flat** at 900x1660 with 4x samples.
+  Nine frames a second where flat gets thirty. So the *capability* is affordable and a *default*
+  that used it would not be at full-window repaint; F270's regional repaint and curly's
+  build-only-when-changed are what make that a place to stop rather than a problem, and nobody pays
+  it who has not asked. The honest next figure is what an edged look costs through a damage region
+  rather than over the whole window.
+
+  **Two more looks were written against it, which is what this entry said would decide step two.**
+  A soft rounded theme and an outlined "ghost button" one are both visibly different looks with no
+  control's code changed -- so the widening works. The experiment also found the limit this entry
+  did not predict: **one radius for every control is wrong**, because `Style.corner_radius` is
+  shared by a 90-point button and a 14-point check box, and at 6 the check box renders as a
+  capsule. Not four corners, but a sense of scale -- a design pass of its own, with two candidate
+  answers recorded in f286.md.
+
+  **Step two now has evidence rather than a hypothesis.** A bevel (one `Border` colour, two edges
+  wanted), a check box drawn as a tick, and a tab drawn as an underline are all still
+  inexpressible, and all three are structural -- which is exactly what the `Skin` of per-control
+  builders is for.
 
 - **A UI design format: compact, human-readable, and checked.** Asked for 2026-11-12, with the
   format itself left open between XML, JSON and "something more compact".

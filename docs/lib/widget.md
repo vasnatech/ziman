@@ -60,7 +60,7 @@ fn main() {
         direction: widget.Direction.Row,
         spacing: 4.0,
         padding: widget.insets_all(2.0),
-        background: Option<paint.Color>.Some(paint.rgb(0.9, 0.9, 0.9)),
+        surface: widget.filled(paint.rgb(0.9, 0.9, 0.9)),
         // A `flex` after the label pushes everything before it to the left: leftover space is a
         // widget, not a property of its neighbours.
         children: [widget.named_label("File", 8.0, paint.black(), "menu-file"), widget.flex()],
@@ -203,6 +203,81 @@ pub fn label_of(text: string, size: float, colour: Color) -> Widget
 pub fn named_label(text: string, size: float, colour: Color, name: string) -> Widget
 ```
 
+### `Border`
+
+```
+pub struct Border {
+    colour: Color
+    width: float
+}
+```
+
+A border: a colour and a width, together.
+
+**One value rather than two fields on the surface below**, because a width with no colour and a
+colour with no width are both a border that half exists, and a struct able to express them is a
+struct that eventually will. Either there is a border and it has both its numbers, or there is
+none -- which is the same rule `ScrollBar` and `Tabs` follow for the one number they share with
+a hit test.
+
+### `Surface`
+
+```
+pub struct Surface {
+    // Painted behind the children, before them. `None` draws nothing, which is what most
+    // containers want -- a stack per level each painting a fill is how a UI ends up with twenty
+    // overdraws per pixel.
+    fill: Option<Color>
+    // Stroked **inside** the container's own bounds, which is the bargain `paint_focused`'s focus
+    // ring already makes and for the same reason: a border outside the box overlaps whatever is
+    // next to it, and in a dense form that is the neighbouring control. So a border costs **no
+    // layout** -- the application's padding is what leaves room for it -- and that is what keeps a
+    // second look and feel from moving the frame cost F284 measured, where building and laying out
+    // already dominate painting by six to one.
+    border: Option<Border>
+    // Rounds the fill and the border alike. Zero is a square corner, and the common case.
+    //
+    // **One radius for all four corners**, not four. Four is what a design tool offers and what no
+    // application here has yet wanted; the day one does, this is the place it widens, and a single
+    // number cannot disagree with itself in the meantime.
+    corner_radius: float
+}
+```
+
+What a container paints behind and around its children.
+
+**This is the vocabulary a second look and feel needs, and until 2026-11-12 it was one colour
+wide.** `Stack` carried a `background: Option<Color>` and nothing else, so every container in
+every theme was a flat rectangle: an application could already replace the whole palette --
+`controls.default_style()` exists to be replaced -- and still could not draw a button that
+looked different, because what distinguishes one look and feel from another is *shape*. The
+capability was always one layer down (`shape.round_rect_path`, and `paint_focused` has stroked a
+path in this very module since F270); only the way to ask for it was missing.
+
+### `no_surface`
+
+```
+pub fn no_surface() -> Surface
+```
+
+A surface that draws nothing, which is what most containers want. Named for what it is, like
+`no_insets` and `no_state`.
+
+### `filled`
+
+```
+pub fn filled(colour: Color) -> Surface
+```
+
+A flat filled surface -- exactly what `background: Some(colour)` meant before this widened, so a
+caller that wanted only a background says so in the same number of words.
+
+### `border_of`
+
+```
+pub fn border_of(colour: Color, width: float) -> Border
+```
+
 ### `Stack`
 
 ```
@@ -210,10 +285,7 @@ pub struct Stack {
     direction: Direction
     spacing: float
     padding: Insets
-    // Painted behind the children, before them. `None` draws nothing, which is what most
-    // containers want -- a stack per level each painting a background is how a UI ends up with
-    // twenty overdraws per pixel.
-    background: Option<Color>
+    surface: Surface
     children: [Widget]
     name: string
 }

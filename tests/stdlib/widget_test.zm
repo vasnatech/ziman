@@ -11,6 +11,7 @@
 use geom
 use paint
 use scene
+use shape
 use test
 use widget
 
@@ -168,7 +169,7 @@ fn padding_insets_the_children_only() {
         direction: widget.Direction.Column,
         spacing: 0.0,
         padding: widget.insets_all(5.0),
-        background: Option<paint.Color>.None,
+        surface: widget.no_surface(),
         children: [inner],
         name: ""
     })
@@ -302,7 +303,7 @@ fn a_background_paints_before_its_children() {
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.no_insets(),
-        background: Option<paint.Color>.Some(paint.white()),
+        surface: widget.filled(paint.white()),
         children: [a_label("hi")],
         name: ""
     })
@@ -644,7 +645,7 @@ fn layers_paint_in_order() {
                 direction: widget.Direction.Row,
                 spacing: 0.0,
                 padding: widget.no_insets(),
-                background: Option<paint.Color>.Some(black()),
+                surface: widget.filled(black()),
                 children: [],
                 name: "under"
             })),
@@ -652,7 +653,7 @@ fn layers_paint_in_order() {
                 direction: widget.Direction.Row,
                 spacing: 0.0,
                 padding: widget.no_insets(),
-                background: Option<paint.Color>.Some(black()),
+                surface: widget.filled(black()),
                 children: [],
                 name: "over"
             }))
@@ -693,4 +694,203 @@ fn a_layer_keeps_a_rect_that_overhangs_its_parent() {
     test.assert_eq(hit_name(l, 10.0, 15.0), "tall")
     // Past the holding box, inside the window: painted there, and not reachable.
     test.assert_eq(hit_name(l, 10.0, 40.0), "(none)")
+}
+
+// ------------------------------------------------------- the surface (2026-11-12)
+
+fn surfaced(s: widget.Surface) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: s,
+        children: [],
+        name: ""
+    })
+}
+
+fn ops_of(s: widget.Surface) -> [scene.Op] {
+    return widget.paint_ops(laid(surfaced(s), 100.0, 40.0), fake_metrics())
+}
+
+// Whether a path curves. **This is how "rounded" is asserted**, and it is the honest question: a
+// square corner is two lines meeting and a round one is a cubic, so a path with no cubic in it has
+// no rounded corner whatever its numbers said.
+fn has_curve(p: shape.Path) -> bool {
+    for segment in p.segments {
+        if CubicTo(_) = segment {
+            return true
+        }
+        if QuadTo(_) = segment {
+            return true
+        }
+    }
+    return false
+}
+
+fn first_point(p: shape.Path) -> geom.Point {
+    for segment in p.segments {
+        if MoveTo(at) = segment {
+            return at
+        }
+    }
+    test.fail("a path with no MoveTo")
+    return geom.point_of(0.0, 0.0)
+}
+
+fn fill_path(op: scene.Op) -> shape.Path {
+    switch op {
+        Fill(it) { return it.path }
+        StrokePath(it) { return it.path }
+        Text(_) { test.fail("expected a fill or a stroke, got text") }
+        DrawImage(_) { test.fail("expected a fill or a stroke, got an image") }
+        Nested(_) { test.fail("expected a fill or a stroke, got a group") }
+    }
+    return shape.rect_path(geom.rect_of(0.0, 0.0, 0.0, 0.0))
+}
+
+#[test]
+fn a_surface_that_asks_for_nothing_paints_nothing() {
+    test.assert_len(0, ops_of(widget.no_surface()))
+}
+
+#[test]
+fn a_filled_surface_is_one_square_fill() {
+    val ops = ops_of(widget.filled(paint.white()))
+    test.assert_len(1, ops)
+    test.assert(scene.Op.is_Fill(ops[0]))
+    test.assert_false(has_curve(fill_path(ops[0])))
+}
+
+// **A radius of zero is a rectangle, not four degenerate arcs**, which almost every container in
+// any look and feel relies on. The guarantee is `shape.round_rect_path`'s own -- it answers a plain
+// rectangle at or below zero -- and this pins it from here because that is where it is depended on:
+// `paint_surface` used to repeat the check itself, and mutation testing found the repeat by leaving
+// the mutant alive.
+#[test]
+fn a_zero_radius_builds_a_rectangle_rather_than_arcs() {
+    val square = widget.Surface {
+        fill: Option<paint.Color>.Some(paint.white()),
+        border: Option<widget.Border>.None,
+        corner_radius: 0.0
+    }
+    val ops = ops_of(square)
+    test.assert_len(1, ops)
+    test.assert_false(has_curve(fill_path(ops[0])))
+}
+
+#[test]
+fn a_corner_radius_rounds_the_fill() {
+    val rounded = widget.Surface {
+        fill: Option<paint.Color>.Some(paint.white()),
+        border: Option<widget.Border>.None,
+        corner_radius: 6.0
+    }
+    val ops = ops_of(rounded)
+    test.assert_len(1, ops)
+    test.assert(has_curve(fill_path(ops[0])))
+}
+
+// A border is its own op, and **after** the fill: a border painted first is a border behind the
+// thing it outlines, and half of it disappears under the fill.
+#[test]
+fn a_border_strokes_after_the_fill() {
+    val edged = widget.Surface {
+        fill: Option<paint.Color>.Some(paint.white()),
+        border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
+        corner_radius: 0.0
+    }
+    val ops = ops_of(edged)
+    test.assert_len(2, ops)
+    test.assert(scene.Op.is_Fill(ops[0]))
+    test.assert(scene.Op.is_StrokePath(ops[1]))
+}
+
+#[test]
+fn a_border_without_a_fill_is_just_the_stroke() {
+    val outline = widget.Surface {
+        fill: Option<paint.Color>.None,
+        border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
+        corner_radius: 0.0
+    }
+    val ops = ops_of(outline)
+    test.assert_len(1, ops)
+    test.assert(scene.Op.is_StrokePath(ops[0]))
+}
+
+// **The border lands inside the box**, which is the one piece of arithmetic here: a stroke
+// straddles the path it follows, so a width-4 border along the bounds would hang two points over
+// the edge and into whatever is beside it. The path is inset by half the width, so the first point
+// of it is at 2.0 rather than 0.0 -- the same bargain `paint_focused`'s ring makes.
+#[test]
+fn a_border_is_stroked_inside_the_bounds() {
+    val edged = widget.Surface {
+        fill: Option<paint.Color>.None,
+        border: Option<widget.Border>.Some(widget.border_of(paint.black(), 4.0)),
+        corner_radius: 0.0
+    }
+    val ops = ops_of(edged)
+    test.assert_len(1, ops)
+    val at = first_point(fill_path(ops[0]))
+    test.assert_eq(at.x, 2.0)
+    test.assert_eq(at.y, 2.0)
+}
+
+#[test]
+fn a_border_keeps_the_width_it_was_given() {
+    val edged = widget.Surface {
+        fill: Option<paint.Color>.None,
+        border: Option<widget.Border>.Some(widget.border_of(paint.black(), 3.0)),
+        corner_radius: 0.0
+    }
+    val ops = ops_of(edged)
+    switch ops[0] {
+        StrokePath(it) { test.assert_eq(it.stroke.width, 3.0) }
+        Fill(_) { test.fail("wrong op") }
+        Text(_) { test.fail("wrong op") }
+        DrawImage(_) { test.fail("wrong op") }
+        Nested(_) { test.fail("wrong op") }
+    }
+}
+
+#[test]
+fn a_rounded_border_curves_too() {
+    val edged = widget.Surface {
+        fill: Option<paint.Color>.None,
+        border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
+        corner_radius: 8.0
+    }
+    val ops = ops_of(edged)
+    test.assert(has_curve(fill_path(ops[0])))
+}
+
+// **A thick border on a small radius squares off rather than inverting.** The border's path shrinks
+// its radius by half the stroke width so the curve stays concentric with the fill's, and a 1-point
+// radius under a 6-point border asks for -2 -- which `shape.round_rect_path` answers as a
+// rectangle. Delegated rather than clamped twice.
+#[test]
+fn a_border_thicker_than_the_radius_squares_off_rather_than_inverting() {
+    val edged = widget.Surface {
+        fill: Option<paint.Color>.None,
+        border: Option<widget.Border>.Some(widget.border_of(paint.black(), 6.0)),
+        corner_radius: 1.0
+    }
+    val ops = ops_of(edged)
+    test.assert_len(1, ops)
+    test.assert_false(has_curve(fill_path(ops[0])))
+}
+
+// The fill keeps its own radius when the border squares off -- the clamp is the border's, not the
+// surface's.
+#[test]
+fn the_clamp_is_the_borders_and_not_the_fills() {
+    val edged = widget.Surface {
+        fill: Option<paint.Color>.Some(paint.white()),
+        border: Option<widget.Border>.Some(widget.border_of(paint.black(), 6.0)),
+        corner_radius: 1.0
+    }
+    val ops = ops_of(edged)
+    test.assert_len(2, ops)
+    test.assert(has_curve(fill_path(ops[0])))
+    test.assert_false(has_curve(fill_path(ops[1])))
 }

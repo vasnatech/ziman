@@ -2463,3 +2463,134 @@ fn a_masked_field_masks_the_composition_too() {
     test.assert_eq(controls.shown_text(secret_composing), "•••••")
     test.assert_false(contains(controls.shown_text(secret_composing), "か"))
 }
+
+// ------------------------------------------------- the look and feel (2026-11-12)
+
+// A style that asks for a shape rather than only a palette: what a second look and feel is.
+fn edged_style() -> controls.Style {
+    return with controls.default_style() {
+        face_border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
+        corner_radius: 5.0
+    }
+}
+
+fn painted(w: widget.Widget) -> [scene.Op] {
+    return widget.paint_ops(widget.layout(w, geom.rect_of(0.0, 0.0, 200.0, 40.0), metrics()), metrics())
+}
+
+// **Both of these recurse into a `Nested`, and the first versions did not -- which made the list
+// test below assert on an empty set.** A list clips its rows, so the whole of it paints as one
+// `Nested` group and a counter that walked only the top level saw no fills, no strokes, and
+// happily agreed that there was no border. The failing half of that test is the only reason it was
+// noticed: `strokes(ops) == 0` had passed for the wrong reason.
+fn strokes(ops: [scene.Op]) -> int {
+    var n = 0
+    for op in ops {
+        if StrokePath(_) = op {
+            n = n + 1
+        }
+        if Nested(it) = op {
+            n = n + strokes(it.ops)
+        }
+    }
+    return n
+}
+
+fn curved_fills(ops: [scene.Op]) -> int {
+    var n = 0
+    for op in ops {
+        if Fill(it) = op {
+            for segment in it.path.segments {
+                if CubicTo(_) = segment {
+                    n = n + 1
+                    break
+                }
+            }
+        }
+        if Nested(group) = op {
+            n = n + curved_fills(group.ops)
+        }
+    }
+    return n
+}
+
+fn square_fills(ops: [scene.Op]) -> int {
+    var n = 0
+    for op in ops {
+        if Fill(it) = op {
+            var curved = false
+            for segment in it.path.segments {
+                if CubicTo(_) = segment {
+                    curved = true
+                }
+            }
+            if !curved {
+                n = n + 1
+            }
+        }
+        if Nested(group) = op {
+            n = n + square_fills(group.ops)
+        }
+    }
+    return n
+}
+
+// **The default look did not change when the box widened**, which is the property that let this
+// ship without re-blessing a single pixel: `default_style` leaves the border absent and the radius
+// at zero, so a button paints exactly the one square fill it always did.
+#[test]
+fn the_default_style_paints_no_border_and_no_curve() {
+    val ops = painted(controls.button_widget(controls.button_of("save", "Save"), controls.default_style()))
+    test.assert_eq(strokes(ops), 0)
+    test.assert_eq(curved_fills(ops), 0)
+}
+
+// And a style that asks reaches the control -- which is the whole point of the widening, and the
+// thing no amount of palette swapping could do before it.
+#[test]
+fn an_edged_style_reaches_a_button() {
+    val ops = painted(controls.button_widget(controls.button_of("save", "Save"), edged_style()))
+    test.assert_eq(strokes(ops), 1)
+    test.assert_eq(curved_fills(ops), 1)
+}
+
+// Every control with a face goes through one helper, so a look and feel reaches all of them rather
+// than whichever ones someone remembered. **A control that painted its own fill is the one that
+// stays flat when the theme changes**, and that bug looks like one widget out of fifteen being
+// wrong.
+#[test]
+fn an_edged_style_reaches_every_control_that_has_a_face() {
+    val style = edged_style()
+    test.assert_eq(strokes(painted(controls.entry_widget(controls.entry_of("u", "URL", ""), style, metrics()))), 1)
+    test.assert_eq(
+        strokes(painted(controls.check_box_widget(controls.check_box_of("n", "Notify", widget.Toggle.Off), style))),
+        1
+    )
+    test.assert_eq(strokes(painted(controls.menu_title_widget(controls.menu_of("m", "File", []), style))), 1)
+}
+
+// **A list's selected row is rounded but never edged.** A border round each row of a list is a box
+// inside a box, and over twenty rows it reads as a table rather than as a selection -- where the
+// rounded pill is what a modern look and feel actually draws. The two share the radius and part
+// company over the border, which is why `highlight_of` exists beside `face_of`.
+#[test]
+fn a_selected_row_takes_the_radius_but_not_the_border() {
+    val list = with controls.list_of("rows", "Rows", ["one", "two", "three"]) { selected: 1 }
+    val ops = painted(controls.list_widget(list, edged_style()))
+    test.assert_eq(strokes(ops), 0)
+    test.assert(curved_fills(ops) > 0)
+}
+
+// **The scrim is never rounded and never edged, whatever the style says.** It covers the whole
+// window, so a radius would round the corners of the screen and a border would draw a frame round
+// the display -- and both would look like a bug rather than a theme.
+#[test]
+fn the_scrim_ignores_the_look_and_feel() {
+    val layer = controls.dialog_layer("d", "Delete?", widget.flex(), edged_style())
+    val ops = widget.paint_ops(
+        widget.layout(layer.content, geom.rect_of(0.0, 0.0, 200.0, 120.0), metrics()),
+        metrics()
+    )
+    // The scrim is the first thing painted, behind the panel: square, whatever the style asked.
+    test.assert(square_fills(ops) > 0)
+}

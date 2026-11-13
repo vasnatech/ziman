@@ -1345,6 +1345,23 @@ pub struct Style {
     // dialog should say "this is waiting for you" and not "the window is gone" -- a user needs to
     // see what they were doing to decide what to answer.
     scrim: Color
+    // How a control's face is edged, and how far its corners are rounded.
+    //
+    // **The two properties a second look and feel needs that a palette could never express.** Every
+    // other field here is a colour, and swapping all of them gives a different *theme* of the same
+    // widgets -- which is why an application could ship a dark palette long before it could ship a
+    // button that looked different. What distinguishes a flat look from a bevelled one, or a
+    // rounded field from a square one, is shape, and until `widget.Surface` existed this layer had
+    // no way to ask for any.
+    //
+    // **Absent and zero in `default_style`, on purpose**: the default look is byte-for-byte what it
+    // was before this widened, so nothing that compared pixels had to be re-blessed and nothing an
+    // application already ships moved by a point. A look and feel is what you get by setting them.
+    face_border: Option<widget.Border>
+    // One radius, shared by every control's face and by a list's and a tree's selected row -- the
+    // same rule `tab_width` and `bar_thickness` follow. A theme with four-point buttons and
+    // square selection is not a theme, it is two.
+    corner_radius: float
 }
 ```
 
