@@ -951,6 +951,43 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   The first is a language-surface decision; the second is a module nobody has needed twice until
   now. Either way `truetype.zm`'s copy should go.
 
+- **A scroll viewport makes every frame cost full price, and it is `scene.clipped`.** Measured
+  2026-11-13, chasing why the design builder was slow. This is the largest single cost in the
+  drawing stack and it is paid by every window that scrolls anything -- `curly gui` has two.
+
+  `widget.paint` wraps a `Scroll`'s children in `scene.clipped` (`widget.zm`, the `Scroll(_)` arm
+  of `collect`). The controlled pair, a hundred identical fills with and without a clip around
+  them:
+
+  | | whole surface | a fiftieth of it |
+  |---|---|---|
+  | plain | 23 ms | **1 ms** |
+  | inside one `scene.clipped` | 270 ms | **249 ms** |
+
+  **Twelve times the cost, and it stops `raster.draw_into_region` culling at all** -- a fiftieth
+  of the surface costs 92% of the whole where unclipped it costs 4%. And on the builder's real
+  scene, which holds 74 ops of which 5 are clipped groups:
+
+  | | whole window | a 95x12 region |
+  |---|---|---|
+  | as it is | 2461 ms | 2602 ms |
+  | the same ops, clips removed | **59 ms** | **2 ms** |
+
+  Five clipped groups turn a 59 ms window into a 2.5-second one, and make damage tracking buy
+  nothing. (Absolute numbers drifted between runs with machine load; every comparison above is
+  from one run.)
+
+  **What is measured and what is not.** That the clip is responsible is measured, by removing it
+  from a real scene and from a synthetic one. *Why* it costs this much is not: the clip path in
+  the raster backend has not been read, and the guess that it builds a full-surface mask per
+  group is a guess. That is where to look first, along with the obvious two improvements -- skip
+  a clipped group whose clip does not meet the draw region, and intersect the clip with the
+  region rather than the surface when it does.
+
+  Until then the shape to avoid is a viewport that wraps a lot, and the thing not to reach for is
+  `scene.clipped` as a way to limit painting: it is a mask, and it costs more than painting
+  everything.
+
 - **A scene costs the sum of its ops' areas, not the surface's, and a full repaint of a window-sized
   one is near a second.** Measured 2026-11-13 while building curly's design builder, whose clicks
   took seconds to show.
