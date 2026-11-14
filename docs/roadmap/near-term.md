@@ -996,16 +996,34 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   the row term dominates everything a user interface draws, because a panel-sized fill spans
   hundreds of rows and a window has dozens of them.
 
-  **So the lever is not fewer pixels, it is fewer (op x row) pairs**, and two things follow. The
-  big one: clipping each op to the damage region before rasterising would cut rows in proportion
-  to the damage, where `desktop.repaint` currently clips only the final blit -- which is why a
-  window that changes a caret still pays for every tall op behind it. The small one: a scene that
-  draws a tall thing as one op rather than per-row is already doing the right thing, so the
-  improvement is in the rasteriser and not in `lib/ui`.
+  **So the lever is fewer (op x row) pairs, not fewer pixels.** Which raises the obvious question,
+  and the obvious answer is already built and already used:
 
-  Still unmeasured: whether the 4x at `px_per_pt: 2.0` is rows alone (it should be, since the row
-  count doubles and the ink quadruples), and whether a fill wholly hidden behind a later opaque
-  one can be skipped cheaply enough to be worth detecting.
+  | the same 20 full-surface fills | |
+  |---|---|
+  | drawn whole | 132 ms |
+  | `scene.clipped` to a twentieth | **310 ms** |
+  | `raster.draw_into_region`, a twentieth | **4 ms** |
+  | `raster.draw_into_region`, a half | 47 ms |
+
+  A regional draw scales with the region -- a twentieth of the rows for about a thirtieth of the
+  time -- which is the row model confirmed a second way. **`scene.clipped` is a mask, not a
+  scissor**: it does the whole job and then throws most of it away, so clipping to a twentieth
+  costs more than twice not clipping at all. That is worth writing down because it is exactly what
+  someone reaches for first.
+
+  **And this corrects the paragraph that used to be here.** It said `desktop.repaint` clips only
+  the final blit and that a window changing a caret pays for every tall op behind it. That is
+  false: `repaint` already asks `raster.damage_between` what moved and redraws it with
+  `draw_into_region`. The mechanism was assumed and not read.
+
+  So the ~900 ms figures at the top are the cost of a *full* repaint, which is the first frame and
+  any frame whose damage covers the window. Why the design builder feels slow is therefore an open
+  question about how large its damage actually is when a selection moves -- not a missing clip.
+  Unmeasured, and this entry is no longer going to guess.
+
+  Also still unmeasured: whether the 4x at `px_per_pt: 2.0` is rows alone, since the row count
+  doubles while the ink quadruples.
 
 - **`lib/ui` has no icons, and no concept of an image at all.** Asked 2026-11-13, after the design
   dialect and the builder were both built without anyone noticing the gap.
