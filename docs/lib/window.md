@@ -379,6 +379,23 @@ The display server's id for this window. **For tests, not for applications**: F2
 screenshots the real window with `import -window <id>` and compares pixels, which needs the id
 the window manager knows it by.
 
+### `origin`
+
+```
+pub fn origin(w: Window) -> Result<Position, string>
+```
+
+Where the window's top-left corner is **on the screen**, in pixels.
+
+**Asked, not remembered.** Nothing reports a move usefully: a `ConfigureNotify` carries a
+position in the *parent's* coordinates, and under a reparenting window manager -- which is the
+usual case -- the parent is the title-bar frame rather than the root. So this is a round trip
+to the server, and the caller decides when it is worth one.
+
+It exists because an input method is told where the caret is in root coordinates: ibus's
+`SetCursorLocation` is defined that way, and an application only knows where its caret is
+inside itself. Without this the candidate list appears at the corner of the display.
+
 ### `poll`
 
 ```

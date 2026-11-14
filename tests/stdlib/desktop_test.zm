@@ -5,6 +5,7 @@
 // which key, which modifier, which coordinate space -- and none about a widget.
 use controls
 use desktop
+use edit
 use geom
 use test
 use widget
@@ -128,4 +129,125 @@ fn the_window_s_own_events_are_not_control_inputs() {
     test.assert_eq(key_name_of(window.Event.FocusIn, d), "(nothing)")
     test.assert_eq(key_name_of(window.Event.FocusOut, d), "(nothing)")
     test.assert_eq(key_name_of(window.Event.Exposed, d), "(nothing)")
+}
+
+// ---- telling an input method where the caret is
+
+fn fake_metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 6.0 },
+        fn(size: float) -> float { return size * 1.5 }
+    )
+}
+
+// A focused field with a caret in it, laid out at a known place.
+fn laid_field(text: string, caret: int) -> widget.Laid {
+    val e = with controls.entry_of("url", "URL", text) {
+        editor: edit.Editor { text: text, caret: caret, anchor: caret }
+    }
+    return widget.layout(
+        controls.entry_widget(e, controls.default_style(), fake_metrics()),
+        geom.rect_of(30.0, 50.0, 200.0, 24.0),
+        fake_metrics()
+    )
+}
+
+fn box_text(r: window.Region) -> string {
+    return format("{},{} {}x{}", str(r.x), str(r.y), str(r.width), str(r.height))
+}
+
+fn caret_text(laid: widget.Laid, at: window.Position, d: widget.Density) -> string {
+    return switch desktop.caret_on_screen(at, laid, d) {
+        Some(box) { box_text(box) }
+        None { "(none)" }
+    }
+}
+
+// **The window's corner and the caret's box, added.** An input method is told where the caret is
+// in root coordinates, and the two halves come from different places: the first from the server,
+// the second from the layout. Getting either wrong puts the candidate list in a corner -- of the
+// display without the first, of the window without the second.
+#[test]
+fn the_caret_is_reported_in_screen_pixels() {
+    val laid = laid_field("hello", 2)
+    // **Worked out from the style, not read back from the tree.** The field is at 30,50 and 24
+    // tall; the caret sits after its left padding and two characters of six, below its top
+    // padding. Same numbers, arrived at the other way.
+    //
+    // Its height is the field's box less its padding, and **not a line of text**, which is what
+    // this asserted first: the caret is a child of the row that holds the text, so the layout
+    // gives it the row's height rather than the height it measured. A field shorter than a line
+    // has a shorter caret, which is what it should look like.
+    val style = controls.default_style()
+    val x = 30.0 + style.padding.left + 12.0
+    val y = 50.0 + style.padding.top
+    val tall = 24.0 - style.padding.top - style.padding.bottom
+    val said = concat(str(x as int), ",", str(y as int), " 1x", str(tall as int))
+    test.assert_eq(caret_text(laid, window.Position { x: 0, y: 0 }, one_to_one()), said)
+    // Moved by the window's corner, which is what `window.origin` answers.
+    test.assert_eq(
+        caret_text(laid, window.Position { x: 1120, y: 697 }, one_to_one()),
+        concat(
+            str((x as int) + 1120),
+            ",",
+            str((y as int) + 697),
+            " 1x",
+            str(tall as int)
+        )
+    )
+}
+
+// Every number scales, not only the position: a caret told in points on a display that says a
+// point is two pixels is a caret in the wrong half of the window.
+#[test]
+fn the_caret_scales_with_the_display() {
+    val laid = laid_field("hello", 2)
+    val at = window.Position { x: 100, y: 200 }
+    val one = desktop.caret_on_screen(at, laid, one_to_one())
+    val two = desktop.caret_on_screen(at, laid, widget.density_of(2.0))
+    switch one {
+        Some(a) {
+            switch two {
+                Some(b) {
+                    test.assert_eq(b.x - at.x, (a.x - at.x) * 2)
+                    test.assert_eq(b.y - at.y, (a.y - at.y) * 2)
+                    test.assert_eq(b.height, a.height * 2)
+                }
+                None { test.fail("no caret at 2.0") }
+            }
+        }
+        None { test.fail("no caret at 1.0") }
+    }
+}
+
+// **A caret narrower than a pixel is still a pixel.** It is one point wide, and on a display that
+// says a point is less than one pixel it rounds to zero -- a rectangle an input method is free to
+// ignore, which puts the candidate list back in the corner.
+#[test]
+fn a_caret_is_never_zero_sized() {
+    val laid = laid_field("hello", 2)
+    val tiny = desktop.caret_on_screen(
+        window.Position { x: 0, y: 0 },
+        laid,
+        widget.density_of(0.25)
+    )
+    switch tiny {
+        Some(box) {
+            test.assert_eq(box.width, 1)
+            test.assert(box.height >= 1)
+        }
+        None { test.fail("no caret") }
+    }
+}
+
+// **No caret is the ordinary answer and not an error.** A window whose focus is on a button draws
+// none, and an input method told a stale position is worse than one told nothing.
+#[test]
+fn a_tree_with_no_caret_reports_none() {
+    val laid = widget.layout(
+        controls.button_widget(controls.button_of("go", "Go"), controls.default_style()),
+        geom.rect_of(0.0, 0.0, 80.0, 24.0),
+        fake_metrics()
+    )
+    test.assert_eq(caret_text(laid, window.Position { x: 5, y: 5 }, one_to_one()), "(none)")
 }

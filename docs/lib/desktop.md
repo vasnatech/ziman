@@ -131,3 +131,33 @@ after `forget`, redraws everything because the surface holds no known scene.
 size does not match its surface -- correctly, since the two must agree -- but a caller whose window
 just resized should not have to notice that, so a changed size or ratio is taken as the resize it
 is. The next frame is a full one, which is right: none of the old pixels mean anything.
+
+## Telling an input method where to put itself
+
+### `caret_on_screen`
+
+```
+pub fn caret_on_screen(at: window.Position, laid: widget.Laid, d: Density) -> Option<window.Region>
+```
+
+Where the caret is **on the screen, in pixels**, which is the one thing an input method needs
+that an application cannot work out on its own.
+
+`at` is the window's own corner, from `window.origin`; the caret's box comes out of the laid
+tree, where `controls` names it. Both halves are needed because ibus's `SetCursorLocation` is
+defined in root coordinates and a window only knows where its caret is inside itself -- without
+the first the candidate list sits at the corner of the display, and without the second it sits
+at the corner of the window.
+
+**`None` is the ordinary answer**, not an error: a caret is drawn by a field that has the focus,
+so a window whose focus is on a button has none and the method should be left where it was.
+
+The arithmetic is here, and the `ibus` call is not, so that this module keeps no dependency on
+an input method and stays testable without one. An application writes:
+
+
+```
+if Some(box) = desktop.caret_on_screen(try window.origin(w), laid, density) {
+    ibus.caret_at(box.x, box.y, box.width, box.height)
+}
+```

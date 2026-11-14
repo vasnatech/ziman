@@ -157,6 +157,23 @@ static int do_close(Window w) {
     return 0;
 }
 
+/* The window's top-left corner in root coordinates, which is what `window.origin` answers.
+ *
+ * **An independent process asking the same server.** It uses the same call the binding does, so
+ * what this checks is the binding -- that the number reaching Ziman is the number X gave -- and
+ * not X's own semantics, which no test here could second-guess anyway. */
+static int do_geometry(Window w) {
+    int x = 0;
+    int y = 0;
+    Window child = None;
+    if (!XTranslateCoordinates(dpy, w, DefaultRootWindow(dpy), 0, 0, &x, &y, &child)) {
+        fprintf(stderr, "x11_inject: cannot translate coordinates\n");
+        return 1;
+    }
+    printf("%d,%d\n", x, y);
+    return 0;
+}
+
 static void usage(void) {
     fprintf(stderr,
             "usage: x11_inject <window-id> key <keysym> [shift|control|alt|meta]\n"
@@ -164,6 +181,7 @@ static void usage(void) {
             "       x11_inject <window-id> scroll <x> <y> <up|down>\n"
             "       x11_inject <window-id> move <x> <y>\n"
             "       x11_inject <window-id> resize <width> <height>\n"
+            "       x11_inject <window-id> geometry\n"
             "       x11_inject <window-id> close\n");
 }
 
@@ -190,6 +208,8 @@ int main(int argc, char **argv) {
         rc = do_motion(w, atoi(argv[3]), atoi(argv[4]));
     } else if (strcmp(what, "resize") == 0 && argc > 4) {
         rc = do_resize(w, atoi(argv[3]), atoi(argv[4]));
+    } else if (strcmp(what, "geometry") == 0) {
+        rc = do_geometry(w);
     } else if (strcmp(what, "close") == 0) {
         rc = do_close(w);
     } else {

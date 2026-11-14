@@ -22,6 +22,7 @@
 // it last showed, and work out what to send. That something is backend glue, and this is where the
 // backend glue goes.
 use controls
+use controls.caret_name
 use geom
 use raster
 use scene
@@ -200,4 +201,51 @@ pub fn repaint(
             ok(Repaint { next: remembered, region: Option<raster.Painted>.Some(painted) })
         }
     }
+}
+
+// ---- telling an input method where to put itself
+
+// Where the caret is **on the screen, in pixels**, which is the one thing an input method needs
+// that an application cannot work out on its own.
+//
+// `at` is the window's own corner, from `window.origin`; the caret's box comes out of the laid
+// tree, where `controls` names it. Both halves are needed because ibus's `SetCursorLocation` is
+// defined in root coordinates and a window only knows where its caret is inside itself -- without
+// the first the candidate list sits at the corner of the display, and without the second it sits
+// at the corner of the window.
+//
+// **`None` is the ordinary answer**, not an error: a caret is drawn by a field that has the focus,
+// so a window whose focus is on a button has none and the method should be left where it was.
+//
+// The arithmetic is here, and the `ibus` call is not, so that this module keeps no dependency on
+// an input method and stays testable without one. An application writes:
+//
+//     if Some(box) = desktop.caret_on_screen(try window.origin(w), laid, density) {
+//         ibus.caret_at(box.x, box.y, box.width, box.height)
+//     }
+pub fn caret_on_screen(at: window.Position, laid: widget.Laid, d: Density) -> Option<window.Region> {
+    switch widget.node_named(laid, caret_name) {
+        Some(node) {
+            val box = node.bounds
+            return Option<window.Region>.Some(window.Region {
+                x: at.x + (widget.to_px(d, box.x) as int),
+                y: at.y + (widget.to_px(d, box.y) as int),
+                // **At least one pixel each way.** A caret is one point wide and rounds to zero
+                // on a display that says a point is less than a pixel; a zero-sized rectangle is
+                // one an input method is free to ignore, and the candidate list goes back to the
+                // corner.
+                width: at_least_one(widget.to_px(d, box.width)),
+                height: at_least_one(widget.to_px(d, box.height))
+            })
+        }
+        None { return Option<window.Region>.None }
+    }
+}
+
+fn at_least_one(v: float) -> int {
+    val n = v as int
+    if n < 1 {
+        return 1
+    }
+    return n
 }

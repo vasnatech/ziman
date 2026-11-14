@@ -350,6 +350,11 @@ fn main() {
             val size = try window.size(w)
             printf("window-id {}\n", str(id))
             printf("size {}x{}\n", str(size.width), str(size.height))
+            // **Not printed here, and the reason is the whole point of the function.** A window
+            // that has just been mapped has not been placed yet: asked at this line it answers
+            // 0,0 under a reparenting window manager, and a little later it answers where the
+            // user can see it. So the gate asks for it at a moment it can also ask the server,
+            // which is after the first event arrives.
             val floats = use_floats()
             val regional = use_region()
             val driven = use_repaint()
@@ -382,9 +387,21 @@ fn main() {
             // failing case cannot hang `make check`.
             val deadline = clock.monotonic_millis() + 30000
             var closing = false
+            var told = false
             while !closing && clock.monotonic_millis() < deadline {
                 for one in try window.poll(w) {
                     report(one)
+                    // Where the window is, once, at the first event -- by which time the window
+                    // manager has placed it. **Once and not per event**, because asking is a
+                    // round trip to the server and this loop is also what keeps the window
+                    // painted: the pixel checks here already race a compositor that can show a
+                    // window before its contents arrive, and there is no reason to lengthen a
+                    // pass for a number that does not change.
+                    if !told {
+                        told = true
+                        val at = try window.origin(w)
+                        printf("origin {},{}\n", str(at.x), str(at.y))
+                    }
                     // Repaint on Exposed, which is what the event means: the window's contents are
                     // gone and the scene cannot tell us so.
                     if driven && is_exposed(one) {

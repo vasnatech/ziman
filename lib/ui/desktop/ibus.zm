@@ -118,6 +118,18 @@ pub fn focused(on: bool) {
 
 // Where the caret is on screen, in pixels, so the candidate list appears under it. Told rather
 // than asked, so a window that moved or scrolled simply says it again.
+//
+// **Screen, not window**, which is two things an application does not have in one place: ibus
+// defines `SetCursorLocation` in root coordinates, and a window knows only where its caret is
+// inside itself. `desktop.caret_on_screen` adds the two and hands back exactly these four
+// numbers, so the call is:
+//
+//     if Some(box) = desktop.caret_on_screen(try window.origin(w), laid, density) {
+//         ibus.caret_at(box.x, box.y, box.width, box.height)
+//     }
+//
+// Until 2026-11-13 the only caller was F274's own fixture, with the numbers written in by hand:
+// the binding existed and nothing could work out what to pass it.
 pub fn caret_at(x: int, y: int, width: int, height: int) {
     where_raw(x, y, width, height)
 }

@@ -1196,6 +1196,34 @@ pub fn at(l: Laid, p: Point) -> Option<Laid> {
     return Option<Laid>.Some(l)
 }
 
+// The outermost node carrying `name`, or `None`.
+//
+// **Not `focus.node_of`, which only ever looks at controls.** A name belongs to any widget that
+// has a slot for one -- a group, a viewport, a label -- and the two most recent callers wanted
+// exactly those: the caret's box, which `controls` names so that an input method can be told
+// where it is, and a canvas, which a builder names so that a press on it can be recognised.
+// Asking `focus` for either answers `None`, and an empty rectangle is a hit test that silently
+// misses.
+//
+// A name is inherited by every child that has none of its own, so the node wanted is the
+// outermost one carrying it, which is the first a pre-order walk meets.
+pub fn node_named(l: Laid, name: string) -> Option<Laid> {
+    if name == "" {
+        return Option<Laid>.None
+    }
+    if l.name == name {
+        return Option<Laid>.Some(l)
+    }
+    var i = 0
+    while i < prelude.len(l.children) {
+        if Some(found) = node_named(l.children[i], name) {
+            return Option<Laid>.Some(found)
+        }
+        i = i + 1
+    }
+    return Option<Laid>.None
+}
+
 // Every node `at` passed through on its way down, outermost first, ending at the one it would
 // have returned. Empty when the point is outside the tree.
 //

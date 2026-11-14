@@ -667,6 +667,43 @@ static Value native_window_size_raw(Value *args, int argc, int line, int col) {
 #endif
 }
 
+/* window.origin_raw(handle) -> Result<[int], string>: [x, y] of the window's top-left corner on
+ * the screen, in pixels.
+ *
+ * **Asked every time rather than remembered**, because nothing tells us when it changes: a
+ * `ConfigureNotify` carries a position that is the *parent's* coordinate system under a
+ * reparenting window manager, which is the usual case, so the value in the event is not the one
+ * wanted. `XTranslateCoordinates` asks the server for the real answer and costs a round trip,
+ * which is why the caller decides when it matters rather than it being pushed as an event.
+ *
+ * Needed because an input method is told where the caret is in **root** coordinates -- ibus's
+ * `SetCursorLocation` is defined that way -- and a window-relative caret is all an application
+ * has. Without this the candidate list appears at the corner of the display. */
+static Value native_window_origin_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type ok = type_array(type_scalar(TY_INT));
+#ifndef ZIMAN_X11
+    (void)args;
+    return window_err(ok, "this build of ziman has no window backend (build with `make gui`)");
+#else
+    Slot *s = slot_of(args[0].as.i);
+    if (s == NULL) return window_err(ok, "no such window (already closed?)");
+    int x = 0;
+    int y = 0;
+    Window child = None;
+    if (!XTranslateCoordinates(g_display, s->win, DefaultRootWindow(g_display), 0, 0, &x, &y,
+                               &child)) {
+        /* The window and the root are on different screens, which is the only documented way this
+         * fails and cannot happen for a window this process mapped. Reported rather than guessed
+         * at, because a silent (0, 0) would put the candidate list in the corner and look like a
+         * positioning bug somewhere else entirely. */
+        return window_err(ok, "the window is not on the default screen");
+    }
+    int64_t at[2] = { (int64_t)x, (int64_t)y };
+    return window_ok(ok, value_int_array(at, 2));
+#endif
+}
+
 /* window.id_raw(handle) -> Result<int, string>: the X11 window id.
  *
  * **This exists for the gate, and says so.** F269 is checked by screenshotting the real window with
@@ -856,6 +893,7 @@ void native_window_register(void) {
     native_register("window::poll_raw", native_window_poll_raw);
     native_register("window::size_raw", native_window_size_raw);
     native_register("window::id_raw", native_window_id_raw);
+    native_register("window::origin_raw", native_window_origin_raw);
     native_register("window::close_raw", native_window_close_raw);
     native_register("window::display_scale_raw", native_window_display_scale_raw);
 }

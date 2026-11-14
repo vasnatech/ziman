@@ -383,6 +383,66 @@ fn a_row_scrolled_out_of_sight_cannot_be_clicked() {
     test.assert_eq(hit_name(l, 10.0, 0.0 - 25.0), "(none)")
 }
 
+// --- finding a node by its name
+
+fn named_box(l: widget.Laid, name: string) -> string {
+    return switch widget.node_named(l, name) {
+        Some(one) { rect_text(one.bounds) }
+        None { "(none)" }
+    }
+}
+
+// **The case `focus.node_of` cannot answer, which is why this exists.** A name belongs to any
+// widget with a slot for one, and the two callers that wanted this wanted exactly the ones that
+// are not controls: a caret's box, which an input method is told the position of, and a canvas,
+// which a builder recognises a press on. `focus` walks controls only and answers `None` for both.
+#[test]
+fn a_named_group_is_found_and_focus_cannot_find_it() {
+    val l = laid(
+        widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Column,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            surface: widget.no_surface(),
+            align: widget.stretched(),
+            children: [a_label("x")],
+            name: "canvas"
+        }),
+        40.0,
+        20.0
+    )
+    test.assert_eq(named_box(l, "canvas"), "0.0,0.0 40.0x20.0")
+    test.assert(Option.is_None(focus.node_of(l, "canvas")))
+}
+
+// A control answers the same way it always did, so this is one walk and not a second rule.
+#[test]
+fn a_control_is_found_by_the_same_walk() {
+    val l = laid(widget.focusable_of("save", widget.fixed_of(40.0, 20.0, a_label("Save"))), 40.0, 20.0)
+    test.assert_eq(named_box(l, "save"), "0.0,0.0 40.0x20.0")
+}
+
+// **The outermost, not the innermost.** A name is inherited by every child that has none of its
+// own, so the node wanted is at the top of the subtree carrying it -- and the box an inner label
+// happens to occupy is not the box of the thing that was named.
+#[test]
+fn the_outermost_node_carrying_the_name_is_the_one() {
+    val l = laid(
+        widget.focusable_of("panel", widget.padded_of(widget.insets_all(4.0), a_label("x"))),
+        40.0,
+        20.0
+    )
+    test.assert_eq(named_box(l, "panel"), "0.0,0.0 40.0x20.0")
+}
+
+#[test]
+fn a_name_nothing_carries_is_none() {
+    val l = laid(a_label("x"), 10.0, 10.0)
+    test.assert_eq(named_box(l, "nobody"), "(none)")
+    // And the empty name is nobody rather than everybody, which is what an unnamed node has.
+    test.assert_eq(named_box(l, ""), "(none)")
+}
+
 // --- the chain under a point
 
 fn chain_names(l: widget.Laid, x: float, y: float) -> string {

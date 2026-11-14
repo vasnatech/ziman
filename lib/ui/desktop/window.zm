@@ -119,6 +119,7 @@ native fn present_premul_raw(
 native fn poll_raw(handle: int) -> Result<[int], string>
 native fn size_raw(handle: int) -> Result<[int], string>
 native fn id_raw(handle: int) -> Result<int, string>
+native fn origin_raw(handle: int) -> Result<[int], string>
 native fn close_raw(handle: int)
 native fn display_scale_raw() -> float
 
@@ -288,6 +289,24 @@ pub fn size(w: Window) -> Result<Size, string> {
 // the window manager knows it by.
 pub fn id(w: Window) -> Result<int, string> {
     return id_raw(w.handle)
+}
+
+// Where the window's top-left corner is **on the screen**, in pixels.
+//
+// **Asked, not remembered.** Nothing reports a move usefully: a `ConfigureNotify` carries a
+// position in the *parent's* coordinates, and under a reparenting window manager -- which is the
+// usual case -- the parent is the title-bar frame rather than the root. So this is a round trip
+// to the server, and the caller decides when it is worth one.
+//
+// It exists because an input method is told where the caret is in root coordinates: ibus's
+// `SetCursorLocation` is defined that way, and an application only knows where its caret is
+// inside itself. Without this the candidate list appears at the corner of the display.
+pub fn origin(w: Window) -> Result<Position, string> {
+    val at = try origin_raw(w.handle)
+    if prelude.len(at) != 2 {
+        return err("the window backend did not report a position")
+    }
+    return ok(Position { x: at[0], y: at[1] })
 }
 
 // Every event waiting, oldest first, or an empty array when nothing happened. Never blocks.

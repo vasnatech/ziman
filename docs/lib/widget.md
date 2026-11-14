@@ -1081,6 +1081,24 @@ The deepest node whose bounds contain `p`, or `None` when the point is outside t
 and keeping the first match would report the node *underneath* an overlapping one, which is the
 bug that makes a dialog's buttons unclickable while looking perfectly correct in a screenshot.
 
+### `node_named`
+
+```
+pub fn node_named(l: Laid, name: string) -> Option<Laid>
+```
+
+The outermost node carrying `name`, or `None`.
+
+**Not `focus.node_of`, which only ever looks at controls.** A name belongs to any widget that
+has a slot for one -- a group, a viewport, a label -- and the two most recent callers wanted
+exactly those: the caret's box, which `controls` names so that an input method can be told
+where it is, and a canvas, which a builder names so that a press on it can be recognised.
+Asking `focus` for either answers `None`, and an empty rectangle is a hit test that silently
+misses.
+
+A name is inherited by every child that has none of its own, so the node wanted is the
+outermost one carrying it, which is the first a pre-order walk meets.
+
 ### `chain_at`
 
 ```

@@ -421,6 +421,23 @@ check_event "event Resize 300x200" "resize"
 
 # WM_DELETE_WINDOW, which is exactly what a close box sends -- and the program obeys it, so the line
 # after it says that `with_window` gave the window back on a normal return.
+# **Where the window is on the screen, which an input method needs and nothing else here does.**
+# ibus's `SetCursorLocation` is defined in root coordinates and an application only knows where its
+# caret is inside itself, so without this the candidate list appears at the corner of the display.
+# Checked against an independent process asking the same server, which tests the binding rather
+# than X's own semantics.
+said="$(grep '^origin ' "$work/out.txt" | tail -1 | awk '{print $2}')"
+truth="$(inject geometry 2>/dev/null)"
+if [ -z "$said" ]; then
+    echo "FAIL window_origin (the program printed no origin line)"
+    fail=1
+elif [ "$said" = "$truth" ]; then
+    echo "PASS window_origin ($said)"
+else
+    echo "FAIL window_origin (window.origin said $said, the server says ${truth:-nothing})"
+    fail=1
+fi
+
 inject close
 check_event "event Close" "close"
 check_event "closed" "with_window_returns"
