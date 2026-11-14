@@ -973,6 +973,13 @@ fn ramp(from: Color, to: Color) -> Obj {
 // depends on who the caller is, and for this one the answer is to embed a face. Splitting it
 // that way is what lets the message stay accurate when the advice changes.
 //
+// **And this clause names `WinAnsiEncoding`, which is a PDF term and not a charset one.** The set
+// is WinAnsi (CP1252); `/WinAnsiEncoding` is what a PDF's font dictionary calls it, and it is what
+// a reader hitting this message will search the specification for. The health-record backend's
+// `export_test.zm` asserts the message contains it, and that assertion is right: it was reworded
+// out on 2026-11-14 and the North Star suite caught it the same day, which is what that suite is
+// in `make check` for.
+//
 // It refuses rather than substitutes, which is the point: `WinAnsiEncoding` has no `ş`, no `İ`,
 // no Cyrillic and no CJK, and quietly writing `?` into someone's medical record is the failure
 // invariant 2 exists to prevent.
@@ -985,7 +992,8 @@ fn win_ansi(text: string) -> Result<[byte], string> {
                 charset.describe(r),
                 " in '",
                 text,
-                "'. The standard fonts are Latin-1 only; embed a face to draw this text"
+                "'. The standard fonts use WinAnsiEncoding, which is Latin-1 only; embed a face ",
+                "to draw this text"
             ))
         }
     }
