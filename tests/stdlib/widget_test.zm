@@ -383,6 +383,91 @@ fn a_row_scrolled_out_of_sight_cannot_be_clicked() {
     test.assert_eq(hit_name(l, 10.0, 0.0 - 25.0), "(none)")
 }
 
+// --- the focus ring follows the control's own outline
+
+fn curves_in(path: shape.Path) -> int {
+    var n = 0
+    for seg in path.segments {
+        switch seg {
+            QuadTo(_) { n = n + 1 }
+            CubicTo(_) { n = n + 1 }
+            MoveTo(_) { unit }
+            LineTo(_) { unit }
+            Close { unit }
+        }
+    }
+    return n
+}
+
+// The ring is the last thing `paint_focused` pushes, so it is the last op.
+fn ring_of(l: widget.Laid) -> shape.Path {
+    val ops = widget.paint_focused(l, fake_metrics(), "it", black(), 2.0).ops
+    test.assert(len(ops) > 0)
+    return fill_path(ops[len(ops) - 1])
+}
+
+fn focusable_with(radius: float) -> widget.Laid {
+    return laid(
+        widget.focusable_of("it", widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            surface: widget.rounded(black(), radius),
+            align: widget.stretched(),
+            children: [a_label("x")],
+            name: ""
+        })),
+        60.0,
+        24.0
+    )
+}
+
+// **A square ring across the corners of a rounded button**, which is what this drew until
+// 2026-11-13. It was indistinguishable from right while `default_style` left `corner_radius` at
+// zero, and wrong from the moment F286 made a rounded look possible.
+#[test]
+fn the_focus_ring_curves_when_the_control_does() {
+    test.assert(curves_in(ring_of(focusable_with(8.0))) > 0)
+}
+
+// And a square control keeps a square ring, which is the half that must not move: the default
+// style asks for no radius, so every window that exists today draws exactly what it did.
+#[test]
+fn the_focus_ring_stays_square_when_the_control_is() {
+    test.assert_eq(curves_in(ring_of(focusable_with(0.0))), 0)
+}
+
+// **The radius is the control's, not a theme's**, which is the case a themed number gets wrong:
+// `controls` caps a check box's radius against its own side, so a style saying 8 on a box whose
+// side only carries 4 would ring it at 8 and miss the outline the control actually drew. Taken
+// from the box, the two cannot disagree.
+//
+// Asserted on where the outline *starts*, which is exactly a radius along the top edge from the
+// corner: the ring is inset by half the stroke and its radius shrinks by the same half, so on a
+// box at the origin with a 2-point stroke the start lands at the radius itself. Worked out from
+// the inputs rather than read back from the path.
+#[test]
+fn the_ring_is_drawn_at_the_radius_the_control_used() {
+    test.assert_eq(start_x(ring_of(focusable_with(8.0))), 8.0)
+    test.assert_eq(start_x(ring_of(focusable_with(2.0))), 2.0)
+    // A square control starts at the inset corner, with no radius to walk along first.
+    test.assert_eq(start_x(ring_of(focusable_with(0.0))), 1.0)
+}
+
+// Where the outline begins, which `round_rect_path` puts a radius along the top edge.
+fn start_x(path: shape.Path) -> float {
+    for seg in path.segments {
+        switch seg {
+            MoveTo(p) { return p.x }
+            LineTo(_) { unit }
+            QuadTo(_) { unit }
+            CubicTo(_) { unit }
+            Close { unit }
+        }
+    }
+    return 0.0 - 1.0
+}
+
 // --- finding a node by its name
 
 fn named_box(l: widget.Laid, name: string) -> string {

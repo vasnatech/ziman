@@ -1336,13 +1336,22 @@ pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: f
         // whatever is next to it, and in a dense form that is the neighbouring control.
         val half = width * 0.5
         val box = node.bounds
+        // **The radius comes from the control, not from a theme.** This drew a square ring with
+        // `rect_path` until 2026-11-13, which was indistinguishable from right while
+        // `default_style` left `corner_radius` at zero -- and wrong the moment F286 made a
+        // rounded look possible, as a square ring across the corners of a rounded button.
+        //
+        // Asking the box it is drawing around beats taking a number from the style: a check box
+        // caps its own radius against its side (`controls.face_within`), so a themed value would
+        // be the one the control *did not* use. Zero keeps the old output exactly, because
+        // `round_rect_path` answers a plain rectangle for anything at or below zero -- which is
+        // also why the shrink below is not clamped.
+        val radius = radius_of(node)
         push(ops, scene.stroke(
-            shape.rect_path(geom.rect_of(
-                box.x + half,
-                box.y + half,
-                box.width - width,
-                box.height - width
-            )),
+            shape.round_rect_path(
+                geom.rect_of(box.x + half, box.y + half, box.width - width, box.height - width),
+                radius - half
+            ),
             paint.Paint.Solid(ring),
             paint.stroke_of(width)
         ))
@@ -1351,6 +1360,29 @@ pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: f
         scene.scene_of(l.bounds.x + l.bounds.width, l.bounds.y + l.bounds.height),
         snapshot(ops)
     )
+}
+
+// The corner radius the focused control actually drew itself with, or zero.
+//
+// **The outermost surface in its subtree**, because that is the one whose outline a ring has to
+// follow: a control is a `Focusable` wrapping the group that carries the face, and anything
+// rounded deeper -- a check box's mark inside its label row -- is a part of the control rather
+// than its edge.
+fn radius_of(l: Laid) -> float {
+    if Group(it) = l.widget {
+        if it.surface.corner_radius > 0.0 {
+            return it.surface.corner_radius
+        }
+    }
+    var i = 0
+    while i < prelude.len(l.children) {
+        val found = radius_of(l.children[i])
+        if found > 0.0 {
+            return found
+        }
+        i = i + 1
+    }
+    return 0.0
 }
 
 // The laid-out node a name belongs to, or `None`. The same walk `focus.node_of` does, repeated here
