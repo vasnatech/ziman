@@ -84,20 +84,6 @@ pub enum IoError {
 }
 ```
 
-Why a stream stopped early. **Five variants, each named after the answer a server gives**, which
-is the one thing a caller actually has to decide from an I/O failure:
-
-| | | |
-|---|---|---|
-| `Timeout` | the source stopped producing within its deadline | 408 |
-| `Closed` | the other end went away mid-stream | nothing to answer; drop |
-| `TooLarge` | a `limited` ceiling was passed | 413 |
-| `Malformed` | the bytes are not what this layer reads | 400 -- the caller's data |
-| `Failed` | a disk, a socket, an allocation | 500, logged -- ours |
-
-**`Closed` and `Failed` are different on purpose**, though both mean "it stopped": a client that
-hung up is nothing to answer and nothing to log, and a disk that failed is both.
-
 ### `io_error_message`
 
 ```

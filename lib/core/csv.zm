@@ -22,6 +22,7 @@
 // Nothing here carries the module's own name: a caller writes `csv.parse(text)` and
 // `csv.format(rows)`, where `csv.parse_csv` and `csv.csv_to_string` stuttered.
 
+use charset.bom_text
 use fs
 use io
 use json.Json
@@ -41,9 +42,6 @@ struct Row {
     line: int
     cells: [Cell]
 }
-
-// The UTF-8 byte order mark that spreadsheets put at the start of a file.
-val byte_order_mark = unwrap(bytes_to_string([239b, 187b, 191b]))
 
 // Splits `text` into cells. The result is a flat array: each cell is a one-character tag
 // followed by its text, and each row is ended by a string starting with the control character
@@ -66,10 +64,14 @@ fn check_delimiter(sep: string) -> Result<string, string> {
 // The table as rows of cells, from the scanner's flat form.
 fn rows_of(text: string, sep: string, typed: bool) -> Result<[Row], string> {
     try check_delimiter(sep)
-    val body = if starts_with(
-        text,
-        byte_order_mark
-    ) { substring(text, len(byte_order_mark), len(text)) } else { text }
+    // The byte order mark a spreadsheet writes at the start of a file. By here the bytes are
+    // decoded, so it is one invisible character on the front of the first heading -- which is
+    // what makes a column called `id` fail to match `id`.
+    val body = if starts_with(text, bom_text) {
+        substring(text, len(bom_text), len(text))
+    } else {
+        text
+    }
     val flat = try scan_cells(body, sep, typed)
     val rows = mutable_array_new<Row>()
     var cells = mutable_array_new<Cell>()

@@ -15,7 +15,7 @@ one byte at a time: [a][ö][b][→][c]
 two bytes at a time: [a][öb][→c]
 all at once: [aöb→c]
 truncated: [a]<the stream is malformed: the stream ends in the middle of a UTF-8 character>
-not UTF-8 at all: <the stream is malformed: the stream is not UTF-8>
+not UTF-8 at all: <the stream is malformed: the stream is not UTF-8: a byte that cannot begin a character at byte 0>
 -- lines --
 mixed endings: [one][two][three]
 one byte at a time: [one][two][three]

@@ -31,6 +31,12 @@
 //
 // **`Closed` and `Failed` are different on purpose**, though both mean "it stopped": a client that
 // hung up is nothing to answer and nothing to log, and a disk that failed is both.
+
+// **The one dependency, and `charset` has none of its own, so nothing is circular.** Everything
+// below is bytes; the only place this module has to know what a character *is* is `text`, and
+// that arithmetic had been written here as well as in eight other modules.
+use charset
+
 pub enum IoError {
     Timeout
     Closed(string)
@@ -403,14 +409,14 @@ pub fn text(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoErro
                     return Some(err(why))
                 }
                 val all = concat(get(carried), unwrap(got))
-                val whole = complete_prefix(all)
+                val whole = charset.utf8_complete_prefix(all)
                 set(carried, slice(all, whole, prelude.len(all)))
                 if whole > 0 {
                     return switch bytes_to_string(slice(all, 0, whole)) {
                         Ok(decoded) { Some(ok(decoded)) }
                         Err(_) {
                             set(stopped, true)
-                            Some(err(IoError.Malformed("the stream is not UTF-8")))
+                            Some(err(IoError.Malformed(why_not_utf8(slice(all, 0, whole)))))
                         }
                     }
                 }
@@ -421,57 +427,23 @@ pub fn text(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoErro
     )
 }
 
-// How many bytes of `data` are complete UTF-8 -- that is, where to cut so that nothing is left
-// holding half a character.
+// Why a chunk the native refused is not UTF-8, as a sentence.
 //
-// **Walks back from the end over at most three continuation bytes**, which is the most a sequence can
-// be short by: at the lead byte it asks how long that sequence should be, and keeps it only if all of
-// it is here. Anything that is not a lead byte where one is expected is left for `bytes_to_string`
-// to refuse -- this function decides *where to cut*, not whether the bytes are valid.
-fn complete_prefix(data: [byte]) -> int {
-    val size = prelude.len(data)
-    var back = 0
-    while back < 3 && back < size {
-        val at = size - 1 - back
-        val b = data[at]
-        if !is_continuation(b) {
-            val wanted = sequence_length(b)
-            if wanted == 0 || wanted <= back + 1 {
-                // Either not a lead byte at all, or a sequence that is already complete.
-                return size
-            }
-            return at
-        }
-        back = back + 1
-    }
-    return size
-}
-
-// Whether this is a continuation byte, `10xxxxxx` -- which is to say 0x80 through 0xBF.
+// **The fast path stays native and the slow path gets the detail.** `bytes_to_string` converts a
+// valid chunk in one pass, which is what the loop above wants on every chunk of every stream; it
+// answers only *that* the bytes are wrong. Decoding the one failing chunk again through `charset`
+// costs nothing on a stream that is fine and names the byte and the reason on one that is not --
+// a byte that cannot lead, a surrogate, an overlong character.
 //
-// Compared as a number rather than masked with `bits`, because a byte literal is written `128b` and
-// `bits.and(b, 0xC0b) == 0x80b` reads worse than the range it stands for.
-fn is_continuation(b: byte) -> bool {
-    val v = b as int
-    return v >= 0x80 && v < 0xC0
-}
-
-// How many bytes the sequence beginning with `b` has, or 0 if `b` does not begin one.
-fn sequence_length(b: byte) -> int {
-    val v = b as int
-    if v < 0x80 {
-        return 1
+// **Where to cut is `charset.utf8_complete_prefix`**, which used to be three functions here:
+// `complete_prefix`, `sequence_length` and `is_continuation`. Holding the remainder back is this
+// module's business; what a character is, is not.
+fn why_not_utf8(data: [byte]) -> string {
+    return switch charset.utf8_text(data) {
+        // Unreachable: the native has already refused these bytes.
+        Ok(_) { "the stream is not UTF-8" }
+        Err(r) { prelude.format("the stream is not UTF-8: {} at byte {}", r.why, str(r.at)) }
     }
-    if v >= 0xC0 && v < 0xE0 {
-        return 2
-    }
-    if v >= 0xE0 && v < 0xF0 {
-        return 3
-    }
-    if v >= 0xF0 && v < 0xF8 {
-        return 4
-    }
-    return 0
 }
 
 // The source as text, a line at a time, with the line ending removed -- `fs.lines` over anything

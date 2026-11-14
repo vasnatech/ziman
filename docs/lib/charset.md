@@ -9,15 +9,24 @@ and the bytes that stand for it in a named character set, where every question i
 points and which of them a set can carry.
 
 **It was written as a charset library rather than as whatever its first callers needed**, and
-that is deliberate. Eight modules had hand-rolled a piece of this between them, and the
-migration counted them: **five** separate UTF-8 encoders (`toml`, `yaml`, `xml` -- which
-spelled it `append_code_point` and so was missed when these were first counted as four --
-`truetype` and `window`), a UTF-8 decoder in `font`, a lead-byte width table in `terminal`,
-a UTF-16 decoder in `truetype` that wrote a question mark per surrogate half, two Latin-1
-loops, `pdf`'s 32-entry CP1252 table, and three copies of the same two surrogate constants.
-Each was correct for the one case in front of it and silently wrong just outside, which is
-what the four-digit `/ToUnicode` destination in `pdf` had been for as long as it existed. A
-library shaped by those callers would have inherited every one of those edges.
+that is deliberate. **Ten** modules had hand-rolled a piece of this between them, and the
+count kept going up as the migration went looking -- the roadmap said four encoders, the first
+pass found five, and `io` and `csv` turned up only when the user asked whether they used this.
+What was out there:
+
+* **Five UTF-8 encoders**: `toml` and `yaml` (`append_utf8`), `xml` (`append_code_point`,
+  which is why it was missed when these were counted as four), `truetype` (`codepoint_text`,
+  with no four-byte branch) and `window` (`text_of_codepoint`).
+* **Three pieces of the decode side**: `font`'s `codepoint_of`, and a lead-byte width table in
+  both `terminal` and `io` -- `io`'s with a continuation test and a chunk-boundary scanner
+  beside it, which is now `utf8_complete_prefix` and the best thing the migration recovered.
+* `truetype`'s **UTF-16BE decoder**, which wrote a question mark for each half of a surrogate
+  pair; two **Latin-1** loops; `pdf`'s 32-entry **CP1252** table; **three** copies of the same
+  two surrogate constants; and `csv`'s **byte order mark**.
+
+Each was correct for the one case in front of it and silently wrong just outside, which is what
+the four-digit `/ToUnicode` destination in `pdf` had been for as long as it existed. A library
+shaped by those callers would have inherited every one of those edges.
 
 **What is here**: the Unicode transformation formats, and the single-byte sets. What is
 deliberately *not* here: the legacy multi-byte East Asian sets -- Shift-JIS, GB18030, Big5,
@@ -264,6 +273,37 @@ scanning for the next character wants: it wants to step over the bad byte and ca
 decision belongs to the reader, which is why this says what is true and `terminal` writes the
 `if width == 0 { 1 }` itself.
 
+### `is_continuation`
+
+```
+pub fn is_continuation(b: byte) -> bool
+```
+
+Whether `b` continues a character rather than beginning one: `10xxxxxx`, which is to say 0x80
+through 0xBF. Compared as a range rather than masked, because `is_continuation(b)` reads better
+than `bits.and(b, 192b) == 128b` and means the same thing.
+
+### `utf8_complete_prefix`
+
+```
+pub fn utf8_complete_prefix(data: [byte]) -> int
+```
+
+How many bytes at the front of `data` are whole characters -- which is to say **where a reader
+must cut so that nothing is left holding half of one**.
+
+**This is what a chunked reader needs and a decoder cannot give it.** A 4 KiB read that ends in
+the middle of a `ö` is not malformed, it is unfinished: the rest of that character arrives in
+the next chunk. Decoding each chunk on its own instead is a bug that appears only on the files
+that happen to split there, which is why `io.text` holds the remainder back and asks this where
+to cut.
+
+**It says where to cut, not whether the bytes are valid.** Walking back from the end over at
+most three continuation bytes is enough, a character being at most four bytes: at the lead byte
+it asks how long that character should be and keeps it only if all of it is here. A byte that
+cannot lead, where a lead byte was expected, is left inside the prefix on purpose -- "this is
+not UTF-8" is the decoder's answer to give, and this function would only be guessing at it.
+
 ### `utf8_bytes`
 
 ```
@@ -481,6 +521,16 @@ U+FEFF, the character a file may begin with to say which encoding it is in.
 trip through this module neither invents a mark nor leaves one in the string -- which is the
 bug behind every spreadsheet whose first column is headed with an invisible character and
 `id`.
+
+### `bom_text`
+
+```
+pub val bom_text = "﻿"
+```
+
+The same character as a one-character string, for a caller that meets the mark **in text**
+rather than in bytes -- `csv` strips one off a spreadsheet's first heading, where the bytes are
+long since decoded and the mark has become an invisible character at the front of a cell.
 
 ## The sets as values
 

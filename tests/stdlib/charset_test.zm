@@ -4,6 +4,8 @@
 // the four-byte boundary, surrogate pairs, a lone surrogate, the CP1252 block that is the whole
 // difference between WinAnsi and Latin-1.
 use charset
+use charset.bom
+use charset.bom_text
 use charset.replacement_text
 use test
 
@@ -656,4 +658,57 @@ fn a_lossy_read_through_the_enum_covers_every_set() {
     )
     // A mark is still dropped on the way in.
     test.assert_eq(charset.decode_lossy(charset.Encoding.Utf8, [239b, 187b, 191b, 65b]), "A")
+}
+
+// ---- where to cut a chunk
+
+// **The question a chunked reader asks and a decoder cannot answer**: a read that ends in the
+// middle of a character is unfinished, not malformed, and the rest arrives next time.
+#[test]
+fn a_chunk_is_cut_where_no_character_is_left_half_written() {
+    // Nothing held back: every character is whole.
+    test.assert_eq(charset.utf8_complete_prefix([]), 0)
+    test.assert_eq(charset.utf8_complete_prefix([65b, 66b]), 2)
+    test.assert_eq(charset.utf8_complete_prefix(charset.utf8_bytes("Aé中😀")), 10)
+
+    // One character, cut at every point inside it: the prefix stops before the lead byte.
+    val emoji = charset.utf8_bytes("😀")
+    test.assert_len(4, emoji)
+    test.assert_eq(charset.utf8_complete_prefix(slice(emoji, 0, 1)), 0)
+    test.assert_eq(charset.utf8_complete_prefix(slice(emoji, 0, 2)), 0)
+    test.assert_eq(charset.utf8_complete_prefix(slice(emoji, 0, 3)), 0)
+    test.assert_eq(charset.utf8_complete_prefix(emoji), 4)
+
+    // A whole character followed by part of the next one keeps the first.
+    val mixed = concat(charset.utf8_bytes("A"), slice(emoji, 0, 2))
+    test.assert_eq(charset.utf8_complete_prefix(mixed), 1)
+
+    // **A byte that cannot lead stays inside the prefix**, because refusing it is the decoder's
+    // answer to give: cutting before it would turn "not UTF-8" into "unfinished" and the reader
+    // would wait for bytes that mean nothing.
+    test.assert_eq(charset.utf8_complete_prefix([255b]), 1)
+    test.assert_eq(charset.utf8_complete_prefix([65b, 255b]), 2)
+    // Four continuation bytes with no lead: more than a character can be short by, so there is
+    // nothing to wait for and the decoder gets them all.
+    test.assert_eq(charset.utf8_complete_prefix([128b, 128b, 128b, 128b]), 4)
+}
+
+#[test]
+fn a_continuation_byte_continues_and_never_begins() {
+    test.assert(charset.is_continuation(128b))
+    test.assert(charset.is_continuation(191b))
+    test.assert_false(charset.is_continuation(127b))
+    test.assert_false(charset.is_continuation(192b))
+    // The two answers agree by construction: a byte that continues cannot begin.
+    test.assert_eq(charset.utf8_sequence_length(128b), 0)
+    test.assert_eq(charset.utf8_sequence_length(191b), 0)
+}
+
+// The mark as a character rather than as bytes, which is how a caller meets it once the bytes
+// are decoded -- `csv` strips one off a spreadsheet's first heading.
+#[test]
+fn the_mark_is_also_a_character() {
+    test.assert_len(1, chars(bom_text))
+    test.assert_eq(charset.code_point_of(bom_text), bom)
+    test.assert_eq(charset.utf8_bytes(bom_text), charset.mark_of(charset.Encoding.Utf8))
 }

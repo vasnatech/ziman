@@ -241,6 +241,10 @@ pub fn code_points_of(text: string) -> [int]
 
 pub fn utf8_sequence_length(lead: byte) -> int
 
+pub fn is_continuation(b: byte) -> bool
+
+pub fn utf8_complete_prefix(data: [byte]) -> int
+
 pub fn utf8_bytes(text: string) -> [byte]
 
 pub fn utf8_text(data: [byte]) -> Result<string, Refusal>
@@ -288,6 +292,8 @@ pub fn utf16be_lossy(data: [byte]) -> string
 pub fn utf16le_lossy(data: [byte]) -> string
 
 pub val bom = 65279
+
+pub val bom_text = "﻿"
 
 pub enum Encoding {
     Utf8

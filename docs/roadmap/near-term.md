@@ -970,10 +970,25 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   memory -- noted in the code where it is read.
 
   **What the migration found, which is the argument for having done it:** five encoders, not
-  four (`xml.zm` had a sixth spelling, `append_code_point`), three copies of the same two
-  surrogate constants, two Latin-1 loops, and `pdf.win_ansi`'s 32-entry CP1252 table. The
-  seven callers are now `font`, `pdf`, `truetype`, `terminal`, `window`, `toml`, `yaml` and
-  `xml`; each kept the *policy* that was its own -- `truetype` reads a name table lossily
+  four (`xml.zm` had a fifth spelling, `append_code_point`), three copies of the same two
+  surrogate constants, two Latin-1 loops, `pdf.win_ansi`'s 32-entry CP1252 table, a lead-byte
+  width table in both `terminal` and `io`, and a UTF-8 byte order mark in `csv`. **The count went
+  up twice.** This entry said four encoders; the first pass found five; and `io` and `csv` were
+  found only because the user asked whether they used the module -- a grep for `utf8`,
+  `code_point`, `append_utf8` and `surrogate` matches none of `sequence_length`,
+  `is_continuation`, `complete_prefix` or `byte_order_mark`. **The lesson is that a duplicate is
+  found by what it does and not by what it is called**, and the next search of this kind should
+  start from the arithmetic (`0xC0`, `192b`, `/ 64`, `% 64`) rather than from the vocabulary.
+
+  `io` gave back more than it took: its `complete_prefix` -- how much of a chunk is whole
+  characters, so a 4 KiB read ending inside a `ö` waits for the rest instead of failing -- is now
+  `charset.utf8_complete_prefix`, which is the one function here that no single caller would have
+  thought to ask a charset library for. `io.text` keeps the carry and now reports *why* a stream
+  is not UTF-8 (the byte and the reason) by decoding the one failing chunk again through
+  `charset`, which costs nothing on a stream that is fine.
+
+  The ten callers are now `font`, `pdf`, `truetype`, `terminal`, `window`, `io`, `csv`, `toml`,
+  `yaml` and `xml`; each kept the *policy* that was its own -- `truetype` reads a name table lossily
   because a broken name is not a broken font, `terminal` turns a 0-width lead byte into 1 so a
   reader makes progress, `pdf` adds "embed a face" to a refusal `charset` states generically.
   That split -- the set here, the advice at the call site -- is what lets a message stay true
