@@ -1018,9 +1018,27 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   `draw_into_region`. The mechanism was assumed and not read.
 
   So the ~900 ms figures at the top are the cost of a *full* repaint, which is the first frame and
-  any frame whose damage covers the window. Why the design builder feels slow is therefore an open
-  question about how large its damage actually is when a selection moves -- not a missing clip.
-  Unmeasured, and this entry is no longer going to guess.
+  any frame whose damage covers the window. **Measured for the design builder, which raised the
+  question:**
+
+  | what changes | damage | share of the window |
+  |---|---|---|
+  | the status line alone | 95x12 | 0% |
+  | a selection (outline, and the inspector line derived from it) | 904x884 | 63% |
+  | a whole selection step (those, and the status) | 1136x884 | 79% |
+
+  **Damage tracking works and small changes really are cheap** -- a status line costs a box of
+  twelve rows. What costs is that `damage_between` answers **one rectangle**, so a change in the
+  canvas and a change in the inspector, at opposite ends of a window, are charged the box between
+  them. The builder does exactly that on every click: it outlines a node on the left and writes
+  what it is on the right.
+
+  That is a general shape rather than a builder problem -- a detail view beside a list, a status
+  bar under a canvas, any master-detail window updates two distant places at once. The way out is
+  for the damage to be a small set of rectangles rather than their union, which means
+  `damage_between` answering several and `draw_into_region` taking several. Whether the bookkeeping
+  pays for itself at these sizes is the thing to measure before building it: two rectangles of
+  12,000 pixels against one of a million is a large enough ratio to be worth a careful look.
 
   Also still unmeasured: whether the 4x at `px_per_pt: 2.0` is rows alone, since the row count
   doubles while the ink quadruples.
