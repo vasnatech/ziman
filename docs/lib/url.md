@@ -76,10 +76,6 @@ bad %-escape
 pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string>
 ```
 
-Decodes `%XX` escapes in `s`. `plus_is_space` is for query strings, where `a+b` means `a b` -- in a path a
-`+` is a literal plus. An Err for a truncated or malformed escape, or one that would put a NUL byte in a
-string (which Ziman strings cannot hold).
-
 ### `percent_encode`
 
 ```

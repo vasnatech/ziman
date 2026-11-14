@@ -326,13 +326,17 @@ a byte that cannot lead, a character cut short by the end of the input or by the
 value **past the last code point**, and an **overlong** encoding -- a character written in
 more bytes than it needs, which is the oldest way there is to smuggle a `/` past a filter.
 
+Checked here and converted by the native, rather than built a character at a time: the scan
+allocates nothing and `bytes_to_string` is one pass.
+
 ### `is_utf8`
 
 ```
 pub fn is_utf8(data: [byte]) -> bool
 ```
 
-Whether `data` is UTF-8, for the callers that want the question and not the text.
+Whether `data` is UTF-8, for the callers that want the question and not the text. Allocates
+nothing: `url.percent_decode` asks this of every parameter that contained an escape.
 
 ## UTF-16
 

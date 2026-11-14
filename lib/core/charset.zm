@@ -303,22 +303,26 @@ pub fn utf8_bytes(text: string) -> [byte] {
     return to_bytes(text)
 }
 
-// UTF-8 bytes as text, refusing everything that is not UTF-8 rather than substituting for it:
-// a byte that cannot lead, a character cut short by the end of the input or by the next one, a
-// **surrogate** (which is what CESU-8 and Java's modified UTF-8 write and UTF-8 does not), a
-// value **past the last code point**, and an **overlong** encoding -- a character written in
-// more bytes than it needs, which is the oldest way there is to smuggle a `/` past a filter.
-pub fn utf8_text(data: [byte]) -> Result<string, Refusal> {
-    val out = mutable_string_new()
+// What is wrong with `data`, or `None` when it is UTF-8.
+//
+// **The rules in one place, so that asking and converting cannot disagree.** `utf8_text` converts
+// and `is_utf8` asks; both are this function, and neither reimplements a check the other has.
+// It allocates nothing, which is what makes it cheap enough for `url.percent_decode` to run over
+// every decoded query parameter.
+fn scan_utf8(data: [byte]) -> Option<Refusal> {
     var i = 0
     while i < prelude.len(data) {
         val lead = data[i] as int
         val width = utf8_sequence_length(data[i])
         if width == 0 {
-            return err(refuse_bytes("UTF-8", "a byte that cannot begin a character", i))
+            return Option<Refusal>.Some(
+                refuse_bytes("UTF-8", "a byte that cannot begin a character", i)
+            )
         }
         if i + width > prelude.len(data) {
-            return err(refuse_bytes("UTF-8", "a character cut short by the end of the input", i))
+            return Option<Refusal>.Some(
+                refuse_bytes("UTF-8", "a character cut short by the end of the input", i)
+            )
         }
         var cp = if width == 1 {
             lead
@@ -332,34 +336,59 @@ pub fn utf8_text(data: [byte]) -> Result<string, Refusal> {
         var k = 1
         while k < width {
             if !is_continuation(data[i + k]) {
-                return err(refuse_bytes("UTF-8", "a character cut short by the next one", i))
+                return Option<Refusal>.Some(
+                    refuse_bytes("UTF-8", "a character cut short by the next one", i)
+                )
             }
             cp = cp * 64 + ((data[i + k] as int) - 128)
             k = k + 1
         }
         if cp >= first_surrogate && cp <= last_surrogate {
-            return err(refuse_bytes("UTF-8", "a surrogate, which UTF-8 does not encode", i))
+            return Option<Refusal>.Some(
+                refuse_bytes("UTF-8", "a surrogate, which UTF-8 does not encode", i)
+            )
         }
         if cp > last_code_point {
-            return err(refuse_bytes("UTF-8", "a value past the last code point", i))
+            return Option<Refusal>.Some(
+                refuse_bytes("UTF-8", "a value past the last code point", i)
+            )
         }
         // The length a value needs and the length it was written in must agree. They do not for
         // an overlong encoding, and that is the whole of the check.
         if utf8_length(cp) != width {
-            return err(refuse_bytes("UTF-8", "a character written in more bytes than it needs", i))
+            return Option<Refusal>.Some(
+                refuse_bytes("UTF-8", "a character written in more bytes than it needs", i)
+            )
         }
-        append(out, try utf8_text(cp))
         i = i + width
     }
-    return ok(prelude.snapshot(out))
+    return Option<Refusal>.None
 }
 
-// Whether `data` is UTF-8, for the callers that want the question and not the text.
-pub fn is_utf8(data: [byte]) -> bool {
-    return switch utf8_text(data) {
-        Ok(_) { true }
-        Err(_) { false }
+// UTF-8 bytes as text, refusing everything that is not UTF-8 rather than substituting for it:
+// a byte that cannot lead, a character cut short by the end of the input or by the next one, a
+// **surrogate** (which is what CESU-8 and Java's modified UTF-8 write and UTF-8 does not), a
+// value **past the last code point**, and an **overlong** encoding -- a character written in
+// more bytes than it needs, which is the oldest way there is to smuggle a `/` past a filter.
+//
+// Checked here and converted by the native, rather than built a character at a time: the scan
+// allocates nothing and `bytes_to_string` is one pass.
+pub fn utf8_text(data: [byte]) -> Result<string, Refusal> {
+    switch scan_utf8(data) {
+        Some(r) { return err(r) }
+        None {}
     }
+    return switch bytes_to_string(data) {
+        Ok(s) { ok(s) }
+        // Unreachable: the scan above accepts a subset of what the native does.
+        Err(why) { err(refuse_bytes("UTF-8", why, 0)) }
+    }
+}
+
+// Whether `data` is UTF-8, for the callers that want the question and not the text. Allocates
+// nothing: `url.percent_decode` asks this of every parameter that contained an escape.
+pub fn is_utf8(data: [byte]) -> bool {
+    return Option.is_None(scan_utf8(data))
 }
 
 // ---- UTF-16

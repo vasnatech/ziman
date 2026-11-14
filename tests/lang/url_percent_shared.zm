@@ -2,9 +2,9 @@
 // counts as a space and in which error type they returned. The algorithm now lives in `url`, below both, so
 // `db` does not have to depend on `http` to borrow a `%XX` loop. Each keeps its own signature: http's for the
 // public API it already exported, db's to answer a DbError naming the URL at fault.
-use url
-use http
 use db
+use http
+use url
 
 fn main() {
     // the shared primitive
@@ -16,7 +16,10 @@ fn main() {
 
     // http's adapter answers exactly the same thing
     print(unwrap(http.percent_decode("caf%C3%A9", false)))
-    printf("http and url agree: {}\n", unwrap(http.percent_decode("x%2Fy", true)) == unwrap(url.percent_decode("x%2Fy", true)))
+    printf(
+        "http and url agree: {}\n",
+        unwrap(http.percent_decode("x%2Fy", true)) == unwrap(url.percent_decode("x%2Fy", true))
+    )
 
     // db's adapter keeps the plus literal and wraps the message with the URL
     print(unwrap(db.percent_decode("p%40ss+word")))
@@ -28,4 +31,29 @@ fn main() {
         Ok(v) { printf("unexpectedly ok: {}\n", v) }
         Err(m) { print(m) }
     }
+
+    // **An escape can name any byte, and a string cannot hold any byte.** `%FF` is not the start
+    // of a character, and this used to answer `Ok` with a string that raised -- `chars` is not a
+    // `Result` -- the first time a handler looked at its characters, which is two layers away
+    // from the query string that caused it. Found 2026-11-14 while checking which modules went
+    // through `charset`.
+    switch url.percent_decode("a%FF%FEb", false) {
+        Ok(v) { printf("unexpectedly ok: {}\n", v) }
+        Err(m) { print(m) }
+    }
+    // A lone continuation byte, and a character cut short by the end of the input.
+    switch url.percent_decode("%80", false) {
+        Ok(v) { printf("unexpectedly ok: {}\n", v) }
+        Err(m) { print(m) }
+    }
+    switch url.percent_decode("caf%C3", false) {
+        Ok(v) { printf("unexpectedly ok: {}\n", v) }
+        Err(m) { print(m) }
+    }
+    // **Whole characters written as escapes still decode**, which is the case that must not have
+    // been broken by the check: a UTF-8 character spread over three escapes is text.
+    print(unwrap(url.percent_decode("%E4%B8%AD", false)))
+    printf("escaped and literal agree: {}\n", unwrap(url.percent_decode("%C3%A9", false)) == "é")
+    // And a parameter with no escape in it is not checked at all -- it arrived as a string.
+    print(unwrap(url.percent_decode("plain+text", true)))
 }

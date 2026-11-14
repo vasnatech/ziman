@@ -27,10 +27,13 @@ val invariant: Locale = locale.root()
 // Decodes `%XX` escapes in `s`. `plus_is_space` is for query strings, where `a+b` means `a b` -- in a path a
 // `+` is a literal plus. An Err for a truncated or malformed escape, or one that would put a NUL byte in a
 // string (which Ziman strings cannot hold).
+
+use charset
 pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> {
     val out = mutable_string_new()
     var run = 0
     var i = 0
+    var escaped = false
     while i < len(s) {
         if is_char_at(s, i, "%") {
             append(out, substring(s, run, i))
@@ -44,6 +47,7 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
             if !append_byte(out, unwrap(b)) {
                 return err("decodes to text containing a NUL byte")
             }
+            escaped = true
             i = i + 3
             run = i
         } else if plus_is_space && is_char_at(s, i, "+") {
@@ -55,7 +59,22 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
         }
     }
     append(out, substring(s, run, len(s)))
-    return ok(snapshot(out))
+    val decoded = snapshot(out)
+    // **An escape can name any byte, and not every sequence of bytes is text.** `%FF` decodes to
+    // a byte no character can begin with, and a string holding one is a string that *raises* --
+    // `chars` is not a `Result` -- the first time anything asks for its characters. So this
+    // returned `Ok` and the crash happened later, in a handler, two layers away from the request
+    // that caused it: `rest.query_param` decodes a query string straight off the wire.
+    //
+    // The NUL case below was already refused here, which is the same class of problem found one
+    // byte at a time; `charset.is_utf8` is the rest of it, and it allocates nothing.
+    //
+    // **Only when an escape actually decoded**, because text with no `%` in it came in as a
+    // string and is one already. That keeps the ordinary parameter free.
+    if escaped && !charset.is_utf8(to_bytes(decoded)) {
+        return err("decodes to text that is not UTF-8")
+    }
+    return ok(decoded)
 }
 
 // The inverse of `percent_decode`: every byte except the unreserved characters (letters, digits,
