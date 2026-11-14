@@ -93,21 +93,50 @@ fi
 # **It treats black as "not ready yet"**, which is why no quadrant in the pattern is black. A case
 # that needs to assert a black pixel has to wait on something else -- there is no way to tell "not
 # drawn" from "drawn black" through a screenshot.
+# **The retry budget is per read and there are 32 reads, which is the shape of a gate that hangs.**
+# A read of a window showing its contents costs about 27 ms; one that never stops reading black
+# costs 25 attempts and twenty-four 0.2 s sleeps, near six seconds, and prints nothing while it
+# does. Thirty-two of those is three minutes of silence in a hook advertised as seventy-two
+# seconds -- which is what happened twice on 2026-11-13, and looked like a deadlock because
+# nothing says it is waiting.
+#
+# So the budget is spent **once**, not thirty-two times: the first read that exhausts it has
+# established that this window is not showing anyone its contents, and every read after it is
+# five more seconds buying the same answer. `blind` makes the rest immediate.
+#
+# **The first exhausted read still FAILS**, and that is deliberate rather than tidy. A window
+# covered by another and a window genuinely painting black are the same screenshot -- the comment
+# above says so -- so skipping the first one would turn a real "draws black" defect into a silent
+# pass. Failing the first and skipping the rest keeps the signal and pays for it once.
+# **It answers in a variable rather than on stdout**, which is not a style choice: `$(read_pixel
+# ...)` is a subshell, so a flag set inside one is gone the moment it returns, and the first
+# version of this spent the budget thirty-two times exactly as before while looking like it did
+# not.
+blind=0
+pixel=""
+
 read_pixel() {
-    local x="$1" y="$2" got
+    local x="$1" y="$2"
     for _ in $(seq 1 25); do
-        got="$(import -window "$id" png:- 2>/dev/null | convert png:- -format "%[pixel:p{$x,$y}]" info: 2>/dev/null)"
-        case "$got" in
+        pixel="$(import -window "$id" png:- 2>/dev/null | convert png:- -format "%[pixel:p{$x,$y}]" info: 2>/dev/null)"
+        case "$pixel" in
             ""|"gray(0)"|"srgb(0,0,0)") sleep 0.2 ;;
-            *) echo "$got"; return ;;
+            *) return ;;
         esac
     done
-    echo "$got"
+    blind=1
 }
 
 check_pixel() {
     local x="$1" y="$2" expected="$3" label="$4" got
-    got="$(read_pixel "$x" "$y")"
+    if [ "$blind" = 1 ]; then
+        # Counted by run_tests.sh, which tallies the SKIP lines; this script keeps no tally of
+        # its own, and `set -u` would make inventing one an error rather than a miscount.
+        echo "SKIP window_pixel_$label (the window is not showing its contents; covered by another?)"
+        return
+    fi
+    read_pixel "$x" "$y"
+    got="$pixel"
     if [ "$got" = "$expected" ]; then
         echo "PASS window_pixel_$label"
     else
