@@ -69,17 +69,48 @@ flowchart LR
         sql["db.sql"]
         sqlite["db.sqlite"]
     end
+    subgraph group_graphics["graphics"]
+        font["graphics.font"]
+        geom["graphics.geom"]
+        image["graphics.image"]
+        layout["graphics.layout"]
+        paint["graphics.paint"]
+        pdf["graphics.pdf"]
+        pdfobj["graphics.pdfobj"]
+        raster["graphics.raster"]
+        scene["graphics.scene"]
+        shape["graphics.shape"]
+        stroker["graphics.stroker"]
+        truetype["graphics.truetype"]
+    end
     subgraph group_http["HTTP"]
+        client["http.client"]
         derive_routes["http.derive_routes"]
         http["http"]
+        rest["http.rest"]
+        server["http.server"]
     end
     subgraph group_time["time"]
         schedule["time.schedule"]
         time["time"]
         zone["time.zone"]
     end
+    subgraph group_ui["user interface"]
+        a11y["ui.a11y"]
+        atspi["ui.atspi"]
+        controls["ui.controls"]
+        desktop["ui.desktop"]
+        edit["ui.edit"]
+        focus["ui.focus"]
+        ibus["ui.ibus"]
+        terminal["ui.terminal"]
+        widget["ui.widget"]
+        window["ui.window"]
+    end
     a11y --> geom
     a11y --> widget
+    atspi --> a11y
+    atspi --> widget
     batch --> datasource
     batch --> db
     batch --> time
@@ -148,6 +179,7 @@ flowchart LR
     desktop --> raster
     desktop --> scene
     desktop --> widget
+    desktop --> window
     encoding --> locale
     encoding --> number
     eql --> datasource
@@ -172,6 +204,7 @@ flowchart LR
     http --> number
     http --> random
     http --> url
+    ibus --> window
     image --> bits
     image --> compress
     image --> paint
@@ -315,6 +348,7 @@ flowchart LR
     truetype --> charset
     truetype --> geom
     truetype --> shape
+    url --> charset
     url --> locale
     url --> number
     uuid --> clock
@@ -328,6 +362,7 @@ flowchart LR
     widget --> paint
     widget --> scene
     widget --> shape
+    window --> charset
     xml --> charset
     xml --> io
     xml --> locale
@@ -348,23 +383,24 @@ otherwise: everything on a layer depends only on lower layers.
 | Layer | Modules |
 |---|---|
 | 0 | `bits`, `charset`, `clock`, `compress`, `edit`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
-| 1 | `derive_reflect`, `geom`, `io`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `validate` |
-| 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `terminal`, `url`, `xml` |
+| 1 | `derive_reflect`, `geom`, `io`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `validate`, `window` |
+| 2 | `encoding`, `fs`, `ibus`, `json`, `metrics`, `paint`, `shape`, `terminal`, `url`, `xml` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `template`, `time`, `uuid` |
 | 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml`, `widget` |
 | 6 | `a11y`, `codec`, `derive_repository`, `focus` |
-| 7 | `controls`, `paging`, `server` |
+| 7 | `atspi`, `controls`, `paging`, `server` |
 | 8 | `desktop`, `rest` |
 
 ## Each module
 
 | Module | Uses | Used by |
 |---|---|---|
-| `a11y` | `geom`, `widget` | - |
+| `a11y` | `geom`, `widget` | `atspi` |
+| `atspi` | `a11y`, `widget` | - |
 | `batch` | `datasource`, `db`, `time`, `uuid` | - |
 | `bits` | - | `image` |
-| `charset` | - | `csv`, `font`, `io`, `pdf`, `terminal`, `toml`, `truetype`, `xml`, `yaml` |
+| `charset` | - | `csv`, `font`, `io`, `pdf`, `terminal`, `toml`, `truetype`, `url`, `window`, `xml`, `yaml` |
 | `client` | `clock`, `compress`, `encoding`, `http`, `io`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
@@ -384,7 +420,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `derive_row` | `meta`, `template` | `derive_repository` |
 | `derive_validate` | `meta`, `template` | - |
 | `derive_xml` | `meta`, `template` | - |
-| `desktop` | `controls`, `geom`, `raster`, `scene`, `widget` | - |
+| `desktop` | `controls`, `geom`, `raster`, `scene`, `widget`, `window` | - |
 | `edit` | - | `controls` |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
@@ -394,6 +430,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `fs` | `io`, `os` | `csv`, `http`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
 | `geom` | `math` | `a11y`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype`, `widget` |
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
+| `ibus` | `window` | - |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
 | `io` | `charset` | `client`, `csv`, `fs`, `http`, `rest`, `server`, `terminal`, `xml` |
 | `json` | `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `paging`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
@@ -439,10 +476,11 @@ otherwise: everything on a layer depends only on lower layers.
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `batch`, `client`, `eql`, `migrate`, `schedule`, `toml` |
 | `toml` | `charset`, `json`, `locale`, `number`, `time` | `codec` |
 | `truetype` | `charset`, `geom`, `shape` | `font`, `pdf`, `raster` |
-| `url` | `locale`, `number` | `db`, `http`, `rest` |
+| `url` | `charset`, `locale`, `number` | `db`, `http`, `rest` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | `batch`, `eql`, `rest`, `server` |
 | `validate` | `regex` | - |
-| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `controls`, `desktop`, `focus` |
+| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `atspi`, `controls`, `desktop`, `focus` |
+| `window` | `charset` | `desktop`, `ibus` |
 | `xml` | `charset`, `io`, `locale` | `codec` |
 | `yaml` | `charset`, `json`, `locale`, `number` | `codec` |
 | `zone` | `fs`, `number`, `os` | `time` |

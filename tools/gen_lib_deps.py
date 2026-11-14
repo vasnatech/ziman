@@ -11,7 +11,33 @@ import os
 import re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FOLDERS = {"core": "core", "db": "databases", "http": "HTTP", "time": "time"}
+# Keyed by the first path component under lib/, which is the group a module is filed in.
+# `graphics` and `ui` were missing, so every module in either was drawn as a bare node outside
+# any subgraph and labelled without its folder -- which the prose above promises.
+FOLDERS = {
+    "core": "core",
+    "db": "databases",
+    "graphics": "graphics",
+    "http": "HTTP",
+    "time": "time",
+    "ui": "user interface",
+}
+
+# **Which folders hold parts and which hold modules is in the Makefile, not in the names.**
+# "a folder whose name matches a file inside it" looked like a sound test for a multi-part module
+# and is not: `lib/ui/desktop/` holds `desktop.zm` *and* `window.zm`, `ibus.zm` and `atspi.zm`,
+# which are four separate bundled modules -- `CORELIB_MODULES` lists all four. Under the old test
+# three of them vanished from this map, `window` among them, on a page that says it is read from
+# every module under `lib/` and cannot drift. The `*_PARTS` tables are the real answer, and they
+# are keyed by folder *and* part because `metrics` is both a part of `server` and a core module.
+PARTS = set()
+with open(os.path.join(ROOT, "Makefile")) as f:
+    for line in f:
+        m = re.match(r"([A-Z]+)_PARTS := (.+)", line)
+        if m and m.group(1) != "PRELUDE":
+            names = m.group(2).split()
+            for part in names[1:]:
+                PARTS.add((names[0], part))
 
 mods = {}
 for path in glob.glob(os.path.join(ROOT, "lib", "*", "*.zm")):
@@ -33,15 +59,19 @@ for path in glob.glob(os.path.join(ROOT, "lib", "*", "*.zm")):
 for path in glob.glob(os.path.join(ROOT, "lib", "*", "*", "*.zm")):
     folder = os.path.basename(os.path.dirname(path))
     group = os.path.basename(os.path.dirname(os.path.dirname(path)))
-    if group == "prelude" or os.path.basename(path)[:-3] != folder:
+    name = os.path.basename(path)[:-3]
+    if group == "prelude" or (folder, name) in PARTS:
         continue
-    mods[folder] = os.path.join(group, folder)
+    mods[name] = os.path.join(group, folder)
 
 deps = collections.defaultdict(set)
 for name in mods:
     with open(os.path.join(ROOT, "lib", mods[name], name + ".zm")) as f:
         for line in f:
-            m = re.match(r"use ([a-z_]+)", line)
+            # **Digits included**: `[a-z_]+` matched `a` of `use a11y` and then failed the
+            # `in mods` test, so the one module with a digit in its name had no arrows on this
+            # map at all -- `atspi` uses it.
+            m = re.match(r"use ([a-z0-9_]+)", line)
             if m and m.group(1) in mods and m.group(1) != name:
                 deps[name].add(m.group(1))
 
@@ -66,8 +96,11 @@ out = ["# Library dependencies", "",
        "uses. Boxes are named by module, with the folder in front when it is not `core` (`http.server`, `db.pg`); a program writes just the module (`use server`). The prelude is in every program and is left out; a module with no arrows uses only the prelude",
        "and its own natives.", "",
        "```mermaid", "flowchart LR"]
+def group_of(name):
+    return mods[name].split(os.sep)[0]
+
 for folder, title in FOLDERS.items():
-    members = sorted(n for n in mods if mods[n] == folder)
+    members = sorted(n for n in mods if group_of(n) == folder)
     out.append('    subgraph group_%s["%s"]' % (folder, title))
     for n in members:
         out.append('        %s["%s"]' % (n, n if folder == "core" or n == folder else "%s.%s" % (folder, n)))
