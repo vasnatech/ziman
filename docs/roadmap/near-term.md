@@ -889,8 +889,23 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   The check box is still 9x22: squaring it is now possible but wants a decision about what a check
   box's side should be, which f287.md records as the next user of this feature.
 
-- **A box laid outside its parent is painted and cannot be clicked.** Found 2026-11-13 while
-  building curly's click-to-source lookup, which reported a tab that no press could reach.
+- **~~A box laid outside its parent is painted and cannot be clicked~~ -- fixed 2026-11-14
+  (7d713c7c), the first of the three ways out below.** Found 2026-11-13 while building curly's
+  click-to-source lookup, which reported a tab that no press could reach.
+
+  **Paint clips to the laid box, and only when something escapes it.** The guard is what made it
+  affordable: clipping every `Sized` unconditionally cost `curly gui`'s full repaint 26 ms -> 80
+  ms, because a clip is a group the painter walks into and fifty of them are not cheap. `escapes`
+  is recursive, because the overflowing control is usually a *grandchild* -- a row of three tabs
+  fits, its third tab does not. Affordable at all only because of the clip work below: an upright
+  rectangular clip narrows the window the pass may write instead of building a full-canvas mask,
+  and a laid box is always upright.
+
+  **The other two were not taken, and the reasons stand.** Laying children into the parent's
+  extent is a layout policy decision rather than a clip, and wants F287's measurements to answer
+  to; a `--lint`-style check is still worth having, and curly's click gate is now exactly that --
+  it reports a control laid outside its box as a note, which is true again now that such a control
+  is clipped rather than drawn where no press can reach.
 
   `widget.fixed_of(w, h, child)` sizes; it does not clip. A `Stack` inside one lays its children
   at their natural extent, so a row of three 100-point tabs inside a 200-point `Fixed` puts the
@@ -904,19 +919,9 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   `a_row_scrolled_out_of_sight_cannot_be_clicked`). So the behaviour is not a bug in `at`. The
   question is whether `Fixed` meant to be in the same business.
 
-  Three ways out, and they are not equivalent:
-    * **Paint clips to the laid box**, so what overflows is invisible rather than dead. Matches
-      what a user infers from a fixed size, and makes the two walks agree. Costs a clip per
-      `Fixed`, which the raster backend charges for.
-    * **Lay children into the parent's extent** -- a `Stack` that measures wider than it is given
-      shrinks or wraps. That is a layout policy decision, not a clip, and F287's measurements are
-      the ones it would have to answer to.
-    * **Leave it and say so**, with a `--lint`-style check that a laid tree has no box outside its
-      parent. Cheapest, and it catches the case at the only moment anyone can act on it.
-
-  The curly side currently reports it as a note rather than a failure, because with invented
-  preview data an overflow is as likely to be the placeholder's fault as the design's -- three
-  tabs drawn into a strip the file sized `tab_width * pane_tabs` for two.
+  The curly side reports it as a note rather than a failure, because with invented preview data an
+  overflow is as likely to be the placeholder's fault as the design's -- three tabs drawn into a
+  strip the file sized `tab_width * pane_tabs` for two.
 
 - **~~Four hand-rolled UTF-8 encoders in the library~~ -- there were five, and they are gone.
   Done 2026-11-14 as `lib/core/charset.zm`.** Found 2026-11-13 while fixing `window.Event.Char`,
@@ -1158,8 +1163,26 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   Also still unmeasured: whether the 4x at `px_per_pt: 2.0` is rows alone, since the row count
   doubles while the ink quadruples.
 
-- **`lib/ui` has no icons, and no concept of an image at all.** Asked 2026-11-13, after the design
-  dialect and the builder were both built without anyone noticing the gap.
+- **`lib/ui` has no icons, and no concept of an image at all** -- **the design is decided and the
+  first kind is built (fc5e46e3, `widget.Drawing`); four sources and the control field are not.**
+  Asked 2026-11-13, after the design dialect and the builder were both built without anyone
+  noticing the gap.
+
+  **Where it stands as of 2026-11-14.** `widget.Drawing` is a path in a unit box, scaled into its
+  laid bounds: it measures nothing, contributes no accessibility text, and carries one colour.
+  That is the **path icon** below, the one that needed no new native and no new file format, and
+  adding the variant broke eight exhaustive switches in `lib/ui` plus two in curly -- which is the
+  cost of each further source, paid once.
+
+  **What is left, and the first two are blocked on something else:**
+    * **A glyph from an icon font** is blocked on multi-font support: `widget.zm` passes font index
+      `0` to `scene.text_of` (line 1531), so a `Label` cannot name a second face. A glyph from the
+      *text* font already works and is what the tree's marks are.
+    * **A picture icon** is blocked on decoders: `image` has `decode_png` and, for JPEG, only
+      `jpeg_dimensions` -- there is no JPEG decoder and no SVG parser at all.
+    * **`Button.icon`** -- the control field, which is what makes an icon reachable from a design
+      file. Unblocked, and the question the dialect cannot dodge.
+    * **Themed and layered sources**, which both want the ones above first.
 
   `widget.Widget` has nine variants and the only one that draws is `Text`. `controls.Button` is
   `{name, label, disabled, held}` and the label is a `string`. The words "icon" and "image" appear
