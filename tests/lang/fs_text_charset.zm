@@ -1,0 +1,76 @@
+// Reading a file that is not UTF-8, which is most files a program is handed by something else.
+//
+// **`fs.read_text` answered `Ok` with a string whose bytes were not UTF-8 until 2026-11-14**, and
+// `chars` on such a string *raises* -- so a Latin-1 log or a Java `.properties` file (ISO-8859-1
+// by specification) came back as a value that failed somewhere else entirely. It refuses now, and
+// `fs.read_text_in` is how the same file is read on purpose.
+use charset
+use fs
+use io
+
+val dir = "/tmp/"
+
+fn write(name: string, data: [byte]) -> string {
+    val path = concat(dir, name)
+    unwrap(fs.write_bytes(path, data))
+    return path
+}
+
+fn main() {
+    // `café` and `naïve` as Java or a locale-bound tool writes them: one byte per character.
+    val latin = write("ziman_fixture_latin1.txt", [99b, 97b, 102b, 233b, 10b, 110b, 97b, 239b, 118b, 101b, 10b])
+    // What a spreadsheet writes: UTF-16LE with a byte order mark.
+    val utf16 = write("ziman_fixture_utf16le.txt", [255b, 254b, 104b, 0b, 105b, 0b])
+
+    // **The refusal names the byte and what to do instead**, which is the whole difference between
+    // this and a string that breaks later.
+    switch fs.read_text(latin) {
+        Ok(t) { printf("read_text unexpectedly accepted {} bytes\n", str(byte_len(t))) }
+        Err(e) { printf("read_text refuses: {}\n", fs.fs_error_message(e)) }
+    }
+    // A UTF-16 file is refused by the same check -- its NULs are caught first, which is also a
+    // refusal and also names something true.
+    switch fs.read_text(utf16) {
+        Ok(_) { print("read_text unexpectedly accepted a UTF-16 file") }
+        Err(e) { printf("a utf-16 file as utf-8: {}\n", fs.fs_error_message(e)) }
+    }
+
+    // Read in the set it is actually in.
+    switch fs.read_text_in(latin, charset.Charset.Latin1) {
+        Ok(t) { printf("as latin-1: {} chars, first line {}\n", str(len(chars(t))), split(t, "\n")[0]) }
+        Err(e) { printf("refused: {}\n", fs.fs_error_message(e)) }
+    }
+    // **The mark is dropped**: a whole file is where a mark can only be a mark.
+    switch fs.read_text_in(utf16, charset.Charset.Utf16le) {
+        Ok(t) { printf("as utf-16le: '{}' ({} chars)\n", t, str(len(chars(t)))) }
+        Err(e) { printf("refused: {}\n", fs.fs_error_message(e)) }
+    }
+    // The wrong set says so rather than producing plausible nonsense.
+    switch fs.read_text_in(latin, charset.Charset.Ascii) {
+        Ok(t) { printf("unexpectedly read as ascii: {}\n", t) }
+        Err(e) { printf("as ascii: {}\n", fs.fs_error_message(e)) }
+    }
+
+    // And a line at a time, over `io.lines_in`, so the file's size does not matter.
+    switch fs.lines_in(latin, charset.Charset.Latin1) {
+        Ok(reading) {
+            val lines = io.mapped<string, io.IoError, string>(reading, io.io_error_message)
+            for line in lines {
+                switch line {
+                    Ok(l) { printf("line: {}\n", l) }
+                    Err(why) { printf("line failed: {}\n", why) }
+                }
+            }
+        }
+        Err(e) { printf("lines refused: {}\n", fs.fs_error_message(e)) }
+    }
+
+    // A file that *is* UTF-8 reads the same through both doors.
+    val utf8 = write("ziman_fixture_utf8.txt", to_bytes("café\n"))
+    printf("utf-8 both ways agree: {}\n", str(
+        unwrap(fs.read_text(utf8)) == unwrap(fs.read_text_in(utf8, charset.Charset.Utf8))
+    ))
+    unwrap(fs.remove(latin))
+    unwrap(fs.remove(utf16))
+    unwrap(fs.remove(utf8))
+}

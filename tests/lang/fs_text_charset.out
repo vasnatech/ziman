@@ -1,0 +1,8 @@
+read_text refuses: cannot read '/tmp/ziman_fixture_latin1.txt': the file is not valid UTF-8 (invalid sequence at byte 3) -- fs.read_text_in reads a file in a named charset
+a utf-16 file as utf-8: cannot read '/tmp/ziman_fixture_utf16le.txt': file contains a NUL byte
+as latin-1: 11 chars, first line café
+as utf-16le: 'hi' (2 chars)
+as ascii: cannot read '/tmp/ziman_fixture_latin1.txt' as ASCII: ASCII: a byte above 0x7F at 3
+line: café
+line: naïve
+utf-8 both ways agree: true

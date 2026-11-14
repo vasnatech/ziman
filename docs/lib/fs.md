@@ -128,6 +128,40 @@ but passes it through uniformly -- the counterpart of `net_error_message`.
 pub fn read_text(path: string) -> Result<string, FsError>
 ```
 
+### `read_text_in`
+
+```
+pub fn read_text_in(path: string, set: charset.Charset) -> Result<string, FsError>
+```
+
+The whole file as a string, read in a named character set.
+
+**`read_text` is this function with UTF-8 wired in, and it refuses anything else** -- which it
+did not until 2026-11-14: a file whose bytes are not UTF-8 came back as `Ok` with a string that
+`chars` raises on, far from the call that read it. Refusing is right, and refusing with no
+alternative would have been a capability removed, so here is the alternative.
+
+**The files this is for are real and common**: a Java `.properties` file is ISO-8859-1 by
+specification, a spreadsheet writes UTF-16 with a byte order mark, and a system log is often
+whatever the machine's locale was. `charset.sniff` reads a mark if there is one, and
+`charset.charset_named` turns an HTTP `charset=` parameter or an XML declaration into a set.
+
+A leading mark **is dropped**, because a whole file is where a mark can only be a mark --
+`charset.decode`'s own rule, and the opposite of what a chunk of a stream may assume.
+
+### `lines_in`
+
+```
+pub fn lines_in(
+    path: string,
+    set: charset.Charset
+) -> Result<Iter<Result<string, io.IoError>>, FsError>
+```
+
+The lines of a file read in a named character set, which is `lines` with the set wired in --
+`io.lines_in` over `chunks`, so a file of any size still uses memory for one line and a
+character split across two reads is held back until the rest of it arrives.
+
 ### `lines`
 
 ```

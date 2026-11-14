@@ -11,6 +11,7 @@
 // Text is UTF-8 in a `string`, which cannot hold a NUL byte; anything else -- images, archives,
 // files that might contain NUL -- is read and written as `[byte]`.
 
+use charset
 use io
 use os
 
@@ -92,6 +93,37 @@ pub fn read_text(path: string) -> Result<string, FsError> {
     return lift(read_text_raw(path))
 }
 
+// The whole file as a string, read in a named character set.
+//
+// **`read_text` is this function with UTF-8 wired in, and it refuses anything else** -- which it
+// did not until 2026-11-14: a file whose bytes are not UTF-8 came back as `Ok` with a string that
+// `chars` raises on, far from the call that read it. Refusing is right, and refusing with no
+// alternative would have been a capability removed, so here is the alternative.
+//
+// **The files this is for are real and common**: a Java `.properties` file is ISO-8859-1 by
+// specification, a spreadsheet writes UTF-16 with a byte order mark, and a system log is often
+// whatever the machine's locale was. `charset.sniff` reads a mark if there is one, and
+// `charset.charset_named` turns an HTTP `charset=` parameter or an XML declaration into a set.
+//
+// A leading mark **is dropped**, because a whole file is where a mark can only be a mark --
+// `charset.decode`'s own rule, and the opposite of what a chunk of a stream may assume.
+pub fn read_text_in(path: string, set: charset.Charset) -> Result<string, FsError> {
+    val data = try read_bytes(path)
+    return switch charset.decode(data, set) {
+        Ok(text) { ok(text) }
+        // `Other`, because the file was read and the failure is about what is in it -- not a
+        // path problem, which is what every other variant here names.
+        Err(r) {
+            err(FsError.Other(prelude.format(
+                "cannot read '{}' as {}: {}",
+                path,
+                charset.name_of(set),
+                charset.describe(r)
+            )))
+        }
+    }
+}
+
 // The lines of a file, read lazily as a `for` loop asks for them, so a file of any size uses memory
 // for one line: `val lines = try fs.lines(path)` then `for line in lines { val text = try line ... }`. Each item is a
 // `Result<string, io.IoError>`: the line without its `\n` or `\r\n` (a final line with no newline counts,
@@ -99,6 +131,16 @@ pub fn read_text(path: string) -> Result<string, FsError> {
 // error, after which the iteration ends. The Err on the call itself is the file failing to open.
 // Leaving the loop early closes the file.
 native fn lines_raw(path: string) -> Result<Iter<Result<string, string>>, string>
+
+// The lines of a file read in a named character set, which is `lines` with the set wired in --
+// `io.lines_in` over `chunks`, so a file of any size still uses memory for one line and a
+// character split across two reads is held back until the rest of it arrives.
+pub fn lines_in(
+    path: string,
+    set: charset.Charset
+) -> Result<Iter<Result<string, io.IoError>>, FsError> {
+    return ok(io.lines_in(try chunks(path, 65536), set))
+}
 
 pub fn lines(path: string) -> Result<Iter<Result<string, io.IoError>>, FsError> {
     return switch lines_raw(path) {

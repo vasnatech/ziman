@@ -14,6 +14,7 @@
 
 #include "iter.h"
 #include "native.h"
+#include "utf8.h"
 #include "value.h"
 #include "xalloc.h"
 
@@ -199,6 +200,20 @@ static Value native_fs_read_text(Value *args, int argc, int line, int col) {
     if (strlen(buf) != n) {
         char msg[1024];
         snprintf(msg, sizeof(msg), "cannot read '%s': file contains a NUL byte", path);
+        return value_result(type_ref(type_result(str, str)), result_obj_new(0, value_string(ziman_xstrdup(msg))));
+    }
+    /* **The bytes have to be text before this answers Ok.** A string whose bytes are not UTF-8 is
+     * one that `chars` raises on, so returning one here moved the failure to whoever first read a
+     * character -- which for a Latin-1 log or a Java .properties file (ISO-8859-1 by
+     * specification) is a long way from `read_text`. The NUL check above was the same problem
+     * found one byte at a time. Costs one pass over a buffer that `strlen` has just walked. */
+    size_t bad = 0;
+    if (!ziman_utf8_valid((const uint8_t *)buf, n, &bad)) {
+        char msg[1024];
+        snprintf(msg, sizeof(msg),
+                 "cannot read '%s': the file is not valid UTF-8 (invalid sequence at byte %zu) -- "
+                 "fs.read_text_in reads a file in a named charset",
+                 path, bad);
         return value_result(type_ref(type_result(str, str)), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     return value_result(type_ref(type_result(str, str)), result_obj_new(1, value_string(buf)));

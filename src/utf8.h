@@ -34,6 +34,31 @@ static inline int ziman_utf8_decode_strict(const uint8_t *s, size_t len, size_t 
     return n;
 }
 
+/* Whether the whole buffer is UTF-8, and where it stops being so.
+ *
+ * **`fs.read_text` answered Ok with a string that was not**, until 2026-11-14: a log in Latin-1 or
+ * a Java .properties file (ISO-8859-1 by specification) came back as a value whose `chars` *raises*
+ * -- "string is not valid UTF-8" -- far from the call that produced it. The NUL check beside it in
+ * `native_fs_read_text` had been there from the start, which is the same class of problem found one
+ * byte at a time.
+ *
+ * Here rather than in the caller for the reason at the top of this file: a second validator could
+ * disagree with `bytes_to_string` about what text is, and then a string's validity would depend on
+ * which door it came through. */
+static inline int ziman_utf8_valid(const uint8_t *s, size_t len, size_t *at) {
+    size_t pos = 0;
+    while (pos < len) {
+        uint32_t cp;
+        int n = ziman_utf8_decode_strict(s, len, pos, &cp);
+        if (n <= 0) {
+            if (at != NULL) *at = pos;
+            return 0;
+        }
+        pos += (size_t)n;
+    }
+    return 1;
+}
+
 /* The UTF-8 encoding of `cp`, written to `out` (4 bytes are always enough), answering how many
  * bytes that took. The inverse of the decoder above, and here for the same stated reason: two
  * encoders that could disagree about what a code point looks like is the bug this file exists to
