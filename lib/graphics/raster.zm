@@ -1308,6 +1308,62 @@ fn blit(t: Target, tile: GlyphTile, ix: int, iy: int, b: Blitter) -> Result<unit
 // Gray-ish buffer and multiplied into everything the group draws. A rectangle fast path is worth
 // having later (almost every clip is one), but the general case has to exist, because a `Group`
 // whose clip was silently ignored is exactly what invariant 2 forbids.
+// The extreme of one coordinate across every edge: `which` is 0 for x and 1 for y, and an edge
+// is four floats, so both ends of each are looked at.
+fn lowest(e: Edges, which: int) -> float {
+    var best = 0.0
+    var seen = false
+    var i = 0
+    while i < len(e.xy) {
+        val a = e.xy[i + which]
+        val b = e.xy[i + which + 2]
+        if !seen || a < best {
+            best = a
+            seen = true
+        }
+        if b < best {
+            best = b
+        }
+        i = i + 4
+    }
+    return best
+}
+
+fn highest(e: Edges, which: int) -> float {
+    var best = 0.0
+    var seen = false
+    var i = 0
+    while i < len(e.xy) {
+        val a = e.xy[i + which]
+        val b = e.xy[i + which + 2]
+        if !seen || a > best {
+            best = a
+            seen = true
+        }
+        if b > best {
+            best = b
+        }
+        i = i + 4
+    }
+    return best
+}
+
+fn bigger(a: int, b: int) -> int {
+    return if a > b { a } else { b }
+}
+
+fn smaller(a: int, b: int) -> int {
+    return if a < b { a } else { b }
+}
+
+fn floor_to_int(v: float) -> int {
+    return floor(v) as int
+}
+
+fn ceil_to_int(v: float) -> int {
+    return ceil(v) as int
+}
+
 fn clip_mask(
     t: Target,
     path: Path,
@@ -1317,23 +1373,46 @@ fn clip_mask(
 ) -> Result<[float], string> {
     val device = shape.transform_path(path, m)
     val e = edges_of(device)
-    val mask = mutable_array_new<float>()
+    // **Only where the mask can be anything but zero, and only where this pass may write.**
+    //
+    // This walked every row and every column of the canvas, whatever the clip covered and
+    // whatever region was being redrawn. The `Target` comment a few hundred lines up says a clip
+    // is "exactly what a damage region exists to avoid" -- and it was, because the mask ignored
+    // the window those four ints describe. Measured on a hundred fills wrapped in one clip: 270
+    // ms against 23 ms unclipped, and a fiftieth of the surface cost 249 ms rather than the 1 ms
+    // the same ops cost unclipped. `lib/ui` wraps every scroll viewport in one of these, so a
+    // window that scrolled anything paid for the whole canvas per viewport per frame.
+    //
+    // Outside the path's own bounds the coverage is zero, and zero times anything is the zero the
+    // array already holds; outside the window nothing is read, because the only two functions
+    // that touch pixels are bounded by the same four ints.
+    val mask = mutable_array_filled<float>(t.width * t.height, 0.0)
+    val lo_y = bigger(t.win_y0, floor_to_int(lowest(e, 1)))
+    val hi_y = smaller(t.win_y1, ceil_to_int(highest(e, 1)))
+    val lo_x = bigger(t.win_x0, floor_to_int(lowest(e, 0)))
+    val hi_x = smaller(t.win_x1, ceil_to_int(highest(e, 0)))
+    if hi_y < lo_y || hi_x < lo_x {
+        return ok(snapshot(mask))
+    }
     val row = mutable_array_filled<float>(t.width, 0.0)
-    val plan = plan_of(e, 0, t.height - 1)
+    val plan = plan_of(e, lo_y, hi_y)
     val live = mutable_array_new<int>()
     var cursor = 0
-    var y = 0
-    while y < t.height {
+    var y = lo_y
+    while y <= hi_y {
         cursor = advance_active(plan, live, cursor, y)
-        row_coverage(row, t.width, e, live, device.winding, o.samples, y, 0, t.width - 1)
-        var x = 0
-        while x < t.width {
+        row_coverage(row, t.width, e, live, device.winding, o.samples, y, lo_x, hi_x)
+        // The row's base, out of the inner loop: this is a multiply per pixel otherwise, and the
+        // inner loop is the whole cost of a clip.
+        val base = y * t.width
+        var x = lo_x
+        while x <= hi_x {
             val here = row[x]
             val before = switch existing {
-                Some(prev) { prev[y * t.width + x] }
+                Some(prev) { prev[base + x] }
                 None { 1.0 }
             }
-            push(mask, here * before)
+            mask[base + x] = here * before
             x = x + 1
         }
         y = y + 1

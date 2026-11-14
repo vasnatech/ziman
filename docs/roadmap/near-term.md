@@ -951,9 +951,9 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   The first is a language-surface decision; the second is a module nobody has needed twice until
   now. Either way `truetype.zm`'s copy should go.
 
-- **A scroll viewport makes every frame cost full price, and it is `scene.clipped`.** Measured
-  2026-11-13, chasing why the design builder was slow. This is the largest single cost in the
-  drawing stack and it is paid by every window that scrolls anything -- `curly gui` has two.
+- **~~A scroll viewport makes every frame cost full price~~ -- found and fixed 2026-11-13**, while
+  chasing why the design builder was slow. It was the largest single cost in the drawing stack and
+  it was paid by every window that scrolls anything -- `curly gui` has two.
 
   `widget.paint` wraps a `Scroll`'s children in `scene.clipped` (`widget.zm`, the `Scroll(_)` arm
   of `collect`). The controlled pair, a hundred identical fills with and without a clip around
@@ -977,16 +977,33 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   nothing. (Absolute numbers drifted between runs with machine load; every comparison above is
   from one run.)
 
-  **What is measured and what is not.** That the clip is responsible is measured, by removing it
-  from a real scene and from a synthetic one. *Why* it costs this much is not: the clip path in
-  the raster backend has not been read, and the guess that it builds a full-surface mask per
-  group is a guess. That is where to look first, along with the obvious two improvements -- skip
-  a clipped group whose clip does not meet the draw region, and intersect the clip with the
-  region rather than the surface when it does.
+  **FIXED, mostly.** The guess above was right and the code said so all along: `clip_mask` walked
+  every row and every column of the canvas, whatever the clip covered and whatever region was
+  being redrawn. It now runs over the intersection of the draw window and the path's own bounds
+  -- outside the path the coverage is zero, and outside the window nothing is ever read, because
+  the only two functions that touch pixels are bounded by the same four ints.
 
-  Until then the shape to avoid is a viewport that wraps a lot, and the thing not to reach for is
-  `scene.clipped` as a way to limit painting: it is a mask, and it costs more than painting
-  everything.
+  Same binary, same session, before and after:
+
+  | | before | after |
+  |---|---|---|
+  | a clip drawn into a fiftieth of the surface | 501 ms | **48 ms** |
+  | a viewport-sized clip (300x400 of 1400x900) | 493 ms | **78 ms** |
+  | a clip over the whole canvas | 538 ms | 505 ms |
+  | no clip at all | 35 ms | 37 ms |
+  | the design builder's whole frame | 2461 ms | **417 ms** |
+  | the same, a 95x12 region | 2602 ms | **255 ms** |
+
+  A clip that covers everything clips nothing and is unchanged, which is the right shape for the
+  trade.
+
+  **What is left.** The builder's frame is 417 ms and the same ops with the clips removed are
+  60 ms, so a mask still costs several times what the drawing under it costs. Each one is an
+  allocation of `width * height` floats -- the whole canvas, five times a frame here, even though
+  only the viewport's own rows are filled -- plus a read per covered pixel. A bounded mask
+  (origin, size, and a buffer of just that) would remove the allocation and shorten the reads;
+  there are only two places that sample one. Whether the allocation or the sampling is the
+  remaining cost is **not measured**, and that is the thing to settle first.
 
 - **A scene costs the sum of its ops' areas, not the surface's, and a full repaint of a window-sized
   one is near a second.** Measured 2026-11-13 while building curly's design builder, whose clicks
