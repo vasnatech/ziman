@@ -82,6 +82,30 @@ pub struct Label {
     name: string
 }
 
+// A path drawn into whatever box the layout gives it.
+//
+// **The path is in a unit box**, from (0,0) to (1,1), and is scaled to the bounds when painted.
+// That is what lets one icon serve a 12-point label and a 40-point button without a second
+// drawing of it, and it is the whole reason an icon has no size of its own: the control it
+// belongs to decides, from the text it sits beside.
+//
+// One colour, because this is a *mark* rather than a picture. A mark tints with the control's
+// state -- disabled, pressed -- and a picture does not; conflating them is how a disabled button
+// ends up with a bright icon on a grey label.
+pub struct Drawn {
+    path: shape.Path
+    colour: Color
+    name: string
+}
+
+pub fn drawn_of(path: shape.Path, colour: Color) -> Widget {
+    return Widget.Drawing(Drawn { path: path, colour: colour, name: "" })
+}
+
+pub fn named_drawing(path: shape.Path, colour: Color, name: string) -> Widget {
+    return Widget.Drawing(Drawn { path: path, colour: colour, name: name })
+}
+
 pub fn label_of(text: string, size: float, colour: Color) -> Widget {
     return Widget.Text(Label { text: text, size: size, colour: colour, name: "" })
 }
@@ -775,6 +799,8 @@ pub enum Widget {
     // `Option<Widget>` at every site that holds one.
     Nothing
     Text(Label)
+    // A path scaled into its box: a mark rather than a picture. See `Drawn`.
+    Drawing(Drawn)
     Group(Stack)
     Sized(Fixed)
     // Flexible space. **Its weight is how leftover space is shared**, so two spacers of 1 and 3
@@ -848,6 +874,10 @@ pub fn metrics_for(f: font.FontRef) -> Result<Metrics, string> {
 pub fn measure(w: Widget, m: Metrics) -> Size {
     return switch w {
         Nothing { size_of(0.0, 0.0) }
+        // **A mark has no natural size**, which is the point of it: an icon is sized by the
+        // control it belongs to, from the text it sits beside, so measuring it would be the
+        // widget answering a question that is not its to answer.
+        Drawing(_) { size_of(0.0, 0.0) }
         Flex(_) { size_of(0.0, 0.0) }
         Text(it) {
             val width = m.text_width
@@ -964,6 +994,7 @@ fn place(w: Widget, within: Rect, m: Metrics, index: int, parent_name: string) -
     val own_name = name_of(w)
     val name = if own_name == "" { parent_name } else { own_name }
     return switch w {
+        Drawing(_) { leaf(w, within, index, name) }
         Group(it) { place_stack(it, w, within, m, index, name) }
         Sized(it) {
             Laid {
@@ -1135,6 +1166,7 @@ fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, index: int, name: 
 // `Flex(0.0)` has to stay distinguishable from "not flexible", which a bare 0.0 would not be.
 fn flex_weight(w: Widget) -> Option<float> {
     return switch w {
+        Drawing(_) { Option<float>.None }
         Flex(weight) { Option<float>.Some(weight) }
         Expand(it) { Option<float>.Some(it.weight) }
         Control(_) { Option<float>.None }
@@ -1163,6 +1195,7 @@ fn across_of(s: Size, direction: Direction) -> float {
 
 fn name_of(w: Widget) -> string {
     return switch w {
+        Drawing(it) { it.name }
         Nothing { "" }
         Flex(_) { "" }
         Expand(_) { "" }
@@ -1269,6 +1302,7 @@ pub fn contains(r: Rect, p: Point) -> bool {
 // control and not a tab stop.
 pub fn is_tab_stop(l: Laid) -> bool {
     return switch l.widget {
+        Drawing(_) { false }
         Control(it) { it.tab_stop }
         Layered(_) { false }
         Nothing { false }
@@ -1284,6 +1318,7 @@ pub fn is_tab_stop(l: Laid) -> bool {
 // Whether a laid node is a control: its own widget takes focus.
 pub fn is_control(l: Laid) -> bool {
     return switch l.widget {
+        Drawing(_) { false }
         Control(_) { true }
         Scroll(_) { false }
         Layered(_) { false }
@@ -1446,6 +1481,15 @@ fn paint_surface(s: Surface, bounds: Rect, ops: MutableArray<Op>) {
 fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>) {
     if Group(it) = l.widget {
         paint_surface(it.surface, l.bounds, ops)
+    }
+    if Drawing(it) = l.widget {
+        // The path is authored in a unit box, so this is the one transform that makes an icon
+        // size-independent: scale to the bounds, then move to them.
+        val into = geom.matrix_concat(
+            geom.translation(l.bounds.x, l.bounds.y),
+            geom.scaling(l.bounds.width, l.bounds.height)
+        )
+        push(ops, scene.fill(shape.transform_path(it.path, into), Paint.Solid(it.colour)))
     }
     if Text(it) = l.widget {
         val height = m.line_height

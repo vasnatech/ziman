@@ -340,6 +340,7 @@ fn path_key(path: string) -> string {
 
 fn focusable_in(l: Laid) -> Option<widget.Focusable> {
     return switch l.widget {
+        Drawing(_) { Option<widget.Focusable>.None }
         Control(f) { Option<widget.Focusable>.Some(f) }
         // A viewport is not a control: it scrolls, and what a reader navigates to are the things
         // inside it. **Its children stay in the tree even when they are scrolled out of sight**,
@@ -358,6 +359,10 @@ fn focusable_in(l: Laid) -> Option<widget.Focusable> {
 
 fn text_of(l: Laid) -> string {
     return switch l.widget {
+        // **A mark contributes no text, deliberately.** An icon beside a label would otherwise
+        // announce twice -- "Save button, save" -- and an icon *without* a label is named by the
+        // control that holds it, which is where the name belongs.
+        Drawing(_) { "" }
         Text(label) { label.text }
         Scroll(_) { "" }
         Layered(_) { "" }

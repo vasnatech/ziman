@@ -468,6 +468,112 @@ fn start_x(path: shape.Path) -> float {
     return 0.0 - 1.0
 }
 
+fn bounds_of_path(path: shape.Path) -> geom.Rect {
+    var lo = geom.point_of(100000.0, 100000.0)
+    var hi = geom.point_of(0.0 - 100000.0, 0.0 - 100000.0)
+    for seg in path.segments {
+        switch seg {
+            MoveTo(p) {
+                lo = geom.point_of(least(lo.x, p.x), least(lo.y, p.y))
+                hi = geom.point_of(most(hi.x, p.x), most(hi.y, p.y))
+            }
+            LineTo(p) {
+                lo = geom.point_of(least(lo.x, p.x), least(lo.y, p.y))
+                hi = geom.point_of(most(hi.x, p.x), most(hi.y, p.y))
+            }
+            QuadTo(q) {
+                lo = geom.point_of(least(lo.x, q.end.x), least(lo.y, q.end.y))
+                hi = geom.point_of(most(hi.x, q.end.x), most(hi.y, q.end.y))
+            }
+            CubicTo(c) {
+                lo = geom.point_of(least(lo.x, c.end.x), least(lo.y, c.end.y))
+                hi = geom.point_of(most(hi.x, c.end.x), most(hi.y, c.end.y))
+            }
+            Close { unit }
+        }
+    }
+    return geom.rect_of(lo.x, lo.y, hi.x - lo.x, hi.y - lo.y)
+}
+
+fn least(a: float, b: float) -> float {
+    return if a < b { a } else { b }
+}
+
+fn most(a: float, b: float) -> float {
+    return if a > b { a } else { b }
+}
+
+// --- a drawn mark
+
+// A triangle in the unit box, which is what an icon is authored as.
+fn unit_mark() -> shape.Path {
+    return shape.polygon_path(
+        [geom.point_of(0.0, 0.0), geom.point_of(1.0, 0.0), geom.point_of(0.5, 1.0)],
+        true
+    )
+}
+
+fn drawn_path(l: widget.Laid) -> shape.Path {
+    val ops = widget.paint_ops(l, fake_metrics())
+    test.assert_len(1, ops)
+    return fill_path(ops[0])
+}
+
+// **An icon is authored once, in a unit box, and scaled by whoever draws it.** That is what lets
+// one drawing serve a 12-point label and a 40-point button, and it is why an icon has no size of
+// its own.
+#[test]
+fn a_mark_is_scaled_into_the_box_it_is_given() {
+    val small = drawn_path(laid(widget.drawn_of(unit_mark(), black()), 10.0, 10.0))
+    val large = drawn_path(laid(widget.drawn_of(unit_mark(), black()), 40.0, 20.0))
+    test.assert_eq(rect_text(bounds_of_path(small)), "0.0,0.0 10.0x10.0")
+    test.assert_eq(rect_text(bounds_of_path(large)), "0.0,0.0 40.0x20.0")
+}
+
+// It is placed where the layout puts it, not at the origin.
+#[test]
+fn a_mark_is_moved_to_its_box() {
+    val l = widget.layout(
+        widget.drawn_of(unit_mark(), black()),
+        geom.rect_of(30.0, 50.0, 16.0, 16.0),
+        fake_metrics()
+    )
+    test.assert_eq(rect_text(bounds_of_path(drawn_path(l))), "30.0,50.0 16.0x16.0")
+}
+
+// **A mark measures nothing**, which is the point: an icon is sized by the control that holds it,
+// from the text beside it, so a widget answering with a size of its own would be answering a
+// question that is not its to answer.
+#[test]
+fn a_mark_has_no_natural_size() {
+    val size = widget.measure(widget.drawn_of(unit_mark(), black()), fake_metrics())
+    test.assert_eq(size.width, 0.0)
+    test.assert_eq(size.height, 0.0)
+}
+
+// It is not a control and Tab cannot land on it: a mark is decoration, and the thing it decorates
+// is what takes the focus.
+#[test]
+fn a_mark_is_not_something_to_focus() {
+    val l = laid(widget.drawn_of(unit_mark(), black()), 10.0, 10.0)
+    test.assert_false(widget.is_control(l))
+    test.assert_false(widget.is_tab_stop(l))
+}
+
+// One colour, because a mark tints with the control's state where a picture does not.
+#[test]
+fn a_mark_paints_one_fill_in_its_colour() {
+    val ops = widget.paint_ops(laid(widget.drawn_of(unit_mark(), black()), 10.0, 10.0), fake_metrics())
+    test.assert_len(1, ops)
+    switch ops[0] {
+        Fill(_) { unit }
+        StrokePath(_) { test.fail("a mark is filled, not stroked") }
+        Text(_) { test.fail("a mark is not text") }
+        DrawImage(_) { test.fail("a mark is not an image") }
+        Nested(_) { test.fail("a mark is not a group") }
+    }
+}
+
 // --- finding a node by its name
 
 fn named_box(l: widget.Laid, name: string) -> string {

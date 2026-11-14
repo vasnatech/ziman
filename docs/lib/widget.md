@@ -192,6 +192,39 @@ pub struct Label {
 A run of text. No wrapping: a label is one line, and a paragraph that wraps is a different
 widget with a different measurement (and `graphics/layout` already knows how to break one).
 
+### `Drawn`
+
+```
+pub struct Drawn {
+    path: shape.Path
+    colour: Color
+    name: string
+}
+```
+
+A path drawn into whatever box the layout gives it.
+
+**The path is in a unit box**, from (0,0) to (1,1), and is scaled to the bounds when painted.
+That is what lets one icon serve a 12-point label and a 40-point button without a second
+drawing of it, and it is the whole reason an icon has no size of its own: the control it
+belongs to decides, from the text it sits beside.
+
+One colour, because this is a *mark* rather than a picture. A mark tints with the control's
+state -- disabled, pressed -- and a picture does not; conflating them is how a disabled button
+ends up with a bright icon on a grey label.
+
+### `drawn_of`
+
+```
+pub fn drawn_of(path: shape.Path, colour: Color) -> Widget
+```
+
+### `named_drawing`
+
+```
+pub fn named_drawing(path: shape.Path, colour: Color, name: string) -> Widget
+```
+
 ### `label_of`
 
 ```
@@ -933,6 +966,8 @@ pub enum Widget {
     // `Option<Widget>` at every site that holds one.
     Nothing
     Text(Label)
+    // A path scaled into its box: a mark rather than a picture. See `Drawn`.
+    Drawing(Drawn)
     Group(Stack)
     Sized(Fixed)
     // Flexible space. **Its weight is how leftover space is shared**, so two spacers of 1 and 3
