@@ -1133,7 +1133,37 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   `scene.image(handle, into)`, the `image` module and `raster` can all draw a picture; `widget`
   has no way to place one.
 
-  Two routes, and they are not equivalent:
+  **DECIDED 2026-11-14. An image is content; an icon is part of a control.** Not a naming
+  preference -- four things fall out differently, and they are why an icon cannot simply be an
+  image placed beside a label:
+
+  | | image | icon |
+  |---|---|---|
+  | what it is | a `Widget` you place | a *field* on a control: `Button.icon`, and on a label |
+  | size | intrinsic, from the file | **none of its own**, derived from the control's text metrics |
+  | colour | its own | monochrome, tinted by the control's state |
+  | accessibility | content, needs a description | decoration: silent when the control has a label, and *becomes* the control's name when it has none |
+
+  The field framing also settles the question this entry used to end on. An icon-and-label button
+  needed either an icon field on `Button` or a way to put an arbitrary widget in a control's label
+  slot; it is the first, so a design file can write one without the dialect reaching inside a
+  control.
+
+  `Icon` is a source plus what a control needs to use it -- a **name**, a **side** (a search glass
+  leads, a clear `x` trails), and **size variants**, because detail that reads at 32pt turns to
+  mud at 16. That last one is F286's finding again in another guise.
+
+  The sources, with what each costs:
+
+  | | |
+  |---|---|
+  | **a drawn path** | no new native code: `shape` has the builder and `transform_path`, `scene.fill` draws it. Tints and scales free. **First instalment.** |
+  | **a glyph** | from the *text* font this already works -- the tree's marks are exactly this. From an **icon font** it is blocked: `widget.zm` passes font index `0` to `scene.text_of`, so a `Label` cannot name a second face. Multi-font support is its own change. |
+  | **the desktop's theme** | `"document-save"` from the freedesktop icon theme, which is how an application stops looking imported. Resolves to a *file*, usually SVG -- so it depends on the SVG reader, not the image decoder. |
+  | **a decoded image** | `image.decode_png` exists; **there is no JPEG decoder** (`jpeg_dimensions` reads the header and nothing more), and no SVG parser at all. Does not tint, so its state variants need separate artwork -- the type must allow that without making it the shape everything else pays for. |
+  | **layered** | a base with a badge. Cheap once the others exist, and much easier designed in than retrofitted. |
+
+  The two routes below were the question before that decision, and the measurements stand:
 
     * **A raster icon** -- a `Picture` widget carrying a handle. `scene.image` takes an `int` into
       a registry, so `raster.Options` would need an `images:` array beside its `fonts:` one. Every
