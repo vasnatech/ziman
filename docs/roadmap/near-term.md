@@ -997,6 +997,24 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   A clip that covers everything clips nothing and is unchanged, which is the right shape for the
   trade.
 
+  **And then the rest of it, the same day:** an upright rectangle on whole pixels needs no mask at
+  all, because `Target` already carries the four ints saying which pixels a pass may write and
+  every clip `lib/ui` emits is `shape.rect_path(bounds)`. With that, a clipped scene costs what an
+  unclipped one costs -- 25 ms against 26 -- and the numbers above become 1 ms for a fiftieth,
+  14 ms for a viewport-sized clip, and 98 ms for the builder's whole frame against 2461.
+
+  On the application this was all for, measured against the same floor before and after:
+
+  | a full repaint at 1400x900 | before | after |
+  |---|---|---|
+  | an empty surface | 21 ms | 22 ms |
+  | **`curly gui`'s window** | **572 ms** | **26 ms** |
+  | the builder's window | 900 ms | 31 ms |
+  | the builder with a design in it | 1180 ms | 45 ms |
+
+  `curly gui` costs four milliseconds more than an empty surface now. It cost five hundred and
+  fifty-one more this morning.
+
   **What is left.** The builder's frame is 417 ms and the same ops with the clips removed are
   60 ms, so a mask still costs several times what the drawing under it costs. Each one is an
   allocation of `width * height` floats -- the whole canvas, five times a frame here, even though
