@@ -628,16 +628,26 @@ pub fn ascii_text(data: [byte]) -> Result<string, Refusal> {
     }
 }
 
-// ISO-8859-1, where every byte is the code point of the same number. **Decoding cannot fail**,
-// which is the property that makes it the fallback every other single-byte set is compared to.
-pub fn latin1_text(data: [byte]) -> string {
+// ISO-8859-1, where every byte is the code point of the same number.
+//
+// **Decoding fails for exactly one byte**, where the comment here used to claim it could not fail
+// at all: a ziman string cannot hold a NUL, so 0x00 is refused rather than written as `?`.
+// Everything else is arithmetic, which is still what makes this the set every other single-byte
+// one is compared to.
+pub fn latin1_text(data: [byte]) -> Result<string, Refusal> {
+    val out = mutable_string_new()
+    var i = 0
+    while i < prelude.len(data) {
+        append(out, try text_of_point(data[i] as int, Charset.Latin1, i))
+        i = i + 1
+    }
+    return ok(prelude.snapshot(out))
+}
+
+fn latin1_lossy(data: [byte]) -> string {
     val out = mutable_string_new()
     for b in data {
-        // Each byte is a code point below 256, so this cannot refuse.
-        switch utf8_text(b as int) {
-            Ok(s) { append(out, s) }
-            Err(_) { append(out, "?") }
-        }
+        append(out, text_of_point_lossy(b as int))
     }
     return prelude.snapshot(out)
 }
@@ -664,17 +674,31 @@ val win_ansi_high = [
     144, 8216, 8217, 8220, 8221, 8226, 8211, 8212, 732, 8482, 353, 8250, 339, 157, 382, 376
 ]
 
-pub fn win_ansi_text(data: [byte]) -> string {
+pub fn win_ansi_text(data: [byte]) -> Result<string, Refusal> {
+    val out = mutable_string_new()
+    var i = 0
+    while i < prelude.len(data) {
+        append(out, try text_of_point(win_ansi_point(data[i]), Charset.WinAnsi, i))
+        i = i + 1
+    }
+    return ok(prelude.snapshot(out))
+}
+
+fn win_ansi_lossy(data: [byte]) -> string {
     val out = mutable_string_new()
     for b in data {
-        val v = b as int
-        val cp = if v >= 128 && v <= 159 { win_ansi_high[v - 128] } else { v }
-        switch utf8_text(cp) {
-            Ok(s) { append(out, s) }
-            Err(_) { append(out, "?") }
-        }
+        append(out, text_of_point_lossy(win_ansi_point(b)))
     }
     return prelude.snapshot(out)
+}
+
+// The code point CP1252 gives a byte: its own 32-entry block, and Latin-1 either side of it.
+fn win_ansi_point(b: byte) -> int {
+    val v = b as int
+    if v >= 128 && v <= 159 {
+        return win_ansi_high[v - 128]
+    }
+    return v
 }
 
 pub fn win_ansi_bytes(text: string) -> Result<[byte], Refusal> {
@@ -765,7 +789,7 @@ fn utf16_lossy(data: [byte], big: bool) -> string {
             switch paired(unit, unit_at(data, i + 2, big)) {
                 Some(cp) {
                     // Guarded by `paired`, so this cannot refuse.
-                    append(out, try_text(cp))
+                    append(out, text_of_point_lossy(cp))
                     i = i + 4
                     continue
                 }
@@ -776,7 +800,7 @@ fn utf16_lossy(data: [byte], big: bool) -> string {
         if is_high_surrogate(unit) || is_low_surrogate(unit) {
             append(out, replacement_text)
         } else {
-            append(out, try_text(unit))
+            append(out, text_of_point_lossy(unit))
         }
         i = i + 2
     }
@@ -787,9 +811,29 @@ fn utf16_lossy(data: [byte], big: bool) -> string {
     return prelude.snapshot(out)
 }
 
-// A code point this module has already established is one, as a string. The `Err` arm cannot be
-// reached, and is the replacement character rather than a raise so that it stays unreachable.
-fn try_text(cp: int) -> string {
+// A code point as a one-character string, for a decoder that has already established its value is
+// a character.
+//
+// **U+0000 is the one that reaches the error arm, and it is not a table's fault**: NUL is a
+// perfectly good code point and a ziman string cannot hold one, which is the language's rule
+// rather than this module's. Every strict decoder refuses it and says so, because a byte of
+// someone's data silently becoming `?` is the degradation this whole module exists to prevent --
+// and `latin1_text` and `win_ansi_text` did exactly that, under a comment claiming it could not
+// happen, until a round-trip test over the generated tables walked byte 0.
+fn text_of_point(cp: int, set: Charset, at: int) -> Result<string, Refusal> {
+    if cp == 0 {
+        return err(refuse_bytes(set, "a NUL byte, which a ziman string cannot hold", at))
+    }
+    return switch utf8_text(cp) {
+        Ok(s) { ok(s) }
+        // Unreachable for a code point out of a table; an error rather than a raise so that it
+        // stays unreachable instead of becoming a crash if it ever is not.
+        Err(r) { err(with r { at: at, charset: set }) }
+    }
+}
+
+// The lossy counterpart: the replacement character for what cannot be written, NUL included.
+fn text_of_point_lossy(cp: int) -> string {
     return switch utf8_text(cp) {
         Ok(s) { s }
         Err(_) { replacement_text }
@@ -862,6 +906,139 @@ pub enum Charset {
     Latin1
     WinAnsi
     Ascii
+    // Any set that is one byte per character, carrying its own table -- ISO-8859-2 through -16,
+    // the Windows code pages, KOI8, Mac Roman.
+    //
+    // **One variant rather than twenty-five members**, which keeps every switch in this module to
+    // nine arms however many sets ship, and makes a set a *value*: `tables.zm` is generated, and
+    // `single_byte` builds one from a table a caller read from wherever it liked. That is the
+    // resource-file route, with the filesystem dependency in the application instead of under
+    // every text boundary in the library -- `charset` cannot read a file, because `fs` uses
+    // `charset` and the loader refuses a circular `use`.
+    SingleByte(SingleByteSet)
+}
+
+// A set that maps one byte to one character, as data.
+//
+// **ASCII-compatible in the lower half**, which every set here is: a byte under 0x80 is the code
+// point of the same number, and `upper` carries the other 128. That is not a simplification -- a
+// single-byte set that disagreed with ASCII would be unusable in a world of protocol headers, and
+// none of the ones anyone still has files in does.
+pub struct SingleByteSet {
+    name: string
+    // The 128 code points for 0x80 to 0xFF, **-1 where the set has no character for that byte**.
+    // ISO-8859-3 and -6 have such holes; a byte that lands on one is refused, not guessed.
+    upper: [int]
+    // The same mapping the other way: code points in order, with the byte for each at the same
+    // index, so encoding is a binary search instead of a scan over 128 entries.
+    points: [int]
+    bytes: [int]
+}
+
+// A single-byte set from its own 128-entry table: `upper[i]` is the code point for byte
+// `0x80 + i`, or -1 where the set has none.
+//
+// **This is how an application adds a set the library does not ship** -- read the table from a
+// resource file, a database, wherever -- and it is why `Charset` carries data rather than listing
+// every set it knows. The reverse direction is derived here, so a caller supplies one table and
+// not three.
+pub fn single_byte(name: string, upper: [int]) -> Result<Charset, Refusal> {
+    if prelude.len(upper) != 128 {
+        return err(Refusal {
+            charset: Charset.Ascii,
+            code_point: 0 - 1,
+            at: prelude.len(upper),
+            why: "a single-byte set needs exactly 128 code points, for 0x80 to 0xFF"
+        })
+    }
+    // Sorted by code point, carrying the byte alongside: one array of `cp * 256 + byte` keeps the
+    // two together through `sort` without a comparator, since every code point fits well inside
+    // the room that leaves.
+    val packed = mutable_array_new<int>()
+    var i = 0
+    while i < 128 {
+        if upper[i] >= 0 {
+            if !is_code_point(upper[i]) {
+                return err(refuse_point(Charset.Ascii, upper[i], i))
+            }
+            push(packed, upper[i] * 256 + 128 + i)
+        }
+        i = i + 1
+    }
+    val ordered = sort(prelude.snapshot(packed))
+    val points = mutable_array_new<int>()
+    val bytes = mutable_array_new<int>()
+    for one in ordered {
+        push(points, one / 256)
+        push(bytes, one % 256)
+    }
+    return ok(Charset.SingleByte(SingleByteSet {
+        name: name,
+        upper: upper,
+        points: prelude.snapshot(points),
+        bytes: prelude.snapshot(bytes)
+    }))
+}
+
+// The byte a single-byte set has for `cp`, or -1 when it has none. A binary search over the set's
+// own code points, which is the reason `SingleByteSet` carries them sorted.
+pub fn single_byte_of(s: SingleByteSet, cp: int) -> int {
+    if cp < 128 {
+        return cp
+    }
+    val at = lower_bound(s.points, cp)
+    if at < prelude.len(s.points) && s.points[at] == cp {
+        return s.bytes[at]
+    }
+    return 0 - 1
+}
+
+fn single_byte_text(data: [byte], s: SingleByteSet) -> Result<string, Refusal> {
+    val out = mutable_string_new()
+    var i = 0
+    while i < prelude.len(data) {
+        val b = data[i] as int
+        val cp = if b < 128 { b } else { s.upper[b - 128] }
+        if cp < 0 {
+            return err(refuse_bytes(
+                Charset.SingleByte(s),
+                "a byte the set has no character for",
+                i
+            ))
+        }
+        append(out, try text_of_point(cp, Charset.SingleByte(s), i))
+        i = i + 1
+    }
+    return ok(prelude.snapshot(out))
+}
+
+fn single_byte_lossy(data: [byte], s: SingleByteSet) -> string {
+    val out = mutable_string_new()
+    for raw in data {
+        val b = raw as int
+        val cp = if b < 128 { b } else { s.upper[b - 128] }
+        if cp < 0 {
+            append(out, replacement_text)
+        } else {
+            append(out, text_of_point_lossy(cp))
+        }
+    }
+    return prelude.snapshot(out)
+}
+
+fn single_byte_bytes(text: string, s: SingleByteSet) -> Result<[byte], Refusal> {
+    val out = mutable_array_new<byte>()
+    var at = 0
+    for ch in chars(text) {
+        val cp = code_point_of(ch)
+        val b = single_byte_of(s, cp)
+        if b < 0 {
+            return err(refuse_point(Charset.SingleByte(s), cp, at))
+        }
+        push(out, b as byte)
+        at = at + 1
+    }
+    return ok(prelude.snapshot(out))
 }
 
 // The set's usual written name, which is also the name its refusals carry.
@@ -875,6 +1052,7 @@ pub fn name_of(set: Charset) -> string {
         Latin1 { "Latin-1" }
         WinAnsi { "WinAnsi" }
         Ascii { "ASCII" }
+        SingleByte(s) { s.name }
     }
 }
 
@@ -910,29 +1088,55 @@ pub fn charset_named(name: string) -> Option<Charset> {
     if key == "ascii" || key == "usascii" || key == "iso646" {
         return Option<Charset>.Some(Charset.Ascii)
     }
-    return Option<Charset>.None
+    // **The hand-written sets answer first and the generated tables second**, so a spelling can
+    // only ever resolve one way: `iso-8859-1` is `Latin1` here rather than a table of itself, and
+    // `tables.zm`'s generator refuses to emit an alias twice.
+    return table_named(key)
 }
 
+// **Over bytes, not characters, because this function was most of `charset_named`'s cost.** The
+// version before it walked `chars(name)` and asked `code_point_of` for each one: a string
+// allocated per character, a byte array per `code_point_of`, another string per folded letter.
+//
+// Measured in place, 200,000 lookups each, after the generated chain was grouped:
+//
+// | name | before | after |
+// |---|---|---|
+// | `utf-8`, which the *first* comparison answers | 735 ms | 524 ms |
+// | `iso-8859-1` | 1220 ms | 658 ms |
+// | `shift_jis`, which matches nothing | 1287 ms | 658 ms |
+//
+// **The lesson is where the time was, not how much came back.** A chain of 106 comparisons costs
+// 0.5 to 2.3 microseconds and this one function cost 3.7, so the `if`s everybody looks at were
+// the smaller half; what was left after the fold is the interpreter walking a short loop, which
+// no shape of this function will fix. At one call per HTTP header or XML declaration none of it
+// matters -- it was measured because it was asked about, and this is what the numbers said.
+//
+// A charset name is ASCII, so folding it is byte arithmetic. The bytes of a multi-byte character
+// pass through untouched -- nothing here drops or alters a byte above 0x7F -- so a name with one
+// in it stays valid text and simply matches nothing, which is the right answer for it.
+//
+// **ASCII folded by hand rather than with `to_lower`**, which is locale-aware: in a Turkish
+// locale it turns the I of ASCII into a dotless one and the name stops matching.
 fn squeezed(name: string) -> string {
-    val out = mutable_string_new()
-    for ch in chars(name) {
-        val cp = code_point_of(ch)
-        // The separators a charset name is written with, in any of its spellings.
-        if cp == 45 || cp == 95 || cp == 32 || cp == 46 {
+    val folded = mutable_array_new<byte>()
+    for b in to_bytes(name) {
+        // The separators a charset name is written with, in any of its spellings: - _ space .
+        if b == 45b || b == 95b || b == 32b || b == 46b {
             continue
         }
-        // **ASCII case folded by hand, not with `to_lower`**, which is locale-aware: in a
-        // Turkish locale it turns the I of ASCII into a dotless one and the name stops matching.
-        if cp >= 65 && cp <= 90 {
-            switch utf8_text(cp + 32) {
-                Ok(lowered) { append(out, lowered) }
-                Err(_) { append(out, ch) }
-            }
+        if b >= 65b && b <= 90b {
+            push(folded, ((b as int) + 32) as byte)
             continue
         }
-        append(out, ch)
+        push(folded, b)
     }
-    return prelude.snapshot(out)
+    return switch bytes_to_string(prelude.snapshot(folded)) {
+        Ok(key) { key }
+        // Unreachable: no byte above 0x7F is dropped or altered above, so a valid sequence stays
+        // one. An empty key rather than a raise if it ever is not -- it matches no set.
+        Err(_) { "" }
+    }
 }
 
 // The mark that announces this set, or no bytes for the sets that have none -- which is every
@@ -948,6 +1152,8 @@ pub fn mark_of(set: Charset) -> [byte] {
         Latin1 { none }
         WinAnsi { none }
         Ascii { none }
+        // A single byte has no order to mark.
+        SingleByte(_) { none }
     }
 }
 
@@ -1000,6 +1206,7 @@ pub fn complete_prefix(data: [byte], set: Charset) -> int {
         Latin1 { size }
         WinAnsi { size }
         Ascii { size }
+        SingleByte(_) { size }
     }
 }
 
@@ -1035,6 +1242,7 @@ pub fn encode(text: string, set: Charset) -> Result<[byte], Refusal> {
         Latin1 { latin1_bytes(text) }
         WinAnsi { win_ansi_bytes(text) }
         Ascii { ascii_bytes(text) }
+        SingleByte(s) { single_byte_bytes(text, s) }
     }
 }
 
@@ -1083,12 +1291,14 @@ pub fn decode_lossy(data: [byte], set: Charset) -> string {
                 // Four bytes at a time, each either a character or a mark.
                 Utf32be { utf32_lossy(body, true) }
                 Utf32le { utf32_lossy(body, false) }
-                // These two cannot refuse, so `decode` above already answered.
-                Latin1 { latin1_text(body) }
-                WinAnsi { win_ansi_text(body) }
+                // These two refuse exactly one byte -- a NUL, which a ziman string cannot hold.
+                Latin1 { latin1_lossy(body) }
+                WinAnsi { win_ansi_lossy(body) }
                 // ASCII can: a byte over 0x7F is not one of its characters, and reading it as
                 // Latin-1 instead would be inventing a character rather than marking a gap.
                 Ascii { ascii_lossy(body) }
+                // And a single-byte set can, where its table has a hole.
+                SingleByte(s) { single_byte_lossy(body, s) }
             }
         }
     }
@@ -1100,7 +1310,7 @@ fn ascii_lossy(data: [byte]) -> string {
         if b > 127b {
             append(out, replacement_text)
         } else {
-            append(out, try_text(b as int))
+            append(out, text_of_point_lossy(b as int))
         }
     }
     return prelude.snapshot(out)
@@ -1116,7 +1326,7 @@ fn utf32_lossy(data: [byte], big: bool) -> string {
             unit_at(data, i + 2, false) * 65536 + unit_at(data, i, false)
         }
         if is_code_point(cp) {
-            append(out, try_text(cp))
+            append(out, text_of_point_lossy(cp))
         } else {
             append(out, replacement_text)
         }
@@ -1149,9 +1359,10 @@ pub fn decode_chunk(data: [byte], set: Charset) -> Result<string, Refusal> {
         Utf16le { utf16le_text(body) }
         Utf32be { utf32be_text(body) }
         Utf32le { utf32le_text(body) }
-        Latin1 { ok(latin1_text(body)) }
-        WinAnsi { ok(win_ansi_text(body)) }
+        Latin1 { latin1_text(body) }
+        WinAnsi { win_ansi_text(body) }
         Ascii { ascii_text(body) }
+        SingleByte(s) { single_byte_text(body, s) }
     }
 }
 

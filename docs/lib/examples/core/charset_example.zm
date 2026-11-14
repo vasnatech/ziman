@@ -17,7 +17,17 @@ fn main() {
     // The single-byte sets differ in one block, 0x80 to 0x9F, and that block is why a document
     // can have a euro sign and an em dash in it without embedding a font.
     print(charset.win_ansi_byte(8364))
-    print(charset.latin1_text([65b, 233b, 255b]))
+    print(charset.decode_lossy([65b, 233b, 255b], charset.Charset.Latin1))
+
+    // **The single-byte family is generated, not written** -- ISO-8859-2 through -16, the Windows
+    // code pages, KOI8 and Mac Roman, from Python's codec tables via tools/gen_charsets.py. The
+    // same two doors as everything else, so nothing special is needed to use one.
+    print(charset.decode_lossy([185b], charset.iso_8859_2()))
+    print(charset.decode_lossy([193b], charset.koi8_r()))
+    switch charset.charset_named("windows-1251") {
+        Some(set) { print(charset.name_of(set)) }
+        None { print("no such set") }
+    }
 
     // What a set cannot carry, it says so about -- which character, and where.
     switch charset.win_ansi_bytes("şeker") {

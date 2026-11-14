@@ -196,142 +196,6 @@ pub fn format(bs: BigBitSet) -> string
 
 ```
 
-## `charset`
-
-```
-pub val last_code_point = 1114111
-
-pub val replacement = 65533
-
-pub val replacement_text = "�"
-
-pub fn is_code_point(cp: int) -> bool
-
-pub fn is_high_surrogate(unit: int) -> bool
-
-pub fn is_low_surrogate(unit: int) -> bool
-
-pub fn paired(high: int, low: int) -> Option<int>
-
-pub fn surrogates(cp: int) -> Option<[int]>
-
-pub struct Refusal {
-    // The set that could not do it.
-    //
-    // **The value and not its name**, which it was until the `Charset` rename: eight refusal
-    // sites each passed a literal `"UTF-16BE"` or `"WinAnsi"`, where a typo would have been
-    // invisible until somebody read the message. `describe` spells it with `name_of`.
-    charset: Charset
-    // The code point at fault, or -1 when the input was bytes rather than text.
-    code_point: int
-    // Where in the input, in characters for text and in bytes for bytes.
-    at: int
-    why: string
-}
-
-pub fn describe(r: Refusal) -> string
-
-pub fn hex_of(cp: int) -> string
-
-pub fn utf8_length(cp: int) -> int
-
-pub fn utf8_bytes(cp: int) -> Result<[byte], Refusal>
-
-pub fn utf8_text(cp: int) -> Result<string, Refusal>
-
-pub fn code_point_of(ch: string) -> int
-
-pub fn code_points_of(text: string) -> [int]
-
-pub fn utf8_sequence_length(lead: byte) -> int
-
-pub fn is_continuation(b: byte) -> bool
-
-pub fn utf8_complete_prefix(data: [byte]) -> int
-
-pub fn utf8_bytes(text: string) -> [byte]
-
-pub fn utf8_text(data: [byte]) -> Result<string, Refusal>
-
-pub fn is_utf8(data: [byte]) -> bool
-
-pub fn utf16_units(cp: int) -> Result<[int], Refusal>
-
-pub fn utf16be_bytes(text: string) -> Result<[byte], Refusal>
-
-pub fn utf16be_text(data: [byte]) -> Result<string, Refusal>
-
-pub fn utf16le_bytes(text: string) -> Result<[byte], Refusal>
-
-pub fn utf16le_text(data: [byte]) -> Result<string, Refusal>
-
-pub fn utf32be_bytes(text: string) -> [byte]
-
-pub fn utf32be_text(data: [byte]) -> Result<string, Refusal>
-
-pub fn utf32le_bytes(text: string) -> [byte]
-
-pub fn utf32le_text(data: [byte]) -> Result<string, Refusal>
-
-pub fn utf16be_hex(cp: int) -> string
-
-pub fn ascii_bytes(text: string) -> Result<[byte], Refusal>
-
-pub fn ascii_text(data: [byte]) -> Result<string, Refusal>
-
-pub fn latin1_text(data: [byte]) -> string
-
-pub fn latin1_bytes(text: string) -> Result<[byte], Refusal>
-
-pub fn win_ansi_text(data: [byte]) -> string
-
-pub fn win_ansi_bytes(text: string) -> Result<[byte], Refusal>
-
-pub fn win_ansi_byte(cp: int) -> int
-
-pub fn utf8_lossy(data: [byte]) -> string
-
-pub fn utf16be_lossy(data: [byte]) -> string
-
-pub fn utf16le_lossy(data: [byte]) -> string
-
-pub val bom = 65279
-
-pub val bom_text = "﻿"
-
-pub enum Charset {
-    Utf8
-    Utf16be
-    Utf16le
-    Utf32be
-    Utf32le
-    Latin1
-    WinAnsi
-    Ascii
-}
-
-pub fn name_of(set: Charset) -> string
-
-pub fn charset_named(name: string) -> Option<Charset>
-
-pub fn mark_of(set: Charset) -> [byte]
-
-pub fn sniff(data: [byte]) -> Option<Charset>
-
-pub fn complete_prefix(data: [byte], set: Charset) -> int
-
-pub fn encode(text: string, set: Charset) -> Result<[byte], Refusal>
-
-pub fn encode_lossy(text: string, set: Charset) -> [byte]
-
-pub fn decode_lossy(data: [byte], set: Charset) -> string
-
-pub fn decode(data: [byte], set: Charset) -> Result<string, Refusal>
-
-pub fn decode_chunk(data: [byte], set: Charset) -> Result<string, Refusal>
-
-```
-
 ## `clock`
 
 One native function reading the system clock (`clock_gettime`) -- Ziman's other source of genuine non-determinism.
@@ -761,6 +625,10 @@ pub enum FsError {
 pub fn fs_error_message(e: FsError) -> string
 
 pub fn read_text(path: string) -> Result<string, FsError>
+
+pub fn read_text_in(path: string, set: charset.Charset) -> Result<string, FsError>
+
+pub fn lines_in(
 
 pub fn lines(path: string) -> Result<Iter<Result<string, io.IoError>>, FsError>
 

@@ -58,7 +58,17 @@ fn main() {
     // The single-byte sets differ in one block, 0x80 to 0x9F, and that block is why a document
     // can have a euro sign and an em dash in it without embedding a font.
     print(charset.win_ansi_byte(8364))
-    print(charset.latin1_text([65b, 233b, 255b]))
+    print(charset.decode_lossy([65b, 233b, 255b], charset.Charset.Latin1))
+
+    // **The single-byte family is generated, not written** -- ISO-8859-2 through -16, the Windows
+    // code pages, KOI8 and Mac Roman, from Python's codec tables via tools/gen_charsets.py. The
+    // same two doors as everything else, so nothing special is needed to use one.
+    print(charset.decode_lossy([185b], charset.iso_8859_2()))
+    print(charset.decode_lossy([193b], charset.koi8_r()))
+    switch charset.charset_named("windows-1251") {
+        Some(set) { print(charset.name_of(set)) }
+        None { print("no such set") }
+    }
 
     // What a set cannot carry, it says so about -- which character, and where.
     switch charset.win_ansi_bytes("şeker") {
@@ -115,6 +125,9 @@ Output:
 😀
 128
 Aéÿ
+š
+а
+windows-1251
 WinAnsi cannot represent U+015F at 0
 false
 true
@@ -127,7 +140,7 @@ h�
 2
 ```
 
-## Code points
+## `charset.zm`
 
 ### `last_code_point`
 
@@ -200,8 +213,6 @@ pub fn surrogates(cp: int) -> Option<[int]>
 The surrogate pair that stands for `cp`, or `None` for anything inside the basic plane --
 which needs no pair and is written as itself.
 
-## What went wrong
-
 ### `Refusal`
 
 ```
@@ -237,8 +248,6 @@ pub fn hex_of(cp: int) -> string
 ```
 
 A code point as the digits after `U+`: at least four, more when it takes more.
-
-## UTF-8
 
 ### `utf8_length`
 
@@ -362,8 +371,6 @@ pub fn is_utf8(data: [byte]) -> bool
 Whether `data` is UTF-8, for the callers that want the question and not the text. Allocates
 nothing: `url.percent_decode` asks this of every parameter that contained an escape.
 
-## UTF-16
-
 ### `utf16_units`
 
 ```
@@ -398,8 +405,6 @@ The little-endian order, which is what a Windows API, a `.strings` file and most
 ```
 pub fn utf16le_text(data: [byte]) -> Result<string, Refusal>
 ```
-
-## UTF-32
 
 ### `utf32be_bytes`
 
@@ -446,8 +451,6 @@ failure `/ToUnicode` exists to prevent.
 Anything that is not a character answers `FFFD`, the replacement character's own units,
 because the caller is writing a table entry and has nowhere to put an error.
 
-## The single-byte sets
-
 ### `ascii_bytes`
 
 ```
@@ -470,11 +473,15 @@ set has nothing to say about what it might mean. Guessing here is how text becom
 ### `latin1_text`
 
 ```
-pub fn latin1_text(data: [byte]) -> string
+pub fn latin1_text(data: [byte]) -> Result<string, Refusal>
 ```
 
-ISO-8859-1, where every byte is the code point of the same number. **Decoding cannot fail**,
-which is the property that makes it the fallback every other single-byte set is compared to.
+ISO-8859-1, where every byte is the code point of the same number.
+
+**Decoding fails for exactly one byte**, where the comment here used to claim it could not fail
+at all: a ziman string cannot hold a NUL, so 0x00 is refused rather than written as `?`.
+Everything else is arithmetic, which is still what makes this the set every other single-byte
+one is compared to.
 
 ### `latin1_bytes`
 
@@ -485,7 +492,7 @@ pub fn latin1_bytes(text: string) -> Result<[byte], Refusal>
 ### `win_ansi_text`
 
 ```
-pub fn win_ansi_text(data: [byte]) -> string
+pub fn win_ansi_text(data: [byte]) -> Result<string, Refusal>
 ```
 
 ### `win_ansi_bytes`
@@ -501,8 +508,6 @@ pub fn win_ansi_byte(cp: int) -> int
 ```
 
 The WinAnsi byte for a code point, or -1 when the set has none.
-
-## Reading what is not quite right
 
 ### `utf8_lossy`
 
@@ -535,8 +540,6 @@ pub fn utf16be_lossy(data: [byte]) -> string
 pub fn utf16le_lossy(data: [byte]) -> string
 ```
 
-## The byte order mark
-
 ### `bom`
 
 ```
@@ -560,8 +563,6 @@ The same character as a one-character string, for a caller that meets the mark *
 rather than in bytes -- `csv` strips one off a spreadsheet's first heading, where the bytes are
 long since decoded and the mark has become an invisible character at the front of a cell.
 
-## The sets as values
-
 ### `Charset`
 
 ```
@@ -574,6 +575,16 @@ pub enum Charset {
     Latin1
     WinAnsi
     Ascii
+    // Any set that is one byte per character, carrying its own table -- ISO-8859-2 through -16,
+    // the Windows code pages, KOI8, Mac Roman.
+    //
+    // **One variant rather than twenty-five members**, which keeps every switch in this module to
+    // nine arms however many sets ship, and makes a set a *value*: `tables.zm` is generated, and
+    // `single_byte` builds one from a table a caller read from wherever it liked. That is the
+    // resource-file route, with the filesystem dependency in the application instead of under
+    // every text boundary in the library -- `charset` cannot read a file, because `fs` uses
+    // `charset` and the loader refuses a circular `use`.
+    SingleByte(SingleByteSet)
 }
 ```
 
@@ -589,6 +600,51 @@ that are not text -- and then calling its central type `Encoding` would have put
 `use charset.Encoding` next to `use encoding` in the same file. `charset.Charset` stutters
 slightly and is what Java calls the same thing; `Set` was never available, the prelude having
 one.
+
+### `SingleByteSet`
+
+```
+pub struct SingleByteSet {
+    name: string
+    // The 128 code points for 0x80 to 0xFF, **-1 where the set has no character for that byte**.
+    // ISO-8859-3 and -6 have such holes; a byte that lands on one is refused, not guessed.
+    upper: [int]
+    // The same mapping the other way: code points in order, with the byte for each at the same
+    // index, so encoding is a binary search instead of a scan over 128 entries.
+    points: [int]
+    bytes: [int]
+}
+```
+
+A set that maps one byte to one character, as data.
+
+**ASCII-compatible in the lower half**, which every set here is: a byte under 0x80 is the code
+point of the same number, and `upper` carries the other 128. That is not a simplification -- a
+single-byte set that disagreed with ASCII would be unusable in a world of protocol headers, and
+none of the ones anyone still has files in does.
+
+### `single_byte`
+
+```
+pub fn single_byte(name: string, upper: [int]) -> Result<Charset, Refusal>
+```
+
+A single-byte set from its own 128-entry table: `upper[i]` is the code point for byte
+`0x80 + i`, or -1 where the set has none.
+
+**This is how an application adds a set the library does not ship** -- read the table from a
+resource file, a database, wherever -- and it is why `Charset` carries data rather than listing
+every set it knows. The reverse direction is derived here, so a caller supplies one table and
+not three.
+
+### `single_byte_of`
+
+```
+pub fn single_byte_of(s: SingleByteSet, cp: int) -> int
+```
+
+The byte a single-byte set has for `cp`, or -1 when it has none. A binary search over the set's
+own code points, which is the reason `SingleByteSet` carries them sorted.
 
 ### `name_of`
 
@@ -714,3 +770,214 @@ a mark is only a mark at the beginning, and a chunk is not a beginning. `decode`
 drop one from the middle of a stream -- U+FEFF is a legal zero-width no-break space there --
 and would also quietly change what `io.text` has always yielded for a file that starts with
 one. A reader that wants the mark dropped should drop it once, where it knows it is first.
+
+## `tables.zm`
+
+### `iso_8859_2`
+
+```
+pub fn iso_8859_2() -> Charset
+```
+
+ISO-8859-2 (central European).
+
+### `iso_8859_3`
+
+```
+pub fn iso_8859_3() -> Charset
+```
+
+ISO-8859-3 (south European, Maltese and Esperanto).
+
+### `iso_8859_4`
+
+```
+pub fn iso_8859_4() -> Charset
+```
+
+ISO-8859-4 (north European).
+
+### `iso_8859_5`
+
+```
+pub fn iso_8859_5() -> Charset
+```
+
+ISO-8859-5 (Cyrillic).
+
+### `iso_8859_6`
+
+```
+pub fn iso_8859_6() -> Charset
+```
+
+ISO-8859-6 (Arabic).
+
+### `iso_8859_7`
+
+```
+pub fn iso_8859_7() -> Charset
+```
+
+ISO-8859-7 (Greek).
+
+### `iso_8859_8`
+
+```
+pub fn iso_8859_8() -> Charset
+```
+
+ISO-8859-8 (Hebrew).
+
+### `iso_8859_9`
+
+```
+pub fn iso_8859_9() -> Charset
+```
+
+ISO-8859-9 (Turkish -- Latin-1 with the six Turkish letters).
+
+### `iso_8859_10`
+
+```
+pub fn iso_8859_10() -> Charset
+```
+
+ISO-8859-10 (Nordic).
+
+### `iso_8859_11`
+
+```
+pub fn iso_8859_11() -> Charset
+```
+
+ISO-8859-11 (Thai).
+
+### `iso_8859_13`
+
+```
+pub fn iso_8859_13() -> Charset
+```
+
+ISO-8859-13 (Baltic rim).
+
+### `iso_8859_14`
+
+```
+pub fn iso_8859_14() -> Charset
+```
+
+ISO-8859-14 (Celtic).
+
+### `iso_8859_15`
+
+```
+pub fn iso_8859_15() -> Charset
+```
+
+ISO-8859-15 (Latin-1 with the euro sign).
+
+### `iso_8859_16`
+
+```
+pub fn iso_8859_16() -> Charset
+```
+
+ISO-8859-16 (south-eastern European).
+
+### `cp1250`
+
+```
+pub fn cp1250() -> Charset
+```
+
+windows-1250 (central European).
+
+### `cp1251`
+
+```
+pub fn cp1251() -> Charset
+```
+
+windows-1251 (Cyrillic).
+
+### `cp1253`
+
+```
+pub fn cp1253() -> Charset
+```
+
+windows-1253 (Greek).
+
+### `cp1254`
+
+```
+pub fn cp1254() -> Charset
+```
+
+windows-1254 (Turkish).
+
+### `cp1255`
+
+```
+pub fn cp1255() -> Charset
+```
+
+windows-1255 (Hebrew).
+
+### `cp1256`
+
+```
+pub fn cp1256() -> Charset
+```
+
+windows-1256 (Arabic).
+
+### `cp1257`
+
+```
+pub fn cp1257() -> Charset
+```
+
+windows-1257 (Baltic rim).
+
+### `cp1258`
+
+```
+pub fn cp1258() -> Charset
+```
+
+windows-1258 (Vietnamese).
+
+### `koi8_r`
+
+```
+pub fn koi8_r() -> Charset
+```
+
+KOI8-R (Russian).
+
+### `koi8_u`
+
+```
+pub fn koi8_u() -> Charset
+```
+
+KOI8-U (Ukrainian).
+
+### `mac_roman`
+
+```
+pub fn mac_roman() -> Charset
+```
+
+Mac Roman (the Macintosh platform's own, and what a TrueType platform-1 name record is in).
+
+### `single_byte_sets`
+
+```
+pub fn single_byte_sets() -> [Charset]
+```
+
+Every set this file carries, for a caller that wants to offer a list and for the round-trip
+test that holds all of them to the same promise.

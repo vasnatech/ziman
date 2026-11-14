@@ -86,7 +86,8 @@
 #include "migrate_source.h"
 #include "otp_source.h"
 #include "encoding_source.h"
-#include "charset_source.h"
+#include "charset_charset_source.h"
+#include "charset_tables_source.h"
 #include "test_source.h"
 #include "geom_source.h"
 #include "shape_source.h"
@@ -196,7 +197,7 @@ static const CoreModule CORE_MODULES[] = {
     {"migrate", MIGRATE_SOURCE, MIGRATE_SOURCE_PATH},
     {"otp", OTP_SOURCE, OTP_SOURCE_PATH},
     {"encoding", ENCODING_SOURCE, ENCODING_SOURCE_PATH},
-    {"charset", CHARSET_SOURCE, CHARSET_SOURCE_PATH},
+    {"charset", NULL, "lib/core/charset/charset.zm"},
     {"test", TEST_SOURCE, TEST_SOURCE_PATH},
     {"geom", GEOM_SOURCE, GEOM_SOURCE_PATH},
     {"shape", SHAPE_SOURCE, SHAPE_SOURCE_PATH},
@@ -276,6 +277,8 @@ static const struct {
     {"rest", "lib/http/rest/route.zm", REST_ROUTE_SOURCE},
     {"rest", "lib/http/rest/table.zm", REST_TABLE_SOURCE},
     {"rest", "lib/http/rest/dispatch.zm", REST_DISPATCH_SOURCE},
+    {"charset", "lib/core/charset/charset.zm", CHARSET_CHARSET_SOURCE},
+    {"charset", "lib/core/charset/tables.zm", CHARSET_TABLES_SOURCE},
 };
 #pragma GCC diagnostic pop
 

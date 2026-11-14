@@ -229,7 +229,10 @@ fn utf16be_refuses_a_broken_stream() {
 // single-byte set is compared against.
 #[test]
 fn latin1_reads_every_byte_and_writes_back_what_it_can() {
-    test.assert_eq(charset.latin1_text([65b, 233b, 255b]), "Aéÿ")
+    switch charset.latin1_text([65b, 233b, 255b]) {
+        Ok(text) { test.assert_eq(text, "Aéÿ") }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
     switch charset.latin1_bytes("Aéÿ") {
         Ok(b) {
             test.assert_len(3, b)
@@ -259,7 +262,10 @@ fn win_ansi_carries_the_block_latin1_does_not() {
     test.assert_eq(charset.win_ansi_byte(8364), 128)
     test.assert_eq(charset.win_ansi_byte(8212), 151)
     test.assert_eq(charset.win_ansi_byte(8220), 147)
-    test.assert_eq(charset.win_ansi_text([128b, 151b]), "€—")
+    switch charset.win_ansi_text([128b, 151b]) {
+        Ok(text) { test.assert_eq(text, "€—") }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
     switch charset.win_ansi_bytes("€—") {
         Ok(b) {
             test.assert_eq(b[0] as int, 128)
@@ -660,6 +666,21 @@ fn a_lossy_read_through_the_enum_covers_every_set() {
     )
     // Latin-1 reads every byte, so nothing is ever marked.
     test.assert_eq(charset.decode_lossy([65b, 233b], charset.Charset.Latin1), "Aé")
+    // **A NUL is the one byte Latin-1 cannot decode**, because a ziman string cannot hold one --
+    // and it used to come back as `?`, silently, under a comment saying it could not happen.
+    test.assert(refused_text(charset.latin1_text([65b, 0b])))
+    switch charset.latin1_text([65b, 0b]) {
+        Ok(_) { test.fail("a NUL decoded into a string") }
+        Err(r) {
+            test.assert_eq(r.at, 1)
+            test.assert_eq(charset.describe(r), "Latin-1: a NUL byte, which a ziman string cannot hold at 1")
+        }
+    }
+    // Lossy, it is the replacement character like anything else unwritable.
+    test.assert_eq(
+        charset.decode_lossy([65b, 0b], charset.Charset.Latin1),
+        concat("A", replacement_text)
+    )
     // Four bytes that are not a character, and a tail that is not four bytes.
     test.assert_eq(
         charset.decode_lossy([0b, 17b, 0b, 0b], charset.Charset.Utf32be),
@@ -774,4 +795,139 @@ fn a_lossy_write_substitutes_rather_than_refusing() {
     test.assert_eq(charset.encode_lossy("Aé中😀", charset.Charset.Utf8), to_bytes("Aé中😀"))
     // And the strict encoder still refuses the same text, which is the point of having both.
     test.assert(refused_bytes(charset.encode("şeker", charset.Charset.Ascii)))
+}
+
+// ---- the single-byte family
+
+// **Every shipped set, held to one promise: what it can carry, it round-trips.** The tables are
+// generated, so this is not checking arithmetic -- it is checking that the three arrays per set
+// agree with each other, which is the one thing a generator can get wrong and a reader cannot see.
+#[test]
+fn every_single_byte_set_round_trips_every_byte_it_has() {
+    var sets = 0
+    var characters = 0
+    for set in charset.single_byte_sets() {
+        sets = sets + 1
+        var b = 0
+        while b < 256 {
+            val data = [b as byte]
+            switch charset.decode(data, set) {
+                Ok(text) {
+                    characters = characters + 1
+                    // The character it decoded to must encode back to the same byte.
+                    switch charset.encode(text, set) {
+                        Ok(back) {
+                            test.assert_len(1, back)
+                            test.assert_eq(back[0] as int, b)
+                        }
+                        Err(r) { test.fail(concat("did not encode back: ", charset.describe(r))) }
+                    }
+                }
+                // A hole in the table is a refusal, which ISO-8859-3 and -6 both have.
+                Err(_) {}
+            }
+            b = b + 1
+        }
+    }
+    test.assert_eq(sets, 25)
+    // Every set carries at least the 128 ASCII characters, so this is a floor and not a figure.
+    test.assert(characters > 25 * 128)
+}
+
+// A handful of characters nobody can get wrong by accident, as a check that the tables are the
+// sets they claim to be rather than copies of one another.
+#[test]
+fn each_set_is_the_set_it_says_it_is() {
+    // ISO-8859-2 has s-caron where Latin-1 has s-acute's byte; 0xB9 is the one.
+    test.assert_eq(charset.decode_lossy([185b], charset.iso_8859_2()), "š")
+    // ISO-8859-5 is Cyrillic: 0xE0 is the small er.
+    test.assert_eq(charset.decode_lossy([224b], charset.iso_8859_5()), "р")
+    // ISO-8859-7 is Greek: 0xE1 is alpha.
+    test.assert_eq(charset.decode_lossy([225b], charset.iso_8859_7()), "α")
+    // ISO-8859-9 is Latin-1 with the Turkish letters, and 0xFD is the dotless i.
+    test.assert_eq(charset.decode_lossy([253b], charset.iso_8859_9()), "ı")
+    // ISO-8859-15 is Latin-1 with the euro, at 0xA4 where Latin-1 has the currency sign.
+    test.assert_eq(charset.decode_lossy([164b], charset.iso_8859_15()), "€")
+    test.assert_eq(charset.decode_lossy([164b], charset.Charset.Latin1), "¤")
+    // KOI8-R puts Cyrillic in a different order again: 0xC1 is small a.
+    test.assert_eq(charset.decode_lossy([193b], charset.koi8_r()), "а")
+    // Mac Roman's 0xA5 is a bullet, which is what made `truetype`'s Latin-1 reading an
+    // approximation -- Latin-1 has the yen sign there.
+    test.assert_eq(charset.decode_lossy([165b], charset.mac_roman()), "•")
+    test.assert_eq(charset.decode_lossy([165b], charset.Charset.Latin1), "¥")
+}
+
+// **A hole in a table is a refusal, not a guess.** ISO-8859-3 has no character for 0xA5.
+#[test]
+fn a_byte_a_set_has_no_character_for_is_refused() {
+    test.assert(refused_text(charset.decode([165b], charset.iso_8859_3())))
+    test.assert_eq(charset.decode_lossy([165b], charset.iso_8859_3()), replacement_text)
+    // And the set says which set it was.
+    switch charset.decode([165b], charset.iso_8859_3()) {
+        Ok(_) { test.fail("a hole was read as a character") }
+        Err(r) { test.assert_eq(charset.name_of(r.charset), "ISO-8859-3") }
+    }
+}
+
+// A name resolves to the set, however it is spelled -- and the hand-written sets still win,
+// so `iso-8859-1` is `Latin1` and not a table of itself.
+#[test]
+fn a_single_byte_set_is_found_by_name() {
+    for spelling in ["iso-8859-2", "ISO8859-2", "latin2", "l2"] {
+        switch charset.charset_named(spelling) {
+            Some(set) { test.assert_eq(charset.name_of(set), "ISO-8859-2") }
+            None { test.fail(concat("no set for ", spelling)) }
+        }
+    }
+    for spelling in ["windows-1251", "cp1251"] {
+        switch charset.charset_named(spelling) {
+            Some(set) { test.assert_eq(charset.name_of(set), "windows-1251") }
+            None { test.fail(concat("no set for ", spelling)) }
+        }
+    }
+    // The hand-written ones are unchanged by the tables arriving.
+    switch charset.charset_named("iso-8859-1") {
+        Some(set) { test.assert_eq(charset.name_of(set), "Latin-1") }
+        None { test.fail("no set for iso-8859-1") }
+    }
+    switch charset.charset_named("macintosh") {
+        Some(set) { test.assert_eq(charset.name_of(set), "Mac Roman") }
+        None { test.fail("no set for macintosh") }
+    }
+}
+
+// **An application's own set, from its own table** -- the resource-file route, with the
+// filesystem in the caller rather than under every text boundary in the library.
+#[test]
+fn a_caller_can_bring_its_own_table() {
+    // A set where the upper half is nothing but one character, to prove the table is used and
+    // the reverse direction is derived from it.
+    val upper = mutable_array_new<int>()
+    var i = 0
+    while i < 128 {
+        push(upper, if i == 0 { 9731 } else { 0 - 1 })
+        i = i + 1
+    }
+    switch charset.single_byte("Snowman-1", prelude.snapshot(upper)) {
+        Ok(set) {
+            test.assert_eq(charset.name_of(set), "Snowman-1")
+            test.assert_eq(charset.decode_lossy([128b], set), "☃")
+            switch charset.encode("A☃", set) {
+                Ok(bytes) {
+                    test.assert_len(2, bytes)
+                    test.assert_eq(bytes[0] as int, 65)
+                    test.assert_eq(bytes[1] as int, 128)
+                }
+                Err(r) { test.fail(charset.describe(r)) }
+            }
+            // Every other high byte is a hole.
+            test.assert(refused_text(charset.decode([129b], set)))
+        }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+    // A table of the wrong size is refused rather than padded.
+    test.assert(switch charset.single_byte("Short", [1, 2, 3]) {
+        Ok(_) { false }
+        Err(_) { true }
+    })
 }

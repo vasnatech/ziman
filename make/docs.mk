@@ -75,6 +75,19 @@ doc-module-check:
 design-index:
 	python3 tools/gen_design_index.py
 
+# Rewrites lib/core/charset/tables.zm, the single-byte character sets -- see
+# tools/gen_charsets.py for why they are generated rather than written.
+charsets:
+	python3 tools/gen_charsets.py
+
+# Fails when the committed tables are not what the generator emits, the same `git diff` shape
+# `lib-manual-check` uses. **The tables come from Python's codec data, so this also catches a
+# Python whose tables differ** -- which would be news worth having rather than a nuisance: these
+# mappings have not changed in twenty years.
+charsets-check:
+	python3 tools/gen_charsets.py
+	git diff --exit-code --stat -- lib/core/charset/tables.zm
+
 # Fails when the committed index is not what the journal's entries now are: the same `git diff`
 # shape lib-manual-check uses, because a hand-kept index of that much text is wrong within a month.
 design-index-check:
@@ -144,4 +157,4 @@ design-status-check:
 template-example-check:
 	python3 tools/check_template_examples.py
 
-docs-check: lint-check lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check design-status-check vscode-grammar-check showcase-check lib-map-check template-example-check
+docs-check: lint-check lib-manual-check corelib-reference-check charsets-check not-yet-check experimental-check doc-module-check syntax-check design-index-check design-status-check vscode-grammar-check showcase-check lib-map-check template-example-check

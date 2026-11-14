@@ -79,7 +79,7 @@ BIN := ziman
 # against the pre-split Makefile; nothing else would have noticed until someone typed `make`.
 .DEFAULT_GOAL := all
 
-.PHONY: all gui check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots test-maptable test-handleslot corelib-reference corelib-reference-check lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check design-status-check lint-check lib-map-check template-example-check vscode-grammar vscode-grammar-check libc-free-check xalloc-check tls-if-available pdf-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check overload-sets-check lint-lib-check northstar-if-available module-path-check api-check
+.PHONY: all gui check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots test-maptable test-handleslot corelib-reference corelib-reference-check charsets charsets-check lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check design-status-check lint-check lib-map-check template-example-check vscode-grammar vscode-grammar-check libc-free-check xalloc-check tls-if-available pdf-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check overload-sets-check lint-lib-check northstar-if-available module-path-check api-check
 
 # Every gate that needs nothing but this repo and a C toolchain: the fixture suite on both builds,
 # the standalone unit tests, formatting, and the documentation guards. One command for "is this
@@ -126,9 +126,10 @@ CORELIB_MODULES := meta template batch derive_ord derive_row derive_properties d
 # filed by type.
 PRELUDE_PARTS := prelude array channel iter map mutable option result set string
 
-# **Two bundled modules are several files each**, which is what a module too big to read in one
-# sitting does; see src/corelib.c's MODULE_PARTS and loader.c's merge. Each is a folder under
-# lib/http/ whose first part carries the module comment, the imports and the types. Adding a part
+# **Four bundled modules are several files each**, which is what a module too big to read in one
+# sitting does; see src/corelib.c's MODULE_PARTS and loader.c's merge. Three are folders under
+# lib/http/ and the fourth is lib/core/charset/; in each the first part carries the module
+# comment, the imports and the types. Adding a part
 # means a file in the folder, its name here, and *two* lines in corelib.c -- the #include and the
 # row -- the same three edits a prelude part takes, and the same cheap check: as many #includes as
 # rows as names here.
@@ -138,6 +139,11 @@ CLIENT_PARTS := client read proxy send cookie request stream
 # it. A sibling of `server` and `client` in the same folder, which is what it is -- see
 # lib/http/rest/rest.zm for the two misplaced functions that made the case.
 REST_PARTS := rest handler route table dispatch
+# **The fourth, and the first outside lib/http**: `charset`'s single-byte sets are a 128-entry
+# table each and are *generated* (`make charsets`, tools/gen_charsets.py) from Python's codec
+# data, so they are a part of their own rather than a thousand lines in the middle of the module a
+# reader came to read. `charset.zm` is the module; `tables.zm` is data nobody should edit.
+CHARSET_PARTS := charset tables
 # Bundled modules live in lib/core (general-purpose), lib/db (SQL drivers, and the three
 # generators that write SQL: derive_row, derive_entity, derive_repository), lib/http (http,
 # server, client), lib/time (time, zone, schedule) and lib/graphics (the 2D model and its
@@ -150,7 +156,8 @@ vpath %.zm lib lib/core lib/db lib/graphics lib/http lib/time lib/ui lib/ui/desk
 
 CORELIB_HEADERS := $(CORELIB_MODULES:%=$(BUILD)/%_source.h) $(PRELUDE_PARTS:%=$(BUILD)/prelude_%_source.h) \
                    $(SERVER_PARTS:%=$(BUILD)/server_%_source.h) $(CLIENT_PARTS:%=$(BUILD)/client_%_source.h) \
-                   $(REST_PARTS:%=$(BUILD)/rest_%_source.h)
+                   $(REST_PARTS:%=$(BUILD)/rest_%_source.h) \
+                   $(CHARSET_PARTS:%=$(BUILD)/charset_%_source.h)
 
 -include $(DEP)
 

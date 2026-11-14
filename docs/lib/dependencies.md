@@ -194,6 +194,7 @@ flowchart LR
     focus --> widget
     font --> charset
     font --> truetype
+    fs --> charset
     fs --> io
     fs --> os
     geom --> math
@@ -400,7 +401,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `atspi` | `a11y`, `widget` | - |
 | `batch` | `datasource`, `db`, `time`, `uuid` | - |
 | `bits` | - | `image` |
-| `charset` | - | `csv`, `font`, `io`, `pdf`, `terminal`, `toml`, `truetype`, `url`, `window`, `xml`, `yaml` |
+| `charset` | - | `csv`, `font`, `fs`, `io`, `pdf`, `terminal`, `toml`, `truetype`, `url`, `window`, `xml`, `yaml` |
 | `client` | `clock`, `compress`, `encoding`, `http`, `io`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
@@ -427,7 +428,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `expr` | `json`, `regex` | `template` |
 | `focus` | `geom`, `widget` | `controls` |
 | `font` | `charset`, `truetype` | `layout`, `pdf`, `raster`, `widget` |
-| `fs` | `io`, `os` | `csv`, `http`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
+| `fs` | `charset`, `io`, `os` | `csv`, `http`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
 | `geom` | `math` | `a11y`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype`, `widget` |
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `ibus` | `window` | - |

@@ -171,23 +171,27 @@ def prelude_parts():
              "this tool reads it rather than keeping its own copy")
 
 
-def module_parts(name):
-    """lib/http/<name>/<part>.zm, in the Makefile's <NAME>_PARTS order.
+def module_parts(name, folder):
+    """lib/<folder>/<name>/<part>.zm, in the Makefile's <NAME>_PARTS order.
 
     Read from the Makefile for the reason `prelude_parts` is: a part missing from the list is not
-    in the binary, so it must not be in the manual either."""
+    in the binary, so it must not be in the manual either.
+
+    **The folder is a parameter because a folder module is no longer always under lib/http.**
+    `charset` became several files on 2026-11-14, when its single-byte tables were generated
+    rather than written, and this hardcoded `lib/http` until then."""
     key = name.upper() + "_PARTS :="
     for line in read_lines(os.path.join(ROOT, "Makefile")):
         if line.startswith(key):
             names = line.split(":=", 1)[1].split()
-            paths = [os.path.join(ROOT, "lib", "http", name, n + ".zm") for n in names]
+            paths = [os.path.join(ROOT, "lib", folder, name, n + ".zm") for n in names]
             missing = [p for p in paths if not os.path.exists(p)]
             if missing:
                 sys.exit("gen_lib_manual.py: %s names a file that is not there: %s"
                          % (key.strip(" :="), ", ".join(missing)))
             return paths
-    sys.exit("gen_lib_manual.py: lib/http/%s/ is a folder module with no %s line in the Makefile"
-             % (name, key.strip(" :=")))
+    sys.exit("gen_lib_manual.py: lib/%s/%s/ is a folder module with no %s line in the Makefile"
+             % (folder, name, key.strip(" :=")))
 
 
 def parse(path):
@@ -430,7 +434,7 @@ def main():
             # Otherwise the file is searched for recursively, because a module is no longer always
             # one level under `lib/<folder>`.
             if has_parts(name):
-                parts = module_parts(name)
+                parts = module_parts(name, folder)
                 text, summary = page(name, parts, folder)
                 seen.update(parts)
             else:

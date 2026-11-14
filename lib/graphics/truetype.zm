@@ -362,11 +362,16 @@ pub fn name_of(f: Face, name_id: int) -> Result<Option<string>, string> {
                 best = charset.utf16be_lossy(raw)
                 found = true
             } else if platform == 1 && !found {
-                // Platform 1 is Macintosh, whose encoding 0 is Mac Roman and not Latin-1 above
-                // 0x7F. Read as Latin-1 anyway, which is what this did before `charset` existed:
-                // the two agree on ASCII, every name seen here has been ASCII, and a 128-entry
-                // table written from memory would be worse than a known approximation.
-                best = charset.latin1_text(raw)
+                // **Mac Roman, which is what a platform-1 name record actually is.** This read
+                // it as Latin-1 until 2026-11-14 -- the two agree on ASCII and differ everywhere
+                // above it, so a name with an accent in it came out wrong -- and the reason given
+                // here was that a 128-entry table written from memory would be worse than a known
+                // approximation. It is generated now (`charset.mac_roman()`, tools/gen_charsets.py)
+                // and the approximation is gone.
+                //
+                // Lossily, for the reason the UTF-16 branch above is lossy: a broken name is not
+                // a broken font.
+                best = charset.decode_lossy(raw, charset.mac_roman())
                 found = true
             }
         }
@@ -477,7 +482,7 @@ fn hex8(n: int) -> string {
 
 // **The UTF-16BE and Latin-1 readers these name records need live in `charset`** now, along
 // with the UTF-8 encoder this module had written for itself: `charset.utf16be_lossy`,
-// `charset.latin1_text`, `charset.utf8_text`.
+// `charset.mac_roman`, `charset.utf8_text`.
 
 // ---- glyph outlines
 
