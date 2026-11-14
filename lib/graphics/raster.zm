@@ -978,11 +978,41 @@ fn draw_ops(t: Target, ops: [Op], m: Matrix, clip: Option<[float]>, o: Options) 
             }
             Nested(g) {
                 val inner = matrix_concat(m, g.transform)
-                val narrowed = switch g.clip {
-                    Some(path) { Option<[float]>.Some(try clip_mask(t, path, m, clip, o)) }
-                    None { clip }
+                switch g.clip {
+                    Some(path) {
+                        switch window_clip(t, path, m) {
+                            // An upright rectangle on whole pixels: narrow the window the pass
+                            // may write and draw straight through, with no mask at all. An outer
+                            // mask still applies, because the two compose -- one bounds the
+                            // loops and the other multiplies the coverage.
+                            Some(box) {
+                                val x0 = bigger(t.win_x0, box.x as int)
+                                val y0 = bigger(t.win_y0, box.y as int)
+                                val x1 = smaller(t.win_x1, (box.x + box.width) as int - 1)
+                                val y1 = smaller(t.win_y1, (box.y + box.height) as int - 1)
+                                if x1 >= x0 && y1 >= y0 {
+                                    try draw_ops(
+                                        with t { win_x0: x0, win_y0: y0, win_x1: x1, win_y1: y1 },
+                                        g.ops,
+                                        inner,
+                                        clip,
+                                        o
+                                    )
+                                }
+                            }
+                            None {
+                                try draw_ops(
+                                    t,
+                                    g.ops,
+                                    inner,
+                                    Option<[float]>.Some(try clip_mask(t, path, m, clip, o)),
+                                    o
+                                )
+                            }
+                        }
+                    }
+                    None { try draw_ops(t, g.ops, inner, clip, o) }
                 }
-                try draw_ops(t, g.ops, inner, narrowed, o)
             }
         }
     }
@@ -1357,11 +1387,74 @@ fn smaller(a: int, b: int) -> int {
 }
 
 fn floor_to_int(v: float) -> int {
-    return floor(v) as int
+    return floor(v)
 }
 
 fn ceil_to_int(v: float) -> int {
-    return ceil(v) as int
+    return ceil(v)
+}
+
+// A clip that is an upright rectangle on whole pixels, as a window -- or `None` when it is
+// anything else.
+//
+// **This is the difference between a clip costing nothing and costing more than the drawing.** A
+// `Target` already carries the pixels a pass may write, and narrowing those four ints is free;
+// building a coverage mask is an allocation and a multiply per pixel. Every clip `lib/ui` emits
+// is `shape.rect_path(bounds)` of a scroll viewport, so the cheap case is the only case that
+// occurs in a window -- and the expensive one was the only one implemented.
+//
+// Three things have to hold, and each is a correctness condition rather than a nicety:
+//
+//   * the path is `MoveTo`, three `LineTo` and `Close` over an upright rectangle, which is
+//     exactly what `shape.rect_path` builds;
+//   * the matrix neither rotates nor shears, or an upright rectangle does not stay one;
+//   * the edges land on whole device pixels, because a window has hard edges where a mask has
+//     antialiased ones -- a rectangle at `x = 10.5` must keep its soft edge, and goes the slow
+//     way.
+fn window_clip(t: Target, path: Path, m: Matrix) -> Option<Rect> {
+    if m.b != 0.0 || m.c != 0.0 {
+        return Option<Rect>.None
+    }
+    if prelude.len(path.segments) != 5 {
+        return Option<Rect>.None
+    }
+    val corners = mutable_array_new<Point>()
+    var i = 0
+    while i < 4 {
+        switch path.segments[i] {
+            MoveTo(pt) { push(corners, pt) }
+            LineTo(pt) { push(corners, pt) }
+            QuadTo(_) { return Option<Rect>.None }
+            CubicTo(_) { return Option<Rect>.None }
+            Close { return Option<Rect>.None }
+        }
+        i = i + 1
+    }
+    switch path.segments[4] {
+        Close { unit }
+        MoveTo(_) { return Option<Rect>.None }
+        LineTo(_) { return Option<Rect>.None }
+        QuadTo(_) { return Option<Rect>.None }
+        CubicTo(_) { return Option<Rect>.None }
+    }
+    val a = corners[0]
+    val b = corners[1]
+    val c = corners[2]
+    val d = corners[3]
+    // Upright: the top edge is level, the right edge is plumb, and so on round.
+    if a.y != b.y || b.x != c.x || c.y != d.y || d.x != a.x {
+        return Option<Rect>.None
+    }
+    val lo = transform_point(m, point_of(if a.x < c.x { a.x } else { c.x }, if a.y < c.y { a.y } else { c.y }))
+    val hi = transform_point(m, point_of(if a.x > c.x { a.x } else { c.x }, if a.y > c.y { a.y } else { c.y }))
+    if !whole(lo.x) || !whole(lo.y) || !whole(hi.x) || !whole(hi.y) {
+        return Option<Rect>.None
+    }
+    return Option<Rect>.Some(rect_of(lo.x, lo.y, hi.x - lo.x, hi.y - lo.y))
+}
+
+fn whole(v: float) -> bool {
+    return v == (floor(v) as float)
 }
 
 fn clip_mask(

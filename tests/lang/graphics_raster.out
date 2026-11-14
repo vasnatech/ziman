@@ -11,6 +11,11 @@ black-to-clear stays black:0.0000 at alpha 0.4863
 red fade keeps its hue:    1.0000 at alpha 0.4863
 radial centre vs corner:   0.9294 0.0000
 ramp under a transform:    0.0471 0.5137 0.9843
+rect clip in/out/first/last: 1.0000 0.0000 1.0000 1.0000
+rect clip just outside:      0.0000 0.0000
+a clip between pixels:       0.5020
+a clip under a rotation:     1.0000 0.0000
+a clip under a shear:        1.0000 0.0000
 clip centre vs corner:     1.0000 0.0000
 clipped ink == disc ink:   312.2980 and 312.2980
 strip across the rect:     1.0,0.0,0.0 0.0,1.0,0.0 0.0,0.0,1.0 1.0,1.0,1.0

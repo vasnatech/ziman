@@ -289,6 +289,97 @@ fn main() {
         round4(unwrap(image.pixel_at(ramped, 39, 4)).red)
     )))
 
+    // ---- an upright rectangle on whole pixels clips by narrowing the window
+    //
+    // The same clipping, reached by the cheap path: a `Target` already carries the pixels a pass
+    // may write, so an upright rectangle on pixel boundaries needs no mask at all. **What this
+    // asserts is that the cheap path clips**, because a window computed one pixel out, or not
+    // applied, paints a corner that should be empty -- and the expensive path would have been
+    // correct whatever this one does.
+    val boxed = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(32.0, 32.0), [scene.clipped(
+            shape.rect_path(geom.rect_of(8.0, 8.0, 16.0, 16.0)),
+            [scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 32.0, 32.0)), red)]
+        )]),
+        raster.options()
+    ))
+    print(concat("rect clip in/out/first/last: ", concat(
+        round4(unwrap(image.pixel_at(boxed, 16, 16)).alpha),
+        " ",
+        round4(unwrap(image.pixel_at(boxed, 2, 2)).alpha),
+        " ",
+        round4(unwrap(image.pixel_at(boxed, 8, 8)).alpha),
+        " ",
+        round4(unwrap(image.pixel_at(boxed, 23, 23)).alpha)
+    )))
+    // One past each end is outside, which is where an off-by-one would show.
+    print(concat("rect clip just outside:      ", concat(
+        round4(unwrap(image.pixel_at(boxed, 7, 16)).alpha),
+        " ",
+        round4(unwrap(image.pixel_at(boxed, 24, 16)).alpha)
+    )))
+
+    // **A rectangle between pixels keeps its soft edge**, which is why the cheap path insists on
+    // whole numbers: a window has hard edges and a mask does not, so a clip at `x = 8.5` has to
+    // go the expensive way and come out half covered.
+    val soft = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(32.0, 32.0), [scene.clipped(
+            shape.rect_path(geom.rect_of(8.5, 8.0, 15.0, 16.0)),
+            [scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 32.0, 32.0)), red)]
+        )]),
+        raster.options()
+    ))
+    print(concat("a clip between pixels:       ", round4(unwrap(image.pixel_at(soft, 8, 12)).alpha)))
+
+    // **A rectangle under a rotation is not a rectangle**, so the cheap path must refuse it. The
+    // clip here is upright in its own space and the group around it turns the whole thing, so a
+    // window taken from its corners would clip a different shape entirely -- an axis-aligned box
+    // around a diamond, keeping ink the clip excludes.
+    val turned = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(32.0, 32.0), [scene.group(
+            geom.matrix_concat(geom.translation(16.0, 16.0), geom.rotation(0.785)),
+            [scene.clipped(
+                shape.rect_path(geom.rect_of(0.0 - 8.0, 0.0 - 8.0, 16.0, 16.0)),
+                [scene.fill(shape.rect_path(geom.rect_of(0.0 - 32.0, 0.0 - 32.0, 64.0, 64.0)), red)]
+            )]
+        )]),
+        raster.options()
+    ))
+    // The centre is inside the turned square; the corner of its bounding box is outside it, and
+    // that corner is exactly what a window taken from the rotated corners would have painted.
+    print(concat("a clip under a rotation:     ", concat(
+        round4(unwrap(image.pixel_at(turned, 16, 16)).alpha),
+        " ",
+        round4(unwrap(image.pixel_at(turned, 6, 6)).alpha)
+    )))
+
+    // **A shear is the case the rotation test does not reach.** A turn of 45 degrees lands its
+    // corners between pixels, so the whole-number test refuses it whatever the matrix says --
+    // which means that test alone cannot tell whether the matrix is being looked at. A shear
+    // keeps every corner on a whole number and still turns a rectangle into a parallelogram, so
+    // a window taken from two opposite corners is a box around a slant and paints a triangle of
+    // ink the clip excludes.
+    val leaned = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(32.0, 32.0), [scene.group(
+            geom.shearing(1.0, 0.0),
+            [scene.clipped(
+                shape.rect_path(geom.rect_of(0.0, 0.0, 12.0, 12.0)),
+                // **Reaching well to the left**, because the fill is sheared too: a fill
+                // starting at zero does not cover the pixel this asserts on whatever the clip
+                // does, and the first version of this test could not tell the two paths apart.
+                [scene.fill(shape.rect_path(geom.rect_of(0.0 - 64.0, 0.0, 128.0, 32.0)), red)]
+            )]
+        )]),
+        raster.options()
+    ))
+    // At y = 10 the parallelogram runs from x = 10 to x = 22. Inside it, and then a pixel that
+    // is inside the bounding box of its corners but outside the shape itself.
+    print(concat("a clip under a shear:        ", concat(
+        round4(unwrap(image.pixel_at(leaned, 15, 10)).alpha),
+        " ",
+        round4(unwrap(image.pixel_at(leaned, 2, 10)).alpha)
+    )))
+
     // ---- clipping is a coverage mask, not a rectangle
     //
     // A circular clip over a full-canvas fill. The centre is inside it and a corner is not, and
