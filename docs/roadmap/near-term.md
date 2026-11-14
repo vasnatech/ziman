@@ -844,9 +844,25 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
     input: a datetime format pattern, a foreign key's column count, the SET clauses of one
     UPDATE, the `@template`s in one sheet, a configured header limit.
 
-- **`lib/ui` cannot centre anything, and a stretched button shows it.** Found 2026-11-12 while
-  checking whether F286's widened box was enough for a second look and feel. It is a plain defect
-  rather than a theming limitation, and it has been there since F271.
+- **~~`lib/ui` cannot centre anything, and a stretched button shows it~~ -- fixed 2026-11-12 as
+  F287 (60bd2c7b), and this entry sat here claiming otherwise for two days.** Found 2026-11-12
+  while checking whether F286's widened box was enough for a second look and feel. It was a plain
+  defect rather than a theming limitation, and it had been there since F271.
+
+  **Measured again 2026-11-14, because an entry is not evidence.** `Stack` carries
+  `align: Alignment` (`Across` of `Stretch`/`Start`/`Centre`/`End`, `Along` of
+  `Start`/`Centre`/`End`) and `controls.button_widget` passes `widget.centred()`. A "Send" button
+  in a 200-point box now lays its 28.8-wide label at **x=85.6**, which is `(200 - 28.8) / 2`; the
+  figure this entry was written about was x=8. The check box's mark box, which f286 measured at
+  **9x22** and called the real cause of the radius trouble, is now **14.4 x 14.4** with its glyph
+  centred inside it at x=11.6.
+
+  **So the design pass f286 asked for is done, and the radius question it deferred to is a
+  smaller one than it looked**: a square 14.4-point mark box with a theme radius of 6 is still
+  nearly a circle, which is what `controls.face_within`'s quarter-side cap is for and is the
+  answer already taken. Nothing here is open.
+
+  The original note follows, as written.
 
   **The evidence, measured rather than looked at.** A `Send` button laid out in a 200-point-wide
   box has a face 200 wide and its label at **x=8** -- the left padding, and nothing else. Every
