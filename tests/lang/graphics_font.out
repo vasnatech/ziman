@@ -17,3 +17,7 @@ covers em dash:   None
 covers turkish:   Some(351)
 U+015F is:        015F
 codepoints:       65 351 8212 119070
+hex4:             015F FFFF F600
+code point:       015F 0000 FFFF 10000 1F600 10FFFF ????
+utf-16be:         015F FFFF D800DC00 D83DDE00 DBFFDFFF
+not text:         FFFD FFFD FFFD FFFD

@@ -495,15 +495,29 @@ fn latin_text(data: [byte], at: int, length: int) -> Result<string, string> {
 // A code point as a one-character string, by building its UTF-8 by hand -- the inverse of what
 // `pdf` does to read one, and needed because nothing in the prelude turns a number into a
 // character.
+//
+// **Its two callers cannot reach the four-byte case and it is written anyway.** `utf16be_text`
+// refuses surrogates before calling, so a name-table unit arrives as at most U+FFFF, and
+// `latin_text` passes a byte. A three-branch version is therefore correct *here* and is a trap
+// with a general name on it: the next caller gets three wrong bytes and no error. The branch
+// costs four lines.
 fn codepoint_text(cp: int) -> string {
+    if cp < 0 || cp > 1114111 || (cp >= 55296 && cp <= 57343) {
+        return "?"
+    }
     val bytes = mutable_array_new<byte>()
     if cp < 128 {
         push(bytes, cp as byte)
     } else if cp < 2048 {
         push(bytes, (192 + cp / 64) as byte)
         push(bytes, (128 + cp % 64) as byte)
-    } else {
+    } else if cp < 65536 {
         push(bytes, (224 + cp / 4096) as byte)
+        push(bytes, (128 + (cp / 64) % 64) as byte)
+        push(bytes, (128 + cp % 64) as byte)
+    } else {
+        push(bytes, (240 + cp / 262144) as byte)
+        push(bytes, (128 + (cp / 4096) % 64) as byte)
         push(bytes, (128 + (cp / 64) % 64) as byte)
         push(bytes, (128 + cp % 64) as byte)
     }

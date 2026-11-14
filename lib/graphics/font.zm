@@ -292,6 +292,51 @@ pub fn codepoint_of(ch: string) -> int {
     return -1
 }
 
+// A code point as its UTF-16BE code units in hexadecimal: one unit inside the basic plane, a
+// **surrogate pair** above it.
+//
+// **This is what a PDF `/ToUnicode` destination is, and it is not the code point's own digits.**
+// Writing those -- which this did, through `hex4`, truncated to four -- makes U+1F600 come out as
+// `<F600>`, a private-use character: the text draws correctly and *extracts* as something else,
+// which is the exact failure `/ToUnicode` exists to prevent. Unreachable with a Latin face and
+// perfectly reachable with a font that has anything above the basic plane.
+//
+// A surrogate on its own, or a number past the last code point, is not text; it answers U+FFFD
+// rather than encoding something no reader can make sense of.
+pub fn utf16be_hex(cp: int) -> string {
+    if cp < 0 || cp > 1114111 || (cp >= 55296 && cp <= 57343) {
+        return "FFFD"
+    }
+    if cp < 65536 {
+        return hex4(cp)
+    }
+    val v = cp - 65536
+    return concat(hex4(55296 + v / 1024), hex4(56320 + v % 1024))
+}
+
+// A code point as the digits that go after `U+`: at least four, more when it takes more. **The
+// number, not an encoding** -- U+1F600 is `1F600` here and `D83DDE00` in `utf16be_hex`, and an
+// error message naming a character wants the first.
+pub fn code_point_hex(cp: int) -> string {
+    if cp < 0 {
+        return "????"
+    }
+    val digits = "0123456789ABCDEF"
+    var n = cp
+    var out = ""
+    var i = 0
+    while i < 4 || n > 0 {
+        val d = n % 16
+        out = concat(substring(digits, d, d + 1), out)
+        n = n / 16
+        i = i + 1
+    }
+    return out
+}
+
+// Four hexadecimal digits, **and exactly four**: the low 16 bits of anything larger. That is right
+// for a glyph id, which a PDF's `Identity-H` encoding defines as two bytes, and wrong for a code
+// point, which is what `utf16be_hex` and `code_point_hex` are for.
 pub fn hex4(cp: int) -> string {
     val digits = "0123456789ABCDEF"
     var n = cp

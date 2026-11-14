@@ -102,6 +102,56 @@ fn main() {
         " ",
         str(font.codepoint_of("𝄞"))
     )))
+
+    // **The three hexadecimal spellings, which are three because they answer three questions.**
+    // A glyph id is two bytes by `Identity-H`'s definition; a code point in an error message is
+    // the number; a `/ToUnicode` destination is UTF-16BE, so anything above the basic plane is a
+    // surrogate pair. Writing the number there -- which `hex4` did -- makes U+1F600 extract as
+    // `F600`, a private-use character, from a PDF whose text draws perfectly.
+    print(concat("hex4:             ", concat(
+        font.hex4(351),
+        " ",
+        font.hex4(65535),
+        " ",
+        font.hex4(128512)
+    )))
+    print(concat("code point:       ", concat(
+        font.code_point_hex(351),
+        " ",
+        font.code_point_hex(0),
+        " ",
+        font.code_point_hex(65535),
+        " ",
+        font.code_point_hex(65536),
+        " ",
+        font.code_point_hex(128512),
+        " ",
+        font.code_point_hex(1114111),
+        " ",
+        font.code_point_hex(0 - 1)
+    )))
+    print(concat("utf-16be:         ", concat(
+        font.utf16be_hex(351),
+        " ",
+        font.utf16be_hex(65535),
+        " ",
+        font.utf16be_hex(65536),
+        " ",
+        font.utf16be_hex(128512),
+        " ",
+        font.utf16be_hex(1114111)
+    )))
+    // A lone surrogate and a number past the last code point are not text, and answer U+FFFD
+    // rather than digits a reader would act on.
+    print(concat("not text:         ", concat(
+        font.utf16be_hex(55296),
+        " ",
+        font.utf16be_hex(57343),
+        " ",
+        font.utf16be_hex(1114112),
+        " ",
+        font.utf16be_hex(0 - 1)
+    )))
 }
 
 fn advance_refusal(r: Result<float, string>) -> string {

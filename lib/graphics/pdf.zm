@@ -428,7 +428,11 @@ fn to_unicode_cmap(face: truetype.Face, used: [int]) -> Result<string, string> {
     val pairs = mutable_array_new<string>()
     for g in used {
         if Some(cp) = reverse_lookup(face, g) {
-            push(pairs, concat("<", font.hex4(g), "> <", font.hex4(cp), ">"))
+            // **The source is a glyph id and the destination is UTF-16BE**, which is why these
+            // are not the same function. `hex4` on the destination truncated anything above the
+            // basic plane to its low four digits, so an emoji extracted as a private-use
+            // character -- text that draws right and copies wrong.
+            push(pairs, concat("<", font.hex4(g), "> <", font.utf16be_hex(cp), ">"))
         }
     }
     val all = snapshot(pairs)
@@ -973,7 +977,7 @@ pub fn win_ansi(text: string) -> Result<[byte], string> {
         if b < 0 {
             return err(concat(
                 "pdf: WinAnsiEncoding cannot represent U+",
-                font.hex4(cp),
+                font.code_point_hex(cp),
                 " in '",
                 text,
                 "'. The standard fonts are Latin-1 only; an embedded font (phase 3) is needed for this text"

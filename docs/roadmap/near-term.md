@@ -923,9 +923,21 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
 
   `toml.zm` and `yaml.zm` have `append_utf8(out, cp)`, `truetype.zm` has `codepoint_text(cp)`, and
   `lib/ui/desktop/window.zm` now has `text_of_codepoint(cp)`. All private, all the same arithmetic.
-  **`truetype.zm`'s has no four-byte branch**, so any code point at or above U+10000 -- every
-  emoji, and the whole of the supplementary planes -- comes out as three wrong bytes. Nothing has
-  noticed because the PDF path it serves has not been given one.
+
+  **Corrected 2026-11-13.** This entry first said `truetype.zm`'s copy had no four-byte branch and
+  that every emoji therefore came out as three wrong bytes. The missing branch was real and the
+  consequence was not: its only two callers are name-table decoders, and `utf16be_text` refuses a
+  surrogate before calling while `latin_text` passes a byte, so neither can produce a code point
+  above U+FFFF. It was a trap with a general name on it rather than a live defect, and the branch
+  has been written (`4a6f...`, same commit as the one below) so that the next caller is not the one
+  who finds out.
+
+  **The live defect was next to it, in `pdf.zm`**, and is fixed: a `/ToUnicode` destination is
+  UTF-16BE, and it was written with `font.hex4`, which is four digits and truncates. U+1F600 went
+  into the CMap as `<F600>`, a private-use character -- text that draws perfectly and *extracts* as
+  something else, which is the one failure `/ToUnicode` exists to prevent. `font.utf16be_hex` now
+  writes the surrogate pair, and `font.code_point_hex` gives the number for an error message. Three
+  spellings, because a glyph id, a code point and a UTF-16BE destination are three questions.
 
   **There is no obvious home, which is why there are four.** The prelude has no code points in it
   on purpose: its unit is a one-character string (`chars`, `char_at`), and `bytes_to_string` is the
