@@ -981,3 +981,47 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   coverage, whether a fill behind another could be skipped, and whether the 4x at 2.0 scale is
   pixels alone or pixels plus a per-op constant that scales too. None of this is measured yet; the
   table above is the floor and the ceiling, with nothing in between.
+
+- **`lib/ui` has no icons, and no concept of an image at all.** Asked 2026-11-13, after the design
+  dialect and the builder were both built without anyone noticing the gap.
+
+  `widget.Widget` has nine variants and the only one that draws is `Text`. `controls.Button` is
+  `{name, label, disabled, held}` and the label is a `string`. The words "icon" and "image" appear
+  **nowhere** in `lib/ui`.
+
+  **Everything that currently looks like an icon is a character.** The tree's disclosure marks are
+  `Style.collapsed_mark` and `expanded_mark`, which curly sets to `">"` and `"v"`; the check box's
+  tick is `widget.label_of(mark(c.checked), ...)`. F283 is the scar from exactly this: the default
+  marks were triangles, the vendored Caladea has no U+25B8, and the first frame *died* on the
+  missing glyph until `font.glyphs_of` learned to substitute `.notdef`. A toolkit whose only
+  drawing primitive is the font is one bad glyph away from a blank control.
+
+  **The capability is a layer down**, which is the same shape F286 found for rounded corners.
+  `scene.image(handle, into)`, the `image` module and `raster` can all draw a picture; `widget`
+  has no way to place one.
+
+  Two routes, and they are not equivalent:
+
+    * **A raster icon** -- a `Picture` widget carrying a handle. `scene.image` takes an `int` into
+      a registry, so `raster.Options` would need an `images:` array beside its `fonts:` one. Every
+      icon then needs loading, needs a copy per display scale or it blurs, and **cannot tint**: a
+      disabled control and a pressed one would need their own files.
+    * **A path icon** -- a widget carrying a `shape.Path` and a colour. This needs **no new native
+      code and no registry at all**: `shape` already has `path_builder`, `move_to`/`line_to`/
+      `quad_to`/`cubic_to`, and `transform_path` to scale a unit-box outline into whatever box the
+      layout gives it, and `scene.fill` already draws one. It scales with the display for free and
+      tints with `style.ink` for free, which is what makes a disabled icon and two looks-and-feels
+      cost nothing.
+
+  The path route is the one to argue against rather than for. Its real cost is that an icon has to
+  *be* a path: no `.png` dropped in a folder, and importing an SVG means a parser (`shape` has the
+  segment vocabulary, so it is a reader for one `d` attribute rather than a graphics stack).
+
+  **A second question follows either way, and the dialect cannot dodge it.** `button_of(name,
+  label)` takes a string, so an icon-and-label button needs either an optional icon on `Button` or
+  a way to put an arbitrary widget in the label slot. The second is the general answer and the one
+  a design file would also want, since a design file can already name any widget but cannot reach
+  inside a control.
+
+  Until this is settled, `*_ui.zm` files can describe any layout and no imagery, and a builder's
+  palette has nothing pictorial in it.
