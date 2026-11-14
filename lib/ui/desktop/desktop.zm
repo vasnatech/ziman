@@ -134,10 +134,15 @@ pub struct Repaint {
     // The painter for the next frame. Values are immutable, so the remembered scene comes back this
     // way: `p = try desktop.repaint(p, ...).next` is the shape of a loop.
     next: Painter
-    // The pixels redrawn, or **`None` when the scene was unchanged** -- in which case nothing was
-    // drawn and nothing was sent to the display at all. Worth reading: it is the signal that a loop
-    // can afford to wait for the next event rather than spin.
-    region: Option<raster.Painted>
+    // The pixels redrawn, as one entry per region, and **empty when the scene was unchanged** --
+    // in which case nothing was drawn and nothing was sent to the display at all. Worth reading:
+    // it is the signal that a loop can afford to wait for the next event rather than spin.
+    //
+    // **Several, because two distant changes are cheaper as two rectangles than as the box
+    // between them** -- see `raster.damage_regions`. It was one `Option<Painted>` until
+    // 2026-11-14; a caller that only wants "did anything change" asks `len(regions) > 0`, and one
+    // that wants the extent can union them.
+    regions: [raster.Painted]
 }
 
 pub fn painter_of(width_pt: float, height_pt: float, px_per_pt: float) -> Result<Painter, string> {
@@ -180,27 +185,34 @@ pub fn repaint(
 ) -> Result<Repaint, string> {
     val resized = s.width != p.width_pt || s.height != p.height_pt || o.px_per_pt != p.px_per_pt
     val current = if resized { try painter_of(s.width, s.height, o.px_per_pt) } else { p }
+    // **Up to four rectangles, not one.** A window changing two distant places at once -- a
+    // selection and the line describing it, a caret and a status bar -- is charged the box
+    // between them by a single rectangle, and that box is usually most of the window: measured at
+    // 79% of curly's design builder for a click that changed two boxes of 4,000 pixels. Four is
+    // `raster.damage_regions`'s own suggested budget and the reasoning is there.
     val damage = switch current.shown {
-        Some(previous) { raster.damage_between(previous, s, o) }
-        None { Option<geom.Rect>.Some(geom.rect_of(0.0, 0.0, s.width, s.height)) }
+        Some(previous) { raster.damage_regions(previous, s, o, 4) }
+        None { [geom.rect_of(0.0, 0.0, s.width, s.height)] }
     }
     val remembered = with current { shown: Option<scene.Scene>.Some(s) }
-    return switch damage {
-        // **Nothing drawn and nothing presented.** Not a faster repaint but the absence of one,
-        // which is the cheapest frame there is and the common case for a window nobody is touching.
-        None { ok(Repaint { next: remembered, region: Option<raster.Painted>.None }) }
-        Some(region) {
-            val painted = try raster.draw_into_region(current.surface, s, o, region)
-            val pixels = raster.premultiplied_of(current.surface)
-            try window.present_region(w, pixels.data, pixels.width, pixels.height, window.Region {
-                x: painted.x,
-                y: painted.y,
-                width: painted.width,
-                height: painted.height
-            })
-            ok(Repaint { next: remembered, region: Option<raster.Painted>.Some(painted) })
-        }
+    // **Nothing drawn and nothing presented.** Not a faster repaint but the absence of one, which
+    // is the cheapest frame there is and the common case for a window nobody is touching.
+    if prelude.len(damage) == 0 {
+        return ok(Repaint { next: remembered, regions: [] })
     }
+    val painted = try raster.draw_into_regions(current.surface, s, o, damage)
+    val pixels = raster.premultiplied_of(current.surface)
+    // One blit per region, for the same reason there is one draw per region: the display is asked
+    // for the pixels that changed and not for the box containing them.
+    for one in painted {
+        try window.present_region(w, pixels.data, pixels.width, pixels.height, window.Region {
+            x: one.x,
+            y: one.y,
+            width: one.width,
+            height: one.height
+        })
+    }
+    return ok(Repaint { next: remembered, regions: painted })
 }
 
 // ---- telling an input method where to put itself

@@ -313,10 +313,10 @@ gets a stale window rather than a crash, which is the failure mode to expect fro
 
 ## What changed
 
-### `damage_between`
+### `damage_regions`
 
 ```
-pub fn damage_between(previous: Scene, current: Scene, o: Options) -> Option<Rect>
+pub fn damage_regions(previous: Scene, current: Scene, o: Options, most: int) -> [Rect]
 ```
 
 What changed between two scenes, as a rectangle in scene units to hand to `draw_into_region` --
@@ -340,6 +340,59 @@ caller that reorders a long list will see large damage, and the way out is to re
 `Nested` group so the comparison recurses into it. Two groups are compared internally when their
 transform and clip match; otherwise both the old and the new ink are damaged, because the old has
 to be erased.
+What changed, as **at most `most` rectangles** rather than the one box enclosing them all.
+
+Empty means nothing changed and the window needs no repaint; one window-sized rectangle is the
+answer when everything changed or when the pieces could not be tracked. Hand the result to
+`draw_into_regions`.
+
+**The budget is safe rather than a gamble, and the reducer is why.** It merges overlaps, so
+the regions it answers are disjoint, so their pixels add up to no more than the window's: the
+most a split can cost over a full redraw is the extra walks over the ops, which `most` bounds.
+Four regions on a 901-op frame is about 10 ms of extra walking in the worst case and a 7x
+saving in the case it exists for.
+
+**`most` is a budget, not a target.** Fewer, larger rectangles cost pixels and more, smaller
+ones cost walks over the ops; `draw_into_regions` gives the measured exchange rate. Four is a
+sensible setting for a window and is what `desktop.repaint` uses: it covers the shapes that
+actually happen -- a selection and its description, a status line and a caret -- without
+letting a frame that changed everywhere pay for twenty passes.
+
+### `damage_between`
+
+```
+pub fn damage_between(previous: Scene, current: Scene, o: Options) -> Option<Rect>
+```
+
+### `draw_into_regions`
+
+```
+pub fn draw_into_regions(
+    c: Surface,
+    s: Scene,
+    o: Options,
+    regions: [Rect]
+) -> Result<[Painted], string>
+```
+
+Several regions, each redrawn exactly as `draw_into_region` would redraw it alone.
+
+**Why several rather than their union.** A master-detail window changes two distant places at
+once -- a selection outline on a canvas and the line of text describing it, a status bar under
+a drawing -- and the box enclosing both is most of the window. Measured on curly's design
+builder, one click damaged 1136x884 of a 1400x900 window: 79%, to change two boxes of about
+4,000 pixels each.
+
+**Each region is a separate pass over the scene's ops**, so this trades pixels for walks and
+the exchange rate is the floor: on a 901-op frame a one-pixel region costs 3.4 ms, so two
+regions beat their 1004-kpx union (57.2 ms) by about 7x and the two curves cross at about
+fourteen regions. `damage_regions` caps the count for that reason; past the cap the union is
+the cheaper answer as well as the simpler one.
+
+**Overlapping regions are wasteful, not wrong.** Each pass clears its own region and then draws
+everything that touches it, so a pixel in two regions is simply painted twice with the same
+result -- which is why the reducer merges overlaps as an optimisation and nothing here has to
+check for them.
 
 ### `Premultiplied`
 

@@ -6,3 +6,15 @@ redrawing B over B changes nothing:      0
 a region past the edge is clipped to: 120x80
 clipped to the whole surface, so it equals a full redraw of B: 0
 empty region refused: raster: a region to redraw must be larger than nothing
+one rectangle:    1 region(s), 8064 px
+up to four:       2 region(s), 400 px
+a budget of one:  1 region(s), 8064 px
+nothing changed:  0 region(s), 0 px
+regions painted:  2
+inside differs from a full redraw of the new scene: 0
+outside differs from a full redraw of the old one:  0
+inside differs from the OLD scene:                  400
+two overlapping:  1 region(s), 1500 px
+four changes, four allowed: 4 region(s), 512 px
+four changes, two allowed:  2 region(s), 1792 px
+a capped split still equals a full redraw: 0

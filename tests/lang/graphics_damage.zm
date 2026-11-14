@@ -110,6 +110,80 @@ fn differences(a: raster.Surface, b: raster.Surface, x0: int, y0: int, x1: int, 
     return differing
 }
 
+// The same count over a *set* of regions: inside any of them, or outside all of them.
+fn differences_in(
+    a: raster.Surface,
+    b: raster.Surface,
+    regions: [raster.Painted],
+    inside: bool
+) -> int {
+    val pa = raster.premultiplied_of(a)
+    val pb = raster.premultiplied_of(b)
+    var differing = 0
+    for y in 0..pa.height {
+        for x in 0..pa.width {
+            var within = false
+            for r in regions {
+                if x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height {
+                    within = true
+                }
+            }
+            if within == inside {
+                val at = (y * pa.width + x) * 4
+                var channel = 0
+                var same = true
+                while channel < 4 {
+                    if pa.data[at + channel] != pb.data[at + channel] {
+                        same = false
+                    }
+                    channel = channel + 1
+                }
+                if !same {
+                    differing = differing + 1
+                }
+            }
+        }
+    }
+    return differing
+}
+
+// Two small marks at opposite corners of the surface, so that the box enclosing both is most of
+// it: 112x72 of a 120x80 surface, to change two boxes of 200 pixels each. That ratio is the whole
+// reason `damage_regions` exists, and it is the shape a master-detail window makes -- a selection
+// at one end and the line describing it at the other.
+fn two_corners(left: paint.Paint, right: paint.Paint) -> scene.Scene {
+    return scene.with_ops(scene.scene_of(width, height), [
+        scene.fill(shape.rect_path(geom.rect_of(4.0, 4.0, 20.0, 10.0)), left),
+        scene.fill(shape.rect_path(geom.rect_of(96.0, 66.0, 20.0, 10.0)), right)
+    ])
+}
+
+// Four marks, for the cap: two down each side.
+fn four_marks(a: paint.Paint, b: paint.Paint, c: paint.Paint, d: paint.Paint) -> scene.Scene {
+    return scene.with_ops(scene.scene_of(width, height), [
+        scene.fill(shape.rect_path(geom.rect_of(4.0, 4.0, 16.0, 8.0)), a),
+        scene.fill(shape.rect_path(geom.rect_of(100.0, 4.0, 16.0, 8.0)), b),
+        scene.fill(shape.rect_path(geom.rect_of(4.0, 68.0, 16.0, 8.0)), c),
+        scene.fill(shape.rect_path(geom.rect_of(100.0, 68.0, 16.0, 8.0)), d)
+    ])
+}
+
+// Two marks that overlap, so the reducer has a pair it must merge whatever the budget says.
+fn two_overlapping(left: paint.Paint, right: paint.Paint) -> scene.Scene {
+    return scene.with_ops(scene.scene_of(width, height), [
+        scene.fill(shape.rect_path(geom.rect_of(20.0, 20.0, 30.0, 20.0)), left),
+        scene.fill(shape.rect_path(geom.rect_of(40.0, 30.0, 30.0, 20.0)), right)
+    ])
+}
+
+fn shape_of(rs: [geom.Rect]) -> string {
+    var area = 0.0
+    for r in rs {
+        area = area + r.width * r.height
+    }
+    return format("{} region(s), {} px", str(len(rs)), format("{:.0}", area))
+}
+
 fn run() -> Result<unit, string> {
     val data = switch fs.read_bytes("vendor/fonts/Caladea-Regular.ttf") {
         Ok(d) { d }
@@ -185,6 +259,82 @@ fn run() -> Result<unit, string> {
         Ok(_) { print("an empty region was accepted, which it should not be") }
         Err(why) { printf("empty region refused: {}\n", why) }
     }
+
+    // ---- several regions, which is the same promise again
+
+    val red = solid(0.9, 0.1, 0.1)
+    val blue = solid(0.2, 0.4, 0.8)
+    val green = solid(0.1, 0.7, 0.3)
+
+    // **Both marks change, at opposite corners.** One rectangle has to enclose both; two
+    // rectangles are a fortieth of the pixels.
+    val corners_before = two_corners(blue, blue)
+    val corners_after = two_corners(red, green)
+    printf("one rectangle:    {}\n", shape_of(switch raster.damage_between(corners_before, corners_after, o) {
+        Some(r) { [r] }
+        None { [] }
+    }))
+    val split = raster.damage_regions(corners_before, corners_after, o, 4)
+    printf("up to four:       {}\n", shape_of(split))
+    // A budget of one is the union again, which is how a caller asks for the old behaviour.
+    printf("a budget of one:  {}\n", shape_of(raster.damage_regions(corners_before, corners_after, o, 1)))
+    // Nothing changed is no regions at all, and not one empty one.
+    printf("nothing changed:  {}\n", shape_of(raster.damage_regions(corners_after, corners_after, o, 4)))
+
+    // **And the split has to be indistinguishable from a full redraw**, which is the promise the
+    // top of this file makes about one region and is no weaker for several.
+    val full_before = try surface()
+    val full_after = try surface()
+    try raster.draw_into(full_before, corners_before, o)
+    try raster.draw_into(full_after, corners_after, o)
+    val patched_split = try surface()
+    try raster.draw_into(patched_split, corners_before, o)
+    val painted_regions = try raster.draw_into_regions(patched_split, corners_after, o, split)
+    printf("regions painted:  {}\n", str(len(painted_regions)))
+    printf(
+        "inside differs from a full redraw of the new scene: {}\n",
+        str(differences_in(patched_split, full_after, painted_regions, true))
+    )
+    printf(
+        "outside differs from a full redraw of the old one:  {}\n",
+        str(differences_in(patched_split, full_before, painted_regions, false))
+    )
+    // And the regions really did carry the change: against the old scene, inside differs.
+    printf(
+        "inside differs from the OLD scene:                  {}\n",
+        str(differences_in(patched_split, full_before, painted_regions, true))
+    )
+
+    // **Overlapping changes are merged whatever the budget**, because a pixel in two regions is
+    // painted twice for the same result.
+    printf("two overlapping:  {}\n", shape_of(raster.damage_regions(
+        two_overlapping(blue, blue),
+        two_overlapping(red, green),
+        o,
+        4
+    )))
+
+    // **The budget caps the count**: four separate changes, two rectangles allowed.
+    val marks_before = four_marks(blue, blue, blue, blue)
+    val marks_after = four_marks(red, green, red, green)
+    printf("four changes, four allowed: {}\n", shape_of(raster.damage_regions(marks_before, marks_after, o, 4)))
+    printf("four changes, two allowed:  {}\n", shape_of(raster.damage_regions(marks_before, marks_after, o, 2)))
+    // Two allowed still covers everything four did -- the pairs merged, nothing was dropped.
+    val two_up = try surface()
+    try raster.draw_into(two_up, marks_before, o)
+    val two_painted = try raster.draw_into_regions(
+        two_up,
+        marks_after,
+        o,
+        raster.damage_regions(marks_before, marks_after, o, 2)
+    )
+    val marks_full = try surface()
+    try raster.draw_into(marks_full, marks_after, o)
+    printf(
+        "a capped split still equals a full redraw: {}\n",
+        str(differences_in(two_up, marks_full, two_painted, true) +
+                differences_in(two_up, marks_full, two_painted, false))
+    )
     return unit
 }
 

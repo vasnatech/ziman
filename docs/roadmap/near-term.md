@@ -1176,6 +1176,44 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   pays for itself at these sizes is the thing to measure before building it: two rectangles of
   12,000 pixels against one of a million is a large enough ratio to be worth a careful look.
 
+  **Measured 2026-11-14, and the careful look was the point: the bookkeeping was never the
+  question.** The cost of a region is not its pixels, it is the walk over the scene's ops, and a
+  **1x1** damage region on a 901-op frame cost **10.8 ms**. Eight small rectangles cost 96 ms
+  against 83 ms for redrawing the whole window -- so N separate `draw_into_region` calls were a
+  *worse* answer than the union above about seven regions, and nobody would have found that out
+  by reasoning about rectangles.
+
+  So the floor came first (`d69f36c5`): a path carries its own bounds, `transform_rect` stops
+  unioning rects to find the box of four points, and `fill_shape` stops inverting a matrix for an
+  op it is about to skip. That took the per-op walk down by 3x and moved the crossover to about
+  fourteen regions, which is where the split becomes worth having:
+
+  | 901-op frame, 1400x900 | before | after |
+  |---|---|---|
+  | 1x1 region (the floor) | 10.8 ms | **3.4 ms** |
+  | two small rectangles | 29.4 ms | **8.2 ms** |
+  | eight small | 96.4 ms | **31.4 ms** |
+  | their 1004-kpx union | 80.6 ms | **57.2 ms** |
+  | the whole window | 82.8 ms | 79.8 ms |
+
+  **Then built.** `raster.damage_regions(previous, current, o, most)` answers at most `most`
+  rectangles and `raster.draw_into_regions` redraws them; `desktop.repaint` asks for four and
+  returns `regions: [Painted]` where it used to return one `Option<Painted>`. Two details worth
+  keeping:
+    * **Overlapping regions are wasteful, not wrong.** Each pass clears its own region and then
+      draws everything that touches it, so a pixel in two regions is painted twice with the same
+      result. That makes the reducer an optimisation rather than a correctness requirement, which
+      is the opposite of what it looks like from outside.
+    * **The piece count is capped at 16 before the reducer runs, and the budget is 4 after.**
+      Merging is quadratic per merge and runs inside a frame: sixteen pieces cost a few thousand
+      rectangle comparisons, sixty-four would cost a quarter of a million. A frame with more
+      separate changes than that has changed in a way where the union is the honest answer.
+
+  `tests/lang/graphics_damage.zm` holds it to the same promise one region has: on two changes at
+  opposite corners the split is **2 regions of 400 px against a union of 8064**, and inside them
+  the surface is per-pixel identical to a full redraw while outside them it is per-pixel identical
+  to the frame before.
+
   Also still unmeasured: whether the 4x at `px_per_pt: 2.0` is rows alone, since the row count
   doubles while the ink quadruples.
 

@@ -81,10 +81,15 @@ pub struct Repaint {
     // The painter for the next frame. Values are immutable, so the remembered scene comes back this
     // way: `p = try desktop.repaint(p, ...).next` is the shape of a loop.
     next: Painter
-    // The pixels redrawn, or **`None` when the scene was unchanged** -- in which case nothing was
-    // drawn and nothing was sent to the display at all. Worth reading: it is the signal that a loop
-    // can afford to wait for the next event rather than spin.
-    region: Option<raster.Painted>
+    // The pixels redrawn, as one entry per region, and **empty when the scene was unchanged** --
+    // in which case nothing was drawn and nothing was sent to the display at all. Worth reading:
+    // it is the signal that a loop can afford to wait for the next event rather than spin.
+    //
+    // **Several, because two distant changes are cheaper as two rectangles than as the box
+    // between them** -- see `raster.damage_regions`. It was one `Option<Painted>` until
+    // 2026-11-14; a caller that only wants "did anything change" asks `len(regions) > 0`, and one
+    // that wants the extent can union them.
+    regions: [raster.Painted]
 }
 ```
 

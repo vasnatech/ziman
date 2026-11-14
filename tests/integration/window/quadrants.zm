@@ -272,20 +272,34 @@ fn use_repaint() -> bool {
 // harness can read them: a first frame that must draw everything, a second with the same scene that
 // must draw **nothing at all**, and a changed scene whose damage must be the one quadrant that
 // differs rather than the window.
+// `Repaint.regions` is a list since 2026-11-14, because two distant changes are cheaper as two
+// rectangles than as the box between them. Every case below changes one thing or nothing, so one
+// region is the right answer and **more than one would be a finding rather than a detail** -- it
+// is reported instead of being flattened away.
+fn only_region(r: desktop.Repaint) -> Option<raster.Painted> {
+    if len(r.regions) == 0 {
+        return Option<raster.Painted>.None
+    }
+    if len(r.regions) > 1 {
+        printf("unexpectedly painted {} regions for one change\n", str(len(r.regions)))
+    }
+    return Option<raster.Painted>.Some(r.regions[0])
+}
+
 fn drive_repaint(w: window.Window) -> Result<desktop.Painter, string> {
     val o = repaint_options()
     var painter = try desktop.painter_of(width as float, height as float, 1.0)
 
     val first = try desktop.repaint(painter, w, quadrant_scene(0), o)
     painter = first.next
-    switch first.region {
+    switch only_region(first) {
         Some(r) { printf("repaint first {}x{}\n", str(r.width), str(r.height)) }
         None { print("repaint first painted nothing, which it must not") }
     }
 
     val again = try desktop.repaint(painter, w, quadrant_scene(0), o)
     painter = again.next
-    switch again.region {
+    switch only_region(again) {
         Some(r) { printf("repaint unchanged painted {}x{}, which it must not\n", str(r.width), str(r.height)) }
         None { print("repaint unchanged painted nothing") }
     }
@@ -294,13 +308,13 @@ fn drive_repaint(w: window.Window) -> Result<desktop.Painter, string> {
     // window would stay as the compositor left it.
     val forced = try desktop.repaint(desktop.forget(painter), w, quadrant_scene(0), o)
     painter = forced.next
-    switch forced.region {
+    switch only_region(forced) {
         Some(r) { printf("repaint after forget {}x{}\n", str(r.width), str(r.height)) }
         None { print("repaint after forget painted nothing, which it must not") }
     }
 
     val changed = try desktop.repaint(painter, w, quadrant_scene(1), o)
-    switch changed.region {
+    switch only_region(changed) {
         Some(r) { printf("repaint one quadrant {}x{} at {},{}\n", str(r.width), str(r.height), str(r.x), str(r.y)) }
         None { print("repaint of a changed scene painted nothing, which it must not") }
     }
