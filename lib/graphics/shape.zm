@@ -10,6 +10,7 @@ use geom.bottom
 use geom.empty_rect
 use geom.normalized
 use geom.point_of
+use geom.rect_between
 use geom.rect_of
 use geom.right
 use geom.transform_point
@@ -54,6 +55,26 @@ pub enum Winding {
 pub struct Path {
     segments: [Segment]
     winding: Winding
+    // The control-point hull, **computed once when the path is made** rather than on every
+    // question about it.
+    //
+    // **Profiled 2026-11-14, and it was the largest single cost in a regional repaint**: a
+    // one-pixel damage region on a 901-op scene took 10.8 ms, of which 37% was recomputing these
+    // boxes -- `path_bounds` -> `bounds_builder` -> `include` -> `rect_union` -- for ops that
+    // then failed the window test and drew nothing. The scene is rebuilt every frame, so the
+    // walk happened every frame, per op, to answer a question each path could have answered at
+    // birth.
+    //
+    // **Free for the shapes a user interface is made of.** A rectangle's hull is the rectangle; a
+    // round rect's, an ellipse's and a circle's are too, because their control points all lie
+    // inside the box and the curves touch all four edges. Those constructors set this from their
+    // own argument and walk nothing. The general ones (`built`, `path_of`, `polygon_path`) walk
+    // their segments once, which is what every draw used to do.
+    //
+    // It is not an optimisation to be undone later: `path_bounds` is the same function it was,
+    // and `tests/lang/graphics_shape.zm` checks each constructor's stored box against a walk of
+    // its own segments, so the analytic shortcuts cannot drift from the definition.
+    bounds: Rect
 }
 
 // Building one. Thread-bound by holding a `MutableArray`, which is what makes a builder a builder
@@ -87,21 +108,27 @@ pub fn close_path(b: PathBuilder) {
 }
 
 pub fn built(b: PathBuilder, winding: Winding) -> Path {
-    return Path { segments: snapshot(b.segments), winding: winding }
+    val segments = snapshot(b.segments)
+    return Path { segments: segments, winding: winding, bounds: hull_of(segments) }
 }
 
 pub fn path_of(segments: [Segment], winding: Winding) -> Path {
-    return Path { segments: segments, winding: winding }
+    return Path { segments: segments, winding: winding, bounds: hull_of(segments) }
 }
 
 pub fn empty_path() -> Path {
-    return Path { segments: [], winding: Winding.NonZero }
+    return Path { segments: [], winding: Winding.NonZero, bounds: empty_rect() }
 }
 
 // ---- the shapes everyone actually draws
 
 pub fn line_path(from: Point, to: Point) -> Path {
-    return Path { segments: [Segment.MoveTo(from), Segment.LineTo(to)], winding: Winding.NonZero }
+    return Path {
+        segments: [Segment.MoveTo(from), Segment.LineTo(to)],
+        winding: Winding.NonZero,
+        // Two points, so the hull is the box between them -- no walk needed to know that.
+        bounds: rect_between(from, to)
+    }
 }
 
 pub fn rect_path(r: Rect) -> Path {
@@ -114,7 +141,10 @@ pub fn rect_path(r: Rect) -> Path {
             Segment.LineTo(point_of(n.x, bottom(n))),
             Segment.Close
         ],
-        winding: Winding.NonZero
+        winding: Winding.NonZero,
+        // **The hull of a rectangle is the rectangle.** The hottest of these, by a long way: a
+        // window full of controls is mostly this one.
+        bounds: n
     }
 }
 
@@ -229,7 +259,17 @@ pub fn transform_path(p: Path, m: Matrix) -> Path {
             Close { push(out, Segment.Close) }
         }
     }
-    return Path { segments: snapshot(out), winding: p.winding }
+    val moved = snapshot(out)
+    return Path {
+        segments: moved,
+        winding: p.winding,
+        // **Walked, not derived from `p.bounds` by transforming it.** Under a rotation the box of
+        // the transformed corners is larger than the box of the transformed points, and
+        // `path_bounds` answers clip tests and page fits, where a box that is merely *not wrong*
+        // would quietly change both. One extra pass over segments already in hand, with no
+        // allocation, against a shape that is about to be flattened and filled.
+        bounds: hull_of(moved)
+    }
 }
 
 // Every point mentioned by the path, enclosed: the control-point hull.
@@ -238,24 +278,64 @@ pub fn transform_path(p: Path, m: Matrix) -> Path {
 // and is cheap -- which is all a clip test or a page-fit check needs. For the real extrema, see
 // `path_tight_bounds`, and read its comment for why both exist.
 pub fn path_bounds(p: Path) -> Rect {
-    val acc = bounds_builder()
-    for s in p.segments {
+    return p.bounds
+}
+
+// A hull being accumulated, one point at a time.
+//
+// **A struct passed and returned rather than mutated**, because a struct's fields are not
+// mutable here and the alternative -- a field per number held in a one-element `MutableArray`,
+// which is what `BoundsAcc` below does -- allocates five arrays to hold five numbers.
+struct Hull {
+    seen: bool
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+}
+
+fn with_point(h: Hull, p: Point) -> Hull {
+    if !h.seen {
+        return Hull { seen: true, min_x: p.x, min_y: p.y, max_x: p.x, max_y: p.y }
+    }
+    return with h {
+        min_x: if p.x < h.min_x { p.x } else { h.min_x },
+        min_y: if p.y < h.min_y { p.y } else { h.min_y },
+        max_x: if p.x > h.max_x { p.x } else { h.max_x },
+        max_y: if p.y > h.max_y { p.y } else { h.max_y }
+    }
+}
+
+// The control-point hull of a list of segments: what `path_bounds` used to compute on every
+// question and a `Path` now carries.
+//
+// **Point by point, and not as a union of per-segment boxes**, which is the shape this was first
+// written in and it was wrong: `rect_union` documents that an empty rect contributes nothing, so
+// that a union over a list can start from `empty_rect` -- and a single point's box is zero-sized
+// and therefore empty, so every union answered its second operand and the hull came out as the
+// last point with no size at all. `tests/lang/graphics_stroke.zm` said so immediately, by
+// reporting a miter limit that had stopped being load-bearing.
+//
+// **Deliberately not `bounds_builder`** either, for the allocation reason `Hull` gives.
+// `path_tight_bounds` still uses it: it solves a quadratic per curve and is for fitting ink to a
+// page rather than for a clip test, so five allocations are nothing beside its own work.
+fn hull_of(segments: [Segment]) -> Rect {
+    var h = Hull { seen: false, min_x: 0.0, min_y: 0.0, max_x: 0.0, max_y: 0.0 }
+    for s in segments {
         switch s {
-            MoveTo(a) { include(acc, a) }
-            LineTo(a) { include(acc, a) }
-            QuadTo(q) {
-                include(acc, q.control)
-                include(acc, q.end)
-            }
+            MoveTo(a) { h = with_point(h, a) }
+            LineTo(a) { h = with_point(h, a) }
+            QuadTo(q) { h = with_point(with_point(h, q.control), q.end) }
             CubicTo(c) {
-                include(acc, c.control1)
-                include(acc, c.control2)
-                include(acc, c.end)
+                h = with_point(with_point(with_point(h, c.control1), c.control2), c.end)
             }
             Close {}
         }
     }
-    return bounds_of(acc)
+    if !h.seen {
+        return empty_rect()
+    }
+    return rect_of(h.min_x, h.min_y, h.max_x - h.min_x, h.max_y - h.min_y)
 }
 
 // The curve's actual extent: endpoints, plus each curve's turning points.

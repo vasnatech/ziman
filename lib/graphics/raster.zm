@@ -1523,6 +1523,20 @@ fn fill_shape(
     clip: Option<[float]>,
     o: Options
 ) -> Result<unit, string> {
+    // **Asked before the path is transformed and flattened**, which is the point: `edges_of`
+    // flattens every curve, and a regional repaint of a list row was still flattening eight
+    // round-rect buttons outside it, every frame. Profiled at about a quarter of such a frame --
+    // `cubic_is_flat`, `midpoint` and `flatten_cubic_into` together -- for shapes that could not
+    // draw a pixel. The same mistake as shaping a text run before checking whether it is visible,
+    // which `draw_text` had already been fixed for and this had not.
+    //
+    // **And asked before the matrix is inverted**, which it was not until 2026-11-14: the inverse
+    // is only wanted to evaluate paint per covered pixel, so an op outside the window was paying
+    // for one and then drawing nothing -- 7.5% of a one-pixel regional repaint, which is all
+    // skipped ops.
+    if !reaches_window(t, shape.path_bounds(path), m) {
+        return unit
+    }
     // The paint is evaluated in **user space**, by mapping each covered pixel's centre back through
     // the inverse. The alternative -- transforming the gradient's own geometry forward -- cannot be
     // right under a non-uniform scale, where a radial gradient's circle becomes an ellipse and its
@@ -1531,15 +1545,6 @@ fn fill_shape(
     val inv = switch invert(m) {
         Ok(i) { i }
         Err(why) { return err(concat("raster: this group's transform cannot be inverted (", why, ")")) }
-    }
-    // **Asked before the path is transformed and flattened**, which is the point: `edges_of`
-    // flattens every curve, and a regional repaint of a list row was still flattening eight
-    // round-rect buttons outside it, every frame. Profiled at about a quarter of such a frame --
-    // `cubic_is_flat`, `midpoint` and `flatten_cubic_into` together -- for shapes that could not
-    // draw a pixel. The same mistake as shaping a text run before checking whether it is visible,
-    // which `draw_text` had already been fixed for and this had not.
-    if !reaches_window(t, shape.path_bounds(path), m) {
-        return unit
     }
     val device = shape.transform_path(path, m)
     val e = edges_of(device)

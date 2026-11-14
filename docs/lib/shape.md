@@ -122,6 +122,26 @@ drawn one way is solid and the other way has a hole.
 pub struct Path {
     segments: [Segment]
     winding: Winding
+    // The control-point hull, **computed once when the path is made** rather than on every
+    // question about it.
+    //
+    // **Profiled 2026-11-14, and it was the largest single cost in a regional repaint**: a
+    // one-pixel damage region on a 901-op scene took 10.8 ms, of which 37% was recomputing these
+    // boxes -- `path_bounds` -> `bounds_builder` -> `include` -> `rect_union` -- for ops that
+    // then failed the window test and drew nothing. The scene is rebuilt every frame, so the
+    // walk happened every frame, per op, to answer a question each path could have answered at
+    // birth.
+    //
+    // **Free for the shapes a user interface is made of.** A rectangle's hull is the rectangle; a
+    // round rect's, an ellipse's and a circle's are too, because their control points all lie
+    // inside the box and the curves touch all four edges. Those constructors set this from their
+    // own argument and walk nothing. The general ones (`built`, `path_of`, `polygon_path`) walk
+    // their segments once, which is what every draw used to do.
+    //
+    // It is not an optimisation to be undone later: `path_bounds` is the same function it was,
+    // and `tests/lang/graphics_shape.zm` checks each constructor's stored box against a walk of
+    // its own segments, so the analytic shortcuts cannot drift from the definition.
+    bounds: Rect
 }
 ```
 

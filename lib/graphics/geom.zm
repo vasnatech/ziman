@@ -169,7 +169,46 @@ pub fn transform_rect(m: Matrix, r: Rect) -> Rect {
     val p2 = transform_point(m, Point { x: right(n), y: n.y })
     val p3 = transform_point(m, Point { x: right(n), y: bottom(n) })
     val p4 = transform_point(m, Point { x: n.x, y: bottom(n) })
-    return rect_union(rect_between(p1, p3), rect_between(p2, p4))
+    // **The minimum and maximum of four points, written out.** This was
+    // `rect_union(rect_between(p1, p3), rect_between(p2, p4))`, which is the same answer and
+    // three more rects, each normalized again inside the union -- and `normalized` was **17% of
+    // a one-pixel regional repaint** (profiled 2026-11-14), because this function is how every
+    // op in a scene is tested against the window it is not in. It also leaned on `rect_union`'s
+    // rule that an empty rect contributes nothing, which is exactly the rule that makes a union
+    // of degenerate boxes the wrong tool for enclosing points.
+    val min_x = smallest(p1.x, p2.x, p3.x, p4.x)
+    val min_y = smallest(p1.y, p2.y, p3.y, p4.y)
+    val max_x = largest(p1.x, p2.x, p3.x, p4.x)
+    val max_y = largest(p1.y, p2.y, p3.y, p4.y)
+    return Rect { x: min_x, y: min_y, width: max_x - min_x, height: max_y - min_y }
+}
+
+fn smallest(a: float, b: float, c: float, d: float) -> float {
+    var v = a
+    if b < v {
+        v = b
+    }
+    if c < v {
+        v = c
+    }
+    if d < v {
+        v = d
+    }
+    return v
+}
+
+fn largest(a: float, b: float, c: float, d: float) -> float {
+    var v = a
+    if b > v {
+        v = b
+    }
+    if c > v {
+        v = c
+    }
+    if d > v {
+        v = d
+    }
+    return v
 }
 
 pub fn determinant(m: Matrix) -> float {
