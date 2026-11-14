@@ -977,10 +977,35 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   does not -- selecting a node moves an outline, rewrites the inspector and restyles a list, which
   is close to the whole window.
 
-  Worth knowing before deciding anything: whether the per-op cost is the bounding box or the real
-  coverage, whether a fill behind another could be skipped, and whether the 4x at 2.0 scale is
-  pixels alone or pixels plus a per-op constant that scales too. None of this is measured yet; the
-  table above is the floor and the ceiling, with nothing in between.
+  **Measured 2026-11-13, and it is neither the bounding box nor the ink: it is rows.** Each case
+  below holds two of the three fixed and moves the third, at 1400x900 with `samples: 1`, over the
+  11 ms floor:
+
+  | | over the floor | ink | scanline rows spanned |
+  |---|---|---|---|
+  | 20 hairlines, 1 row tall | +7 ms | ~28k px | 20 |
+  | 20 hairlines, 900 rows tall | +43 ms | ~18k px | 18,000 |
+  | 20 diagonals, 900 rows tall | +52 ms | ~32k px | 18,000 |
+  | 20 fills, a twentieth of the surface each | +12 ms | 1.26M px | 900 |
+  | 1 fill over the whole surface | +5 ms | 1.26M px | 900 |
+  | 20 fills over the whole surface | +116 ms | 25M px | 18,000 |
+
+  The decisive pair is the first two: same op count, same length, same ink, **six times the cost**,
+  and the only thing that differs is how many rows each op's outline spans. The rest fit one model
+  -- roughly **2.4 us per (op x row), 3 ns per pixel of ink, and a small per-op constant** -- and
+  the row term dominates everything a user interface draws, because a panel-sized fill spans
+  hundreds of rows and a window has dozens of them.
+
+  **So the lever is not fewer pixels, it is fewer (op x row) pairs**, and two things follow. The
+  big one: clipping each op to the damage region before rasterising would cut rows in proportion
+  to the damage, where `desktop.repaint` currently clips only the final blit -- which is why a
+  window that changes a caret still pays for every tall op behind it. The small one: a scene that
+  draws a tall thing as one op rather than per-row is already doing the right thing, so the
+  improvement is in the rasteriser and not in `lib/ui`.
+
+  Still unmeasured: whether the 4x at `px_per_pt: 2.0` is rows alone (it should be, since the row
+  count doubles and the ink quadruples), and whether a fill wholly hidden behind a later opaque
+  one can be skipped cheaply enough to be worth detecting.
 
 - **`lib/ui` has no icons, and no concept of an image at all.** Asked 2026-11-13, after the design
   dialect and the builder were both built without anyone noticing the gap.
