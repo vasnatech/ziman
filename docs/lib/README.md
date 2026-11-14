@@ -38,6 +38,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`crypto`](crypto.md) | Hashes, message authentication, key derivation, password hashing, one authenticated cipher and base64, on OpenSSL's libcrypto. |
 | [`jwt`](jwt.md) | JSON Web Tokens (RFC 7519), in two families: **a shared secret** (HS256, HS384, HS512) and **a P-256 key pair** (ES256, added 2026-10-29). |
 | [`otp`](otp.md) | Time-based one-time passwords (RFC 6238, over RFC 4226's HOTP) of the kind authenticator apps show: six digits that change every 30 seconds, from a secret shared once, by QR code or by typing it. |
+| [`charset`](charset.md) | Text and bytes, across the character encodings a program meets at a boundary. |
 | [`mime`](mime.md) | Media types (MIME types, RFC 6838): `application/json`, `text/html; charset=utf-8`. |
 
 ## Time

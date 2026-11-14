@@ -10,6 +10,7 @@
 // What is left for here is the half that does not need a font: every way a font file can be wrong.
 // Those are worth pinning because a parser's error paths are what a caller actually meets, and they
 // are unreachable with a valid file.
+use charset
 use font
 use truetype
 
@@ -92,22 +93,12 @@ fn main() {
     print(format("covers turkish:   {}", unwrap(font.covers(helv, "şeker"))))
     print(concat("U+015F is:        ", font.hex4(351)))
 
-    // The code-point decoder the encodings are built on, across all four UTF-8 lengths.
-    print(concat("codepoints:       ", concat(
-        str(font.codepoint_of("A")),
-        " ",
-        str(font.codepoint_of("ş")),
-        " ",
-        str(font.codepoint_of("—")),
-        " ",
-        str(font.codepoint_of("𝄞"))
-    )))
-
     // **The three hexadecimal spellings, which are three because they answer three questions.**
-    // A glyph id is two bytes by `Identity-H`'s definition; a code point in an error message is
-    // the number; a `/ToUnicode` destination is UTF-16BE, so anything above the basic plane is a
-    // surrogate pair. Writing the number there -- which `hex4` did -- makes U+1F600 extract as
-    // `F600`, a private-use character, from a PDF whose text draws perfectly.
+    // A glyph id is two bytes by `Identity-H`'s definition, and that one is this module's. The
+    // other two are `charset`'s, and tested there: a code point in an error message is the
+    // number, and a `/ToUnicode` destination is UTF-16BE, so anything above the basic plane is
+    // a surrogate pair. Writing the number there -- which `hex4` did -- makes U+1F600 extract
+    // as `F600`, a private-use character, out of a PDF whose text draws perfectly.
     print(concat("hex4:             ", concat(
         font.hex4(351),
         " ",
@@ -115,42 +106,13 @@ fn main() {
         " ",
         font.hex4(128512)
     )))
-    print(concat("code point:       ", concat(
-        font.code_point_hex(351),
-        " ",
-        font.code_point_hex(0),
-        " ",
-        font.code_point_hex(65535),
-        " ",
-        font.code_point_hex(65536),
-        " ",
-        font.code_point_hex(128512),
-        " ",
-        font.code_point_hex(1114111),
-        " ",
-        font.code_point_hex(0 - 1)
-    )))
-    print(concat("utf-16be:         ", concat(
-        font.utf16be_hex(351),
-        " ",
-        font.utf16be_hex(65535),
-        " ",
-        font.utf16be_hex(65536),
-        " ",
-        font.utf16be_hex(128512),
-        " ",
-        font.utf16be_hex(1114111)
-    )))
-    // A lone surrogate and a number past the last code point are not text, and answer U+FFFD
-    // rather than digits a reader would act on.
-    print(concat("not text:         ", concat(
-        font.utf16be_hex(55296),
-        " ",
-        font.utf16be_hex(57343),
-        " ",
-        font.utf16be_hex(1114112),
-        " ",
-        font.utf16be_hex(0 - 1)
+    print(concat("the same emoji:   ", concat(
+        font.hex4(128512),
+        " glyph id, U+",
+        charset.hex_of(128512),
+        " the number, ",
+        charset.utf16be_hex(128512),
+        " as a destination"
     )))
 }
 

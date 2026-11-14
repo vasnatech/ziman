@@ -8,6 +8,7 @@
 // and `hmtx` (advances), `cmap` (character to glyph), `name` (the PostScript and family names),
 // `OS/2` (weight and the descriptor's metrics), `loca` and `glyf` (outlines, including composite
 // glyphs). Everything else in the file is ignored.
+use charset
 use geom
 use geom.Rect
 use geom.rect_of
@@ -352,11 +353,20 @@ pub fn name_of(f: Face, name_id: int) -> Result<Option<string>, string> {
         val length = try u16_at(f.data, rec + 8)
         val offset = try u16_at(f.data, rec + 10)
         if id == name_id && storage + offset + length <= len(f.data) {
+            val raw = slice(f.data, storage + offset, storage + offset + length)
             if platform == 3 {
-                best = try utf16be_text(f.data, storage + offset, length)
+                // **Lossy on purpose.** A name table that is not quite UTF-16 is a broken
+                // *name*, not a broken font: the glyphs are elsewhere and draw fine. `charset`
+                // refuses to guess by default, which is right for a library, and this caller is
+                // the one that knows `pdf` fails a whole embed if naming the face fails.
+                best = charset.utf16be_lossy(raw)
                 found = true
             } else if platform == 1 && !found {
-                best = try latin_text(f.data, storage + offset, length)
+                // Platform 1 is Macintosh, whose encoding 0 is Mac Roman and not Latin-1 above
+                // 0x7F. Read as Latin-1 anyway, which is what this did before `charset` existed:
+                // the two agree on ASCII, every name seen here has been ASCII, and a 128-entry
+                // table written from memory would be worse than a known approximation.
+                best = charset.latin1_text(raw)
                 found = true
             }
         }
@@ -465,67 +475,9 @@ fn hex8(n: int) -> string {
     return out
 }
 
-fn utf16be_text(data: [byte], at: int, length: int) -> Result<string, string> {
-    val out = mutable_string_new()
-    var i = 0
-    while i + 1 < length {
-        val unit = try u16_at(data, at + i)
-        // Surrogate pairs are not decoded: a font name outside the basic plane is not a thing that
-        // happens, and guessing would be worse than the two replacement characters.
-        if unit >= 55296 && unit <= 57343 {
-            append(out, "?")
-        } else {
-            append(out, codepoint_text(unit))
-        }
-        i = i + 2
-    }
-    return ok(snapshot(out))
-}
-
-fn latin_text(data: [byte], at: int, length: int) -> Result<string, string> {
-    val out = mutable_string_new()
-    var i = 0
-    while i < length {
-        append(out, codepoint_text(try u8_at(data, at + i)))
-        i = i + 1
-    }
-    return ok(snapshot(out))
-}
-
-// A code point as a one-character string, by building its UTF-8 by hand -- the inverse of what
-// `pdf` does to read one, and needed because nothing in the prelude turns a number into a
-// character.
-//
-// **Its two callers cannot reach the four-byte case and it is written anyway.** `utf16be_text`
-// refuses surrogates before calling, so a name-table unit arrives as at most U+FFFF, and
-// `latin_text` passes a byte. A three-branch version is therefore correct *here* and is a trap
-// with a general name on it: the next caller gets three wrong bytes and no error. The branch
-// costs four lines.
-fn codepoint_text(cp: int) -> string {
-    if cp < 0 || cp > 1114111 || (cp >= 55296 && cp <= 57343) {
-        return "?"
-    }
-    val bytes = mutable_array_new<byte>()
-    if cp < 128 {
-        push(bytes, cp as byte)
-    } else if cp < 2048 {
-        push(bytes, (192 + cp / 64) as byte)
-        push(bytes, (128 + cp % 64) as byte)
-    } else if cp < 65536 {
-        push(bytes, (224 + cp / 4096) as byte)
-        push(bytes, (128 + (cp / 64) % 64) as byte)
-        push(bytes, (128 + cp % 64) as byte)
-    } else {
-        push(bytes, (240 + cp / 262144) as byte)
-        push(bytes, (128 + (cp / 4096) % 64) as byte)
-        push(bytes, (128 + (cp / 64) % 64) as byte)
-        push(bytes, (128 + cp % 64) as byte)
-    }
-    return switch bytes_to_string(snapshot(bytes)) {
-        Ok(s) { s }
-        Err(_) { "?" }
-    }
-}
+// **The UTF-16BE and Latin-1 readers these name records need live in `charset`** now, along
+// with the UTF-8 encoder this module had written for itself: `charset.utf16be_lossy`,
+// `charset.latin1_text`, `charset.utf8_text`.
 
 // ---- glyph outlines
 

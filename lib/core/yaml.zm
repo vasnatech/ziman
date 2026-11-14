@@ -19,14 +19,13 @@
 // `"null"`) or that needs it is double-quoted, so the output re-reads as the same tree. A
 // `JNull` is written `null`; a whole-valued float keeps a `.0`.
 
-// The UTF-16 surrogate block (not valid code points) and the highest code point, for `\u` escapes.
+// Which numbers are characters, and the UTF-8 for one, are `charset`'s -- this module had its
+// own copy of both, as four others did.
 #![experimental]
 
-val surrogate_start = 55296
-val surrogate_end = 57343
-val max_code_point = 1114111
 val hex_chars = "0123456789abcdef"
 
+use charset
 use json.Json
 use json.Number
 use json.float_to_json
@@ -101,29 +100,6 @@ fn read_hex(cs: [string], pos: int, n: int) -> int {
         v = v * 16 + d
     }
     return v
-}
-
-fn append_utf8(out: MutableString, cp: int) {
-    if cp < 128 {
-        append_byte(out, cp as byte)
-    } else if cp < 2048 {
-        append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
-    } else if cp < 65536 {
-        append_byte(
-            out,
-            (224 + cp / 4096) as byte,
-            (128 + cp / 64 % 64) as byte,
-            (128 + cp % 64) as byte
-        )
-    } else {
-        append_byte(
-            out,
-            (240 + cp / 262144) as byte,
-            (128 + cp / 4096 % 64) as byte,
-            (128 + cp / 64 % 64) as byte,
-            (128 + cp % 64) as byte
-        )
-    }
 }
 
 // ------------------------------------------------------------------ lines
@@ -414,10 +390,16 @@ fn read_double(cs: [string], pos: int, no: int) -> Result<Scalar, string> {
             } else if e == "x" || e == "u" || e == "U" {
                 val digits = if e == "x" { 2 } else if e == "u" { 4 } else { 8 }
                 val cp = read_hex(cs, p + 2, digits)
-                if cp <= 0 || cp > max_code_point || (cp >= surrogate_start && cp <= surrogate_end) {
+                // `charset` refuses a surrogate and anything past the last code point, which
+                // is what the format disallows; 0 is refused here because a ziman string cannot
+                // hold a NUL.
+                if cp <= 0 {
                     return err(fail(no, "invalid unicode escape"))
                 }
-                append_utf8(out, cp)
+                switch charset.utf8_text(cp) {
+                    Ok(text) { append(out, text) }
+                    Err(_) { return err(fail(no, "invalid unicode escape")) }
+                }
                 p = p + 2 + digits
                 continue
             } else {

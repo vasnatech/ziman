@@ -1,0 +1,659 @@
+// `charset`: text and bytes across the encodings a program meets at a boundary.
+//
+// The cases below are the edges six modules had each half-handled before this module existed --
+// the four-byte boundary, surrogate pairs, a lone surrogate, the CP1252 block that is the whole
+// difference between WinAnsi and Latin-1.
+use charset
+use charset.replacement_text
+use test
+
+// **`Result` generates no `is_Err`, on purpose** -- `lib/prelude/result.zm` says so: an error you
+// cannot name is an error you cannot act on, so the language makes you open it. These two exist
+// only for the cases below that care *that* something was refused and not *why*.
+fn refused_text(r: Result<string, charset.Refusal>) -> bool {
+    return switch r {
+        Ok(_) { false }
+        Err(_) { true }
+    }
+}
+
+fn refused_bytes(r: Result<[byte], charset.Refusal>) -> bool {
+    return switch r {
+        Ok(_) { false }
+        Err(_) { true }
+    }
+}
+
+// ---- code points
+
+#[test]
+fn the_ends_of_the_range_are_characters_and_past_them_is_not() {
+    test.assert(charset.is_code_point(0))
+    test.assert(charset.is_code_point(65))
+    test.assert(charset.is_code_point(1114111))
+    test.assert_false(charset.is_code_point(1114112))
+    test.assert_false(charset.is_code_point(0 - 1))
+}
+
+// **A surrogate is not a code point**, which is the rule that keeps UTF-16 honest: D800..DFFF
+// exist only as the halves of an encoded astral character, and one on its own is text no reader
+// can agree on.
+#[test]
+fn a_surrogate_is_not_a_character() {
+    test.assert_false(charset.is_code_point(55296))
+    test.assert_false(charset.is_code_point(57343))
+    // ...and the code points either side of the block are.
+    test.assert(charset.is_code_point(55295))
+    test.assert(charset.is_code_point(57344))
+}
+
+#[test]
+fn a_surrogate_pair_and_its_character_agree_both_ways() {
+    // U+1F600, the one every emoji bug is reported with.
+    switch charset.surrogates(128512) {
+        Some(pair) {
+            test.assert_eq(pair[0], 55357)
+            test.assert_eq(pair[1], 56832)
+            switch charset.paired(pair[0], pair[1]) {
+                Some(cp) { test.assert_eq(cp, 128512) }
+                None { test.fail("the pair did not come back") }
+            }
+        }
+        None { test.fail("no pair for an astral character") }
+    }
+    // The ends of the astral range round-trip too.
+    for cp in [65536, 1114111] {
+        switch charset.surrogates(cp) {
+            Some(pair) {
+                switch charset.paired(pair[0], pair[1]) {
+                    Some(back) { test.assert_eq(back, cp) }
+                    None { test.fail("the pair did not come back") }
+                }
+            }
+            None { test.fail("no pair") }
+        }
+    }
+}
+
+// Inside the basic plane there is no pair: the character is written as itself, and saying so
+// with `None` is what stops a caller encoding a two-unit sequence for a one-unit character.
+#[test]
+fn the_basic_plane_needs_no_pair() {
+    test.assert(Option.is_None(charset.surrogates(65)))
+    test.assert(Option.is_None(charset.surrogates(65535)))
+    test.assert(Option.is_Some(charset.surrogates(65536)))
+}
+
+#[test]
+fn two_halves_that_are_not_a_pair_are_refused() {
+    test.assert(Option.is_None(charset.paired(65, 66)))
+    // Two highs, or a low then a high: ordered pairs only.
+    test.assert(Option.is_None(charset.paired(55357, 55357)))
+    test.assert(Option.is_None(charset.paired(56832, 55357)))
+}
+
+// ---- UTF-8
+
+fn utf8_or_fail(cp: int) -> string {
+    return switch charset.utf8_text(cp) {
+        Ok(s) { s }
+        Err(r) {
+            test.fail(charset.describe(r))
+            ""
+        }
+    }
+}
+
+// One case per length, and both sides of every boundary: this is the arithmetic four modules
+// wrote separately, and one of them had no four-byte branch at all.
+#[test]
+fn utf8_covers_every_length_and_its_boundaries() {
+    test.assert_eq(utf8_or_fail(65), "A")
+    // U+007F is DEL and has no literal to compare against -- ziman has no `\u` escape -- so the
+    // top of the one-byte range is asserted on its bytes instead.
+    switch charset.utf8_bytes(127) {
+        Ok(b) {
+            test.assert_len(1, b)
+            test.assert_eq(b[0] as int, 127)
+        }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+    // U+0080 is a C1 control and has no literal either, so the bottom of the two-byte range is
+    // asserted on its bytes: C2 80.
+    switch charset.utf8_bytes(128) {
+        Ok(b) {
+            test.assert_len(2, b)
+            test.assert_eq(b[0] as int, 194)
+            test.assert_eq(b[1] as int, 128)
+        }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+    test.assert_eq(utf8_or_fail(233), "é")
+    test.assert_eq(utf8_or_fail(2047), "߿")
+    test.assert_eq(utf8_or_fail(2048), "ࠀ")
+    test.assert_eq(utf8_or_fail(65535), "￿")
+    test.assert_eq(utf8_or_fail(65536), "𐀀")
+    test.assert_eq(utf8_or_fail(128512), "😀")
+    test.assert_eq(utf8_or_fail(1114111), "􏿿")
+}
+
+#[test]
+fn utf8_lengths_match_what_it_writes() {
+    test.assert_eq(charset.utf8_length(65), 1)
+    test.assert_eq(charset.utf8_length(233), 2)
+    test.assert_eq(charset.utf8_length(20013), 3)
+    test.assert_eq(charset.utf8_length(128512), 4)
+    // Not a character, so there is no length to give.
+    test.assert_eq(charset.utf8_length(55296), 0)
+}
+
+#[test]
+fn utf8_refuses_what_is_not_a_character() {
+    test.assert(refused_text(charset.utf8_text(55296)))
+    test.assert(refused_text(charset.utf8_text(1114112)))
+    test.assert(refused_bytes(charset.utf8_bytes(0 - 1)))
+}
+
+#[test]
+fn a_character_and_its_code_point_agree() {
+    for cp in [65, 233, 2047, 2048, 20013, 65536, 128512, 1114111] {
+        test.assert_eq(charset.code_point_of(utf8_or_fail(cp)), cp)
+    }
+    test.assert_eq(charset.code_point_of(""), 0 - 1)
+}
+
+#[test]
+fn a_string_becomes_its_code_points() {
+    val points = charset.code_points_of("Aé😀")
+    test.assert_len(3, points)
+    test.assert_eq(points[0], 65)
+    test.assert_eq(points[1], 233)
+    test.assert_eq(points[2], 128512)
+}
+
+// ---- UTF-16
+
+#[test]
+fn utf16_gives_one_unit_inside_the_basic_plane_and_two_above_it() {
+    switch charset.utf16_units(65) {
+        Ok(units) { test.assert_len(1, units) }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+    switch charset.utf16_units(128512) {
+        Ok(units) {
+            test.assert_len(2, units)
+            test.assert_eq(units[0], 55357)
+        }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+}
+
+// **Surrogate pairs are joined on the way back**, which is what the one caller of this before
+// the module existed did not do: `truetype` read a font's name table and wrote a question mark
+// per half, on the argument that a name outside the basic plane does not happen.
+#[test]
+fn utf16be_round_trips_including_astral_characters() {
+    for text in ["", "A", "Aé中", "😀", "a😀b"] {
+        val none: [byte] = []
+        val bytes = switch charset.utf16be_bytes(text) {
+            Ok(b) { b }
+            Err(r) {
+                test.fail(charset.describe(r))
+                none
+            }
+        }
+        switch charset.utf16be_text(bytes) {
+            Ok(back) { test.assert_eq(back, text) }
+            Err(r) { test.fail(charset.describe(r)) }
+        }
+    }
+}
+
+#[test]
+fn utf16be_refuses_a_broken_stream() {
+    // A high surrogate with nothing after it.
+    test.assert(refused_text(charset.utf16be_text([216b, 61b])))
+    // A low surrogate with nothing before it.
+    test.assert(refused_text(charset.utf16be_text([222b, 0b])))
+    // A high surrogate followed by something that is not a low one.
+    test.assert(refused_text(charset.utf16be_text([216b, 61b, 0b, 65b])))
+    // An odd number of bytes.
+    test.assert(refused_text(charset.utf16be_text([0b, 65b, 0b])))
+}
+
+// ---- the single-byte sets
+
+// Decoding Latin-1 cannot fail, which is the property that makes it the fallback every other
+// single-byte set is compared against.
+#[test]
+fn latin1_reads_every_byte_and_writes_back_what_it_can() {
+    test.assert_eq(charset.latin1_text([65b, 233b, 255b]), "Aéÿ")
+    switch charset.latin1_bytes("Aéÿ") {
+        Ok(b) {
+            test.assert_len(3, b)
+            test.assert_eq(b[1] as int, 233)
+        }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+}
+
+#[test]
+fn latin1_refuses_what_it_has_no_byte_for() {
+    switch charset.latin1_bytes("şeker") {
+        Ok(_) { test.fail("Latin-1 has no s-cedilla") }
+        Err(r) {
+            test.assert_eq(r.charset, "Latin-1")
+            test.assert_eq(r.code_point, 351)
+            // It says *where*, so a caller can point at the character.
+            test.assert_eq(r.at, 0)
+        }
+    }
+}
+
+// **The 0x80 to 0x9F block is the whole difference between WinAnsi and Latin-1**, and it is why
+// a PDF can write a curly quote and an en dash without embedding a font.
+#[test]
+fn win_ansi_carries_the_block_latin1_does_not() {
+    test.assert_eq(charset.win_ansi_byte(8364), 128)
+    test.assert_eq(charset.win_ansi_byte(8212), 151)
+    test.assert_eq(charset.win_ansi_byte(8220), 147)
+    test.assert_eq(charset.win_ansi_text([128b, 151b]), "€—")
+    switch charset.win_ansi_bytes("€—") {
+        Ok(b) {
+            test.assert_eq(b[0] as int, 128)
+            test.assert_eq(b[1] as int, 151)
+        }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+}
+
+#[test]
+fn win_ansi_refuses_what_it_has_no_byte_for() {
+    switch charset.win_ansi_bytes("aş") {
+        Ok(_) { test.fail("WinAnsi has no s-cedilla") }
+        Err(r) {
+            test.assert_eq(r.charset, "WinAnsi")
+            test.assert_eq(r.code_point, 351)
+            test.assert_eq(r.at, 1)
+        }
+    }
+}
+
+// ---- what a refusal says
+
+// **Generic, because the caller has the advice.** `pdf` adds "an embedded font is needed for
+// this text"; this layer only knows which set refused which character.
+#[test]
+fn a_refusal_names_the_set_and_the_character() {
+    switch charset.win_ansi_bytes("ş") {
+        Ok(_) { test.fail("expected a refusal") }
+        Err(r) { test.assert_eq(charset.describe(r), "WinAnsi cannot represent U+015F at 0") }
+    }
+}
+
+#[test]
+fn hex_is_four_digits_or_as_many_as_it_takes() {
+    test.assert_eq(charset.hex_of(0), "0000")
+    test.assert_eq(charset.hex_of(351), "015F")
+    test.assert_eq(charset.hex_of(65535), "FFFF")
+    test.assert_eq(charset.hex_of(128512), "1F600")
+    test.assert_eq(charset.hex_of(1114111), "10FFFF")
+}
+
+// ---- reading UTF-8 back
+
+#[test]
+fn a_lead_byte_says_how_long_its_character_is() {
+    test.assert_eq(charset.utf8_sequence_length(65b), 1)
+    test.assert_eq(charset.utf8_sequence_length(195b), 2)
+    test.assert_eq(charset.utf8_sequence_length(226b), 3)
+    test.assert_eq(charset.utf8_sequence_length(240b), 4)
+    // A continuation byte begins nothing, and neither do the five values above the lead range.
+    test.assert_eq(charset.utf8_sequence_length(128b), 0)
+    test.assert_eq(charset.utf8_sequence_length(191b), 0)
+    test.assert_eq(charset.utf8_sequence_length(248b), 0)
+    test.assert_eq(charset.utf8_sequence_length(255b), 0)
+}
+
+#[test]
+fn utf8_round_trips_through_bytes() {
+    for text in ["", "A", "Aé中😀", "a\tb\nc"] {
+        switch charset.utf8_text(charset.utf8_bytes(text)) {
+            Ok(back) { test.assert_eq(back, text) }
+            Err(r) { test.fail(charset.describe(r)) }
+        }
+        test.assert(charset.is_utf8(charset.utf8_bytes(text)))
+    }
+}
+
+// Each of these is a byte sequence a lenient decoder accepts and a correct one does not, and
+// each has been a security advisory somewhere.
+#[test]
+fn utf8_refuses_every_way_of_being_not_quite_utf8() {
+    // A continuation byte with no lead.
+    test.assert_false(charset.is_utf8([128b]))
+    // A lead byte with no continuation.
+    test.assert_false(charset.is_utf8([195b]))
+    // A lead byte followed by another lead byte.
+    test.assert_false(charset.is_utf8([195b, 65b]))
+    // **The overlong slash**: C0 AF is U+002F written in two bytes, which is how a `/` used to
+    // get past a filter that was looking for the one-byte spelling.
+    test.assert_false(charset.is_utf8([192b, 175b]))
+    // An overlong NUL, the other half of that trick.
+    test.assert_false(charset.is_utf8([192b, 128b]))
+    // **A surrogate encoded in three bytes**: U+D800 as ED A0 80, which is CESU-8 and Java's
+    // modified UTF-8, and is not UTF-8.
+    test.assert_false(charset.is_utf8([237b, 160b, 128b]))
+    // U+110000, one past the last code point, in four bytes.
+    test.assert_false(charset.is_utf8([244b, 144b, 128b, 128b]))
+    // A five-byte sequence, which UTF-8 has not had since 2003.
+    test.assert_false(charset.is_utf8([248b, 136b, 128b, 128b, 128b]))
+}
+
+#[test]
+fn a_refusal_from_bytes_says_where_and_why() {
+    switch charset.utf8_text([65b, 66b, 192b, 175b]) {
+        Ok(_) { test.fail("an overlong sequence was accepted") }
+        Err(r) {
+            test.assert_eq(r.charset, "UTF-8")
+            // Bytes rather than text, so there is no code point to name.
+            test.assert_eq(r.code_point, 0 - 1)
+            test.assert_eq(r.at, 2)
+            test.assert_eq(
+                charset.describe(r),
+                "UTF-8: a character written in more bytes than it needs at 2"
+            )
+        }
+    }
+}
+
+// ---- the other byte orders
+
+#[test]
+fn utf16_round_trips_in_both_orders_and_they_differ() {
+    for text in ["", "A", "Aé中", "😀", "a😀b"] {
+        val none: [byte] = []
+        val le = switch charset.utf16le_bytes(text) {
+            Ok(b) { b }
+            Err(r) {
+                test.fail(charset.describe(r))
+                none
+            }
+        }
+        switch charset.utf16le_text(le) {
+            Ok(back) { test.assert_eq(back, text) }
+            Err(r) { test.fail(charset.describe(r)) }
+        }
+    }
+    // The same character, the two orders: 00 41 one way and 41 00 the other.
+    switch charset.utf16be_bytes("A") {
+        Ok(b) {
+            test.assert_eq(b[0] as int, 0)
+            test.assert_eq(b[1] as int, 65)
+        }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+    switch charset.utf16le_bytes("A") {
+        Ok(b) {
+            test.assert_eq(b[0] as int, 65)
+            test.assert_eq(b[1] as int, 0)
+        }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+}
+
+#[test]
+fn utf32_round_trips_in_both_orders() {
+    for text in ["", "A", "Aé中😀"] {
+        switch charset.utf32be_text(charset.utf32be_bytes(text)) {
+            Ok(back) { test.assert_eq(back, text) }
+            Err(r) { test.fail(charset.describe(r)) }
+        }
+        switch charset.utf32le_text(charset.utf32le_bytes(text)) {
+            Ok(back) { test.assert_eq(back, text) }
+            Err(r) { test.fail(charset.describe(r)) }
+        }
+    }
+    // Four bytes hold far more than there are characters, so this format is the one that can
+    // carry a number which is not text at all.
+    test.assert(refused_text(charset.utf32be_text([0b, 17b, 0b, 0b])))
+    test.assert(refused_text(charset.utf32be_text([0b, 0b, 216b, 0b])))
+    // A length that is not a multiple of four.
+    test.assert(refused_text(charset.utf32be_text([0b, 0b, 0b])))
+}
+
+// ---- ASCII
+
+#[test]
+fn ascii_carries_the_plain_half_and_refuses_the_rest() {
+    switch charset.ascii_bytes("GET /") {
+        Ok(b) { test.assert_len(5, b) }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+    switch charset.ascii_bytes("é") {
+        Ok(_) { test.fail("ASCII has no e-acute") }
+        Err(r) {
+            test.assert_eq(r.charset, "ASCII")
+            test.assert_eq(r.code_point, 233)
+        }
+    }
+    switch charset.ascii_text([104b, 105b]) {
+        Ok(s) { test.assert_eq(s, "hi") }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+    // Unlike Latin-1, decoding can fail: a high byte is not an ASCII character.
+    test.assert(refused_text(charset.ascii_text([104b, 233b])))
+}
+
+// ---- a set as a value
+
+#[test]
+fn a_name_finds_its_set_however_it_is_spelled() {
+    for spelling in ["utf-8", "UTF8", "utf_8", "UTF-8", " utf.8 "] {
+        switch charset.encoding_named(spelling) {
+            Some(e) { test.assert_eq(charset.name_of(e), "UTF-8") }
+            None { test.fail(concat("no set for ", spelling)) }
+        }
+    }
+    for spelling in ["cp1252", "windows-1252", "WinAnsiEncoding"] {
+        switch charset.encoding_named(spelling) {
+            Some(e) { test.assert_eq(charset.name_of(e), "WinAnsi") }
+            None { test.fail(concat("no set for ", spelling)) }
+        }
+    }
+    switch charset.encoding_named("iso-8859-1") {
+        Some(e) { test.assert_eq(charset.name_of(e), "Latin-1") }
+        None { test.fail("no set for iso-8859-1") }
+    }
+    // Bare UTF-16 is the little-endian order, which is what writes the files.
+    switch charset.encoding_named("UTF-16") {
+        Some(e) { test.assert_eq(charset.name_of(e), "UTF-16LE") }
+        None { test.fail("no set for UTF-16") }
+    }
+    test.assert(Option.is_None(charset.encoding_named("Shift_JIS")))
+    test.assert(Option.is_None(charset.encoding_named("")))
+}
+
+#[test]
+fn every_set_encodes_and_decodes_through_the_enum() {
+    val sets = [
+        charset.Encoding.Utf8,
+        charset.Encoding.Utf16be,
+        charset.Encoding.Utf16le,
+        charset.Encoding.Utf32be,
+        charset.Encoding.Utf32le,
+        charset.Encoding.Latin1,
+        charset.Encoding.WinAnsi,
+        charset.Encoding.Ascii
+    ]
+    // Text every one of them can carry, so one loop covers them all.
+    for e in sets {
+        val none: [byte] = []
+        val bytes = switch charset.encode(e, "Hi!") {
+            Ok(b) { b }
+            Err(r) {
+                test.fail(charset.describe(r))
+                none
+            }
+        }
+        switch charset.decode(e, bytes) {
+            Ok(back) { test.assert_eq(back, "Hi!") }
+            Err(r) { test.fail(charset.describe(r)) }
+        }
+    }
+    // And the ones that cannot: ASCII has no e-acute, Latin-1 no euro.
+    test.assert(refused_bytes(charset.encode(charset.Encoding.Ascii, "é")))
+    test.assert(refused_bytes(charset.encode(charset.Encoding.Latin1, "€")))
+    switch charset.encode(charset.Encoding.WinAnsi, "€") {
+        Ok(b) { test.assert_eq(b[0] as int, 128) }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+}
+
+// **A mark is not text**: `encode` writes none and `decode` drops one, so neither direction
+// leaves an invisible character in the string.
+#[test]
+fn a_mark_announces_the_set_and_is_not_part_of_the_text() {
+    switch charset.sniff([239b, 187b, 191b, 65b]) {
+        Some(e) { test.assert_eq(charset.name_of(e), "UTF-8") }
+        None { test.fail("no set sniffed from a UTF-8 mark") }
+    }
+    switch charset.sniff([254b, 255b, 0b, 65b]) {
+        Some(e) { test.assert_eq(charset.name_of(e), "UTF-16BE") }
+        None { test.fail("no set sniffed from a UTF-16BE mark") }
+    }
+    // **UTF-32LE begins with UTF-16LE's mark**, so the order of the tests is what tells them
+    // apart: FF FE 00 00 is UTF-32LE, FF FE is UTF-16LE.
+    switch charset.sniff([255b, 254b, 0b, 0b]) {
+        Some(e) { test.assert_eq(charset.name_of(e), "UTF-32LE") }
+        None { test.fail("no set sniffed from a UTF-32LE mark") }
+    }
+    switch charset.sniff([255b, 254b, 65b, 0b]) {
+        Some(e) { test.assert_eq(charset.name_of(e), "UTF-16LE") }
+        None { test.fail("no set sniffed from a UTF-16LE mark") }
+    }
+    // Most files have no mark, which is not the same as not being text.
+    test.assert(Option.is_None(charset.sniff([65b, 66b])))
+    test.assert(Option.is_None(charset.sniff([])))
+
+    // A single-byte set has no order and so no mark.
+    test.assert_len(0, charset.mark_of(charset.Encoding.Latin1))
+    test.assert_len(3, charset.mark_of(charset.Encoding.Utf8))
+
+    // Encoding writes no mark...
+    switch charset.encode(charset.Encoding.Utf8, "A") {
+        Ok(b) { test.assert_len(1, b) }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+    // ...and decoding drops one that is there.
+    switch charset.decode(charset.Encoding.Utf8, [239b, 187b, 191b, 65b]) {
+        Ok(s) { test.assert_eq(s, "A") }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+    switch charset.decode(charset.Encoding.Utf16be, [254b, 255b, 0b, 65b]) {
+        Ok(s) { test.assert_eq(s, "A") }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+    // A mark for another set is not dropped -- read as Latin-1, those bytes are its characters.
+    switch charset.decode(charset.Encoding.Latin1, [239b, 187b, 191b, 65b]) {
+        Ok(s) { test.assert_len(4, chars(s)) }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+}
+
+// **A PDF `/ToUnicode` destination is a UTF-16BE encoding, not a number.** The two spellings of
+// U+1F600 differ, and writing the second where the first belongs is a file that extracts as
+// private-use characters.
+#[test]
+fn utf16be_hex_writes_units_and_hex_of_writes_the_number() {
+    test.assert_eq(charset.utf16be_hex(65), "0041")
+    test.assert_eq(charset.utf16be_hex(351), "015F")
+    test.assert_eq(charset.utf16be_hex(65535), "FFFF")
+    test.assert_eq(charset.utf16be_hex(65536), "D800DC00")
+    test.assert_eq(charset.utf16be_hex(128512), "D83DDE00")
+    test.assert_eq(charset.utf16be_hex(1114111), "DBFFDFFF")
+    test.assert_eq(charset.hex_of(128512), "1F600")
+    // Not characters: a surrogate on its own, and past the end of the range.
+    test.assert_eq(charset.utf16be_hex(55296), "FFFD")
+    test.assert_eq(charset.utf16be_hex(1114112), "FFFD")
+    test.assert_eq(charset.utf16be_hex(0 - 1), "FFFD")
+}
+
+// ---- reading what is not quite right
+
+// **One mark per ill-formed sequence, not per byte**, which is the rule the Unicode standard
+// calls the maximal subpart: `E1 80 41` is one bad character followed by a good one.
+#[test]
+fn a_lossy_read_keeps_what_is_well_formed() {
+    test.assert_eq(charset.utf8_lossy([65b, 66b]), "AB")
+    test.assert_eq(charset.utf8_lossy([]), "")
+    // A good character, a bad one, a good one.
+    test.assert_eq(
+        charset.utf8_lossy([65b, 255b, 66b]),
+        concat("A", replacement_text, "B")
+    )
+    // E1 80 41: a three-byte lead, one continuation, then an A. One mark, then the A.
+    test.assert_eq(
+        charset.utf8_lossy([225b, 128b, 65b]),
+        concat(replacement_text, "A")
+    )
+    // A truncated character at the very end is one mark.
+    test.assert_eq(
+        charset.utf8_lossy([65b, 225b, 128b]),
+        concat("A", replacement_text)
+    )
+    // An overlong slash is ill-formed, and reads as a mark rather than as a slash -- which is
+    // the whole reason a lossy decoder must not simply take the value it computed.
+    test.assert_eq(charset.utf8_lossy([192b, 175b]), replacement_text)
+    // Well-formed text is untouched, however astral.
+    test.assert_eq(charset.utf8_lossy(charset.utf8_bytes("Aé中😀")), "Aé中😀")
+}
+
+#[test]
+fn a_lossy_utf16_read_marks_the_unit_that_was_wrong() {
+    switch charset.utf16be_bytes("A😀b") {
+        Ok(b) { test.assert_eq(charset.utf16be_lossy(b), "A😀b") }
+        Err(r) { test.fail(charset.describe(r)) }
+    }
+    // A high surrogate on its own, between two characters: one mark for the one bad unit.
+    test.assert_eq(
+        charset.utf16be_lossy([0b, 65b, 216b, 61b, 0b, 66b]),
+        concat("A", replacement_text, "B")
+    )
+    // A low surrogate with nothing before it.
+    test.assert_eq(charset.utf16be_lossy([222b, 0b]), replacement_text)
+    // Half a unit at the end.
+    test.assert_eq(
+        charset.utf16be_lossy([0b, 65b, 0b]),
+        concat("A", replacement_text)
+    )
+    // The same bytes the other way round are the other order's text.
+    test.assert_eq(charset.utf16le_lossy([65b, 0b, 66b, 0b]), "AB")
+}
+
+// The lossy read through the enum, including the sets that cannot fail and the one whose
+// ill-formed input is a single byte.
+#[test]
+fn a_lossy_read_through_the_enum_covers_every_set() {
+    test.assert_eq(
+        charset.decode_lossy(charset.Encoding.Utf8, [65b, 255b]),
+        concat("A", replacement_text)
+    )
+    test.assert_eq(
+        charset.decode_lossy(charset.Encoding.Ascii, [65b, 233b]),
+        concat("A", replacement_text)
+    )
+    // Latin-1 reads every byte, so nothing is ever marked.
+    test.assert_eq(charset.decode_lossy(charset.Encoding.Latin1, [65b, 233b]), "Aé")
+    // Four bytes that are not a character, and a tail that is not four bytes.
+    test.assert_eq(
+        charset.decode_lossy(charset.Encoding.Utf32be, [0b, 17b, 0b, 0b]),
+        replacement_text
+    )
+    test.assert_eq(
+        charset.decode_lossy(charset.Encoding.Utf32be, [0b, 0b, 0b, 65b, 0b]),
+        concat("A", replacement_text)
+    )
+    // A mark is still dropped on the way in.
+    test.assert_eq(charset.decode_lossy(charset.Encoding.Utf8, [239b, 187b, 191b, 65b]), "A")
+}

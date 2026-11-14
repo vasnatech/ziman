@@ -22,6 +22,7 @@
 // What this is deliberately not: a widget toolkit, a mouse reader, a terminfo lookup, or colour
 // helpers. docs/design/terminal.md §8 has each one and why.
 #![experimental]
+use charset
 use io
 
 // A key press. **`Char` is one character and may be several bytes**; `Ctrl` is `"a"` to `"z"`.
@@ -188,7 +189,16 @@ pub fn read_key(timeout_ms: int) -> Result<Option<Key>, string> {
     }
     val lead = first[0]
     // A multi-byte UTF-8 character: the lead byte says how many follow.
-    val width = utf8_width(lead)
+    //
+    // **`charset` answers 0 for a byte that cannot begin a character, and 1 is right here**: a
+    // reader taking bytes off a terminal wants to step over a bad one and carry on rather than
+    // stop, and that is this caller's decision rather than the encoding's.
+    val announced = charset.utf8_sequence_length(lead)
+    val width = if announced == 0 {
+        1
+    } else {
+        announced
+    }
     if width > 1 {
         val gathered = mutable_array_new<byte>()
         push(gathered, lead)
@@ -229,24 +239,6 @@ pub fn read_key(timeout_ms: int) -> Result<Option<Key>, string> {
 }
 
 // ------------------------------------------------------------------ the table, which is pure
-
-// How many bytes the character beginning with `lead` occupies: 1 for ASCII and for anything that is
-// not a valid lead byte, so that a caller always makes progress.
-fn utf8_width(lead: byte) -> int {
-    if lead < 128b {
-        return 1
-    }
-    if lead >= 240b && lead <= 247b {
-        return 4
-    }
-    if lead >= 224b {
-        return 3
-    }
-    if lead >= 192b {
-        return 2
-    }
-    return 1
-}
 
 // **Whether `bytes` is a finished escape sequence.** Separate from `decode_key` and pure, because
 // it is what `read_key` needs in order to stop reading, and because the two halves of "is it over"

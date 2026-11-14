@@ -175,9 +175,19 @@ fn main() {
         scene.with_ops(scene.scene_of(10.0, 10.0), [scene.text_of("şeker", geom.point_of(0.0, 0.0), 8.0, 0, black)]),
         pdf.options()
     ))))
-    // The CP1252 block above Latin-1 *is* representable, and is what a document actually uses.
-    print(concat("em dash encodes:     ", str(len(unwrap(pdf.win_ansi("a — b"))))))
-    print(concat("curly quotes encode: ", str(len(unwrap(pdf.win_ansi("“quoted”"))))))
+    // The CP1252 block above Latin-1 *is* representable, and is what a document actually uses:
+    // an em dash and curly quotes go into a standard font's bytes without a complaint. The
+    // encoding itself is `charset`'s and is tested there; what this proves is that the standard
+    // font path reaches it.
+    ok_or_fail(
+        "typography        ",
+        pdf.render(
+            scene.with_ops(scene.scene_of(60.0, 10.0), [
+                scene.text_of("a — “b”", geom.point_of(0.0, 0.0), 8.0, 0, black)
+            ]),
+            pdf.options()
+        )
+    )
 }
 
 fn quad_hill() -> shape.Path {

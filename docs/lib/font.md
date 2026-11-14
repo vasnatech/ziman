@@ -43,9 +43,10 @@ fn demo() -> Result<unit, string> {
     print(try font.covers(courier, "Ziman"))
     print(try font.covers(courier, "Ziman 中"))
 
-    // Text to code points, and the hex a PDF writes them as.
-    print(font.codepoints_of("Zi"))
-    print(font.codepoint_of("Z"))
+    // A glyph id as a PDF's `Identity-H` encoding spells it: exactly four hexadecimal digits,
+    // because that encoding defines a glyph id as two bytes. The code-point spellings that used
+    // to sit beside this are `charset`'s -- `charset.hex_of` for the number in a message, and
+    // `charset.utf16be_hex` for a `/ToUnicode` destination, which are three different questions.
     print(font.hex4(90))
     return unit
 }
@@ -68,8 +69,6 @@ true
 false
 None
 Some(20013)
-[90, 105]
-90
 005A
 ```
 
@@ -194,48 +193,6 @@ joining, reordering and ligature substitution from `GSUB`/`GPOS`. That is not ap
 see the phase document. When shaping arrives it produces this same shape -- positioned glyphs
 plus clusters -- which is why this returns both.
 
-### `codepoints_of`
-
-```
-pub fn codepoints_of(text: string) -> [int]
-```
-
-The code points of `text`, which `/ToUnicode` needs alongside the glyphs.
-
-### `codepoint_of`
-
-```
-pub fn codepoint_of(ch: string) -> int
-```
-
-### `utf16be_hex`
-
-```
-pub fn utf16be_hex(cp: int) -> string
-```
-
-A code point as its UTF-16BE code units in hexadecimal: one unit inside the basic plane, a
-**surrogate pair** above it.
-
-**This is what a PDF `/ToUnicode` destination is, and it is not the code point's own digits.**
-Writing those -- which this did, through `hex4`, truncated to four -- makes U+1F600 come out as
-`<F600>`, a private-use character: the text draws correctly and *extracts* as something else,
-which is the exact failure `/ToUnicode` exists to prevent. Unreachable with a Latin face and
-perfectly reachable with a font that has anything above the basic plane.
-
-A surrogate on its own, or a number past the last code point, is not text; it answers U+FFFD
-rather than encoding something no reader can make sense of.
-
-### `code_point_hex`
-
-```
-pub fn code_point_hex(cp: int) -> string
-```
-
-A code point as the digits that go after `U+`: at least four, more when it takes more. **The
-number, not an encoding** -- U+1F600 is `1F600` here and `D83DDE00` in `utf16be_hex`, and an
-error message naming a character wants the first.
-
 ### `hex4`
 
 ```
@@ -244,4 +201,5 @@ pub fn hex4(cp: int) -> string
 
 Four hexadecimal digits, **and exactly four**: the low 16 bits of anything larger. That is right
 for a glyph id, which a PDF's `Identity-H` encoding defines as two bytes, and wrong for a code
-point, which is what `utf16be_hex` and `code_point_hex` are for.
+point -- which is why this one stayed here when the code-point spellings left: a glyph id is a
+number this font gave that glyph, and means nothing to any other font.

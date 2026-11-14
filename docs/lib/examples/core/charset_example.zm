@@ -1,0 +1,50 @@
+use charset
+use charset.replacement_text
+
+// Text and the bytes that stand for it, in the sets a program meets at a boundary: a file it did
+// not write, a font table, a PDF, a protocol header. Every encoder refuses what its set cannot
+// carry rather than substituting for it, and every refusal names the set and the character.
+fn main() {
+    // A code point both ways. `chars` hands back one-character strings, so this is the door
+    // between those and the numbers an encoding is defined over.
+    print(charset.code_point_of("é"))
+    print(charset.code_points_of("Aé😀"))
+    switch charset.utf8_text(128512) {
+        Ok(ch) { print(ch) }
+        Err(r) { print(charset.describe(r)) }
+    }
+
+    // The single-byte sets differ in one block, 0x80 to 0x9F, and that block is why a document
+    // can have a euro sign and an em dash in it without embedding a font.
+    print(charset.win_ansi_byte(8364))
+    print(charset.latin1_text([65b, 233b, 255b]))
+
+    // What a set cannot carry, it says so about -- which character, and where.
+    switch charset.win_ansi_bytes("şeker") {
+        Ok(_) { print("unexpectedly encoded") }
+        Err(r) { print(charset.describe(r)) }
+    }
+
+    // Reading is strict by default: these bytes are an overlong `/`, the oldest way there is to
+    // smuggle a slash past a filter, and they are not UTF-8.
+    print(charset.is_utf8([192b, 175b]))
+    // ...and lossy when the caller would rather have the text with a mark in it, which is what
+    // `truetype` wants from a font's name table.
+    print(charset.utf8_lossy([65b, 192b, 175b, 66b]) == concat("A", replacement_text, "B"))
+
+    // A set arrives as data more often than as a decision in the source: as a name in a header,
+    // or as the mark a file begins with.
+    switch charset.encoding_named("iso-8859-1") {
+        Some(e) { print(charset.name_of(e)) }
+        None { print("no such set") }
+    }
+    switch charset.sniff([255b, 254b, 0b, 0b]) {
+        Some(e) { print(charset.name_of(e)) }
+        None { print("no mark") }
+    }
+    // A mark is not text, so decoding drops it.
+    switch charset.decode(charset.Encoding.Utf8, [239b, 187b, 191b, 90b, 105b]) {
+        Ok(text) { print(text) }
+        Err(r) { print(charset.describe(r)) }
+    }
+}

@@ -6,6 +6,7 @@
 //
 // `StandardFont` lives here rather than in `pdf` so that nothing is circular: `pdf` needs this
 // module to embed a face, and this module must not need `pdf` to name a built-in one.
+use charset
 use truetype
 use truetype.Face
 
@@ -100,7 +101,7 @@ pub fn covers(f: FontRef, text: string) -> Result<Option<int>, string> {
         // standard font covers is the same for all of them.
         Standard(_) {
             for ch in chars(text) {
-                val cp = codepoint_of(ch)
+                val cp = charset.code_point_of(ch)
                 if !standard_covers(cp) {
                     return ok(Option<int>.Some(cp))
                 }
@@ -109,7 +110,7 @@ pub fn covers(f: FontRef, text: string) -> Result<Option<int>, string> {
         }
         Embedded(face) {
             for ch in chars(text) {
-                val cp = codepoint_of(ch)
+                val cp = charset.code_point_of(ch)
                 if None = try truetype.glyph_for(face, cp) {
                     return ok(Option<int>.Some(cp))
                 }
@@ -156,7 +157,7 @@ pub fn advance(f: FontRef, text: string, size: float) -> Result<float, string> {
         Embedded(face) {
             var total = 0
             for ch in chars(text) {
-                val cp = codepoint_of(ch)
+                val cp = charset.code_point_of(ch)
                 // `.notdef` as in `glyphs_of`, and for the same reason -- and it has to be the
                 // same substitution, or a string measures as one width and draws as another.
                 switch try truetype.glyph_for(face, cp) {
@@ -207,7 +208,7 @@ pub fn line_height(f: FontRef, size: float) -> float {
 pub fn glyphs_of(f: Face, text: string) -> Result<[int], string> {
     val out = mutable_array_new<int>()
     // **Decoded straight out of the bytes, not through `chars`.** The obvious loop --
-    // `for ch in chars(text) { codepoint_of(ch) }` -- allocates a one-character string per
+    // `for ch in chars(text) { charset.code_point_of(ch) }` -- allocates a one-character string per
     // character and then a byte array per character to read it back, which on a page of text is
     // thousands of allocations to answer a question the bytes already contain. Measured at 170 ms
     // for 78 short runs before this, against 18 ms of actual cmap lookups.
@@ -261,82 +262,14 @@ pub fn glyphs_of(f: Face, text: string) -> Result<[int], string> {
     return ok(snapshot(out))
 }
 
-// The code points of `text`, which `/ToUnicode` needs alongside the glyphs.
-pub fn codepoints_of(text: string) -> [int] {
-    val out = mutable_array_new<int>()
-    for ch in chars(text) {
-        push(out, codepoint_of(ch))
-    }
-    return snapshot(out)
-}
-
-pub fn codepoint_of(ch: string) -> int {
-    val b = to_bytes(ch)
-    if len(b) == 0 {
-        return -1
-    }
-    val b0 = b[0] as int
-    if b0 < 128 {
-        return b0
-    }
-    if b0 < 224 && len(b) >= 2 {
-        return (b0 - 192) * 64 + ((b[1] as int) - 128)
-    }
-    if b0 < 240 && len(b) >= 3 {
-        return (b0 - 224) * 4096 + ((b[1] as int) - 128) * 64 + ((b[2] as int) - 128)
-    }
-    if len(b) >= 4 {
-        return (b0 - 240) * 262144 + ((b[1] as int) - 128) * 4096 + ((b[2] as int) - 128) * 64 +
-            ((b[3] as int) - 128)
-    }
-    return -1
-}
-
-// A code point as its UTF-16BE code units in hexadecimal: one unit inside the basic plane, a
-// **surrogate pair** above it.
-//
-// **This is what a PDF `/ToUnicode` destination is, and it is not the code point's own digits.**
-// Writing those -- which this did, through `hex4`, truncated to four -- makes U+1F600 come out as
-// `<F600>`, a private-use character: the text draws correctly and *extracts* as something else,
-// which is the exact failure `/ToUnicode` exists to prevent. Unreachable with a Latin face and
-// perfectly reachable with a font that has anything above the basic plane.
-//
-// A surrogate on its own, or a number past the last code point, is not text; it answers U+FFFD
-// rather than encoding something no reader can make sense of.
-pub fn utf16be_hex(cp: int) -> string {
-    if cp < 0 || cp > 1114111 || (cp >= 55296 && cp <= 57343) {
-        return "FFFD"
-    }
-    if cp < 65536 {
-        return hex4(cp)
-    }
-    val v = cp - 65536
-    return concat(hex4(55296 + v / 1024), hex4(56320 + v % 1024))
-}
-
-// A code point as the digits that go after `U+`: at least four, more when it takes more. **The
-// number, not an encoding** -- U+1F600 is `1F600` here and `D83DDE00` in `utf16be_hex`, and an
-// error message naming a character wants the first.
-pub fn code_point_hex(cp: int) -> string {
-    if cp < 0 {
-        return "????"
-    }
-    val digits = "0123456789ABCDEF"
-    var n = cp
-    var out = ""
-    var i = 0
-    while i < 4 || n > 0 {
-        val d = n % 16
-        out = concat(substring(digits, d, d + 1), out)
-        n = n / 16
-        i = i + 1
-    }
-    return out
-}
+// **The code points of a string, the hexadecimal of one, and its UTF-16BE units all live in
+// `charset` now** -- `charset.code_points_of`, `charset.hex_of`, `charset.utf16be_hex`. This
+// module had a copy of each, and so did four others.
 
 // Four hexadecimal digits, **and exactly four**: the low 16 bits of anything larger. That is right
 // for a glyph id, which a PDF's `Identity-H` encoding defines as two bytes, and wrong for a code
-// point, which is what `utf16be_hex` and `code_point_hex` are for.
+// point -- which is why this one stayed here when the code-point spellings left: a glyph id is a
+// number this font gave that glyph, and means nothing to any other font.
 pub fn hex4(cp: int) -> string {
     val digits = "0123456789ABCDEF"
     var n = cp

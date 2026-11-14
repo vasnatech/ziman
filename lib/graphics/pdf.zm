@@ -3,6 +3,7 @@
 // The mapping is nearly mechanical, which is the point of the model: PDF's content-stream
 // vocabulary is almost exactly `shape.Segment`'s five cases, so most of this file is a serialiser.
 // See docs/graphics/phase-2-pdf-backend.md for the operator table and the reasoning.
+use charset
 use font
 use font.FontRef
 use geom
@@ -432,7 +433,7 @@ fn to_unicode_cmap(face: truetype.Face, used: [int]) -> Result<string, string> {
             // are not the same function. `hex4` on the destination truncated anything above the
             // basic plane to its low four digits, so an emoji extracted as a private-use
             // character -- text that draws right and copies wrong.
-            push(pairs, concat("<", font.hex4(g), "> <", font.utf16be_hex(cp), ">"))
+            push(pairs, concat("<", font.hex4(g), "> <", charset.utf16be_hex(cp), ">"))
         }
     }
     val all = snapshot(pairs)
@@ -964,122 +965,28 @@ fn ramp(from: Color, to: Color) -> Obj {
 
 // ---- WinAnsiEncoding
 
-// `text` as WinAnsi bytes, or an `Err` naming the first character the encoding cannot represent.
+// `text` as WinAnsi bytes, or an `Err` naming the first character the encoding cannot carry and
+// what to do about it.
 //
-// **This refuses rather than substitutes, and that is the point.** `WinAnsiEncoding` has no `ş`,
-// no `İ`, no Cyrillic and no CJK, and quietly writing `?` into someone's medical record is the
-// failure invariant 2 exists to prevent. The error says which character and points at phase 3.
-pub fn win_ansi(text: string) -> Result<[byte], string> {
-    val out = mutable_array_new<byte>()
-    for ch in chars(text) {
-        val cp = font.codepoint_of(ch)
-        val b = win_ansi_byte(cp)
-        if b < 0 {
-            return err(concat(
-                "pdf: WinAnsiEncoding cannot represent U+",
-                font.code_point_hex(cp),
+// **The set lives in `charset` and the advice lives here.** `charset.win_ansi_bytes` knows which
+// character 1252 has no byte for, and that is all it knows; what a caller should *do* about it
+// depends on who the caller is, and for this one the answer is to embed a face. Splitting it
+// that way is what lets the message stay accurate when the advice changes.
+//
+// It refuses rather than substitutes, which is the point: `WinAnsiEncoding` has no `ş`, no `İ`,
+// no Cyrillic and no CJK, and quietly writing `?` into someone's medical record is the failure
+// invariant 2 exists to prevent.
+fn win_ansi(text: string) -> Result<[byte], string> {
+    return switch charset.win_ansi_bytes(text) {
+        Ok(bytes) { ok(bytes) }
+        Err(r) {
+            err(concat(
+                "pdf: ",
+                charset.describe(r),
                 " in '",
                 text,
-                "'. The standard fonts are Latin-1 only; an embedded font (phase 3) is needed for this text"
+                "'. The standard fonts are Latin-1 only; embed a face to draw this text"
             ))
         }
-        push(out, b as byte)
     }
-    return ok(snapshot(out))
-}
-
-// The numeric code point of a one-character string. `chars` splits a string into code points but
-// hands each back as a string, and WinAnsi is a mapping from numbers, so the UTF-8 is decoded here.
-fn win_ansi_byte(cp: int) -> int {
-    // The Latin-1 ranges map one to one.
-    if cp >= 32 && cp <= 126 {
-        return cp
-    }
-    if cp >= 160 && cp <= 255 {
-        return cp
-    }
-    // CP1252's own block, where WinAnsi differs from Latin-1: the typographic characters a document
-    // actually uses -- curly quotes, dashes, the euro sign.
-    if cp == 8364 {
-        return 128
-    }
-    if cp == 8218 {
-        return 130
-    }
-    if cp == 402 {
-        return 131
-    }
-    if cp == 8222 {
-        return 132
-    }
-    if cp == 8230 {
-        return 133
-    }
-    if cp == 8224 {
-        return 134
-    }
-    if cp == 8225 {
-        return 135
-    }
-    if cp == 710 {
-        return 136
-    }
-    if cp == 8240 {
-        return 137
-    }
-    if cp == 352 {
-        return 138
-    }
-    if cp == 8249 {
-        return 139
-    }
-    if cp == 338 {
-        return 140
-    }
-    if cp == 381 {
-        return 142
-    }
-    if cp == 8216 {
-        return 145
-    }
-    if cp == 8217 {
-        return 146
-    }
-    if cp == 8220 {
-        return 147
-    }
-    if cp == 8221 {
-        return 148
-    }
-    if cp == 8226 {
-        return 149
-    }
-    if cp == 8211 {
-        return 150
-    }
-    if cp == 8212 {
-        return 151
-    }
-    if cp == 732 {
-        return 152
-    }
-    if cp == 8482 {
-        return 153
-    }
-    if cp == 353 {
-        return 154
-    }
-    if cp == 8250 {
-        return 155
-    }
-    if cp == 339 {
-        return 156
-    }
-    if cp == 382 {
-        return 158
-    }
-    if cp == 376 {
-        return 159
-    }
-    return -1
 }

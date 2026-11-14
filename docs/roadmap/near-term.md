@@ -918,8 +918,9 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   preview data an overflow is as likely to be the placeholder's fault as the design's -- three
   tabs drawn into a strip the file sized `tab_width * pane_tabs` for two.
 
-- **Four hand-rolled UTF-8 encoders in the library, and one of them is wrong.** Found 2026-11-13
-  while fixing `window.Event.Char`, which needed a fifth.
+- **~~Four hand-rolled UTF-8 encoders in the library~~ -- there were five, and they are gone.
+  Done 2026-11-14 as `lib/core/charset.zm`.** Found 2026-11-13 while fixing `window.Event.Char`,
+  which needed a sixth.
 
   `toml.zm` and `yaml.zm` have `append_utf8(out, cp)`, `truetype.zm` has `codepoint_text(cp)`, and
   `lib/ui/desktop/window.zm` now has `text_of_codepoint(cp)`. All private, all the same arithmetic.
@@ -950,6 +951,33 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   `lib/core/` module should own text-encoding conversions the way `encoding.zm` owns base-N ones.
   The first is a language-surface decision; the second is a module nobody has needed twice until
   now. Either way `truetype.zm`'s copy should go.
+
+  **Answered 2026-11-14: the second, as `lib/core/charset.zm`.** The prelude keeps its one unit --
+  a one-character string -- and the `int` one lives in a module, beside `encoding.zm` and named
+  apart from it on purpose (`encoding` is base-N over bytes that are not text; `charset` is text
+  and the bytes that stand for it in a named set).
+
+  **It was written as a charset library and not as what its callers needed**, which was the
+  decision worth making deliberately: six modules had a piece of this between them and each was
+  right for the one case in front of it. A library shaped by those callers would have inherited
+  every one of their edges, so the module got the whole of what it claims -- both directions of
+  UTF-8, UTF-16 and UTF-32 in both byte orders, ASCII, Latin-1 and WinAnsi, surrogate pairs, the
+  byte order mark and a sniffer for it, the sets as an `Encoding` value with names and aliases,
+  and a strict decoder beside a lossy one. Deliberately *not* there: the legacy multi-byte East
+  Asian sets, which are megabyte mapping tables wanting generation rather than writing. Mac
+  Roman is the one near-miss: `truetype` reads platform-1 name records as Latin-1, which they
+  are not above 0x7F, and the honest fix is a generated table rather than 128 entries from
+  memory -- noted in the code where it is read.
+
+  **What the migration found, which is the argument for having done it:** five encoders, not
+  four (`xml.zm` had a sixth spelling, `append_code_point`), three copies of the same two
+  surrogate constants, two Latin-1 loops, and `pdf.win_ansi`'s 32-entry CP1252 table. The
+  seven callers are now `font`, `pdf`, `truetype`, `terminal`, `window`, `toml`, `yaml` and
+  `xml`; each kept the *policy* that was its own -- `truetype` reads a name table lossily
+  because a broken name is not a broken font, `terminal` turns a 0-width lead byte into 1 so a
+  reader makes progress, `pdf` adds "embed a face" to a refusal `charset` states generically.
+  That split -- the set here, the advice at the call site -- is what lets a message stay true
+  when the advice changes.
 
 - **~~A scroll viewport makes every frame cost full price~~ -- found and fixed 2026-11-13**, while
   chasing why the design builder was slow. It was the largest single cost in the drawing stack and

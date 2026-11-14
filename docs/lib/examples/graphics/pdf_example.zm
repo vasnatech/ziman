@@ -42,11 +42,18 @@ fn demo() -> Result<unit, string> {
     val packed = try pdf.render(page(50.0), with pdf.options() { compress: true })
     print(len(packed) < len(plain))
 
-    // Text in a standard font is encoded in WinAnsi, and a character that encoding has no room
-    // for is refused rather than silently replaced.
-    print(is_ok(pdf.win_ansi("Ziman")))
-    print(is_ok(pdf.win_ansi("Zimān")))
+    // Text in a standard font is encoded in WinAnsi (`charset` owns the encoding), and a
+    // character that encoding has no room for is refused rather than silently replaced: the
+    // whole render fails and says which character and what to do about it.
+    print(is_ok(pdf.render(text_page("Ziman"), pdf.options())))
+    print(is_ok(pdf.render(text_page("Zimān"), pdf.options())))
     return unit
+}
+
+fn text_page(words: string) -> scene.Scene {
+    return scene.with_ops(scene.scene_of(120.0, 20.0), [
+        scene.text_of(words, geom.point_of(4.0, 14.0), 10.0, 0, paint.solid(paint.black()))
+    ])
 }
 
 fn main() {

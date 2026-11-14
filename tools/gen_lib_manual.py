@@ -19,6 +19,11 @@ OUT = os.path.join(ROOT, "docs", "lib")
 GROUPS = [
     ("Data and formats", "core", ["json", "codec", "paging", "expr", "ndjson", "csv", "toml", "yaml", "xml", "markdown", "properties",
                                    "number", "math", "bits", "encoding", "uuid", "regex", "compress", "crypto", "jwt", "otp",
+                                   # Beside `encoding` on purpose: the two are a pair a reader
+                                   # mixes up, and the pages say which is which. `encoding` is
+                                   # base-N over bytes with no meaning as text; `charset` is text
+                                   # and the bytes that stand for it in a named character set.
+                                   "charset",
                                    "mime"]),
     # The group's directory is where the source is read from, so a module listed here lives in
     # lib/<dir>/. `schedule` sits under Time because it is built on `time` and `clock` and reads

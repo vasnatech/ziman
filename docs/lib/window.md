@@ -17,6 +17,11 @@ keys in Ziman. The decoder, the key names and the modifier tests are therefore r
 `ziman test` with no display attached, which is where almost all of the behaviour worth testing
 is.
 
+**It has exactly one dependency, and it is `lib/core`**: `charset`, to turn the code point the
+native sends into the text a `Char` event carries. This module had hand-rolled that encoder,
+as three others had, and ending that was what `charset` was written for. The claim above is
+about `lib/graphics` and is unchanged: the pixels still arrive as three primitives.
+
 See docs/design/desktop-applications.md, and docs/reviews/tasks/f269-f277.md F269 for what this
 is and is not meant to be yet.
 

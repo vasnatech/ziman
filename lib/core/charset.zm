@@ -1,0 +1,979 @@
+// charset.zm -- text and bytes, across the character encodings a program meets at a boundary.
+//
+// **This is not `encoding.zm`, and the names are close enough to be worth separating here.**
+// `encoding` is base 2, 8, 16, 32 and 64: arbitrary bytes rendered as safe ASCII and read back,
+// where the input has no meaning as text at all. This module is the other direction -- *text*
+// and the bytes that stand for it in a named character set, where every question is about code
+// points and which of them a set can carry.
+//
+// **It was written as a charset library rather than as whatever its first callers needed**, and
+// that is deliberate. Eight modules had hand-rolled a piece of this between them, and the
+// migration counted them: **five** separate UTF-8 encoders (`toml`, `yaml`, `xml` -- which
+// spelled it `append_code_point` and so was missed when these were first counted as four --
+// `truetype` and `window`), a UTF-8 decoder in `font`, a lead-byte width table in `terminal`,
+// a UTF-16 decoder in `truetype` that wrote a question mark per surrogate half, two Latin-1
+// loops, `pdf`'s 32-entry CP1252 table, and three copies of the same two surrogate constants.
+// Each was correct for the one case in front of it and silently wrong just outside, which is
+// what the four-digit `/ToUnicode` destination in `pdf` had been for as long as it existed. A
+// library shaped by those callers would have inherited every one of those edges.
+//
+// **What is here**: the Unicode transformation formats, and the single-byte sets. What is
+// deliberately *not* here: the legacy multi-byte East Asian sets -- Shift-JIS, GB18030, Big5,
+// EUC-JP and the rest. Those are megabyte mapping tables rather than arithmetic, they want
+// generating from the Unicode consortium's files rather than writing, and leaving them out is a
+// decision rather than an oversight.
+
+// ---- code points
+
+// The last code point there is. Above this nothing is text.
+pub val last_code_point = 1114111
+
+// What a decoder puts where it could not read a character: U+FFFD, the replacement character.
+//
+// **It is a code point like any other**, so this module never substitutes it silently -- a
+// decoder that cannot read its input answers an error and lets the caller decide. The value is
+// here because callers that *do* want to substitute should all use the same one.
+pub val replacement = 65533
+
+// The same character as a one-character string, which is what the lossy decoders below write in
+// place of what they could not read. **The literal is the character itself**, because ziman has
+// no `\u` escape and a decoder that cannot name its own output is not much of a decoder.
+pub val replacement_text = "�"
+
+val first_surrogate = 55296
+val last_surrogate = 57343
+val first_astral = 65536
+
+// Whether `cp` is a character: in range, and not half of a surrogate pair.
+//
+// **A surrogate is not a code point**, which is the rule that keeps UTF-16 honest: D800 to DFFF
+// exist only as the two halves of an encoded astral character, and text containing one on its
+// own is text no reader can agree on.
+pub fn is_code_point(cp: int) -> bool {
+    if cp < 0 || cp > last_code_point {
+        return false
+    }
+    return cp < first_surrogate || cp > last_surrogate
+}
+
+pub fn is_high_surrogate(unit: int) -> bool {
+    return unit >= first_surrogate && unit <= 56319
+}
+
+pub fn is_low_surrogate(unit: int) -> bool {
+    return unit >= 56320 && unit <= last_surrogate
+}
+
+// The code point a surrogate pair stands for, or `None` when the two are not a pair.
+pub fn paired(high: int, low: int) -> Option<int> {
+    if !is_high_surrogate(high) || !is_low_surrogate(low) {
+        return Option<int>.None
+    }
+    return Option<int>.Some(first_astral + (high - first_surrogate) * 1024 + (low - 56320))
+}
+
+// The surrogate pair that stands for `cp`, or `None` for anything inside the basic plane --
+// which needs no pair and is written as itself.
+pub fn surrogates(cp: int) -> Option<[int]> {
+    if !is_code_point(cp) || cp < first_astral {
+        return Option<[int]>.None
+    }
+    val v = cp - first_astral
+    return Option<[int]>.Some([first_surrogate + v / 1024, 56320 + v % 1024])
+}
+
+// ---- what went wrong
+
+// **One shape for every failure here, and it names the set.** A caller that cannot represent a
+// character usually has advice of its own to add -- `pdf` tells you to embed a font -- and it
+// can only add it to a message that does not already presume the reason.
+pub struct Refusal {
+    // The set that could not do it: "UTF-8", "WinAnsi", and so on.
+    charset: string
+    // The code point at fault, or -1 when the input was bytes rather than text.
+    code_point: int
+    // Where in the input, in characters for text and in bytes for bytes.
+    at: int
+    why: string
+}
+
+pub fn describe(r: Refusal) -> string {
+    if r.code_point >= 0 {
+        return format("{} cannot represent U+{} at {}", r.charset, hex_of(r.code_point), str(r.at))
+    }
+    return format("{}: {} at {}", r.charset, r.why, str(r.at))
+}
+
+// A code point as the digits after `U+`: at least four, more when it takes more.
+pub fn hex_of(cp: int) -> string {
+    if cp < 0 {
+        return "????"
+    }
+    val digits = "0123456789ABCDEF"
+    var n = cp
+    var out = ""
+    var i = 0
+    while i < 4 || n > 0 {
+        val d = n % 16
+        out = concat(substring(digits, d, d + 1), out)
+        n = n / 16
+        i = i + 1
+    }
+    return out
+}
+
+fn refuse_point(charset: string, cp: int, at: int) -> Refusal {
+    return Refusal { charset: charset, code_point: cp, at: at, why: "" }
+}
+
+fn refuse_bytes(charset: string, why: string, at: int) -> Refusal {
+    return Refusal { charset: charset, code_point: 0 - 1, at: at, why: why }
+}
+
+// ---- UTF-8
+
+// How many bytes `cp` takes in UTF-8, or 0 when it is not a character.
+pub fn utf8_length(cp: int) -> int {
+    if !is_code_point(cp) {
+        return 0
+    }
+    if cp < 128 {
+        return 1
+    }
+    if cp < 2048 {
+        return 2
+    }
+    if cp < first_astral {
+        return 3
+    }
+    return 4
+}
+
+// One code point's UTF-8 bytes. The arithmetic five modules had each written out.
+pub fn utf8_bytes(cp: int) -> Result<[byte], Refusal> {
+    if !is_code_point(cp) {
+        return err(refuse_point("UTF-8", cp, 0))
+    }
+    if cp < 128 {
+        return ok([cp as byte])
+    }
+    if cp < 2048 {
+        return ok([(192 + cp / 64) as byte, (128 + cp % 64) as byte])
+    }
+    if cp < first_astral {
+        return ok([
+            (224 + cp / 4096) as byte,
+            (128 + cp / 64 % 64) as byte,
+            (128 + cp % 64) as byte
+        ])
+    }
+    return ok([
+        (240 + cp / 262144) as byte,
+        (128 + cp / 4096 % 64) as byte,
+        (128 + cp / 64 % 64) as byte,
+        (128 + cp % 64) as byte
+    ])
+}
+
+// One code point as a one-character string. **The function five modules had each written for
+// themselves**, which is how this module came to exist.
+pub fn utf8_text(cp: int) -> Result<string, Refusal> {
+    val bytes = try utf8_bytes(cp)
+    return switch bytes_to_string(bytes) {
+        Ok(s) { ok(s) }
+        // Unreachable while `utf8_bytes` is right, and an error rather than a raise so that it
+        // stays unreachable rather than becoming a crash if it ever is not.
+        Err(why) { err(refuse_bytes("UTF-8", why, 0)) }
+    }
+}
+
+// The code point a one-character string holds, or -1 for the empty string.
+//
+// **It takes a character rather than a string and an index** because that is the unit the
+// prelude works in: `chars` and `char_at` both answer one of these, so a caller already has one
+// in hand and does not have to think about byte offsets to use this.
+pub fn code_point_of(ch: string) -> int {
+    val b = to_bytes(ch)
+    if prelude.len(b) == 0 {
+        return 0 - 1
+    }
+    val b0 = b[0] as int
+    if b0 < 128 {
+        return b0
+    }
+    if b0 < 224 && prelude.len(b) >= 2 {
+        return (b0 - 192) * 64 + ((b[1] as int) - 128)
+    }
+    if b0 < 240 && prelude.len(b) >= 3 {
+        return (b0 - 224) * 4096 + ((b[1] as int) - 128) * 64 + ((b[2] as int) - 128)
+    }
+    if prelude.len(b) >= 4 {
+        return (b0 - 240) * 262144 + ((b[1] as int) - 128) * 4096 + ((b[2] as int) - 128) * 64 +
+            ((b[3] as int) - 128)
+    }
+    return 0 - 1
+}
+
+pub fn code_points_of(text: string) -> [int] {
+    val out = mutable_array_new<int>()
+    for ch in chars(text) {
+        push(out, code_point_of(ch))
+    }
+    return prelude.snapshot(out)
+}
+
+// How many bytes the character beginning with `lead` occupies, or 0 when no character can begin
+// with that byte -- a continuation byte, or one of the five values that are not lead bytes at all.
+//
+// **0 rather than 1 for a byte that cannot lead**, which is the opposite of what a reader
+// scanning for the next character wants: it wants to step over the bad byte and carry on. That
+// decision belongs to the reader, which is why this says what is true and `terminal` writes the
+// `if width == 0 { 1 }` itself.
+pub fn utf8_sequence_length(lead: byte) -> int {
+    if lead < 128b {
+        return 1
+    }
+    if lead < 192b {
+        return 0
+    }
+    if lead < 224b {
+        return 2
+    }
+    if lead < 240b {
+        return 3
+    }
+    if lead < 248b {
+        return 4
+    }
+    return 0
+}
+
+// A string's own bytes. **The one encoder here that answers no `Result`**: a ziman string is
+// UTF-8 already, so there is nothing to refuse. It exists so that every set in this module has
+// the same pair of functions, which is what lets `encode` below dispatch over all of them.
+pub fn utf8_bytes(text: string) -> [byte] {
+    return to_bytes(text)
+}
+
+// UTF-8 bytes as text, refusing everything that is not UTF-8 rather than substituting for it:
+// a byte that cannot lead, a character cut short by the end of the input or by the next one, a
+// **surrogate** (which is what CESU-8 and Java's modified UTF-8 write and UTF-8 does not), a
+// value **past the last code point**, and an **overlong** encoding -- a character written in
+// more bytes than it needs, which is the oldest way there is to smuggle a `/` past a filter.
+pub fn utf8_text(data: [byte]) -> Result<string, Refusal> {
+    val out = mutable_string_new()
+    var i = 0
+    while i < prelude.len(data) {
+        val lead = data[i] as int
+        val width = utf8_sequence_length(data[i])
+        if width == 0 {
+            return err(refuse_bytes("UTF-8", "a byte that cannot begin a character", i))
+        }
+        if i + width > prelude.len(data) {
+            return err(refuse_bytes("UTF-8", "a character cut short by the end of the input", i))
+        }
+        var cp = if width == 1 {
+            lead
+        } else if width == 2 {
+            lead - 192
+        } else if width == 3 {
+            lead - 224
+        } else {
+            lead - 240
+        }
+        var k = 1
+        while k < width {
+            if data[i + k] < 128b || data[i + k] > 191b {
+                return err(refuse_bytes("UTF-8", "a character cut short by the next one", i))
+            }
+            cp = cp * 64 + ((data[i + k] as int) - 128)
+            k = k + 1
+        }
+        if cp >= first_surrogate && cp <= last_surrogate {
+            return err(refuse_bytes("UTF-8", "a surrogate, which UTF-8 does not encode", i))
+        }
+        if cp > last_code_point {
+            return err(refuse_bytes("UTF-8", "a value past the last code point", i))
+        }
+        // The length a value needs and the length it was written in must agree. They do not for
+        // an overlong encoding, and that is the whole of the check.
+        if utf8_length(cp) != width {
+            return err(refuse_bytes("UTF-8", "a character written in more bytes than it needs", i))
+        }
+        append(out, try utf8_text(cp))
+        i = i + width
+    }
+    return ok(prelude.snapshot(out))
+}
+
+// Whether `data` is UTF-8, for the callers that want the question and not the text.
+pub fn is_utf8(data: [byte]) -> bool {
+    return switch utf8_text(data) {
+        Ok(_) { true }
+        Err(_) { false }
+    }
+}
+
+// ---- UTF-16
+
+// The UTF-16 code units for `cp`: one for the basic plane, a surrogate pair above it.
+pub fn utf16_units(cp: int) -> Result<[int], Refusal> {
+    if !is_code_point(cp) {
+        return err(refuse_point("UTF-16", cp, 0))
+    }
+    return switch surrogates(cp) {
+        Some(pair) { ok(pair) }
+        None { ok([cp]) }
+    }
+}
+
+// **One encoder and one decoder, with the byte order as an argument.** The two orders differ
+// in two lines, and a UTF-16 bug that is in one order and not the other is the bug every
+// library that wrote them separately has had.
+fn utf16_bytes(text: string, big: bool, name: string) -> Result<[byte], Refusal> {
+    val out = mutable_array_new<byte>()
+    var at = 0
+    for ch in chars(text) {
+        val cp = code_point_of(ch)
+        if !is_code_point(cp) {
+            return err(refuse_point(name, cp, at))
+        }
+        // Guarded above, so this cannot refuse.
+        for unit in try utf16_units(cp) {
+            val hi = (unit / 256) as byte
+            val lo = (unit % 256) as byte
+            if big {
+                push(out, hi)
+                push(out, lo)
+            } else {
+                push(out, lo)
+                push(out, hi)
+            }
+        }
+        at = at + 1
+    }
+    return ok(prelude.snapshot(out))
+}
+
+fn unit_at(data: [byte], i: int, big: bool) -> int {
+    if big {
+        return (data[i] as int) * 256 + (data[i + 1] as int)
+    }
+    return (data[i + 1] as int) * 256 + (data[i] as int)
+}
+
+// **Surrogate pairs are joined**, which the one caller of this before the module existed did
+// not do -- `truetype` read a font's name table and wrote a question mark for each half, on the
+// argument that a name outside the basic plane does not happen. It does now, and the decision
+// is no longer that caller's to make.
+fn utf16_text(data: [byte], big: bool, name: string) -> Result<string, Refusal> {
+    if prelude.len(data) % 2 != 0 {
+        return err(refuse_bytes(name, "an odd number of bytes", prelude.len(data) - 1))
+    }
+    val out = mutable_string_new()
+    var i = 0
+    while i + 1 < prelude.len(data) {
+        val unit = unit_at(data, i, big)
+        if is_high_surrogate(unit) {
+            if i + 3 >= prelude.len(data) {
+                return err(refuse_bytes(name, "a high surrogate at the end of the input", i))
+            }
+            switch paired(unit, unit_at(data, i + 2, big)) {
+                Some(cp) {
+                    append(out, try utf8_text(cp))
+                    i = i + 4
+                }
+                None {
+                    return err(refuse_bytes(name, "a high surrogate without a low one", i))
+                }
+            }
+            continue
+        }
+        if is_low_surrogate(unit) {
+            return err(refuse_bytes(name, "a low surrogate without a high one", i))
+        }
+        append(out, try utf8_text(unit))
+        i = i + 2
+    }
+    return ok(prelude.snapshot(out))
+}
+
+pub fn utf16be_bytes(text: string) -> Result<[byte], Refusal> {
+    return utf16_bytes(text, true, "UTF-16BE")
+}
+
+pub fn utf16be_text(data: [byte]) -> Result<string, Refusal> {
+    return utf16_text(data, true, "UTF-16BE")
+}
+
+// The little-endian order, which is what a Windows API, a `.strings` file and most of the
+// "UTF-16" in the world actually mean.
+pub fn utf16le_bytes(text: string) -> Result<[byte], Refusal> {
+    return utf16_bytes(text, false, "UTF-16LE")
+}
+
+pub fn utf16le_text(data: [byte]) -> Result<string, Refusal> {
+    return utf16_text(data, false, "UTF-16LE")
+}
+
+// ---- UTF-32
+
+// **Encoding cannot fail**: every code point fits in four bytes with room to spare, which is
+// the whole point of the format and the reason it is four bytes wide.
+fn utf32_bytes(text: string, big: bool) -> [byte] {
+    val out = mutable_array_new<byte>()
+    for cp in code_points_of(text) {
+        val quad = [
+            (cp / 16777216) as byte,
+            (cp / 65536 % 256) as byte,
+            (cp / 256 % 256) as byte,
+            (cp % 256) as byte
+        ]
+        if big {
+            for b in quad {
+                push(out, b)
+            }
+        } else {
+            var i = 3
+            while i >= 0 {
+                push(out, quad[i])
+                i = i - 1
+            }
+        }
+    }
+    return prelude.snapshot(out)
+}
+
+fn utf32_text(data: [byte], big: bool, name: string) -> Result<string, Refusal> {
+    if prelude.len(data) % 4 != 0 {
+        return err(refuse_bytes(name, "a length that is not a multiple of four", prelude.len(data) - 1))
+    }
+    val out = mutable_string_new()
+    var i = 0
+    while i + 3 < prelude.len(data) {
+        val cp = if big {
+            unit_at(data, i, true) * 65536 + unit_at(data, i + 2, true)
+        } else {
+            unit_at(data, i + 2, false) * 65536 + unit_at(data, i, false)
+        }
+        // Four bytes can hold far more than there are characters, so unlike the other formats
+        // this one can carry a number that is not text at all.
+        if !is_code_point(cp) {
+            return err(refuse_bytes(name, "four bytes that are not a character", i))
+        }
+        append(out, try utf8_text(cp))
+        i = i + 4
+    }
+    return ok(prelude.snapshot(out))
+}
+
+pub fn utf32be_bytes(text: string) -> [byte] {
+    return utf32_bytes(text, true)
+}
+
+// **The one format whose bytes can hold something that is not a character at all.** Four bytes
+// reach past U+10FFFF and into the surrogate block, where UTF-8's and UTF-16's own shapes do
+// not, so a decoder here has to ask rather than assume.
+pub fn utf32be_text(data: [byte]) -> Result<string, Refusal> {
+    return utf32_text(data, true, "UTF-32BE")
+}
+
+pub fn utf32le_bytes(text: string) -> [byte] {
+    return utf32_bytes(text, false)
+}
+
+pub fn utf32le_text(data: [byte]) -> Result<string, Refusal> {
+    return utf32_text(data, false, "UTF-32LE")
+}
+
+// A code point as its UTF-16BE code units in hexadecimal: four digits inside the basic plane,
+// eight -- a **surrogate pair** -- above it.
+//
+// **This is what a PDF `/ToUnicode` destination is, and it is not the code point's own digits.**
+// Writing those instead, four of them, makes U+1F600 come out as `<F600>`: a private-use
+// character, so the text draws correctly and *extracts* as something else, which is the exact
+// failure `/ToUnicode` exists to prevent.
+//
+// Anything that is not a character answers `FFFD`, the replacement character's own units,
+// because the caller is writing a table entry and has nowhere to put an error.
+pub fn utf16be_hex(cp: int) -> string {
+    val out = mutable_string_new()
+    switch utf16_units(cp) {
+        Ok(units) {
+            for unit in units {
+                // Each unit is below 65536, so `hex_of` gives it in exactly four digits.
+                append(out, hex_of(unit))
+            }
+        }
+        Err(_) { append(out, hex_of(replacement)) }
+    }
+    return prelude.snapshot(out)
+}
+
+// ---- the single-byte sets
+
+// The 128 characters every set in this module agrees on. **Encoding to it is how a caller asks
+// "is this text plain?"** before putting it somewhere that only promises ASCII -- a header
+// name, a PDF name object, an identifier.
+pub fn ascii_bytes(text: string) -> Result<[byte], Refusal> {
+    val out = mutable_array_new<byte>()
+    var at = 0
+    for ch in chars(text) {
+        val cp = code_point_of(ch)
+        if cp < 0 || cp > 127 {
+            return err(refuse_point("ASCII", cp, at))
+        }
+        push(out, cp as byte)
+        at = at + 1
+    }
+    return ok(prelude.snapshot(out))
+}
+
+// Unlike Latin-1, **decoding can fail**: a byte over 0x7F is not an ASCII character, and the
+// set has nothing to say about what it might mean. Guessing here is how text becomes mojibake.
+pub fn ascii_text(data: [byte]) -> Result<string, Refusal> {
+    var i = 0
+    while i < prelude.len(data) {
+        if data[i] > 127b {
+            return err(refuse_bytes("ASCII", "a byte above 0x7F", i))
+        }
+        i = i + 1
+    }
+    return switch bytes_to_string(data) {
+        Ok(s) { ok(s) }
+        // Unreachable: ASCII bytes are UTF-8 bytes.
+        Err(why) { err(refuse_bytes("ASCII", why, 0)) }
+    }
+}
+
+// ISO-8859-1, where every byte is the code point of the same number. **Decoding cannot fail**,
+// which is the property that makes it the fallback every other single-byte set is compared to.
+pub fn latin1_text(data: [byte]) -> string {
+    val out = mutable_string_new()
+    for b in data {
+        // Each byte is a code point below 256, so this cannot refuse.
+        switch utf8_text(b as int) {
+            Ok(s) { append(out, s) }
+            Err(_) { append(out, "?") }
+        }
+    }
+    return prelude.snapshot(out)
+}
+
+pub fn latin1_bytes(text: string) -> Result<[byte], Refusal> {
+    val out = mutable_array_new<byte>()
+    var at = 0
+    for ch in chars(text) {
+        val cp = code_point_of(ch)
+        if cp < 0 || cp > 255 {
+            return err(refuse_point("Latin-1", cp, at))
+        }
+        push(out, cp as byte)
+        at = at + 1
+    }
+    return ok(prelude.snapshot(out))
+}
+
+// The 32 code points CP1252 puts where Latin-1 has control characters, 0x80 to 0x9F in order.
+// **This table is the whole difference between the two sets**, and it is the reason a PDF can
+// write a curly quote and an en dash without embedding a font.
+val win_ansi_high = [
+    8364, 129, 8218, 402, 8222, 8230, 8224, 8225, 710, 8240, 352, 8249, 338, 141, 381, 143,
+    144, 8216, 8217, 8220, 8221, 8226, 8211, 8212, 732, 8482, 353, 8250, 339, 157, 382, 376
+]
+
+pub fn win_ansi_text(data: [byte]) -> string {
+    val out = mutable_string_new()
+    for b in data {
+        val v = b as int
+        val cp = if v >= 128 && v <= 159 { win_ansi_high[v - 128] } else { v }
+        switch utf8_text(cp) {
+            Ok(s) { append(out, s) }
+            Err(_) { append(out, "?") }
+        }
+    }
+    return prelude.snapshot(out)
+}
+
+pub fn win_ansi_bytes(text: string) -> Result<[byte], Refusal> {
+    val out = mutable_array_new<byte>()
+    var at = 0
+    for ch in chars(text) {
+        val cp = code_point_of(ch)
+        val b = win_ansi_byte(cp)
+        if b < 0 {
+            return err(refuse_point("WinAnsi", cp, at))
+        }
+        push(out, b as byte)
+        at = at + 1
+    }
+    return ok(prelude.snapshot(out))
+}
+
+// The WinAnsi byte for a code point, or -1 when the set has none.
+pub fn win_ansi_byte(cp: int) -> int {
+    // The printable ASCII range and the top half of Latin-1 map to themselves.
+    if cp >= 32 && cp <= 126 {
+        return cp
+    }
+    if cp >= 160 && cp <= 255 {
+        return cp
+    }
+    var i = 0
+    while i < prelude.len(win_ansi_high) {
+        if win_ansi_high[i] == cp {
+            return 128 + i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// ---- reading what is not quite right
+
+// **Strict by default, lossy when the caller asks.** Every decoder above refuses rather than
+// guesses, which is the only defensible default for a library: a decoder that substitutes
+// silently turns a bug in one program into wrong text in every program downstream of it.
+//
+// These three are the other half of that bargain, and the Unicode standard describes them: read
+// what is well-formed, put U+FFFD where the input was not, and carry on. **A caller wants this
+// when the text is cosmetic and the alternative is losing something that is not** -- `truetype`
+// reads a font's name table this way, because a name table that is not quite UTF-16 is a broken
+// *name* and the glyphs are elsewhere and work.
+//
+// One mark per ill-formed sequence, not per byte: the standard calls it the maximal subpart, and
+// it is why `E1 80 41` reads as one mark and an `A` rather than two marks and an `A`.
+pub fn utf8_lossy(data: [byte]) -> string {
+    val out = mutable_string_new()
+    var i = 0
+    while i < prelude.len(data) {
+        val width = utf8_sequence_length(data[i])
+        if width == 0 {
+            append(out, replacement_text)
+            i = i + 1
+            continue
+        }
+        if i + width <= prelude.len(data) {
+            switch utf8_text(slice(data, i, i + width)) {
+                Ok(s) {
+                    append(out, s)
+                    i = i + width
+                    continue
+                }
+                Err(_) {}
+            }
+        }
+        append(out, replacement_text)
+        // The maximal subpart: the lead byte, and the continuation bytes that did follow it.
+        var k = 1
+        while k < width && i + k < prelude.len(data) && data[i + k] >= 128b && data[i + k] <= 191b {
+            k = k + 1
+        }
+        i = i + k
+    }
+    return prelude.snapshot(out)
+}
+
+fn utf16_lossy(data: [byte], big: bool) -> string {
+    val out = mutable_string_new()
+    var i = 0
+    while i + 1 < prelude.len(data) {
+        val unit = unit_at(data, i, big)
+        if is_high_surrogate(unit) && i + 3 < prelude.len(data) {
+            switch paired(unit, unit_at(data, i + 2, big)) {
+                Some(cp) {
+                    // Guarded by `paired`, so this cannot refuse.
+                    append(out, try_text(cp))
+                    i = i + 4
+                    continue
+                }
+                None {}
+            }
+        }
+        // One mark per unit, which is the unit the input was wrong in.
+        if is_high_surrogate(unit) || is_low_surrogate(unit) {
+            append(out, replacement_text)
+        } else {
+            append(out, try_text(unit))
+        }
+        i = i + 2
+    }
+    // A trailing odd byte is half a unit, and half a unit is one ill-formed sequence.
+    if prelude.len(data) % 2 != 0 {
+        append(out, replacement_text)
+    }
+    return prelude.snapshot(out)
+}
+
+// A code point this module has already established is one, as a string. The `Err` arm cannot be
+// reached, and is the replacement character rather than a raise so that it stays unreachable.
+fn try_text(cp: int) -> string {
+    return switch utf8_text(cp) {
+        Ok(s) { s }
+        Err(_) { replacement_text }
+    }
+}
+
+pub fn utf16be_lossy(data: [byte]) -> string {
+    return utf16_lossy(data, true)
+}
+
+pub fn utf16le_lossy(data: [byte]) -> string {
+    return utf16_lossy(data, false)
+}
+
+// ---- the byte order mark
+
+// U+FEFF, the character a file may begin with to say which encoding it is in.
+//
+// **A mark is not text.** `decode` drops a leading one and `encode` writes none, so a round
+// trip through this module neither invents a mark nor leaves one in the string -- which is the
+// bug behind every spreadsheet whose first column is headed with an invisible character and
+// `id`.
+pub val bom = 65279
+
+val utf8_mark = [239b, 187b, 191b]
+val utf16be_mark = [254b, 255b]
+val utf16le_mark = [255b, 254b]
+val utf32be_mark = [0b, 0b, 254b, 255b]
+val utf32le_mark = [255b, 254b, 0b, 0b]
+
+fn begins_with(data: [byte], mark: [byte]) -> bool {
+    if prelude.len(data) < prelude.len(mark) {
+        return false
+    }
+    var i = 0
+    while i < prelude.len(mark) {
+        if data[i] != mark[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// ---- the sets as values
+
+// **The functions above are how a set is called; this is how one is chosen.** A charset arrives
+// as data far more often than as a decision in the source -- an HTTP `charset=` parameter, an
+// XML declaration, a byte order mark, a dropdown in a dialog -- and a caller holding a name has
+// no way to reach a function. Everything below delegates upwards.
+pub enum Encoding {
+    Utf8
+    Utf16be
+    Utf16le
+    Utf32be
+    Utf32le
+    Latin1
+    WinAnsi
+    Ascii
+}
+
+// The set's usual written name, which is also the name its refusals carry.
+pub fn name_of(e: Encoding) -> string {
+    return switch e {
+        Utf8 { "UTF-8" }
+        Utf16be { "UTF-16BE" }
+        Utf16le { "UTF-16LE" }
+        Utf32be { "UTF-32BE" }
+        Utf32le { "UTF-32LE" }
+        Latin1 { "Latin-1" }
+        WinAnsi { "WinAnsi" }
+        Ascii { "ASCII" }
+    }
+}
+
+// The set a written name means, ignoring case, hyphens, underscores, spaces and dots, so that
+// `utf-8`, `UTF8` and `utf_8` are one answer. The aliases are the ones that turn up in headers
+// and declarations: `iso-8859-1`, `cp1252`, `windows-1252`, `us-ascii`, `ucs-2`.
+pub fn encoding_named(name: string) -> Option<Encoding> {
+    val key = squeezed(name)
+    if key == "utf8" {
+        return Option<Encoding>.Some(Encoding.Utf8)
+    }
+    // **Bare "UTF-16" and "UCS-2" are taken as little-endian**, because that is what wrote the
+    // file: the standard says a mark decides and names no default, and where there is a mark
+    // `sniff` has the answer before this function is reached.
+    if key == "utf16" || key == "utf16le" || key == "ucs2" || key == "ucs2le" {
+        return Option<Encoding>.Some(Encoding.Utf16le)
+    }
+    if key == "utf16be" || key == "ucs2be" {
+        return Option<Encoding>.Some(Encoding.Utf16be)
+    }
+    if key == "utf32" || key == "utf32le" || key == "ucs4le" {
+        return Option<Encoding>.Some(Encoding.Utf32le)
+    }
+    if key == "utf32be" || key == "ucs4" || key == "ucs4be" {
+        return Option<Encoding>.Some(Encoding.Utf32be)
+    }
+    if key == "latin1" || key == "iso88591" || key == "l1" {
+        return Option<Encoding>.Some(Encoding.Latin1)
+    }
+    if key == "winansi" || key == "cp1252" || key == "windows1252" || key == "winansiencoding" {
+        return Option<Encoding>.Some(Encoding.WinAnsi)
+    }
+    if key == "ascii" || key == "usascii" || key == "iso646" {
+        return Option<Encoding>.Some(Encoding.Ascii)
+    }
+    return Option<Encoding>.None
+}
+
+fn squeezed(name: string) -> string {
+    val out = mutable_string_new()
+    for ch in chars(name) {
+        val cp = code_point_of(ch)
+        // The separators a charset name is written with, in any of its spellings.
+        if cp == 45 || cp == 95 || cp == 32 || cp == 46 {
+            continue
+        }
+        // **ASCII case folded by hand, not with `to_lower`**, which is locale-aware: in a
+        // Turkish locale it turns the I of ASCII into a dotless one and the name stops matching.
+        if cp >= 65 && cp <= 90 {
+            switch utf8_text(cp + 32) {
+                Ok(lowered) { append(out, lowered) }
+                Err(_) { append(out, ch) }
+            }
+            continue
+        }
+        append(out, ch)
+    }
+    return prelude.snapshot(out)
+}
+
+// The mark that announces this set, or no bytes for the sets that have none -- which is every
+// single-byte set, there being no order to mark.
+pub fn mark_of(e: Encoding) -> [byte] {
+    val none: [byte] = []
+    return switch e {
+        Utf8 { utf8_mark }
+        Utf16be { utf16be_mark }
+        Utf16le { utf16le_mark }
+        Utf32be { utf32be_mark }
+        Utf32le { utf32le_mark }
+        Latin1 { none }
+        WinAnsi { none }
+        Ascii { none }
+    }
+}
+
+// The set `data` announces with a byte order mark, or `None` when it begins with no mark --
+// which is not the same as "not text": most files have no mark and are UTF-8.
+//
+// **UTF-32LE is tested before UTF-16LE** because UTF-16LE's mark is its first two bytes, and
+// asking in the other order reads every UTF-32LE file as UTF-16LE beginning with a NUL.
+pub fn sniff(data: [byte]) -> Option<Encoding> {
+    if begins_with(data, utf32le_mark) {
+        return Option<Encoding>.Some(Encoding.Utf32le)
+    }
+    if begins_with(data, utf32be_mark) {
+        return Option<Encoding>.Some(Encoding.Utf32be)
+    }
+    if begins_with(data, utf16le_mark) {
+        return Option<Encoding>.Some(Encoding.Utf16le)
+    }
+    if begins_with(data, utf16be_mark) {
+        return Option<Encoding>.Some(Encoding.Utf16be)
+    }
+    if begins_with(data, utf8_mark) {
+        return Option<Encoding>.Some(Encoding.Utf8)
+    }
+    return Option<Encoding>.None
+}
+
+// `text` in `e`, with no byte order mark: prepend `mark_of(e)` to write one.
+pub fn encode(e: Encoding, text: string) -> Result<[byte], Refusal> {
+    return switch e {
+        Utf8 { ok(utf8_bytes(text)) }
+        Utf16be { utf16be_bytes(text) }
+        Utf16le { utf16le_bytes(text) }
+        Utf32be { ok(utf32be_bytes(text)) }
+        Utf32le { ok(utf32le_bytes(text)) }
+        Latin1 { latin1_bytes(text) }
+        WinAnsi { win_ansi_bytes(text) }
+        Ascii { ascii_bytes(text) }
+    }
+}
+
+// `data` read as `e` the lossy way: what is well-formed, with U+FFFD for what is not. The
+// single-byte sets have no ill-formed input, so for those this is `decode` without the `Result`.
+pub fn decode_lossy(e: Encoding, data: [byte]) -> string {
+    return switch decode(e, data) {
+        Ok(s) { s }
+        Err(_) {
+            val body = dropped_mark(e, data)
+            switch e {
+                Utf8 { utf8_lossy(body) }
+                Utf16be { utf16be_lossy(body) }
+                Utf16le { utf16le_lossy(body) }
+                // Four bytes at a time, each either a character or a mark.
+                Utf32be { utf32_lossy(body, true) }
+                Utf32le { utf32_lossy(body, false) }
+                // These two cannot refuse, so `decode` above already answered.
+                Latin1 { latin1_text(body) }
+                WinAnsi { win_ansi_text(body) }
+                // ASCII can: a byte over 0x7F is not one of its characters, and reading it as
+                // Latin-1 instead would be inventing a character rather than marking a gap.
+                Ascii { ascii_lossy(body) }
+            }
+        }
+    }
+}
+
+fn ascii_lossy(data: [byte]) -> string {
+    val out = mutable_string_new()
+    for b in data {
+        if b > 127b {
+            append(out, replacement_text)
+        } else {
+            append(out, try_text(b as int))
+        }
+    }
+    return prelude.snapshot(out)
+}
+
+fn utf32_lossy(data: [byte], big: bool) -> string {
+    val out = mutable_string_new()
+    var i = 0
+    while i + 3 < prelude.len(data) {
+        val cp = if big {
+            unit_at(data, i, true) * 65536 + unit_at(data, i + 2, true)
+        } else {
+            unit_at(data, i + 2, false) * 65536 + unit_at(data, i, false)
+        }
+        if is_code_point(cp) {
+            append(out, try_text(cp))
+        } else {
+            append(out, replacement_text)
+        }
+        i = i + 4
+    }
+    // Whatever is left is less than a character.
+    if prelude.len(data) % 4 != 0 {
+        append(out, replacement_text)
+    }
+    return prelude.snapshot(out)
+}
+
+// `data` read as `e`, **dropping a leading mark for that same set**: a mark is how the bytes
+// said what they were, not part of what they said.
+pub fn decode(e: Encoding, data: [byte]) -> Result<string, Refusal> {
+    val body = dropped_mark(e, data)
+    return switch e {
+        Utf8 { utf8_text(body) }
+        Utf16be { utf16be_text(body) }
+        Utf16le { utf16le_text(body) }
+        Utf32be { utf32be_text(body) }
+        Utf32le { utf32le_text(body) }
+        Latin1 { ok(latin1_text(body)) }
+        WinAnsi { ok(win_ansi_text(body)) }
+        Ascii { ascii_text(body) }
+    }
+}
+
+fn dropped_mark(e: Encoding, data: [byte]) -> [byte] {
+    val mark = mark_of(e)
+    if prelude.len(mark) > 0 && begins_with(data, mark) {
+        return slice(data, prelude.len(mark), prelude.len(data))
+    }
+    return data
+}

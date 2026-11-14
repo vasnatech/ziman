@@ -42,6 +42,8 @@
 // compare; `prefix` is only ever a hint to the writer.
 
 #![experimental]
+use charset
+use charset.last_code_point
 use io
 use locale
 
@@ -54,9 +56,6 @@ val invariant: Locale = locale.root()
 // Everything XML 1.0 cannot represent at all: the C0 controls other than tab, newline and
 // carriage return. There is no escape for them -- `&#0;` is itself illegal -- so they are an
 // error on both sides rather than something silently dropped.
-val max_code_point = 1114111
-val surrogate_start = 55296
-val surrogate_end = 57343
 val hex_digits = "0123456789abcdef"
 
 // ------------------------------------------------------------------ the model
@@ -592,29 +591,6 @@ fn char_code(c: string) -> int {
     return to_bytes(c)[0] as int
 }
 
-fn append_code_point(out: MutableString, cp: int) {
-    if cp < 128 {
-        append_byte(out, cp as byte)
-    } else if cp < 2048 {
-        append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
-    } else if cp < 65536 {
-        append_byte(
-            out,
-            (224 + cp / 4096) as byte,
-            (128 + cp / 64 % 64) as byte,
-            (128 + cp % 64) as byte
-        )
-    } else {
-        append_byte(
-            out,
-            (240 + cp / 262144) as byte,
-            (128 + cp / 4096 % 64) as byte,
-            (128 + cp / 64 % 64) as byte,
-            (128 + cp % 64) as byte
-        )
-    }
-}
-
 // One `&...;`. The five predefined entities and numeric character references are XML itself and
 // are expanded; anything else is a reference into a DTD this parser does not have, and saying so
 // is better than leaving `&patientName;` in the output looking like text.
@@ -636,7 +612,14 @@ fn read_reference(cs: io.Cursor, pos: int, out: MutableString) -> Result<int, st
         append(out, "'")
     } else if starts_with(body, "#") {
         val cp = try read_char_code(cs, pos, body)
-        append_code_point(out, cp)
+        switch charset.utf8_text(cp) {
+            Ok(text) { append(out, text) }
+            // Unreachable: `read_char_code` has already refused every number that is not a
+            // character. An error rather than a raise, so that it stays unreachable.
+            Err(_) {
+                return err(fail(cs, pos, prelude.format("'&{};' is not a character", body)))
+            }
+        }
     } else {
         return err(fail(cs, pos, prelude.format(
             "undefined entity '&{};' -- this parser has no DTD, so only &lt; &gt; &amp; &quot; &apos; and &#...; are defined",
@@ -664,12 +647,14 @@ fn read_char_code(cs: io.Cursor, pos: int, body: string) -> Result<int, string> 
             return err(fail(cs, pos, prelude.format("'&{};' is not a character reference", body)))
         }
         value = value * base + d
-        if value > max_code_point {
+        if value > last_code_point {
             return err(fail(cs, pos, prelude.format("character reference '&{};' is out of range", body)))
         }
         i = i + 1
     }
-    if value > max_code_point || (value >= surrogate_start && value <= surrogate_end) {
+    // A surrogate and anything past the end of the range are both "not a character", which is
+    // one question and so one call.
+    if !charset.is_code_point(value) {
         return err(fail(cs, pos, prelude.format("character reference '&{};' is not a character", body)))
     }
     if illegal_code(value) {

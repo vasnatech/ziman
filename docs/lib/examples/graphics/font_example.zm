@@ -27,9 +27,10 @@ fn demo() -> Result<unit, string> {
     print(try font.covers(courier, "Ziman"))
     print(try font.covers(courier, "Ziman 中"))
 
-    // Text to code points, and the hex a PDF writes them as.
-    print(font.codepoints_of("Zi"))
-    print(font.codepoint_of("Z"))
+    // A glyph id as a PDF's `Identity-H` encoding spells it: exactly four hexadecimal digits,
+    // because that encoding defines a glyph id as two bytes. The code-point spellings that used
+    // to sit beside this are `charset`'s -- `charset.hex_of` for the number in a message, and
+    // `charset.utf16be_hex` for a `/ToUnicode` destination, which are three different questions.
     print(font.hex4(90))
     return unit
 }

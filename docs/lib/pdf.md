@@ -55,11 +55,18 @@ fn demo() -> Result<unit, string> {
     val packed = try pdf.render(page(50.0), with pdf.options() { compress: true })
     print(len(packed) < len(plain))
 
-    // Text in a standard font is encoded in WinAnsi, and a character that encoding has no room
-    // for is refused rather than silently replaced.
-    print(is_ok(pdf.win_ansi("Ziman")))
-    print(is_ok(pdf.win_ansi("Zimān")))
+    // Text in a standard font is encoded in WinAnsi (`charset` owns the encoding), and a
+    // character that encoding has no room for is refused rather than silently replaced: the
+    // whole render fails and says which character and what to do about it.
+    print(is_ok(pdf.render(text_page("Ziman"), pdf.options())))
+    print(is_ok(pdf.render(text_page("Zimān"), pdf.options())))
     return unit
+}
+
+fn text_page(words: string) -> scene.Scene {
+    return scene.with_ops(scene.scene_of(120.0, 20.0), [
+        scene.text_of(words, geom.point_of(4.0, 14.0), 10.0, 0, paint.solid(paint.black()))
+    ])
 }
 
 fn main() {
@@ -147,17 +154,3 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string>
 A document is the normal case and one page the special case, so this is the primitive -- a
 library that only writes one page gets a concatenation layer bolted on later, and the bolt is
 always worse than the design.
-
-## WinAnsiEncoding
-
-### `win_ansi`
-
-```
-pub fn win_ansi(text: string) -> Result<[byte], string>
-```
-
-`text` as WinAnsi bytes, or an `Err` naming the first character the encoding cannot represent.
-
-**This refuses rather than substitutes, and that is the point.** `WinAnsiEncoding` has no `ş`,
-no `İ`, no Cyrillic and no CJK, and quietly writing `?` into someone's medical record is the
-failure invariant 2 exists to prevent. The error says which character and points at phase 3.

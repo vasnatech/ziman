@@ -10,6 +10,7 @@ flowchart LR
     subgraph group_core["core"]
         batch["batch"]
         bits["bits"]
+        charset["charset"]
         clock["clock"]
         codec["codec"]
         compress["compress"]
@@ -158,6 +159,7 @@ flowchart LR
     expr --> regex
     focus --> geom
     focus --> widget
+    font --> charset
     font --> truetype
     fs --> io
     fs --> os
@@ -218,6 +220,7 @@ flowchart LR
     paging --> mime
     paint --> geom
     paint --> locale
+    pdf --> charset
     pdf --> font
     pdf --> geom
     pdf --> image
@@ -294,6 +297,7 @@ flowchart LR
     stroker --> shape
     template --> expr
     template --> json
+    terminal --> charset
     terminal --> io
     test --> regex
     time --> clock
@@ -301,10 +305,12 @@ flowchart LR
     time --> json
     time --> locale
     time --> zone
+    toml --> charset
     toml --> json
     toml --> locale
     toml --> number
     toml --> time
+    truetype --> charset
     truetype --> geom
     truetype --> shape
     url --> locale
@@ -320,8 +326,10 @@ flowchart LR
     widget --> paint
     widget --> scene
     widget --> shape
+    xml --> charset
     xml --> io
     xml --> locale
+    yaml --> charset
     yaml --> json
     yaml --> locale
     yaml --> number
@@ -337,7 +345,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `edit`, `io`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
+| 0 | `bits`, `charset`, `clock`, `compress`, `edit`, `io`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
 | 1 | `derive_reflect`, `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `terminal`, `test`, `validate`, `xml` |
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
@@ -354,6 +362,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `a11y` | `geom`, `widget` | - |
 | `batch` | `datasource`, `db`, `time`, `uuid` | - |
 | `bits` | - | `image` |
+| `charset` | - | `font`, `pdf`, `terminal`, `toml`, `truetype`, `xml`, `yaml` |
 | `client` | `clock`, `compress`, `encoding`, `http`, `io`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
@@ -379,7 +388,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `expr` | `json`, `regex` | `template` |
 | `focus` | `geom`, `widget` | `controls` |
-| `font` | `truetype` | `layout`, `pdf`, `raster`, `widget` |
+| `font` | `charset`, `truetype` | `layout`, `pdf`, `raster`, `widget` |
 | `fs` | `io`, `os` | `csv`, `http`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
 | `geom` | `math` | `a11y`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype`, `widget` |
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
@@ -405,7 +414,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `otp` | `crypto`, `encoding`, `random` | - |
 | `paging` | `codec`, `json`, `mime` | - |
 | `paint` | `geom`, `locale` | `controls`, `image`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `widget` |
-| `pdf` | `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
+| `pdf` | `charset`, `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
 | `pdfobj` | `compress` | `pdf` |
 | `pg` | `crypto`, `db`, `encoding`, `locale`, `net`, `number`, `random` | - |
 | `process` | `encoding`, `fs`, `os`, `random` | - |
@@ -422,18 +431,18 @@ otherwise: everything on a layer depends only on lower layers.
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
 | `template` | `expr`, `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
-| `terminal` | `io` | - |
+| `terminal` | `charset`, `io` | - |
 | `test` | `regex` | - |
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `batch`, `client`, `eql`, `migrate`, `schedule`, `toml` |
-| `toml` | `json`, `locale`, `number`, `time` | `codec` |
-| `truetype` | `geom`, `shape` | `font`, `pdf`, `raster` |
+| `toml` | `charset`, `json`, `locale`, `number`, `time` | `codec` |
+| `truetype` | `charset`, `geom`, `shape` | `font`, `pdf`, `raster` |
 | `url` | `locale`, `number` | `db`, `http`, `rest` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | `batch`, `eql`, `rest`, `server` |
 | `validate` | `regex` | - |
 | `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `controls`, `desktop`, `focus` |
-| `xml` | `io`, `locale` | `codec` |
-| `yaml` | `json`, `locale`, `number` | `codec` |
+| `xml` | `charset`, `io`, `locale` | `codec` |
+| `yaml` | `charset`, `json`, `locale`, `number` | `codec` |
 | `zone` | `fs`, `number`, `os` | `time` |
 
 ## Why some modules are separate
