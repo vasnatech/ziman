@@ -574,6 +574,92 @@ fn a_mark_paints_one_fill_in_its_colour() {
     }
 }
 
+// --- a fixed size clips
+
+fn clip_of(op: scene.Op) -> shape.Path {
+    switch op {
+        Nested(g) {
+            switch g.clip {
+                Some(path) { return path }
+                None {
+                    test.fail("the group carries no clip")
+                    return shape.empty_path()
+                }
+            }
+        }
+        Fill(_) { test.fail("expected a group, got a fill") }
+        StrokePath(_) { test.fail("expected a group, got a stroke") }
+        Text(_) { test.fail("expected a group, got text") }
+        DrawImage(_) { test.fail("expected a group, got an image") }
+    }
+    return shape.empty_path()
+}
+
+// **A fixed size is a promise about where the thing ends.** It was not kept: a `Stack` lays its
+// children at their natural extent, so a child wider than the box was drawn outside it -- where
+// `at` will not descend, making it visible, apparently enabled, and dead.
+//
+// Asserted on the clip the painter emits; that a clip of that shape really clips is
+// `tests/lang/graphics_raster.zm`'s job, and it is an upright rectangle on whole pixels, which is
+// the case that costs nothing.
+#[test]
+fn a_fixed_box_clips_what_overflows_it() {
+    val wide = widget.row_of(0.0, [widget.fixed_of(40.0, 20.0, a_label("x"))])
+    val l = widget.layout(
+        widget.fixed_of(20.0, 20.0, wide),
+        geom.rect_of(5.0, 5.0, 20.0, 20.0),
+        fake_metrics()
+    )
+    val ops = widget.paint_ops(l, fake_metrics())
+    test.assert_len(1, ops)
+    test.assert_eq(rect_text(bounds_of_path(clip_of(ops[0]))), "5.0,5.0 20.0x20.0")
+}
+
+// **A box whose child fits emits no clip at all**, which is not tidiness but the whole reason
+// this is affordable. Clipping every `Fixed` unconditionally cost `curly gui` 26 ms to 80 ms a
+// frame: a clip is cheap and fifty of them are not, because each is a group the painter walks
+// into. Nothing overflows in almost any window, so almost no window pays.
+#[test]
+fn a_fixed_box_that_fits_adds_no_clip() {
+    val l = widget.layout(
+        widget.fixed_of(40.0, 20.0, a_label("x")),
+        geom.rect_of(0.0, 0.0, 40.0, 20.0),
+        fake_metrics()
+    )
+    val ops = widget.paint_ops(l, fake_metrics())
+    test.assert_len(1, ops)
+    switch ops[0] {
+        Text(_) { unit }
+        Nested(_) { test.fail("a box whose child fits should not be wrapped in a clip") }
+        Fill(_) { test.fail("expected the label") }
+        StrokePath(_) { test.fail("expected the label") }
+        DrawImage(_) { test.fail("expected the label") }
+    }
+}
+
+// **The overflow this exists for is a grandchild, not a child.** A row of three 100-point tabs
+// in a 200-point box: the row fits exactly and the third tab does not, so a check of the box's
+// immediate children would find nothing and skip the clip the whole feature is for.
+#[test]
+fn a_grandchild_outside_the_box_is_still_clipped() {
+    val tabs = widget.row_of(
+        0.0,
+        [
+            widget.fixed_of(100.0, 20.0, a_label("a")),
+            widget.fixed_of(100.0, 20.0, a_label("b")),
+            widget.fixed_of(100.0, 20.0, a_label("c"))
+        ]
+    )
+    val l = widget.layout(
+        widget.fixed_of(200.0, 20.0, tabs),
+        geom.rect_of(0.0, 0.0, 200.0, 20.0),
+        fake_metrics()
+    )
+    val ops = widget.paint_ops(l, fake_metrics())
+    test.assert_len(1, ops)
+    test.assert_eq(rect_text(bounds_of_path(clip_of(ops[0]))), "0.0,0.0 200.0x20.0")
+}
+
 // --- finding a node by its name
 
 fn named_box(l: widget.Laid, name: string) -> string {

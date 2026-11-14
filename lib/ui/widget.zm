@@ -1229,6 +1229,35 @@ pub fn at(l: Laid, p: Point) -> Option<Laid> {
     return Option<Laid>.Some(l)
 }
 
+// Whether anything in this subtree is drawn outside `box`.
+//
+// **Recursive, and it has to be.** The case this exists for is a row of three 100-point tabs in
+// a 200-point box: the row itself fits, and the third tab -- its child, the box's *grandchild* --
+// does not. Checking the immediate children would find nothing and skip the clip that the whole
+// feature is for.
+//
+// It stops at the first escape, so the ordinary answer costs one comparison per node and the
+// interesting one costs fewer.
+fn escapes(l: Laid, box: Rect) -> bool {
+    if l.bounds.x < box.x || l.bounds.y < box.y {
+        return true
+    }
+    if l.bounds.x + l.bounds.width > box.x + box.width {
+        return true
+    }
+    if l.bounds.y + l.bounds.height > box.y + box.height {
+        return true
+    }
+    var i = 0
+    while i < prelude.len(l.children) {
+        if escapes(l.children[i], box) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
 // The outermost node carrying `name`, or `None`.
 //
 // **Not `focus.node_of`, which only ever looks at controls.** A name belongs to any widget that
@@ -1516,6 +1545,39 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>) {
             collect(child, m, inner)
         }
         push(ops, scene.clipped(shape.rect_path(l.bounds), snapshot(inner)))
+        return
+    }
+    // **A fixed size is a promise about where the thing ends, so it clips.**
+    //
+    // It did not, and the result was a control that was visible, looked enabled and was dead: a
+    // `Stack` lays its children at their natural extent, so three 100-point tabs inside a
+    // 200-point box put the third outside it, where `paint` drew it and `at` would not descend
+    // to reach it. Found 2026-11-13 by curly's click gate, which reported a tab no press could
+    // reach, and decided the next day.
+    //
+    // **It is affordable because of what `clip_mask` learned the same week.** A clip used to
+    // build a full-canvas coverage mask, which would have made this an expensive habit on a
+    // widget that appears dozens of times in a window; an upright rectangle now narrows the
+    // window the pass may write instead, and a `Fixed`'s box is always one of those.
+    if Sized(_) = l.widget {
+        val inner = mutable_array_new<Op>()
+        var out = false
+        for child in l.children {
+            collect(child, m, inner)
+            if escapes(child, l.bounds) {
+                out = true
+            }
+        }
+        // **Only when something is actually outside**, which is almost never. Clipping every
+        // `Fixed` unconditionally measured 26 ms to 80 ms on `curly gui` -- a clip is cheap and
+        // fifty of them are not, because each is a group the painter walks into.
+        if out {
+            push(ops, scene.clipped(shape.rect_path(l.bounds), snapshot(inner)))
+        } else {
+            for op in inner {
+                push(ops, op)
+            }
+        }
         return
     }
     for child in l.children {
