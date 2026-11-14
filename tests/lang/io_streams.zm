@@ -10,6 +10,7 @@
 // **The split-character cases are the reason this fixture exists.** A decoder that handles each chunk
 // on its own passes every test written with ASCII and fails on the first file that happens to break
 // in the middle of a `ö` -- so the sources here are deliberately chopped one byte at a time.
+use charset
 use io
 use io.IoError
 
@@ -106,6 +107,62 @@ fn main() {
     // A stream that stops mid-character is reported rather than quietly shortened.
     print(concat("truncated: ", collected(io.text(io.of_bytes(slice(to_bytes("aö"), 0, 2))))))
     print(concat("not UTF-8 at all: ", collected(io.text(io.of_bytes([255b, 254b])))))
+
+    print("-- text in other sets --")
+    // **A stream could be read as text in exactly one set until `text_in`.** The carry logic was
+    // always general; the one thing in it that knew about UTF-8 was where to cut a chunk, which
+    // is `charset.complete_prefix` now.
+    //
+    // Latin-1: every byte is a character, so no chunk boundary can split one.
+    print(concat("latin-1, one byte at a time: ", collected(io.text_in(
+        chopped([67b, 97b, 102b, 233b], 1),
+        charset.Charset.Latin1
+    ))))
+    // WinAnsi differs from Latin-1 in one block, and 0x80 is the euro sign.
+    print(concat("winansi euro: ", collected(io.text_in(
+        io.of_bytes([128b, 49b]),
+        charset.Charset.WinAnsi
+    ))))
+    // UTF-16LE, cut on an odd byte: the half unit waits for the rest.
+    print(concat("utf-16le, one byte at a time: ", collected(io.text_in(
+        chopped([67b, 0b, 97b, 0b, 102b, 0b, 233b, 0b], 1),
+        charset.Charset.Utf16le
+    ))))
+    // **A surrogate pair split across chunks**, which is the case a reader cutting on *unit*
+    // boundaries gets wrong: D83D is a whole unit and half a character, and its low half is in
+    // the next chunk. U+1F600 must come out whole.
+    print(concat("utf-16be, an emoji split in half: ", collected(io.text_in(
+        chopped([0b, 65b, 216b, 61b, 222b, 0b, 0b, 66b], 2),
+        charset.Charset.Utf16be
+    ))))
+    // UTF-32BE, four bytes a character, cut every three.
+    print(concat("utf-32be, three bytes at a time: ", collected(io.text_in(
+        chopped([0b, 0b, 0b, 65b, 0b, 1b, 246b, 0b], 3),
+        charset.Charset.Utf32be
+    ))))
+    // A stream that stops mid-character is truncation in any set, and says which set.
+    print(concat("utf-16le truncated: ", collected(io.text_in(
+        io.of_bytes([67b, 0b, 97b]),
+        charset.Charset.Utf16le
+    ))))
+    // ASCII can refuse, unlike Latin-1: a high byte is not one of its characters.
+    print(concat("ascii with a high byte: ", collected(io.text_in(
+        io.of_bytes([104b, 233b]),
+        charset.Charset.Ascii
+    ))))
+    // **A byte order mark is text to a stream reader**, and this says so on purpose: `io.text`
+    // yields it, because a chunk is not the beginning of a stream and dropping it per chunk would
+    // drop a legal zero-width no-break space from the middle of one. `charset.decode` drops it
+    // for a whole file, and `csv` drops it from the first heading, which is where that decision
+    // belongs. The mark reads as one character here.
+    print(concat("a utf-8 mark survives a stream: ", collected(io.text(
+        io.of_bytes([239b, 187b, 191b, 105b, 100b])
+    ))))
+    // And `lines` has the same pair, so a Latin-1 log reads a line at a time.
+    print(concat("latin-1 lines: ", collected(io.lines_in(
+        chopped([233b, 10b, 255b, 10b], 1),
+        charset.Charset.Latin1
+    ))))
 
     print("-- lines --")
     print(concat("mixed endings: ", collected(io.lines(io.of_bytes(to_bytes("one\r\ntwo\nthree"))))))

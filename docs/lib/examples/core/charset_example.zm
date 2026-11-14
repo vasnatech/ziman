@@ -34,7 +34,7 @@ fn main() {
 
     // A set arrives as data more often than as a decision in the source: as a name in a header,
     // or as the mark a file begins with.
-    switch charset.encoding_named("iso-8859-1") {
+    switch charset.charset_named("iso-8859-1") {
         Some(e) { print(charset.name_of(e)) }
         None { print("no such set") }
     }
@@ -42,9 +42,25 @@ fn main() {
         Some(e) { print(charset.name_of(e)) }
         None { print("no mark") }
     }
-    // A mark is not text, so decoding drops it.
-    switch charset.decode(charset.Encoding.Utf8, [239b, 187b, 191b, 90b, 105b]) {
+    // A mark is not text, so decoding a whole file drops it. (A *chunk* of a stream keeps it:
+    // see `decode_chunk`, which is what `io.text` reads with.)
+    switch charset.decode([239b, 187b, 191b, 90b, 105b], charset.Charset.Utf8) {
         Ok(text) { print(text) }
         Err(r) { print(charset.describe(r)) }
     }
+
+    // **The thing being converted comes first and the set second**, the same order the prelude
+    // uses for `to_lower(s, with_locale)`. Strict and lossy are the same shape, so a caller
+    // chooses between refusing and substituting without rearranging anything.
+    switch charset.encode("şeker", charset.Charset.Ascii) {
+        Ok(_) { print("unexpectedly encoded") }
+        Err(r) { print(charset.describe(r)) }
+    }
+    print(charset.encode_lossy("şeker", charset.Charset.Ascii))
+    print(charset.decode_lossy([104b, 233b], charset.Charset.Ascii))
+
+    // And a stream is read in a set the same way: `io.text_in(source, set)` asks `charset` where
+    // each chunk may be cut, which is a different question per set -- UTF-16 holds back a high
+    // surrogate whose low half has not arrived yet.
+    print(charset.complete_prefix([0b, 65b, 216b, 61b], charset.Charset.Utf16be))
 }

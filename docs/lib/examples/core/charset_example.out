@@ -9,3 +9,7 @@ true
 Latin-1
 UTF-32LE
 Zi
+ASCII cannot represent U+015F at 0
+[63, 101, 107, 101, 114]
+h�
+2

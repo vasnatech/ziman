@@ -16,6 +16,16 @@ two bytes at a time: [a][öb][→c]
 all at once: [aöb→c]
 truncated: [a]<the stream is malformed: the stream ends in the middle of a UTF-8 character>
 not UTF-8 at all: <the stream is malformed: the stream is not UTF-8: a byte that cannot begin a character at byte 0>
+-- text in other sets --
+latin-1, one byte at a time: [C][a][f][é]
+winansi euro: [€1]
+utf-16le, one byte at a time: [C][a][f][é]
+utf-16be, an emoji split in half: [A][😀][B]
+utf-32be, three bytes at a time: [A][😀]
+utf-16le truncated: [C]<the stream is malformed: the stream ends in the middle of a UTF-16LE character>
+ascii with a high byte: <the stream is malformed: the stream is not ASCII: a byte above 0x7F at byte 1>
+a utf-8 mark survives a stream: [﻿id]
+latin-1 lines: [é][ÿ]
 -- lines --
 mixed endings: [one][two][three]
 one byte at a time: [one][two][three]

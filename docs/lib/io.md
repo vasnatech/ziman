@@ -252,6 +252,27 @@ is a bug that only appears on the files that happen to split there.
 Bytes that are not UTF-8 at all are `Malformed`, and so is a sequence still unfinished at the end
 of the stream -- a truncated document should be reported, not silently shortened.
 
+### `text_in`
+
+```
+pub fn text_in(
+    source: Iter<Result<[byte], IoError>>,
+    set: charset.Charset
+) -> Iter<Result<string, IoError>>
+```
+
+The same, in a named character set.
+
+**A stream could be read as text in exactly one set until 2026-11-14**, and the only thing in
+the function below that knew which was the question "how much of this chunk is whole
+characters" -- now `charset.complete_prefix`. A spreadsheet writes UTF-16 with a byte order
+mark, a system log is often Latin-1, and neither could be read here at all.
+
+Each set holds back something different and `charset` knows what: UTF-16 holds back an odd byte
+*and* a high surrogate whose low half is in the next chunk; a single-byte set holds back
+nothing. `charset.sniff` reads a mark if a caller has the first bytes and wants to choose from
+them, and `charset.charset_named` turns an HTTP `charset=` parameter into one of these.
+
 ### `lines`
 
 ```
@@ -264,6 +285,17 @@ needs.
 
 A `\r\n` and a bare `\n` both end a line; a last line with no ending is still a line. An empty
 stream has no lines, and a stream that is just `"\n"` has one empty one.
+
+### `lines_in`
+
+```
+pub fn lines_in(
+    source: Iter<Result<[byte], IoError>>,
+    set: charset.Charset
+) -> Iter<Result<string, IoError>>
+```
+
+The same, in a named character set -- `lines` over `text_in` rather than over `text`.
 
 ## A cursor for a parser
 

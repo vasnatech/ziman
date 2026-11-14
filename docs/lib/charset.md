@@ -75,7 +75,7 @@ fn main() {
 
     // A set arrives as data more often than as a decision in the source: as a name in a header,
     // or as the mark a file begins with.
-    switch charset.encoding_named("iso-8859-1") {
+    switch charset.charset_named("iso-8859-1") {
         Some(e) { print(charset.name_of(e)) }
         None { print("no such set") }
     }
@@ -83,11 +83,27 @@ fn main() {
         Some(e) { print(charset.name_of(e)) }
         None { print("no mark") }
     }
-    // A mark is not text, so decoding drops it.
-    switch charset.decode(charset.Encoding.Utf8, [239b, 187b, 191b, 90b, 105b]) {
+    // A mark is not text, so decoding a whole file drops it. (A *chunk* of a stream keeps it:
+    // see `decode_chunk`, which is what `io.text` reads with.)
+    switch charset.decode([239b, 187b, 191b, 90b, 105b], charset.Charset.Utf8) {
         Ok(text) { print(text) }
         Err(r) { print(charset.describe(r)) }
     }
+
+    // **The thing being converted comes first and the set second**, the same order the prelude
+    // uses for `to_lower(s, with_locale)`. Strict and lossy are the same shape, so a caller
+    // chooses between refusing and substituting without rearranging anything.
+    switch charset.encode("şeker", charset.Charset.Ascii) {
+        Ok(_) { print("unexpectedly encoded") }
+        Err(r) { print(charset.describe(r)) }
+    }
+    print(charset.encode_lossy("şeker", charset.Charset.Ascii))
+    print(charset.decode_lossy([104b, 233b], charset.Charset.Ascii))
+
+    // And a stream is read in a set the same way: `io.text_in(source, set)` asks `charset` where
+    // each chunk may be cut, which is a different question per set -- UTF-16 holds back a high
+    // surrogate whose low half has not arrived yet.
+    print(charset.complete_prefix([0b, 65b, 216b, 61b], charset.Charset.Utf16be))
 }
 ```
 
@@ -105,6 +121,10 @@ true
 Latin-1
 UTF-32LE
 Zi
+ASCII cannot represent U+015F at 0
+[63, 101, 107, 101, 114]
+h�
+2
 ```
 
 ## Code points
@@ -186,8 +206,12 @@ which needs no pair and is written as itself.
 
 ```
 pub struct Refusal {
-    // The set that could not do it: "UTF-8", "WinAnsi", and so on.
-    charset: string
+    // The set that could not do it.
+    //
+    // **The value and not its name**, which it was until the `Charset` rename: eight refusal
+    // sites each passed a literal `"UTF-16BE"` or `"WinAnsi"`, where a typo would have been
+    // invisible until somebody read the message. `describe` spells it with `name_of`.
+    charset: Charset
     // The code point at fault, or -1 when the input was bytes rather than text.
     code_point: int
     // Where in the input, in characters for text and in bytes for bytes.
@@ -538,10 +562,10 @@ long since decoded and the mark has become an invisible character at the front o
 
 ## The sets as values
 
-### `Encoding`
+### `Charset`
 
 ```
-pub enum Encoding {
+pub enum Charset {
     Utf8
     Utf16be
     Utf16le
@@ -554,22 +578,30 @@ pub enum Encoding {
 ```
 
 **The functions above are how a set is called; this is how one is chosen.** A charset arrives
-as data far more often than as a decision in the source -- an HTTP `charset=` parameter, an
-XML declaration, a byte order mark, a dropdown in a dialog -- and a caller holding a name has
-no way to reach a function. Everything below delegates upwards.
+as data far more often than as a decision in the source -- an HTTP `charset=` parameter that
+`mime.charset` hands back as a string, an XML declaration, a byte order mark, a dropdown in a
+dialog -- and a caller holding a name has no way to reach a function. Everything below
+delegates upwards.
+
+**Named `Charset` and not `Encoding`**, which it was until an hour after it was written. This
+module's header argues at length that it is not `encoding.zm` -- base 2 through 64 over bytes
+that are not text -- and then calling its central type `Encoding` would have put
+`use charset.Encoding` next to `use encoding` in the same file. `charset.Charset` stutters
+slightly and is what Java calls the same thing; `Set` was never available, the prelude having
+one.
 
 ### `name_of`
 
 ```
-pub fn name_of(e: Encoding) -> string
+pub fn name_of(set: Charset) -> string
 ```
 
 The set's usual written name, which is also the name its refusals carry.
 
-### `encoding_named`
+### `charset_named`
 
 ```
-pub fn encoding_named(name: string) -> Option<Encoding>
+pub fn charset_named(name: string) -> Option<Charset>
 ```
 
 The set a written name means, ignoring case, hyphens, underscores, spaces and dots, so that
@@ -579,7 +611,7 @@ and declarations: `iso-8859-1`, `cp1252`, `windows-1252`, `us-ascii`, `ucs-2`.
 ### `mark_of`
 
 ```
-pub fn mark_of(e: Encoding) -> [byte]
+pub fn mark_of(set: Charset) -> [byte]
 ```
 
 The mark that announces this set, or no bytes for the sets that have none -- which is every
@@ -588,7 +620,7 @@ single-byte set, there being no order to mark.
 ### `sniff`
 
 ```
-pub fn sniff(data: [byte]) -> Option<Encoding>
+pub fn sniff(data: [byte]) -> Option<Charset>
 ```
 
 The set `data` announces with a byte order mark, or `None` when it begins with no mark --
@@ -597,28 +629,88 @@ which is not the same as "not text": most files have no mark and are UTF-8.
 **UTF-32LE is tested before UTF-16LE** because UTF-16LE's mark is its first two bytes, and
 asking in the other order reads every UTF-32LE file as UTF-16LE beginning with a NUL.
 
+### `complete_prefix`
+
+```
+pub fn complete_prefix(data: [byte], set: Charset) -> int
+```
+
+How many bytes at the front of `data` form whole characters **in this set** -- where a reader
+taking a stream in chunks must cut so that nothing is left holding half of one.
+
+**The generalisation of `utf8_complete_prefix`, and the reason this enum exists.** `io.text`
+could read exactly one set until this did: its carry logic is general -- hold back the
+remainder, decode the rest, report a remainder at the end of the stream as truncation -- and
+the only thing in it that knew about UTF-8 was this question. `io.text_in(source, set)` is that
+function with this one answering instead.
+
+Each set holds back something different: UTF-8 up to three continuation bytes, UTF-16 an odd
+byte **and a dangling high surrogate** (whose low half is in the next chunk), UTF-32 up to
+three bytes of a four-byte character, and a single-byte set nothing at all, every byte being a
+whole character.
+
 ### `encode`
 
 ```
-pub fn encode(e: Encoding, text: string) -> Result<[byte], Refusal>
+pub fn encode(text: string, set: Charset) -> Result<[byte], Refusal>
 ```
 
-`text` in `e`, with no byte order mark: prepend `mark_of(e)` to write one.
+`text` in `set`, with no byte order mark: prepend `mark_of(set)` to write one.
+
+**The thing being converted comes first and the set second**, which is the prelude's own order
+for a conversion with a cultural parameter -- `to_lower(s, with_locale)` -- and the order
+`io.text_in(source, set)` uses. These four read `encode(text, set)`, `decode(data, set)`,
+`decode_lossy(data, set)`, `complete_prefix(data, set)`; the single-argument ones
+(`name_of`, `mark_of`) take the set alone.
+
+### `encode_lossy`
+
+```
+pub fn encode_lossy(text: string, set: Charset) -> [byte]
+```
+
+`data` read as `set` the lossy way: what is well-formed, with U+FFFD for what is not. The
+single-byte sets have no ill-formed input, so for those this is `decode` without the `Result`.
+`text` in `set`, with **`?` where the set has no byte for a character** -- the encoder's half of
+the bargain `decode_lossy` makes, and it was missing until 2026-11-14: the module offered a
+lossy reader and a strict writer, which is a position nobody chose.
+
+**The substitute is `?` and not U+FFFD**, because U+FFFD is a *decoder's* mark for input it
+could not read, and most of the sets here cannot encode it anyway -- WinAnsi has no byte for
+U+FFFD, so a lossy WinAnsi encoder that reached for one would fail on its own substitute.
+
+**Ask for this deliberately and rarely.** `pdf` refuses rather than substituting, and the
+reason is in its own comment: a `?` where a patient's name should be is worse than an error,
+because nobody can tell it happened. A legacy export where `?` is the agreed answer is what
+this is for.
 
 ### `decode_lossy`
 
 ```
-pub fn decode_lossy(e: Encoding, data: [byte]) -> string
+pub fn decode_lossy(data: [byte], set: Charset) -> string
 ```
 
-`data` read as `e` the lossy way: what is well-formed, with U+FFFD for what is not. The
-single-byte sets have no ill-formed input, so for those this is `decode` without the `Result`.
+As `decode`, including dropping a leading mark, but lossy. The chunk-wise counterpart is
+`utf8_lossy` and friends, which never looked at a mark.
 
 ### `decode`
 
 ```
-pub fn decode(e: Encoding, data: [byte]) -> Result<string, Refusal>
+pub fn decode(data: [byte], set: Charset) -> Result<string, Refusal>
 ```
 
-`data` read as `e`, **dropping a leading mark for that same set**: a mark is how the bytes
-said what they were, not part of what they said.
+`data` read as `set`, **dropping a leading mark for that same set**: a mark is how the bytes said
+what they were, not part of what they said. For a whole file or message; a stream's chunks want
+`decode_chunk`.
+
+### `decode_chunk`
+
+```
+pub fn decode_chunk(data: [byte], set: Charset) -> Result<string, Refusal>
+```
+
+`data` read as `set` with **no mark handling at all**, which is what a piece of a stream needs:
+a mark is only a mark at the beginning, and a chunk is not a beginning. `decode` above would
+drop one from the middle of a stream -- U+FEFF is a legal zero-width no-break space there --
+and would also quietly change what `io.text` has always yielded for a file that starts with
+one. A reader that wants the mark dropped should drop it once, where it knows it is first.

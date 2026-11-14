@@ -216,8 +216,12 @@ pub fn paired(high: int, low: int) -> Option<int>
 pub fn surrogates(cp: int) -> Option<[int]>
 
 pub struct Refusal {
-    // The set that could not do it: "UTF-8", "WinAnsi", and so on.
-    charset: string
+    // The set that could not do it.
+    //
+    // **The value and not its name**, which it was until the `Charset` rename: eight refusal
+    // sites each passed a literal `"UTF-16BE"` or `"WinAnsi"`, where a typo would have been
+    // invisible until somebody read the message. `describe` spells it with `name_of`.
+    charset: Charset
     // The code point at fault, or -1 when the input was bytes rather than text.
     code_point: int
     // Where in the input, in characters for text and in bytes for bytes.
@@ -295,7 +299,7 @@ pub val bom = 65279
 
 pub val bom_text = "﻿"
 
-pub enum Encoding {
+pub enum Charset {
     Utf8
     Utf16be
     Utf16le
@@ -306,19 +310,25 @@ pub enum Encoding {
     Ascii
 }
 
-pub fn name_of(e: Encoding) -> string
+pub fn name_of(set: Charset) -> string
 
-pub fn encoding_named(name: string) -> Option<Encoding>
+pub fn charset_named(name: string) -> Option<Charset>
 
-pub fn mark_of(e: Encoding) -> [byte]
+pub fn mark_of(set: Charset) -> [byte]
 
-pub fn sniff(data: [byte]) -> Option<Encoding>
+pub fn sniff(data: [byte]) -> Option<Charset>
 
-pub fn encode(e: Encoding, text: string) -> Result<[byte], Refusal>
+pub fn complete_prefix(data: [byte], set: Charset) -> int
 
-pub fn decode_lossy(e: Encoding, data: [byte]) -> string
+pub fn encode(text: string, set: Charset) -> Result<[byte], Refusal>
 
-pub fn decode(e: Encoding, data: [byte]) -> Result<string, Refusal>
+pub fn encode_lossy(text: string, set: Charset) -> [byte]
+
+pub fn decode_lossy(data: [byte], set: Charset) -> string
+
+pub fn decode(data: [byte], set: Charset) -> Result<string, Refusal>
+
+pub fn decode_chunk(data: [byte], set: Charset) -> Result<string, Refusal>
 
 ```
 
@@ -841,7 +851,11 @@ pub fn drain(source: Iter<Result<[byte], IoError>>, max: int) -> Result<[byte], 
 
 pub fn text(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoError>>
 
+pub fn text_in(
+
 pub fn lines(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoError>>
+
+pub fn lines_in(
 
 pub struct Cursor {
     source: Iter<Result<string, IoError>>

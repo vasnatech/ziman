@@ -382,6 +382,24 @@ pub fn drain(source: Iter<Result<[byte], IoError>>, max: int) -> Result<[byte], 
 // Bytes that are not UTF-8 at all are `Malformed`, and so is a sequence still unfinished at the end
 // of the stream -- a truncated document should be reported, not silently shortened.
 pub fn text(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoError>> {
+    return text_in(source, charset.Charset.Utf8)
+}
+
+// The same, in a named character set.
+//
+// **A stream could be read as text in exactly one set until 2026-11-14**, and the only thing in
+// the function below that knew which was the question "how much of this chunk is whole
+// characters" -- now `charset.complete_prefix`. A spreadsheet writes UTF-16 with a byte order
+// mark, a system log is often Latin-1, and neither could be read here at all.
+//
+// Each set holds back something different and `charset` knows what: UTF-16 holds back an odd byte
+// *and* a high surrogate whose low half is in the next chunk; a single-byte set holds back
+// nothing. `charset.sniff` reads a mark if a caller has the first bytes and wants to choose from
+// them, and `charset.charset_named` turns an HTTP `charset=` parameter into one of these.
+pub fn text_in(
+    source: Iter<Result<[byte], IoError>>,
+    set: charset.Charset
+) -> Iter<Result<string, IoError>> {
     val inner = source
     val carried = mutable_new<[byte]>([])
     val stopped = mutable_new(false)
@@ -397,9 +415,12 @@ pub fn text(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoErro
                 if None = item {
                     set(stopped, true)
                     if prelude.len(get(carried)) > 0 {
-                        return Some(err(IoError.Malformed(
-                            "the stream ends in the middle of a UTF-8 character"
-                        )))
+                        // **Named, because this function reads any set now.** It said "UTF-8"
+                        // whatever it was reading until a fixture printed it for a UTF-16 stream.
+                        return Some(err(IoError.Malformed(prelude.format(
+                            "the stream ends in the middle of a {} character",
+                            charset.name_of(set)
+                        ))))
                     }
                     return None
                 }
@@ -409,14 +430,23 @@ pub fn text(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoErro
                     return Some(err(why))
                 }
                 val all = concat(get(carried), unwrap(got))
-                val whole = charset.utf8_complete_prefix(all)
+                val whole = charset.complete_prefix(all, set)
                 set(carried, slice(all, whole, prelude.len(all)))
                 if whole > 0 {
-                    return switch bytes_to_string(slice(all, 0, whole)) {
+                    // **`decode_chunk`, not `decode`**: a chunk is not the beginning of a
+                    // stream, and `decode` drops a leading byte order mark. A caller that wants
+                    // the mark gone should drop it once, where it knows it is the first thing --
+                    // `csv` does exactly that, on text rather than bytes.
+                    return switch charset.decode_chunk(slice(all, 0, whole), set) {
                         Ok(decoded) { Some(ok(decoded)) }
-                        Err(_) {
+                        Err(r) {
                             set(stopped, true)
-                            Some(err(IoError.Malformed(why_not_utf8(slice(all, 0, whole)))))
+                            Some(err(IoError.Malformed(prelude.format(
+                                "the stream is not {}: {} at byte {}",
+                                charset.name_of(set),
+                                r.why,
+                                str(r.at)
+                            ))))
                         }
                     }
                 }
@@ -427,24 +457,12 @@ pub fn text(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoErro
     )
 }
 
-// Why a chunk the native refused is not UTF-8, as a sentence.
-//
-// **The fast path stays native and the slow path gets the detail.** `bytes_to_string` converts a
-// valid chunk in one pass, which is what the loop above wants on every chunk of every stream; it
-// answers only *that* the bytes are wrong. Decoding the one failing chunk again through `charset`
-// costs nothing on a stream that is fine and names the byte and the reason on one that is not --
-// a byte that cannot lead, a surrogate, an overlong character.
-//
-// **Where to cut is `charset.utf8_complete_prefix`**, which used to be three functions here:
-// `complete_prefix`, `sequence_length` and `is_continuation`. Holding the remainder back is this
-// module's business; what a character is, is not.
-fn why_not_utf8(data: [byte]) -> string {
-    return switch charset.utf8_text(data) {
-        // Unreachable: the native has already refused these bytes.
-        Ok(_) { "the stream is not UTF-8" }
-        Err(r) { prelude.format("the stream is not UTF-8: {} at byte {}", r.why, str(r.at)) }
-    }
-}
+// **`charset.decode` is the decoder here, not the native `bytes_to_string`.** It was the native
+// until this function learned other sets: a chunk already cut on character boundaries is almost
+// always valid, so the one pass the native does was the right trade -- but it only speaks UTF-8,
+// and it answers *that* the bytes are wrong rather than which byte and why. `charset.decode`
+// answers both for every set, and its UTF-8 path is a scan that allocates nothing followed by
+// that same native call.
 
 // The source as text, a line at a time, with the line ending removed -- `fs.lines` over anything
 // rather than only over a file, which is what a CSV read off a socket or out of an archive entry
@@ -453,7 +471,15 @@ fn why_not_utf8(data: [byte]) -> string {
 // A `\r\n` and a bare `\n` both end a line; a last line with no ending is still a line. An empty
 // stream has no lines, and a stream that is just `"\n"` has one empty one.
 pub fn lines(source: Iter<Result<[byte], IoError>>) -> Iter<Result<string, IoError>> {
-    val inner = text(source)
+    return lines_in(source, charset.Charset.Utf8)
+}
+
+// The same, in a named character set -- `lines` over `text_in` rather than over `text`.
+pub fn lines_in(
+    source: Iter<Result<[byte], IoError>>,
+    set: charset.Charset
+) -> Iter<Result<string, IoError>> {
+    val inner = text_in(source, set)
     val carried = mutable_new("")
     val stopped = mutable_new(false)
     return iter_from(
