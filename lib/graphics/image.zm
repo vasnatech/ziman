@@ -720,38 +720,46 @@ fn decode_huffman(b: Bits, t: Huffman) -> Result<int, string> {
     return err("image.decode_jpeg: a Huffman code is longer than 16 bits")
 }
 
-// The 8-point inverse DCT's cosine table: `idct_cos[u * 8 + x]` is `c(u) cos((2x+1) u pi / 16)`,
-// with the 1/2 of the 2-D normalisation folded in so the transform below is two plain sums.
-//
-// **A float transform rather than the integer one every C decoder ships.** AAN's scaled integer
-// IDCT is a page of constants whose correctness is not readable; this is the definition, and the
-// two cheap exits below -- a wholly flat block, and the empty rows of one that is not -- are worth
-// more than the arithmetic would be.
-val idct_cos: [float] = cosine_table()
+// The scale each coefficient carries before the fast transform: `cos(k pi/16) sqrt(2)`, which is
+// what lets the butterflies below drop every multiplication the slow form spends on the same
+// constants. Applied once per quantisation table (`read_quant_tables`), never per block.
+val aan_scale: [float] = [
+    1.0,
+    1.387039845,
+    1.306562965,
+    1.175875602,
+    1.0,
+    0.785694958,
+    0.541196100,
+    0.275899379
+]
 
-fn cosine_table() -> [float] {
-    val out = mutable_array_new<float>()
-    var u = 0
-    while u < 8 {
-        val scale = if u == 0 { 0.35355339059327373 } else { 0.5 }
-        var x = 0
-        while x < 8 {
-            push(out, scale * math.cos(((2 * x + 1) as float) * (u as float) * 0.19634954084936207))
-            x = x + 1
-        }
-        x = x + 0
-        u = u + 1
-    }
-    return snapshot(out)
-}
-
-// One 8x8 block, dequantised coefficients in, samples out -- level-shifted by 128 and clamped, as
+// One 8x8 block, pre-scaled coefficients in, samples out -- level-shifted by 128 and clamped, as
 // the standard's A.3.1 says.
 //
-// **The flat block is the fast path and the common case.** A block whose AC coefficients are all
-// zero is a flat square of its DC value, which is most of the sky, most of a scanned page and
-// every run of one colour; taking it without the transform costs eight comparisons and saves the
-// whole thing.
+// **Arai, Agui and Nakajima's transform, which is five multiplications and twenty-nine additions
+// per eight points** where the definition is sixty-four multiply-adds. That ratio is the whole
+// reason it is here: in this interpreter an arithmetic operation costs ~90 ns whatever it is, so
+// the cost of a transform is its *operation count* and nothing else. Measured on a 256x256
+// photograph, decode end to end: **493 ms to 279 ms**, and this function from 58% of the profile
+// to 20% -- it is no longer the largest item, which is the upsample.
+//
+// **Checked against the definition rather than against a reference image**, because a transform
+// that is subtly wrong still produces a plausible picture: 50 random blocks through both forms
+// agreed to 1e-7, and the one line where the published forms differ in sign (`tmp4 = tmp10 + tmp5`)
+// was settled by that probe after the wrong one cost a worst-case error of 409.
+//
+// **The scaling it needs lives in the quantisation table**, which is what makes it free: AAN's
+// outputs come out multiplied by `cos(u pi/16) sqrt(2)` in each axis, and a table read four times
+// per file can carry what a block decoded fifty thousand times must not.
+//
+// Written as the two passes libjpeg's `jidctflt.c` writes them -- columns, then rows -- with its
+// variable names kept, because this is one of those pieces of arithmetic where a reader's only
+// real check is against the source everyone else checked theirs against.
+//
+// **Both cheap exits survive the change.** A wholly flat block is most of a photograph and costs
+// eight comparisons; a *column* whose seven AC terms are zero is a constant down its length, which
+// is what the empty rows of a quantised block look like once they are transposed.
 fn idct_block(coefficients: MutableArray<float>, out: MutableArray<byte>, stride: int, at: int) {
     var flat = true
     var i = 1
@@ -763,7 +771,8 @@ fn idct_block(coefficients: MutableArray<float>, out: MutableArray<byte>, stride
         i = i + 1
     }
     if flat {
-        val value = clamp_sample(coefficients[0] * 0.125 + 128.5)
+        // Every output of both passes is the DC term, which the table has already scaled.
+        val value = clamp_sample(coefficients[0] + 128.5)
         var y = 0
         while y < 8 {
             var x = 0
@@ -775,67 +784,102 @@ fn idct_block(coefficients: MutableArray<float>, out: MutableArray<byte>, stride
         }
         return
     }
-    // Rows first, then columns: the 2-D transform is separable, which turns 4,096 multiplies into
-    // 1,024.
-    //
-    // **And then most of those are multiplications by zero**, which is the whole shape of a
-    // quantised block: the coefficients a JPEG keeps are in the top-left corner, so whole rows of
-    // the 8x8 are empty. A row of zeros transforms to a row of zeros, so it is skipped and the
-    // column pass is told how far down it has to look. Measured on a 256x256 photograph: the
-    // decode went **742 ms to 493 ms**, and this function from 67% of the profile to 58% -- it is
-    // still the largest item and still the thing a native would replace first.
-    val rows = mutable_array_filled<float>(64, 0.0)
-    var deepest = 0
-    var y = 0
-    while y < 8 {
-        var empty = true
-        var u0 = 0
-        while u0 < 8 {
-            if coefficients[y * 8 + u0] != 0.0 {
-                empty = false
-                u0 = 8
-            }
-            u0 = u0 + 1
-        }
-        if !empty {
-            deepest = y
-            var x = 0
-            while x < 8 {
-                var sum = 0.0
-                var u = 0
-                while u < 8 {
-                    val coefficient = coefficients[y * 8 + u]
-                    if coefficient != 0.0 {
-                        sum = sum + idct_cos[u * 8 + x] * coefficient
-                    }
-                    u = u + 1
-                }
-                rows[y * 8 + x] = sum
-                x = x + 1
+    val work = mutable_array_filled<float>(64, 0.0)
+    var col = 0
+    while col < 8 {
+        if coefficients[8 + col] == 0.0 && coefficients[16 + col] == 0.0 &&
+            coefficients[24 + col] == 0.0 && coefficients[32 + col] == 0.0 &&
+            coefficients[40 + col] == 0.0 && coefficients[48 + col] == 0.0 &&
+            coefficients[56 + col] == 0.0 {
+            val value = coefficients[col]
+            var row = 0
+            while row < 8 {
+                work[row * 8 + col] = value
+                row = row + 1
             }
         } else {
-            var x = 0
-            while x < 8 {
-                rows[y * 8 + x] = 0.0
-                x = x + 1
-            }
+            // The even part.
+            val tmp0 = coefficients[col]
+            val tmp1 = coefficients[16 + col]
+            val tmp2 = coefficients[32 + col]
+            val tmp3 = coefficients[48 + col]
+            val tmp10 = tmp0 + tmp2
+            val tmp11 = tmp0 - tmp2
+            val tmp13 = tmp1 + tmp3
+            val tmp12 = (tmp1 - tmp3) * 1.414213562 - tmp13
+            val even0 = tmp10 + tmp13
+            val even3 = tmp10 - tmp13
+            val even1 = tmp11 + tmp12
+            val even2 = tmp11 - tmp12
+            // The odd part.
+            val odd4 = coefficients[8 + col]
+            val odd5 = coefficients[24 + col]
+            val odd6 = coefficients[40 + col]
+            val odd7 = coefficients[56 + col]
+            val z13 = odd6 + odd5
+            val z10 = odd6 - odd5
+            val z11 = odd4 + odd7
+            val z12 = odd4 - odd7
+            val out7 = z11 + z13
+            val out11 = (z11 - z13) * 1.414213562
+            val z5 = (z10 + z12) * 1.847759065
+            val out10 = 1.082392200 * z12 - z5
+            val out12 = 0.0 - 2.613125930 * z10 + z5
+            val out6 = out12 - out7
+            val out5 = out11 - out6
+            val out4 = out10 + out5
+            work[col] = even0 + out7
+            work[56 + col] = even0 - out7
+            work[8 + col] = even1 + out6
+            work[48 + col] = even1 - out6
+            work[16 + col] = even2 + out5
+            work[40 + col] = even2 - out5
+            work[32 + col] = even3 + out4
+            work[24 + col] = even3 - out4
         }
-        y = y + 1
+        col = col + 1
     }
-    var x2 = 0
-    while x2 < 8 {
-        var y2 = 0
-        while y2 < 8 {
-            var sum = 0.0
-            var v = 0
-            while v <= deepest {
-                sum = sum + idct_cos[v * 8 + y2] * rows[v * 8 + x2]
-                v = v + 1
-            }
-            out[at + y2 * stride + x2] = clamp_sample(sum + 128.5)
-            y2 = y2 + 1
-        }
-        x2 = x2 + 1
+    var row = 0
+    while row < 8 {
+        val base = row * 8
+        val tmp0 = work[base]
+        val tmp1 = work[base + 2]
+        val tmp2 = work[base + 4]
+        val tmp3 = work[base + 6]
+        val tmp10 = tmp0 + tmp2
+        val tmp11 = tmp0 - tmp2
+        val tmp13 = tmp1 + tmp3
+        val tmp12 = (tmp1 - tmp3) * 1.414213562 - tmp13
+        val even0 = tmp10 + tmp13
+        val even3 = tmp10 - tmp13
+        val even1 = tmp11 + tmp12
+        val even2 = tmp11 - tmp12
+        val odd4 = work[base + 1]
+        val odd5 = work[base + 3]
+        val odd6 = work[base + 5]
+        val odd7 = work[base + 7]
+        val z13 = odd6 + odd5
+        val z10 = odd6 - odd5
+        val z11 = odd4 + odd7
+        val z12 = odd4 - odd7
+        val out7 = z11 + z13
+        val out11 = (z11 - z13) * 1.414213562
+        val z5 = (z10 + z12) * 1.847759065
+        val out10 = 1.082392200 * z12 - z5
+        val out12 = 0.0 - 2.613125930 * z10 + z5
+        val out6 = out12 - out7
+        val out5 = out11 - out6
+        val out4 = out10 + out5
+        val into = at + row * stride
+        out[into] = clamp_sample(even0 + out7 + 128.5)
+        out[into + 7] = clamp_sample(even0 - out7 + 128.5)
+        out[into + 1] = clamp_sample(even1 + out6 + 128.5)
+        out[into + 6] = clamp_sample(even1 - out6 + 128.5)
+        out[into + 2] = clamp_sample(even2 + out5 + 128.5)
+        out[into + 5] = clamp_sample(even2 - out5 + 128.5)
+        out[into + 4] = clamp_sample(even3 + out4 + 128.5)
+        out[into + 3] = clamp_sample(even3 - out4 + 128.5)
+        row = row + 1
     }
 }
 
@@ -857,7 +901,7 @@ struct Frame {
     max_h: int
     max_v: int
     restart: int
-    quant: [[int]]
+    quant: [[float]]
     dc: [Huffman]
     ac: [Huffman]
     scan_at: int
@@ -872,16 +916,21 @@ struct Frame {
 // **What this costs, measured on the machine it was written on** -- a noisy photograph at quality
 // 85, which is the unkind case because almost no block is flat:
 //
-//     64x64      41 ms
-//     256x256   493 ms
-//     800x600   3.5 s      (7 us a pixel)
+//     64x64      19 ms
+//     256x256   185 ms
+//     800x600   1.4 s      (3 us a pixel)
 //
-// So an icon is immediate, a thumbnail is a visible pause, and a camera photograph is not
-// something to decode in a frame. **The shape of the cost is known and it is the interpreter**:
-// `--profile` puts 58% in `idct_block` and 9% each in the upsample and the bit reader, all of it
-// arithmetic in a loop. The fix is the one `native_json.c` already is -- a native -- and that is a
-// decision to take when something needs it rather than an oversight. What this is for today is
-// icons and small pictures, which it does in a frame.
+// **Those are after two rounds of making it faster, and the first set is worth keeping**: the
+// decoder as first written was 41 ms / 493 ms / 3.5 s, and 2.7x of that came from two changes that
+// did not touch what it computes -- Arai-Agui-Nakajima's transform in place of the definition, and
+// hoisting two integer divisions out of the per-sample upsample.
+//
+// **The shape of what is left is the interpreter, and the profile is now flat**: 23% in
+// `idct_block`, 19% in the bit reader, 17% in the upsample, 12% each in the block decode and the
+// Huffman decode. Nothing dominates, which is what it looks like when the remaining cost is ~90 ns
+// an arithmetic operation rather than a mistake. The fix for *that* is the one `native_json.c`
+// already is -- a native -- and it is a decision to take when something needs it. What this is for
+// today is icons and small pictures, which it does in a frame.
 pub fn decode_jpeg(data: [byte], max_pixels: int) -> Result<Image, string> {
     val frame = try read_markers(data, max_pixels)
     val planes = try read_scan(data, frame)
@@ -894,7 +943,8 @@ fn read_markers(data: [byte], max_pixels: int) -> Result<Frame, string> {
     if len(data) < 4 || (data[0] as int) != 255 || (data[1] as int) != 216 {
         return err("image.decode_jpeg: not a JPEG (no SOI marker)")
     }
-    val quant = mutable_array_filled<[int]>(4, [])
+    val no_table: [float] = []
+    val quant = mutable_array_filled<[float]>(4, no_table)
     // Four slots each, every one an empty table: a file naming a table it never defined is caught
     // at the block that uses it rather than here, where the message would have nothing to point at.
     val none: [byte] = []
@@ -1049,7 +1099,7 @@ fn read_frame_header(data: [byte], at: int, end: int, max_pixels: int) -> Result
     return ok(FrameHeader { width: width, height: height, components: snapshot(out) })
 }
 
-fn read_quant_tables(data: [byte], at: int, end: int, into: MutableArray<[int]>) -> Result<int, string> {
+fn read_quant_tables(data: [byte], at: int, end: int, into: MutableArray<[float]>) -> Result<int, string> {
     var p = at
     while p < end {
         val spec = data[p] as int
@@ -1062,14 +1112,22 @@ fn read_quant_tables(data: [byte], at: int, end: int, into: MutableArray<[int]>)
         if p + 1 + size > end {
             return err("image.decode_jpeg: a quantisation table is truncated")
         }
-        val table = mutable_array_new<int>()
+        val table = mutable_array_new<float>()
         var i = 0
         while i < 64 {
-            if wide {
-                push(table, (data[p + 1 + i * 2] as int) * 256 + (data[p + 2 + i * 2] as int))
+            val value = if wide {
+                (data[p + 1 + i * 2] as int) * 256 + (data[p + 2 + i * 2] as int)
             } else {
-                push(table, data[p + 1 + i] as int)
+                data[p + 1 + i] as int
             }
+            // **The transform's scaling is folded in here, once per table**, rather than applied to
+            // every coefficient of every block: the fast IDCT below works on coefficients
+            // pre-scaled by `cos(k pi/16) sqrt(2)` in each axis, and a quantisation table is read
+            // four times in a file where a block is decoded tens of thousands of times. The 1/8 of
+            // the 2-D normalisation rides along, which is why the transform itself ends with a
+            // plain add of 128.
+            val natural = zigzag[i]
+            push(table, (value as float) * aan_scale[natural / 8] * aan_scale[natural - (natural / 8) * 8] * 0.125)
             i = i + 1
         }
         into[id] = snapshot(table)
@@ -1287,7 +1345,7 @@ fn decode_block(
     }
     val diff = extend(try receive(b, t), t)
     predictors[ci] = predictors[ci] + diff
-    out[0] = (predictors[ci] * quant[0]) as float
+    out[0] = (predictors[ci] as float) * quant[0]
     var k = 1
     while k < 64 {
         val rs = try decode_huffman(b, f.ac[c.ac_table])
@@ -1306,7 +1364,7 @@ fn decode_block(
                 return err("image.decode_jpeg: a block's coefficients run past its end")
             }
             val value = extend(try receive(b, size), size)
-            out[zigzag[k]] = (value * quant[k]) as float
+            out[zigzag[k]] = (value as float) * quant[k]
             k = k + 1
         }
     }
@@ -1324,35 +1382,57 @@ fn assemble(f: Frame, planes: [Plane]) -> Result<Image, string> {
     val grey = len(f.components) == 1
     val channels = if grey { 1 } else { 3 }
     val out = mutable_array_filled<byte>(f.width * f.height * channels, 0b)
+    // The three planes and their horizontal ratios, read once rather than through a struct field
+    // per sample.
+    val luma_plane = planes[0]
+    val luma_ratio = f.components[0].h
     var y = 0
     while y < f.height {
-        var x = 0
-        while x < f.width {
-            val at = (y * f.width + x) * channels
-            if grey {
-                out[at] = sample_at(planes[0], f, f.components[0], x, y)
-            } else {
-                val luma = (sample_at(planes[0], f, f.components[0], x, y) as int) as float
-                val cb = ((sample_at(planes[1], f, f.components[1], x, y) as int) - 128) as float
-                val cr = ((sample_at(planes[2], f, f.components[2], x, y) as int) - 128) as float
+        val luma_row = plane_row(luma_plane, f, f.components[0], y)
+        if grey {
+            // **The luma ratio is always the maximum**, so this multiply and divide are the
+            // identity in every file either encoder writes -- kept for the one a standard allows
+            // and nobody produces, where a component other than the first has the larger factor.
+            // Mutation testing says so in as many words: removing it changes no fixture, which
+            // makes it equivalent code rather than an untested branch.
+            var x = 0
+            while x < f.width {
+                out[y * f.width + x] = luma_plane.data[luma_row + x * luma_ratio / f.max_h]
+                x = x + 1
+            }
+        } else {
+            val cb_plane = planes[1]
+            val cr_plane = planes[2]
+            val cb_row = plane_row(cb_plane, f, f.components[1], y)
+            val cr_row = plane_row(cr_plane, f, f.components[2], y)
+            val cb_ratio = f.components[1].h
+            val cr_ratio = f.components[2].h
+            var x = 0
+            while x < f.width {
+                val at = (y * f.width + x) * 3
+                val luma = (luma_plane.data[luma_row + x * luma_ratio / f.max_h] as int) as float
+                val cb = ((cb_plane.data[cb_row + x * cb_ratio / f.max_h] as int) - 128) as float
+                val cr = ((cr_plane.data[cr_row + x * cr_ratio / f.max_h] as int) - 128) as float
                 // JFIF's own conversion, which is ITU-R BT.601 with full-range luma.
                 out[at] = clamp_sample(luma + 1.402 * cr)
                 out[at + 1] = clamp_sample(luma - 0.344136 * cb - 0.714136 * cr)
                 out[at + 2] = clamp_sample(luma + 1.772 * cb)
+                x = x + 1
             }
-            x = x + 1
         }
         y = y + 1
     }
     return image_of(f.width, f.height, if grey { Pixels.Gray8 } else { Pixels.Rgb8 }, snapshot(out))
 }
 
-fn sample_at(p: Plane, f: Frame, c: Component, x: int, y: int) -> byte {
-    val sx = x * c.h / f.max_h
+// Where a component's row begins for an output row, and how its columns map: the two divisions
+// `sample_at` used to do per sample, hoisted to once per row and once per component.
+//
+// **The profile said to**: after the fast transform landed, the upsample was the largest item at
+// 19.5% -- 65,536 pixels times three components times two integer divisions and a function call.
+// Hoisting the row and reading the plane inline took a 256x256 decode from 279 ms to **185 ms**,
+// which is more than the fast transform itself had just won.
+fn plane_row(p: Plane, f: Frame, c: Component, y: int) -> int {
     val sy = y * c.v / f.max_v
-    val at = sy * p.stride + sx
-    if at < 0 || at >= len(p.data) {
-        return 0b
-    }
-    return p.data[at]
+    return sy * p.stride
 }

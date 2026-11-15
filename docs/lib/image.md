@@ -233,14 +233,19 @@ in it.
 
 
 ```
-64x64      41 ms
-256x256   493 ms
-800x600   3.5 s      (7 us a pixel)
+64x64      19 ms
+256x256   185 ms
+800x600   1.4 s      (3 us a pixel)
 ```
 
-So an icon is immediate, a thumbnail is a visible pause, and a camera photograph is not
-something to decode in a frame. **The shape of the cost is known and it is the interpreter**:
-`--profile` puts 58% in `idct_block` and 9% each in the upsample and the bit reader, all of it
-arithmetic in a loop. The fix is the one `native_json.c` already is -- a native -- and that is a
-decision to take when something needs it rather than an oversight. What this is for today is
-icons and small pictures, which it does in a frame.
+**Those are after two rounds of making it faster, and the first set is worth keeping**: the
+decoder as first written was 41 ms / 493 ms / 3.5 s, and 2.7x of that came from two changes that
+did not touch what it computes -- Arai-Agui-Nakajima's transform in place of the definition, and
+hoisting two integer divisions out of the per-sample upsample.
+
+**The shape of what is left is the interpreter, and the profile is now flat**: 23% in
+`idct_block`, 19% in the bit reader, 17% in the upsample, 12% each in the block decode and the
+Huffman decode. Nothing dominates, which is what it looks like when the remaining cost is ~90 ns
+an arithmetic operation rather than a mistake. The fix for *that* is the one `native_json.c`
+already is -- a native -- and it is a decision to take when something needs it. What this is for
+today is icons and small pictures, which it does in a frame.
