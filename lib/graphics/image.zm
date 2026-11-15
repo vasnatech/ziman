@@ -1,13 +1,16 @@
-// image.zm -- a pixel buffer, PNG in and out, and enough of JPEG to put one in a PDF.
+// image.zm -- a pixel buffer, PNG in and out, JPEG in.
 //
 // The buffer and the codec live together because PNG's row filtering is defined in terms of the
 // buffer's layout, and splitting them would mean making that layout public just so the codec could
 // see it.
 use bits.and
+use bits.shift_left
 use bits.shift_right
 use bits.xor
 use compress.deflate
 use compress.inflate
+use math
+use number.to_hex
 use paint.Color
 use paint.rgba
 
@@ -505,10 +508,10 @@ pub fn crc32(data: [byte]) -> int {
 
 // `[width, height, components]` read from the frame header.
 //
-// **No decoder, deliberately.** PDF's `DCTDecode` filter takes a JPEG's compressed bytes
-// *unchanged* and the reader decodes them, so embedding a photograph needs only its shape. That is
-// about forty lines against the several thousand a baseline decoder would be, and it produces
-// smaller PDFs than re-encoding would. The raster backend cannot draw one and says so (phase 5).
+// **This is what a PDF needs, and it is not the decoder below.** PDF's `DCTDecode` filter takes a
+// JPEG's compressed bytes *unchanged* and the reader decodes them, so embedding a photograph needs
+// only its shape -- forty lines, and smaller PDFs than re-encoding would give. `decode_jpeg` is for
+// the other case: a picture this library has to draw itself.
 pub fn jpeg_dimensions(data: [byte]) -> Result<[int], string> {
     if len(data) < 4 || (data[0] as int) != 255 || (data[1] as int) != 216 {
         return err("image.jpeg_dimensions: not a JPEG (no SOI marker)")
@@ -540,4 +543,816 @@ pub fn jpeg_dimensions(data: [byte]) -> Result<[int], string> {
         }
     }
     return err("image.jpeg_dimensions: no frame header found")
+}
+
+// ---- JPEG, decoded
+
+// **A baseline JPEG decoder, which the comment above used to say was not worth the several
+// thousand lines.** It is worth them now and it is not several thousand: a themed icon can be a
+// JPEG, a REST client showing a response body can be handed one, and both had to refuse. What
+// follows is the whole of ITU T.81's sequential DCT with Huffman coding -- the mode every camera,
+// every `convert` and every `<img>` on the web produces.
+//
+// **What it refuses, by name rather than by failing oddly**: progressive (SOF2), arithmetic coding
+// (SOF9, SOF10), 12-bit precision, and the four-component CMYK and YCCK files that come out of
+// print workflows. Each is a different decoder's worth of work and each says so.
+//
+// The pieces, in the order the standard introduces them: the zig-zag order, the Huffman tables as
+// F.2.2.3 builds them, a bit reader that knows about byte stuffing, the per-block decode, the
+// inverse DCT, and the upsample-and-convert that turns planes into pixels.
+
+// Where the nth coefficient of a block belongs in the 8x8: the order a JPEG writes them in, which
+// puts the low frequencies first so that a run of zeros ends the block.
+val zigzag: [int] = [
+    0, 1, 8, 16, 9, 2, 3, 10,
+    17, 24, 32, 25, 18, 11, 4, 5,
+    12, 19, 26, 33, 40, 48, 41, 34,
+    27, 20, 13, 6, 7, 14, 21, 28,
+    35, 42, 49, 56, 57, 50, 43, 36,
+    29, 22, 15, 23, 30, 37, 44, 51,
+    58, 59, 52, 45, 38, 31, 39, 46,
+    53, 60, 61, 54, 47, 55, 62, 63
+]
+
+// A Huffman table as F.2.2.3 wants it: for each code length, the smallest code of that length, the
+// largest, and where that length's symbols begin.
+//
+// **Decoded bit by bit against `max_code`**, which is the standard's own algorithm and not the
+// fastest one: a lookup table on the next eight bits is what a C decoder does, and it is a second
+// representation to build and to get right. This is the one the specification describes, and the
+// measurement below says where the time actually goes.
+struct Huffman {
+    min_code: [int]
+    max_code: [int]
+    first: [int]
+    symbols: [byte]
+}
+
+fn huffman_of(counts: [int], symbols: [byte]) -> Huffman {
+    val min_code = mutable_array_filled<int>(17, 0)
+    val max_code = mutable_array_filled<int>(17, 0 - 1)
+    val first = mutable_array_filled<int>(17, 0)
+    var code = 0
+    var k = 0
+    var length = 1
+    while length <= 16 {
+        first[length] = k
+        min_code[length] = code
+        code = code + counts[length]
+        k = k + counts[length]
+        if counts[length] > 0 {
+            max_code[length] = code - 1
+        }
+        code = code * 2
+        length = length + 1
+    }
+    return Huffman {
+        min_code: snapshot(min_code),
+        max_code: snapshot(max_code),
+        first: snapshot(first),
+        symbols: symbols
+    }
+}
+
+// One component of the image: which sampling factors it was written at, and which tables decode it.
+struct Component {
+    id: int
+    h: int
+    v: int
+    quant: int
+    dc_table: int
+    ac_table: int
+}
+
+// The entropy-coded data, read a bit at a time.
+//
+// **Byte stuffing is the thing this exists for.** A `0xFF` in the compressed data is written as
+// `0xFF 0x00`, because `0xFF` otherwise begins a marker -- so a reader that walks bytes without
+// unstuffing them decodes a different picture after the first bright pixel, which is the kind of
+// defect that looks like a bug in the IDCT.
+struct Bits {
+    data: [byte]
+    // Where the reader is, what it is holding and how much of it: `[at, buffer, count]`.
+    //
+    // **Three slots of an array rather than three `Mutable` cells, and the reason is this module's
+    // own API**: `image.set(canvas, x, y, colour)` hides the builtin `set(cell, value)` a
+    // `Mutable` is written through, so a cell here could be read and never written. An element
+    // assignment needs no function at all.
+    state: MutableArray<int>
+}
+
+fn bits_of(data: [byte], at: int) -> Bits {
+    val state = mutable_array_filled<int>(3, 0)
+    state[0] = at
+    return Bits { data: data, state: state }
+}
+
+fn next_bit(b: Bits) -> Result<int, string> {
+    if b.state[2] == 0 {
+        var at = b.state[0]
+        if at >= len(b.data) {
+            return err("image.decode_jpeg: the entropy-coded data ends inside a block")
+        }
+        val value = b.data[at] as int
+        at = at + 1
+        if value == 255 {
+            if at >= len(b.data) {
+                return err("image.decode_jpeg: a 0xFF ends the data with nothing after it")
+            }
+            val next = b.data[at] as int
+            if next == 0 {
+                // The stuffed zero: the data byte is the 0xFF and the 0x00 is not data.
+                at = at + 1
+            } else {
+                return err(concat(
+                    "image.decode_jpeg: a marker (0xFF ",
+                    to_hex(b.data[at]),
+                    ") appears inside the scan, which means the data is truncated or not baseline"
+                ))
+            }
+        }
+        b.state[0] = at
+        b.state[1] = value
+        b.state[2] = 8
+    }
+    val count = b.state[2] - 1
+    b.state[2] = count
+    return ok(and(shift_right(b.state[1], count), 1))
+}
+
+// `n` bits, most significant first, as the standard's RECEIVE.
+fn receive(b: Bits, n: int) -> Result<int, string> {
+    var value = 0
+    var i = 0
+    while i < n {
+        value = value * 2 + try next_bit(b)
+        i = i + 1
+    }
+    return ok(value)
+}
+
+// The standard's EXTEND: an `n`-bit value whose top half is positive and whose bottom half is the
+// negative range, which is how a difference is written without a sign bit.
+fn extend(value: int, n: int) -> int {
+    if n == 0 {
+        return 0
+    }
+    if value < shift_left(1, n - 1) {
+        return value - shift_left(1, n) + 1
+    }
+    return value
+}
+
+fn decode_huffman(b: Bits, t: Huffman) -> Result<int, string> {
+    var code = 0
+    var length = 1
+    while length <= 16 {
+        code = code * 2 + try next_bit(b)
+        if t.max_code[length] >= 0 && code <= t.max_code[length] {
+            val at = t.first[length] + code - t.min_code[length]
+            if at < 0 || at >= len(t.symbols) {
+                return err("image.decode_jpeg: a Huffman code points outside its table")
+            }
+            return ok(t.symbols[at] as int)
+        }
+        length = length + 1
+    }
+    return err("image.decode_jpeg: a Huffman code is longer than 16 bits")
+}
+
+// The 8-point inverse DCT's cosine table: `idct_cos[u * 8 + x]` is `c(u) cos((2x+1) u pi / 16)`,
+// with the 1/2 of the 2-D normalisation folded in so the transform below is two plain sums.
+//
+// **A float transform rather than the integer one every C decoder ships.** AAN's scaled integer
+// IDCT is a page of constants whose correctness is not readable; this is the definition, and the
+// two cheap exits below -- a wholly flat block, and the empty rows of one that is not -- are worth
+// more than the arithmetic would be.
+val idct_cos: [float] = cosine_table()
+
+fn cosine_table() -> [float] {
+    val out = mutable_array_new<float>()
+    var u = 0
+    while u < 8 {
+        val scale = if u == 0 { 0.35355339059327373 } else { 0.5 }
+        var x = 0
+        while x < 8 {
+            push(out, scale * math.cos(((2 * x + 1) as float) * (u as float) * 0.19634954084936207))
+            x = x + 1
+        }
+        x = x + 0
+        u = u + 1
+    }
+    return snapshot(out)
+}
+
+// One 8x8 block, dequantised coefficients in, samples out -- level-shifted by 128 and clamped, as
+// the standard's A.3.1 says.
+//
+// **The flat block is the fast path and the common case.** A block whose AC coefficients are all
+// zero is a flat square of its DC value, which is most of the sky, most of a scanned page and
+// every run of one colour; taking it without the transform costs eight comparisons and saves the
+// whole thing.
+fn idct_block(coefficients: MutableArray<float>, out: MutableArray<byte>, stride: int, at: int) {
+    var flat = true
+    var i = 1
+    while i < 64 {
+        if coefficients[i] != 0.0 {
+            flat = false
+            i = 64
+        }
+        i = i + 1
+    }
+    if flat {
+        val value = clamp_sample(coefficients[0] * 0.125 + 128.5)
+        var y = 0
+        while y < 8 {
+            var x = 0
+            while x < 8 {
+                out[at + y * stride + x] = value
+                x = x + 1
+            }
+            y = y + 1
+        }
+        return
+    }
+    // Rows first, then columns: the 2-D transform is separable, which turns 4,096 multiplies into
+    // 1,024.
+    //
+    // **And then most of those are multiplications by zero**, which is the whole shape of a
+    // quantised block: the coefficients a JPEG keeps are in the top-left corner, so whole rows of
+    // the 8x8 are empty. A row of zeros transforms to a row of zeros, so it is skipped and the
+    // column pass is told how far down it has to look. Measured on a 256x256 photograph: the
+    // decode went **742 ms to 493 ms**, and this function from 67% of the profile to 58% -- it is
+    // still the largest item and still the thing a native would replace first.
+    val rows = mutable_array_filled<float>(64, 0.0)
+    var deepest = 0
+    var y = 0
+    while y < 8 {
+        var empty = true
+        var u0 = 0
+        while u0 < 8 {
+            if coefficients[y * 8 + u0] != 0.0 {
+                empty = false
+                u0 = 8
+            }
+            u0 = u0 + 1
+        }
+        if !empty {
+            deepest = y
+            var x = 0
+            while x < 8 {
+                var sum = 0.0
+                var u = 0
+                while u < 8 {
+                    val coefficient = coefficients[y * 8 + u]
+                    if coefficient != 0.0 {
+                        sum = sum + idct_cos[u * 8 + x] * coefficient
+                    }
+                    u = u + 1
+                }
+                rows[y * 8 + x] = sum
+                x = x + 1
+            }
+        } else {
+            var x = 0
+            while x < 8 {
+                rows[y * 8 + x] = 0.0
+                x = x + 1
+            }
+        }
+        y = y + 1
+    }
+    var x2 = 0
+    while x2 < 8 {
+        var y2 = 0
+        while y2 < 8 {
+            var sum = 0.0
+            var v = 0
+            while v <= deepest {
+                sum = sum + idct_cos[v * 8 + y2] * rows[v * 8 + x2]
+                v = v + 1
+            }
+            out[at + y2 * stride + x2] = clamp_sample(sum + 128.5)
+            y2 = y2 + 1
+        }
+        x2 = x2 + 1
+    }
+}
+
+fn clamp_sample(value: float) -> byte {
+    if value <= 0.0 {
+        return 0b
+    }
+    if value >= 255.0 {
+        return 255b
+    }
+    return (value as int) as byte
+}
+
+// What the markers before the scan said: everything the scan needs to be read.
+struct Frame {
+    width: int
+    height: int
+    components: [Component]
+    max_h: int
+    max_v: int
+    restart: int
+    quant: [[int]]
+    dc: [Huffman]
+    ac: [Huffman]
+    scan_at: int
+}
+
+// A JPEG, decoded. `Gray8` for a one-component file and `Rgb8` for a three-component one.
+//
+// `max_pixels` is mandatory for `decode_png`'s reason: a width and a height are two bytes each and
+// their product is what gets allocated, so a decoder that does not check has a denial of service
+// in it.
+//
+// **What this costs, measured on the machine it was written on** -- a noisy photograph at quality
+// 85, which is the unkind case because almost no block is flat:
+//
+//     64x64      41 ms
+//     256x256   493 ms
+//     800x600   3.5 s      (7 us a pixel)
+//
+// So an icon is immediate, a thumbnail is a visible pause, and a camera photograph is not
+// something to decode in a frame. **The shape of the cost is known and it is the interpreter**:
+// `--profile` puts 58% in `idct_block` and 9% each in the upsample and the bit reader, all of it
+// arithmetic in a loop. The fix is the one `native_json.c` already is -- a native -- and that is a
+// decision to take when something needs it rather than an oversight. What this is for today is
+// icons and small pictures, which it does in a frame.
+pub fn decode_jpeg(data: [byte], max_pixels: int) -> Result<Image, string> {
+    val frame = try read_markers(data, max_pixels)
+    val planes = try read_scan(data, frame)
+    return assemble(frame, planes)
+}
+
+// Everything before the scan: the tables, the frame header, and where the entropy-coded data
+// begins.
+fn read_markers(data: [byte], max_pixels: int) -> Result<Frame, string> {
+    if len(data) < 4 || (data[0] as int) != 255 || (data[1] as int) != 216 {
+        return err("image.decode_jpeg: not a JPEG (no SOI marker)")
+    }
+    val quant = mutable_array_filled<[int]>(4, [])
+    // Four slots each, every one an empty table: a file naming a table it never defined is caught
+    // at the block that uses it rather than here, where the message would have nothing to point at.
+    val none: [byte] = []
+    val empty = huffman_of(snapshot(mutable_array_filled<int>(17, 0)), none)
+    val dc = mutable_array_filled<Huffman>(4, empty)
+    val ac = mutable_array_filled<Huffman>(4, empty)
+    var width = 0
+    var height = 0
+    var components: [Component] = []
+    var restart = 0
+    var at = 2
+    while at + 4 <= len(data) {
+        if (data[at] as int) != 255 {
+            return err(concat("image.decode_jpeg: expected a marker at ", str(at)))
+        }
+        val marker = data[at + 1] as int
+        if marker == 216 || marker == 217 || (marker >= 208 && marker <= 215) {
+            at = at + 2
+        } else {
+            val length = (data[at + 2] as int) * 256 + (data[at + 3] as int)
+            val body_at = at + 4
+            val body_end = at + 2 + length
+            if body_end > len(data) {
+                return err(concat("image.decode_jpeg: the segment at ", str(at), " is truncated"))
+            }
+            if marker == 192 || marker == 193 {
+                // SOF0 and SOF1: baseline and extended sequential, which decode identically here.
+                val read = try read_frame_header(data, body_at, body_end, max_pixels)
+                width = read.width
+                height = read.height
+                components = read.components
+            } else if marker == 194 {
+                return err("image.decode_jpeg: this is a progressive JPEG (SOF2), and this reads baseline")
+            } else if marker == 201 || marker == 202 || marker == 205 || marker == 206 {
+                return err("image.decode_jpeg: this JPEG is arithmetic-coded, and this reads Huffman")
+            } else if marker >= 195 && marker <= 207 && marker != 196 && marker != 200 && marker != 204 {
+                return err(concat(
+                    "image.decode_jpeg: SOF marker 0x",
+                    to_hex(data[at + 1]),
+                    " is a mode this does not read (baseline sequential only)"
+                ))
+            } else if marker == 219 {
+                try read_quant_tables(data, body_at, body_end, quant)
+            } else if marker == 196 {
+                try read_huffman_tables(data, body_at, body_end, dc, ac)
+            } else if marker == 221 {
+                if body_at + 2 > len(data) {
+                    return err("image.decode_jpeg: the restart-interval segment is truncated")
+                }
+                restart = (data[body_at] as int) * 256 + (data[body_at + 1] as int)
+            } else if marker == 218 {
+                // SOS: the scan header names which table decodes which component, and the entropy
+                // data starts straight after it.
+                if len(components) == 0 {
+                    return err("image.decode_jpeg: a scan before any frame header")
+                }
+                val scanned = try read_scan_header(data, body_at, body_end, components)
+                var max_h = 1
+                var max_v = 1
+                for c in scanned {
+                    if c.h > max_h {
+                        max_h = c.h
+                    }
+                    if c.v > max_v {
+                        max_v = c.v
+                    }
+                }
+                return ok(Frame {
+                    width: width,
+                    height: height,
+                    components: scanned,
+                    max_h: max_h,
+                    max_v: max_v,
+                    restart: restart,
+                    quant: snapshot(quant),
+                    dc: snapshot(dc),
+                    ac: snapshot(ac),
+                    scan_at: body_end
+                })
+            }
+            at = body_end
+        }
+    }
+    return err("image.decode_jpeg: no scan found")
+}
+
+struct FrameHeader {
+    width: int
+    height: int
+    components: [Component]
+}
+
+fn read_frame_header(data: [byte], at: int, end: int, max_pixels: int) -> Result<FrameHeader, string> {
+    if at + 6 > end {
+        return err("image.decode_jpeg: the frame header is truncated")
+    }
+    val precision = data[at] as int
+    if precision != 8 {
+        return err(concat(
+            "image.decode_jpeg: ",
+            str(precision),
+            "-bit samples, and this reads 8-bit"
+        ))
+    }
+    val height = (data[at + 1] as int) * 256 + (data[at + 2] as int)
+    val width = (data[at + 3] as int) * 256 + (data[at + 4] as int)
+    if width <= 0 || height <= 0 {
+        return err("image.decode_jpeg: the frame header says the image has no pixels")
+    }
+    if width * height > max_pixels {
+        return err(concat(
+            "image.decode_jpeg: ",
+            str(width),
+            "x",
+            str(height),
+            " is more than the ",
+            str(max_pixels),
+            " pixels allowed"
+        ))
+    }
+    val count = data[at + 5] as int
+    if count != 1 && count != 3 {
+        return err(concat(
+            "image.decode_jpeg: ",
+            str(count),
+            " components -- this reads grayscale and YCbCr, not CMYK or YCCK"
+        ))
+    }
+    if at + 6 + count * 3 > end {
+        return err("image.decode_jpeg: the frame header's component list is truncated")
+    }
+    val out = mutable_array_new<Component>()
+    var i = 0
+    while i < count {
+        val base = at + 6 + i * 3
+        val sampling = data[base + 1] as int
+        val h = shift_right(sampling, 4)
+        val v = and(sampling, 15)
+        if h < 1 || h > 4 || v < 1 || v > 4 {
+            return err("image.decode_jpeg: a component's sampling factors are out of range")
+        }
+        push(out, Component {
+            id: data[base] as int,
+            h: h,
+            v: v,
+            quant: data[base + 2] as int,
+            dc_table: 0,
+            ac_table: 0
+        })
+        i = i + 1
+    }
+    return ok(FrameHeader { width: width, height: height, components: snapshot(out) })
+}
+
+fn read_quant_tables(data: [byte], at: int, end: int, into: MutableArray<[int]>) -> Result<int, string> {
+    var p = at
+    while p < end {
+        val spec = data[p] as int
+        val id = and(spec, 15)
+        val wide = shift_right(spec, 4) != 0
+        if id > 3 {
+            return err("image.decode_jpeg: a quantisation table id above 3")
+        }
+        val size = if wide { 128 } else { 64 }
+        if p + 1 + size > end {
+            return err("image.decode_jpeg: a quantisation table is truncated")
+        }
+        val table = mutable_array_new<int>()
+        var i = 0
+        while i < 64 {
+            if wide {
+                push(table, (data[p + 1 + i * 2] as int) * 256 + (data[p + 2 + i * 2] as int))
+            } else {
+                push(table, data[p + 1 + i] as int)
+            }
+            i = i + 1
+        }
+        into[id] = snapshot(table)
+        p = p + 1 + size
+    }
+    return ok(0)
+}
+
+fn read_huffman_tables(
+    data: [byte],
+    at: int,
+    end: int,
+    dc: MutableArray<Huffman>,
+    ac: MutableArray<Huffman>
+) -> Result<int, string> {
+    var p = at
+    while p < end {
+        if p + 17 > end {
+            return err("image.decode_jpeg: a Huffman table header is truncated")
+        }
+        val spec = data[p] as int
+        val id = and(spec, 15)
+        val is_ac = shift_right(spec, 4) != 0
+        if id > 3 {
+            return err("image.decode_jpeg: a Huffman table id above 3")
+        }
+        val counts = mutable_array_filled<int>(17, 0)
+        var total = 0
+        var length = 1
+        while length <= 16 {
+            counts[length] = data[p + length] as int
+            total = total + counts[length]
+            length = length + 1
+        }
+        if p + 17 + total > end {
+            return err("image.decode_jpeg: a Huffman table's symbols are truncated")
+        }
+        val symbols = slice(data, p + 17, p + 17 + total)
+        val table = huffman_of(snapshot(counts), symbols)
+        if is_ac {
+            ac[id] = table
+        } else {
+            dc[id] = table
+        }
+        p = p + 17 + total
+    }
+    return ok(0)
+}
+
+// The scan header, which says which tables decode which component. **The component list is taken
+// from here and not from the frame header**, because the scan's order is the order the MCU is
+// written in -- they agree in every file either tool produces, and the standard does not require
+// it.
+fn read_scan_header(data: [byte], at: int, end: int, components: [Component]) -> Result<[Component], string> {
+    if at + 1 > end {
+        return err("image.decode_jpeg: the scan header is truncated")
+    }
+    val count = data[at] as int
+    if count != len(components) {
+        return err(concat(
+            "image.decode_jpeg: the scan covers ",
+            str(count),
+            " of ",
+            str(len(components)),
+            " components, and this reads a single interleaved scan"
+        ))
+    }
+    if at + 1 + count * 2 > end {
+        return err("image.decode_jpeg: the scan header's component list is truncated")
+    }
+    val out = mutable_array_new<Component>()
+    var i = 0
+    while i < count {
+        val id = data[at + 1 + i * 2] as int
+        val tables = data[at + 2 + i * 2] as int
+        var found = Option<Component>.None
+        for c in components {
+            if c.id == id {
+                found = Option<Component>.Some(c)
+            }
+        }
+        switch found {
+            Some(c) {
+                push(out, with c {
+                    dc_table: shift_right(tables, 4),
+                    ac_table: and(tables, 15)
+                })
+            }
+            None {
+                return err(concat(
+                    "image.decode_jpeg: the scan names component ",
+                    str(id),
+                    ", which the frame header does not"
+                ))
+            }
+        }
+        i = i + 1
+    }
+    return ok(snapshot(out))
+}
+
+// One component's samples, at the resolution it was written at rather than the image's.
+struct Plane {
+    data: MutableArray<byte>
+    stride: int
+    rows: int
+}
+
+// The scan: one pass over the MCUs, every component's blocks interleaved as the standard puts them.
+fn read_scan(data: [byte], f: Frame) -> Result<[Plane], string> {
+    val mcu_wide = (f.width + f.max_h * 8 - 1) / (f.max_h * 8)
+    val mcu_high = (f.height + f.max_v * 8 - 1) / (f.max_v * 8)
+    val planes = mutable_array_new<Plane>()
+    for c in f.components {
+        val stride = mcu_wide * c.h * 8
+        val rows = mcu_high * c.v * 8
+        push(planes, Plane {
+            data: mutable_array_filled<byte>(stride * rows, 0b),
+            stride: stride,
+            rows: rows
+        })
+    }
+    val built = snapshot(planes)
+    val b = bits_of(data, f.scan_at)
+    val predictors = mutable_array_filled<int>(len(f.components), 0)
+    val coefficients = mutable_array_filled<float>(64, 0.0)
+    var mcu = 0
+    val total = mcu_wide * mcu_high
+    while mcu < total {
+        if f.restart > 0 && mcu > 0 && mcu - (mcu / f.restart) * f.restart == 0 {
+            try take_restart(b, predictors)
+        }
+        val mcu_x = mcu - (mcu / mcu_wide) * mcu_wide
+        val mcu_y = mcu / mcu_wide
+        var ci = 0
+        while ci < len(f.components) {
+            val c = f.components[ci]
+            val plane = built[ci]
+            var by = 0
+            while by < c.v {
+                var bx = 0
+                while bx < c.h {
+                    val x = (mcu_x * c.h + bx) * 8
+                    val y = (mcu_y * c.v + by) * 8
+                    try decode_block(b, f, c, ci, predictors, coefficients)
+                    idct_block(coefficients, plane.data, plane.stride, y * plane.stride + x)
+                    bx = bx + 1
+                }
+                by = by + 1
+            }
+            ci = ci + 1
+        }
+        mcu = mcu + 1
+    }
+    return ok(built)
+}
+
+// **A restart marker is a resynchronisation point**, which is what makes a corrupt JPEG lose a
+// band rather than everything after the damage: the bit reader drops whatever it was holding, the
+// DC predictors go back to zero, and decoding carries on.
+fn take_restart(b: Bits, predictors: MutableArray<int>) -> Result<int, string> {
+    b.state[2] = 0
+    var at = b.state[0]
+    // Skip any fill bytes before the marker, which a writer is allowed to emit.
+    while at + 1 < len(b.data) && (b.data[at] as int) == 255 && (b.data[at + 1] as int) == 255 {
+        at = at + 1
+    }
+    if at + 1 >= len(b.data) {
+        return err("image.decode_jpeg: the data ends where a restart marker was expected")
+    }
+    val marker = b.data[at + 1] as int
+    if (b.data[at] as int) != 255 || marker < 208 || marker > 215 {
+        return err(concat(
+            "image.decode_jpeg: expected a restart marker at ",
+            str(at),
+            " and found 0x",
+            to_hex(b.data[at + 1])
+        ))
+    }
+    b.state[0] = at + 2
+    var i = 0
+    while i < len(predictors) {
+        predictors[i] = 0
+        i = i + 1
+    }
+    return ok(0)
+}
+
+// One 8x8 block: a DC difference against this component's running predictor, then the AC
+// coefficients as runs of zeros and values, dequantised into natural order on the way.
+fn decode_block(
+    b: Bits,
+    f: Frame,
+    c: Component,
+    ci: int,
+    predictors: MutableArray<int>,
+    out: MutableArray<float>
+) -> Result<int, string> {
+    if c.quant >= len(f.quant) || len(f.quant[c.quant]) != 64 {
+        return err(concat(
+            "image.decode_jpeg: component ",
+            str(c.id),
+            " names a quantisation table that was never defined"
+        ))
+    }
+    val quant = f.quant[c.quant]
+    var i = 0
+    while i < 64 {
+        out[i] = 0.0
+        i = i + 1
+    }
+    val t = try decode_huffman(b, f.dc[c.dc_table])
+    if t > 15 {
+        return err("image.decode_jpeg: a DC coefficient claims more than 15 bits")
+    }
+    val diff = extend(try receive(b, t), t)
+    predictors[ci] = predictors[ci] + diff
+    out[0] = (predictors[ci] * quant[0]) as float
+    var k = 1
+    while k < 64 {
+        val rs = try decode_huffman(b, f.ac[c.ac_table])
+        val run = shift_right(rs, 4)
+        val size = and(rs, 15)
+        if size == 0 {
+            if run != 15 {
+                // End of block: everything above here is zero, which is most of every block.
+                k = 64
+            } else {
+                k = k + 16
+            }
+        } else {
+            k = k + run
+            if k > 63 {
+                return err("image.decode_jpeg: a block's coefficients run past its end")
+            }
+            val value = extend(try receive(b, size), size)
+            out[zigzag[k]] = (value * quant[k]) as float
+            k = k + 1
+        }
+    }
+    return ok(0)
+}
+
+// The planes as pixels: each component upsampled to the image's own size and converted.
+//
+// **Nearest-neighbour upsampling**, which is what the standard's own informative annex does and
+// what a first decoder should: a 4:2:0 file's chroma is half-resolution in both axes, and
+// replicating it is visually indistinguishable from interpolating at the sizes a UI shows. The
+// smoother answer is a refinement with a name (`fancy upsampling` in libjpeg) and belongs with the
+// native this will want.
+fn assemble(f: Frame, planes: [Plane]) -> Result<Image, string> {
+    val grey = len(f.components) == 1
+    val channels = if grey { 1 } else { 3 }
+    val out = mutable_array_filled<byte>(f.width * f.height * channels, 0b)
+    var y = 0
+    while y < f.height {
+        var x = 0
+        while x < f.width {
+            val at = (y * f.width + x) * channels
+            if grey {
+                out[at] = sample_at(planes[0], f, f.components[0], x, y)
+            } else {
+                val luma = (sample_at(planes[0], f, f.components[0], x, y) as int) as float
+                val cb = ((sample_at(planes[1], f, f.components[1], x, y) as int) - 128) as float
+                val cr = ((sample_at(planes[2], f, f.components[2], x, y) as int) - 128) as float
+                // JFIF's own conversion, which is ITU-R BT.601 with full-range luma.
+                out[at] = clamp_sample(luma + 1.402 * cr)
+                out[at + 1] = clamp_sample(luma - 0.344136 * cb - 0.714136 * cr)
+                out[at + 2] = clamp_sample(luma + 1.772 * cb)
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return image_of(f.width, f.height, if grey { Pixels.Gray8 } else { Pixels.Rgb8 }, snapshot(out))
+}
+
+fn sample_at(p: Plane, f: Frame, c: Component, x: int, y: int) -> byte {
+    val sx = x * c.h / f.max_h
+    val sy = y * c.v / f.max_v
+    val at = sy * p.stride + sx
+    if at < 0 || at >= len(p.data) {
+        return 0b
+    }
+    return p.data[at]
 }

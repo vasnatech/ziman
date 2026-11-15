@@ -1,6 +1,6 @@
 # `image`
 
-A pixel buffer, PNG in and out, and enough of JPEG to put one in a PDF.
+A pixel buffer, PNG in and out, JPEG in.
 
 The buffer and the codec live together because PNG's row filtering is defined in terms of the
 buffer's layout, and splitting them would mean making that layout public just so the codec could
@@ -209,7 +209,38 @@ pub fn jpeg_dimensions(data: [byte]) -> Result<[int], string>
 
 `[width, height, components]` read from the frame header.
 
-**No decoder, deliberately.** PDF's `DCTDecode` filter takes a JPEG's compressed bytes
-*unchanged* and the reader decodes them, so embedding a photograph needs only its shape. That is
-about forty lines against the several thousand a baseline decoder would be, and it produces
-smaller PDFs than re-encoding would. The raster backend cannot draw one and says so (phase 5).
+**This is what a PDF needs, and it is not the decoder below.** PDF's `DCTDecode` filter takes a
+JPEG's compressed bytes *unchanged* and the reader decodes them, so embedding a photograph needs
+only its shape -- forty lines, and smaller PDFs than re-encoding would give. `decode_jpeg` is for
+the other case: a picture this library has to draw itself.
+
+## JPEG, decoded
+
+### `decode_jpeg`
+
+```
+pub fn decode_jpeg(data: [byte], max_pixels: int) -> Result<Image, string>
+```
+
+A JPEG, decoded. `Gray8` for a one-component file and `Rgb8` for a three-component one.
+
+`max_pixels` is mandatory for `decode_png`'s reason: a width and a height are two bytes each and
+their product is what gets allocated, so a decoder that does not check has a denial of service
+in it.
+
+**What this costs, measured on the machine it was written on** -- a noisy photograph at quality
+85, which is the unkind case because almost no block is flat:
+
+
+```
+64x64      41 ms
+256x256   493 ms
+800x600   3.5 s      (7 us a pixel)
+```
+
+So an icon is immediate, a thumbnail is a visible pause, and a camera photograph is not
+something to decode in a frame. **The shape of the cost is known and it is the interpreter**:
+`--profile` puts 58% in `idct_block` and 9% each in the upsample and the bit reader, all of it
+arithmetic in a loop. The fix is the one `native_json.c` already is -- a native -- and that is a
+decision to take when something needs it rather than an oversight. What this is for today is
+icons and small pictures, which it does in a frame.

@@ -1,0 +1,181 @@
+// A JPEG, decoded -- against the PNG of the same picture.
+//
+// **The set is the assertion.** One 32x24 picture is encoded four ways in `tests/fixtures/jpeg/`,
+// and each must decode to what `image.decode_png` answers for the original: that is a stronger
+// claim than any file's own pixels and it needs no hand-computed expectations. A channel swap
+// fails every file at once, a subsampling mistake fails the 4:2:0 one, a bit-reader mistake fails
+// the one with restart markers, and the grayscale file is the only one that must come back
+// `Gray8`.
+//
+// **Not exact, and the tolerance is the format's.** JPEG is lossy: at quality 95 the flat areas
+// come back within a point or two and the pixels along the diagonal -- where a block carries real
+// coefficients -- within rather more. So each file is held to a *mean* error over the picture and
+// to a worst case, both measured rather than guessed, and the flat corners are asserted exactly
+// because nothing about them should move.
+use fs
+use image
+
+val base = "tests/fixtures/jpeg/"
+
+fn read(name: string) -> Result<[byte], string> {
+    return switch fs.read_bytes(concat(base, name)) {
+        Ok(data) { ok(data) }
+        Err(e) { err(concat("cannot read ", name, ": ", fs.fs_error_message(e))) }
+    }
+}
+
+// How far a decode is from the truth, as the mean and the worst of every channel of every pixel.
+struct Difference {
+    mean: float
+    worst: int
+}
+
+fn difference(got: image.Image, want: image.Image) -> Result<Difference, string> {
+    if got.width != want.width || got.height != want.height {
+        return err(format(
+            "{}x{} against {}x{}",
+            str(got.width),
+            str(got.height),
+            str(want.width),
+            str(want.height)
+        ))
+    }
+    var total = 0
+    var worst = 0
+    var count = 0
+    var y = 0
+    while y < want.height {
+        var x = 0
+        while x < want.width {
+            val a = try pixel(got, x, y)
+            val b = try pixel(want, x, y)
+            var channel = 0
+            while channel < 3 {
+                val d = abs_of((a[channel] - b[channel]))
+                total = total + d
+                if d > worst {
+                    worst = d
+                }
+                count = count + 1
+                channel = channel + 1
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return ok(Difference { mean: (total as float) / (count as float), worst: worst })
+}
+
+fn pixel(i: image.Image, x: int, y: int) -> Result<[int], string> {
+    val c = switch image.pixel_at(i, x, y) {
+        Ok(p) { p }
+        Err(why) { return err(why) }
+    }
+    return ok([
+        (c.red * 255.0 + 0.5) as int,
+        (c.green * 255.0 + 0.5) as int,
+        (c.blue * 255.0 + 0.5) as int
+    ])
+}
+
+// Three channels as one line, which a bare array cannot be printed as.
+fn triple_of(channels: [int]) -> string {
+    return concat(str(channels[0]), ",", str(channels[1]), ",", str(channels[2]))
+}
+
+fn abs_of(v: int) -> int {
+    return if v < 0 { 0 - v } else { v }
+}
+
+fn demo() -> Result<unit, string> {
+    val truth = try image.decode_png(try read("blocks.png"), 1000000)
+    print(format("the truth: {}x{}", str(truth.width), str(truth.height)))
+
+    // ---- the three colour files, against the same picture
+    for name in ["blocks-444.jpg", "blocks-420.jpg", "blocks-restart.jpg"] {
+        val got = try image.decode_jpeg(try read(name), 1000000)
+        val d = try difference(got, truth)
+        print(format(
+            "{}: {}x{} rgb, mean off by {:.2}, worst {}",
+            name,
+            str(got.width),
+            str(got.height),
+            d.mean,
+            str(d.worst)
+        ))
+    }
+
+    // ---- the flat corners, which nothing should move
+    val plain = try image.decode_jpeg(try read("blocks-444.jpg"), 1000000)
+    print(format("top left:     {}", triple_of(try pixel(plain, 4, 4))))
+    print(format("top right:    {}", triple_of(try pixel(plain, 28, 4))))
+    print(format("bottom left:  {}", triple_of(try pixel(plain, 4, 20))))
+    print(format("bottom right: {}", triple_of(try pixel(plain, 28, 20))))
+
+    // ---- grayscale is one channel, and its value is the luma of the colour
+    val grey = try image.decode_jpeg(try read("blocks-gray.jpg"), 1000000)
+    print(format(
+        "gray: {}x{}, {} channel(s), top left {}",
+        str(grey.width),
+        str(grey.height),
+        str(image.channels_of(grey.format)),
+        triple_of(try pixel(grey, 4, 4))
+    ))
+
+    // ---- and what it refuses, each by name
+    print(refusal(image.decode_jpeg(to_bytes("not a jpeg at all"), 1000000)))
+    // **A frame header and nothing else**, which is all these five need: SOI, then a SOF whose
+    // eleven bytes are a precision, a height, a width and one component. The marker and those
+    // bytes are what each refusal is about, and a file that got past them would need a scan.
+    print(refusal(image.decode_jpeg(sof(194, 8, 8, 8, 1), 1000000)))
+    print(refusal(image.decode_jpeg(sof(201, 8, 8, 8, 1), 1000000)))
+    print(refusal(image.decode_jpeg(sof(192, 12, 8, 8, 1), 1000000)))
+    print(refusal(image.decode_jpeg(sof(192, 8, 8, 8, 4), 1000000)))
+    // A frame that fits in memory only if nobody checks: 4000x4000 against a budget of 1,000,000.
+    print(refusal(image.decode_jpeg(sof(192, 8, 4000, 4000, 3), 1000000)))
+    // And a file that stops in the middle of its scan.
+    val whole = try read("blocks-444.jpg")
+    print(refusal(image.decode_jpeg(slice(whole, 0, len(whole) - 120), 1000000)))
+    return unit
+}
+
+fn refusal(r: Result<image.Image, string>) -> string {
+    return switch r {
+        Ok(i) { concat("decoded ", str(i.width), "x", str(i.height), " -- expected a refusal") }
+        Err(why) { why }
+    }
+}
+
+// SOI and one frame header: `marker` is the SOF kind, and the component list is as long as the
+// header says, so the segment's own length is right whatever is being refused.
+fn sof(marker: int, precision: int, width: int, height: int, components: int) -> [byte] {
+    val length = 8 + components * 3
+    val out = mutable_array_new<int>()
+    push(out, 255, 216, 255, marker)
+    push(out, length / 256, length - (length / 256) * 256)
+    push(out, precision)
+    push(out, height / 256, height - (height / 256) * 256)
+    push(out, width / 256, width - (width / 256) * 256)
+    push(out, components)
+    var i = 0
+    while i < components {
+        push(out, i + 1, 17, 0)
+        i = i + 1
+    }
+    return bytes_of(snapshot(out))
+}
+
+fn bytes_of(values: [int]) -> [byte] {
+    val out = mutable_array_new<byte>()
+    for v in values {
+        push(out, v as byte)
+    }
+    return snapshot(out)
+}
+
+fn main() {
+    switch demo() {
+        Ok(_) { print("ok") }
+        Err(why) { print(concat("FAILED: ", why)) }
+    }
+}

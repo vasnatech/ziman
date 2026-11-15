@@ -1,0 +1,17 @@
+the truth: 32x24
+blocks-444.jpg: 32x24 rgb, mean off by 1.92, worst 17
+blocks-420.jpg: 32x24 rgb, mean off by 3.06, worst 73
+blocks-restart.jpg: 32x24 rgb, mean off by 1.92, worst 17
+top left:     236,194,122
+top right:    20,199,119
+bottom left:  230,29,119
+bottom right: 22,30,125
+gray: 32x24, 1 channel(s), top left 199,199,199
+image.decode_jpeg: not a JPEG (no SOI marker)
+image.decode_jpeg: this is a progressive JPEG (SOF2), and this reads baseline
+image.decode_jpeg: this JPEG is arithmetic-coded, and this reads Huffman
+image.decode_jpeg: 12-bit samples, and this reads 8-bit
+image.decode_jpeg: 4 components -- this reads grayscale and YCbCr, not CMYK or YCCK
+image.decode_jpeg: 4000x4000 is more than the 1000000 pixels allowed
+image.decode_jpeg: the entropy-coded data ends inside a block
+ok

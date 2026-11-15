@@ -218,6 +218,8 @@ flowchart LR
     icons --> svg
     image --> bits
     image --> compress
+    image --> math
+    image --> number
     image --> paint
     ini --> charset
     ini --> locale
@@ -455,7 +457,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `ibus` | `window` | - |
 | `icons` | `fs`, `ini`, `math`, `os`, `shape`, `svg` | - |
-| `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
+| `image` | `bits`, `compress`, `math`, `number`, `paint` | `pdf`, `raster` |
 | `ini` | `charset`, `locale` | `icons` |
 | `io` | `charset` | `client`, `csv`, `fs`, `http`, `rest`, `server`, `terminal`, `xml` |
 | `json` | `charset`, `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `paging`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
@@ -464,7 +466,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `locale` | - | `client`, `encoding`, `eql`, `http`, `ini`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `svg`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
-| `math` | - | `controls`, `geom`, `icons`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker`, `svg` |
+| `math` | - | `controls`, `geom`, `icons`, `image`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker`, `svg` |
 | `memdb` | `db`, `locale`, `sql` | - |
 | `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `metrics` | `os` | `rest`, `server` |
@@ -473,7 +475,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `mysql` | `crypto`, `db`, `net`, `number` | - |
 | `ndjson` | `charset`, `json` | `codec` |
 | `net` | - | `client`, `db`, `mysql`, `pg`, `server` |
-| `number` | `locale` | `client`, `csv`, `db`, `encoding`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sql`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
+| `number` | `locale` | `client`, `csv`, `db`, `encoding`, `http`, `image`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sql`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `client`, `fs`, `icons`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `encoding`, `random` | - |
 | `paging` | `codec`, `json`, `mime` | - |

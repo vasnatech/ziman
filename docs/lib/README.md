@@ -158,7 +158,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`pdf`](pdf.md) | A `scene.Scene` rendered to a PDF document. |
 | [`truetype`](truetype.md) | Reading the TrueType tables the rest of `lib/graphics` needs, and nothing else. |
 | [`font`](font.md) | The font model: which faces a document may use, and what they measure. |
-| [`image`](image.md) | A pixel buffer, PNG in and out, and enough of JPEG to put one in a PDF. |
+| [`image`](image.md) | A pixel buffer, PNG in and out, JPEG in. |
 | [`stroker`](stroker.md) | The outline of a stroked path, as a path. |
 | [`raster`](raster.md) | The second backend: a `Scene` to an `Image`. |
 | [`layout`](layout.md) | Flows, wrapping, tables and pagination. |

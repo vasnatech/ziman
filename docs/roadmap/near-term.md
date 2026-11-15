@@ -1342,9 +1342,12 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
       because `Drawing` has no text to gather. The button now *declares* its name (its words, or
       the icon's name when it has none) instead of letting one be gathered, which is what the rule
       said and what the drawn source had been getting by luck.
-    * **A picture icon** is blocked on decoders: `image` has `decode_png` and, for JPEG, only
-      `jpeg_dimensions` -- there is no JPEG decoder. (An SVG is no longer in this row: `svg.icon`
-      reads one as a *path*, which tints and scales, where a decoded picture does neither.)
+    * ~~**A picture icon** is blocked on decoders~~ -- **unblocked 2026-11-14**: `image.decode_jpeg`
+      is a baseline decoder (`decode_png` was already there), so both formats a theme ships now
+      arrive as pixels. The *source* is still unbuilt -- an `IconSource` holding a handle needs the
+      images table to reach the control layer -- but nothing is waiting on a format any more. (An
+      SVG is not in this row: `svg.icon` reads one as a *path*, which tints and scales, where a
+      decoded picture does neither.)
     * ~~**`Button.icon`**~~ -- **built 2026-11-14.** `widget.Icon` is a source, a name and a side;
       `IconSource` is an enum of one (`Drawn(shape.Path)`) so that adding a blocked source later
       breaks every switch that must handle it. `controls.Button.icon` is an `Option<widget.Icon>`,
@@ -1410,7 +1413,7 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   | **a drawn path** | no new native code: `shape` has the builder and `transform_path`, `scene.fill` draws it. Tints and scales free. **First instalment.** |
   | **a glyph** | from the *text* font this already works -- the tree's marks are exactly this. From an **icon font** it is blocked: `widget.zm` passes font index `0` to `scene.text_of`, so a `Label` cannot name a second face. Multi-font support is its own change. |
   | **the desktop's theme** | ~~`"document-save"` from the freedesktop icon theme~~ -- **BUILT 2026-11-14**, both halves. `svg.parse`/`svg.icon` read the file (the `viewBox`, the basic shapes, groups and transforms, inherited presentation, strokes turned into areas) and `lib/ui/icons.zm` does the lookup (the search path, `index.theme` via the new `ini` module, the size-matching rule, the inheritance chain, `hicolor`, and the unthemed fallback). `icons.icon_path(theme, "document-save-symbolic", 16)` is a `shape.Path` in a unit box. Measured on Adwaita's 585 symbolic icons: all 585 found by name, 495 read exactly, 578 dropping the faint layer. |
-  | **a decoded image** | `image.decode_png` exists; **there is no JPEG decoder** (`jpeg_dimensions` reads the header and nothing more). An SVG belongs in the row above rather than here, because it arrives as a path. Does not tint, so its state variants need separate artwork -- the type must allow that without making it the shape everything else pays for. |
+  | **a decoded image** | `image.decode_png` and, since 2026-11-14, `image.decode_jpeg` (baseline; progressive, arithmetic, 12-bit and CMYK are refused by name). An SVG belongs in the row above rather than here, because it arrives as a path. Does not tint, so its state variants need separate artwork -- the type must allow that without making it the shape everything else pays for. |
   | **layered** | a base with a badge. Cheap once the others exist, and much easier designed in than retrofitted. |
 
   The two routes below were the question before that decision, and the measurements stand:
