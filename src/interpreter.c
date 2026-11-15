@@ -474,6 +474,26 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
             ziman_pop_frame();
             return one;
         }
+        /* `add(s, x)` on a `MutableSet`, found as a **regression** rather than chosen as an
+         * optimisation: `add` became the variadic member itself on 2026-10-22, and
+         * `tests/bench/map_ops.zm` went from 12-25 to 379 ns/op on the already-present case with
+         * nothing about the table changed. The collapse's one-element array is the whole of it --
+         * see `ziman_mutable_set_add_one` for the measurement and for why a non-variadic overload
+         * is not available. */
+        if (impl == ziman_mutable_set_add) {
+            Value answer = ziman_mutable_set_add_one(raw_args[0], raw_args[1]);
+            ziman_pop_frame();
+            return answer;
+        }
+        /* `remove(m, k)` and `remove(s, k)`, which are one symbol over one table and were the
+         * other half of the same regression: the row that measures a removal and a re-insert went
+         * 104-126 ns/op (2026-10-15) to 845 (2026-11-14), and the add shortcut above recovered
+         * only part of it. */
+        if (impl == ziman_mutable_map_remove) {
+            Value answer = ziman_mutable_map_remove_one(raw_args[0], raw_args[1]);
+            ziman_pop_frame();
+            return answer;
+        }
     }
     int argc;
     Value *args = collapse_variadic_args(fn, raw_args, raw_argc, tail_is_array_spread, &argc);

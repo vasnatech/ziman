@@ -193,6 +193,13 @@ Value ziman_array_concat(Value *args, int argc, int line, int col);
 Value ziman_mutable_array_concat(Value *args, int argc, int line, int col);
 Value ziman_snapshot(Value *args, int argc, int line, int col);
 Value ziman_clear(Value *args, int argc, int line, int col);
+Value ziman_mutable_set_add(Value *args, int argc, int line, int col);
+Value ziman_mutable_map_remove(Value *args, int argc, int line, int col);
+/* `remove(m, k)`'s one-key path, shared by the map and the set -- one C symbol, as the two
+ * registrations already are. */
+Value ziman_mutable_map_remove_one(Value owner, Value key);
+/* `add(s, x)`'s one-element path, for the shortcut in `call_function` -- see the comment there. */
+Value ziman_mutable_set_add_one(Value set, Value item);
 Value ziman_array_push_values(Value *args, int argc, int line, int col);
 Value ziman_array_push_one(Value arr, Value x);
 void ziman_mutable_map_set_all(Value m, Value source, int source_is_handle);

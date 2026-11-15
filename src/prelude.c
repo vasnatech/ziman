@@ -2303,7 +2303,27 @@ static Value native_mutable_map_set(Value *args, int argc, int line, int col) {
  *
  * The buffer pointer is fetched once and held across the loop, as `ziman_mutable_set_combine`
  * does: `maptable_set` grows the table's own storage, not the struct that owns it. */
-static Value native_mutable_set_add(Value *args, int argc, int line, int col) {
+/* `add(s, x)` with exactly one element, called before the variadic collapse has allocated an
+ * array to carry it -- the same shortcut the two `push` declarations have, for the same reason and
+ * found the same way.
+ *
+ * **Measured as a regression rather than designed as an optimisation.** `tests/bench/map_ops.zm`
+ * reported `MutableSet add (present)` at **12-25 ns/op on 2026-10-15** and **379 ns/op on
+ * 2026-11-14**; nothing about the table changed, but `add` *became* the variadic member on
+ * 2026-10-22 (see the note below), so every single-element call began building a one-element
+ * array: two `ziman_xmalloc`s and a GC object, and an allocation with a 100,000-entry map alive
+ * costs about 290ns because a tracing collector prices one by the live set. Same cause as the 65%
+ * the array `push` shortcut records.
+ *
+ * The language rules out the obvious alternative: a non-variadic `add(s, item)` beside
+ * `add(s, items: variadic T)` is refused, because `add(s, x)` could not tell them apart -- which
+ * `make check`'s overload-sets gate enforces. So the fast path lives here, where `push`'s does. */
+Value ziman_mutable_set_add_one(Value set, Value item) {
+    MutableMapBuf *buf = mutable_map_get_buf(set);
+    return value_bool(maptable_set(&buf->t, item, value_int(0)) ? 1 : 0);
+}
+
+Value ziman_mutable_set_add(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -3773,7 +3793,20 @@ static Value native_map_remove(Value *args, int argc, int line, int col) {
  *
  * The buffer pointer is held across the loop, as `ziman_mutable_set_combine` does: `maptable_remove`
  * works on the table's own storage, not the struct that owns it. */
-static Value native_mutable_map_remove(Value *args, int argc, int line, int col) {
+/* `remove(m, k)` with one key, before the collapse allocates an array for it. The same shortcut
+ * and the same measurement as `ziman_mutable_set_add_one`: `remove` is the variadic member on all
+ * four of its worlds, so a single-key removal -- which is how it is almost always written -- was
+ * paying for a one-element array and the collection pressure that allocation carries.
+ *
+ * One function for both, as the registration already is: `mutable_set_remove` and
+ * `mutable_map_remove` are the same C symbol over the same table, a set being a map whose values
+ * are unused. */
+Value ziman_mutable_map_remove_one(Value owner, Value key) {
+    MutableMapBuf *buf = mutable_map_get_buf(owner);
+    return value_bool(maptable_remove(&buf->t, key, NULL) ? 1 : 0);
+}
+
+Value ziman_mutable_map_remove(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -4003,11 +4036,11 @@ void prelude_register(void) {
     native_register("mutable_map_set", native_mutable_map_set);
     native_register("mutable_map_get", native_mutable_map_get);
     native_register("mutable_map_get_or", native_mutable_map_get_or);
-    native_register("mutable_map_remove", native_mutable_map_remove);
+    native_register("mutable_map_remove", ziman_mutable_map_remove);
     native_register("mutable_map_discard", native_mutable_map_discard);
     native_register("mutable_set_new", native_mutable_set_new);
-    native_register("mutable_set_add", native_mutable_set_add);
-    native_register("mutable_set_remove", native_mutable_map_remove);
+    native_register("mutable_set_add", ziman_mutable_set_add);
+    native_register("mutable_set_remove", ziman_mutable_map_remove);
     native_register("guard_new", native_guard_new);
     /* **`bytes_index_of`, not `array_index_of`** (2026-10-24). `index_of`'s three members are a
      * `[byte]`, a `string` and a `MutableString` -- there is no generic `[T]` member -- so this

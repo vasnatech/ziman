@@ -474,6 +474,31 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
      per entry. Removing that allocation is the lever the measurement points at, and a flat table
      removes it by construction. Not a licence to skip measuring: the warning below still stands,
      and three "structurally obvious" changes measured worse than nothing on 2026-10-15 alone.
+  **A regression this benchmark caught, 2026-11-14 -- which is what it is checked in for.**
+  `MutableSet add (present)` read **379 ns/op against the 12-25 recorded above**, and
+  `MutableSet remove+add` 845 against 104-126, with nothing about the table changed. `add` *became*
+  the variadic member itself on 2026-10-22, three weeks after those figures, so every
+  single-element `add(s, x)` was building a one-element array through `collapse_variadic_args` --
+  two `ziman_xmalloc`s and a GC object -- and an allocation with 100,000 entries alive costs about
+  290ns, this entry's own measurement. Fixed with the shortcut `push` already had, dispatched on
+  the resolved native pointer before the collapse runs:
+
+  | row | 2026-10-15 | regressed | now |
+  | --- | --- | --- | --- |
+  | `MutableSet add (present)` | 12-25 | 379 | **21-35** |
+  | `MutableSet remove+add` | 104-126 | 845 | **124** |
+  | `MutableMap remove+set` | 336-350 | 400-418 | **130** |
+
+  **The third row was never part of the regression**: `remove` has been variadic all along, so it
+  was paying for that array even at the 336-350 recorded as its best. 2.6x on a row this entry
+  had already signed off.
+
+  **And the alternative is closed by the language rather than by taste.** A non-variadic
+  `add(s: MutableSet<T>, item: T)` beside the variadic one is refused -- "two declarations may
+  share a name only when every call can tell them apart" -- and `overload-sets-check` enforces it,
+  so the fast path has to live in `call_function` beside `push`'s and `len`'s. Worth knowing before
+  anyone reaches for an overload to fix a variadic's one-argument cost.
+
   4. **Every `mapb_*`/`setb_*` call validates its handle through `handleset_has`**, a hash probe paid
      per operation. Small, but it is on literally every builder call, and for `len` -- 108ns against
      the immutable `Map`'s 89ns for the same field read -- it is the entire cost.
