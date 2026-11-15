@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "lib")
 
 GROUPS = [
-    ("Data and formats", "core", ["json", "codec", "paging", "expr", "ndjson", "csv", "toml", "yaml", "xml", "markdown", "properties",
+    ("Data and formats", "core", ["json", "codec", "paging", "expr", "ndjson", "csv", "toml", "yaml", "xml", "ini", "markdown", "properties",
                                    "number", "math", "bits", "encoding", "uuid", "regex", "compress", "crypto", "jwt", "otp",
                                    # Beside `encoding` on purpose: the two are a pair a reader
                                    # mixes up, and the pages say which is which. `encoding` is

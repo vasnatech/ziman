@@ -694,6 +694,72 @@ pub fn extension(path: string) -> string
 
 ```
 
+## `ini`
+
+```
+pub struct Entry {
+    key: string
+    locale: Option<string>
+    value: string
+}
+
+pub struct Group {
+    name: string
+    entries: [Entry]
+}
+
+pub struct Ini {
+    groups: [Group]
+}
+
+pub fn default_charset() -> charset.Charset
+
+pub fn parse(text: string) -> Result<Ini, string>
+
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Ini, string>
+
+pub fn parse(data: [byte]) -> Result<Ini, string>
+
+pub fn group(f: Ini, name: string) -> Option<Group>
+
+pub fn value(g: Group, key: string) -> Option<string>
+
+pub fn value_for(g: Group, key: string, l: Locale) -> Option<string>
+
+pub fn value_for(g: Group, key: string, tag: string) -> Option<string>
+
+pub fn list_of(text: string) -> [string]
+
+pub fn list_in(g: Group, key: string) -> [string]
+
+pub fn get_bool(g: Group, key: string) -> Result<bool, string>
+
+pub fn get_int(g: Group, key: string) -> Result<int, string>
+
+pub fn get_float(g: Group, key: string) -> Result<float, string>
+
+pub fn get_string(g: Group, key: string) -> Result<string, string>
+
+pub fn unescaped(text: string) -> string
+
+pub fn escaped(text: string) -> string
+
+pub fn format(f: Ini) -> string
+
+pub fn list_text(items: [string]) -> string
+
+pub fn entry_of(key: string, value: string) -> Entry
+
+pub fn entry_in(key: string, l: string, value: string) -> Entry
+
+pub fn entry_list(key: string, items: [string]) -> Entry
+
+pub fn group_of(name: string, entries: [Entry]) -> Group
+
+pub fn ini_of(groups: [Group]) -> Ini
+
+```
+
 ## `io`
 
 **Experimental** (see docs/design/journal/ "Experimental modules"). File I/O. The first native module -- proved the `native fn` mechanism end to end.

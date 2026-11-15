@@ -25,6 +25,7 @@ flowchart LR
         encoding["encoding"]
         expr["expr"]
         fs["fs"]
+        ini["ini"]
         io["io"]
         json["json"]
         jwt["jwt"]
@@ -211,6 +212,8 @@ flowchart LR
     image --> bits
     image --> compress
     image --> paint
+    ini --> charset
+    ini --> locale
     io --> charset
     json --> charset
     json --> math
@@ -396,7 +399,7 @@ otherwise: everything on a layer depends only on lower layers.
 | Layer | Modules |
 |---|---|
 | 0 | `bits`, `charset`, `clock`, `compress`, `edit`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
-| 1 | `derive_reflect`, `geom`, `io`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `validate`, `window` |
+| 1 | `derive_reflect`, `geom`, `ini`, `io`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `validate`, `window` |
 | 2 | `encoding`, `fs`, `ibus`, `json`, `metrics`, `paint`, `shape`, `terminal`, `url`, `xml` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `svg`, `template`, `time`, `uuid` |
@@ -413,7 +416,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `atspi` | `a11y`, `widget` | - |
 | `batch` | `datasource`, `db`, `time`, `uuid` | - |
 | `bits` | - | `image` |
-| `charset` | - | `codec`, `csv`, `font`, `fs`, `io`, `json`, `ndjson`, `pdf`, `properties`, `terminal`, `toml`, `truetype`, `url`, `window`, `xml`, `yaml` |
+| `charset` | - | `codec`, `csv`, `font`, `fs`, `ini`, `io`, `json`, `ndjson`, `pdf`, `properties`, `terminal`, `toml`, `truetype`, `url`, `window`, `xml`, `yaml` |
 | `client` | `clock`, `compress`, `encoding`, `http`, `io`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `charset`, `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
@@ -445,11 +448,12 @@ otherwise: everything on a layer depends only on lower layers.
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `ibus` | `window` | - |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
+| `ini` | `charset`, `locale` | - |
 | `io` | `charset` | `client`, `csv`, `fs`, `http`, `rest`, `server`, `terminal`, `xml` |
 | `json` | `charset`, `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `paging`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
-| `locale` | - | `client`, `encoding`, `eql`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `svg`, `time`, `toml`, `url`, `xml`, `yaml` |
+| `locale` | - | `client`, `encoding`, `eql`, `http`, `ini`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `svg`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
 | `math` | - | `controls`, `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker`, `svg` |

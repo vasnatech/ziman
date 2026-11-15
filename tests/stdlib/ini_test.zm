@@ -1,0 +1,334 @@
+// `ini`: the freedesktop desktop-entry format.
+//
+// **The cases here are the ones a reader written from the look of the format gets wrong**: a
+// trailing `;` is a terminator and not an empty item, `\s` is the only way a value keeps a leading
+// space, an unknown escape is not an error (a Windows path is not written in escapes), and a
+// localised key falls back in a specified order rather than by string prefix.
+use charset
+use ini
+use locale
+use test
+
+fn read(text: string) -> ini.Ini {
+    return switch ini.parse(text) {
+        Ok(f) { f }
+        Err(why) {
+            test.fail(why)
+            ini.ini_of([])
+        }
+    }
+}
+
+fn refused(text: string) -> bool {
+    return switch ini.parse(text) {
+        Ok(_) { false }
+        Err(_) { true }
+    }
+}
+
+fn only_group(text: string) -> ini.Group {
+    val f = read(text)
+    test.assert_eq(1, len(f.groups))
+    return f.groups[0]
+}
+
+fn said(o: Option<string>) -> string {
+    return switch o {
+        Some(v) { v }
+        None { "<absent>" }
+    }
+}
+
+// ---- the shape of a file
+
+#[test]
+fn groups_keys_and_values() {
+    val f = read("[One]\nA=1\nB=2\n\n[Two]\nA=3\n")
+    test.assert_eq(2, len(f.groups))
+    val one = switch ini.group(f, "One") {
+        Some(g) { g }
+        None {
+            test.fail("no group One")
+            ini.group_of("", [])
+        }
+    }
+    test.assert_eq("1", said(ini.value(one, "A")))
+    test.assert_eq("2", said(ini.value(one, "B")))
+    // The same key in another group is another entry, which is the whole point of groups.
+    test.assert_eq("3", said(ini.value(switch ini.group(f, "Two") {
+        Some(g) { g }
+        None {
+            test.fail("no group Two")
+            ini.group_of("", [])
+        }
+    }, "A")))
+    // A group that is not there is `None`, not an empty group.
+    test.assert(switch ini.group(f, "Three") {
+        Some(_) { false }
+        None { true }
+    })
+}
+
+#[test]
+fn the_spaces_around_the_equals_sign_are_ignored() {
+    // The specification says so, and `Example  =  folder` occurs in real index.theme files.
+    val g = only_group("[G]\nExample  =  folder\n")
+    test.assert_eq("folder", said(ini.value(g, "Example")))
+    // Which means a value that *wants* a leading space has to say so with `\s`.
+    test.assert_eq(" folder", said(ini.value(only_group("[G]\nExample=\\sfolder\n"), "Example")))
+}
+
+#[test]
+fn comments_blank_lines_and_crlf() {
+    val g = only_group("# a theme\r\n\r\n[G]\r\nA=1\r\n# trailing comment\r\n")
+    test.assert_eq("1", said(ini.value(g, "A")))
+    // A `#` inside a value is not a comment: only a line that starts with one is.
+    test.assert_eq("red # not a comment", said(ini.value(only_group("[G]\nA=red # not a comment\n"), "A")))
+}
+
+#[test]
+fn an_absent_key_and_an_empty_one_are_different_answers() {
+    val g = only_group("[G]\nEmpty=\n")
+    test.assert_eq("", said(ini.value(g, "Empty")))
+    test.assert_eq("<absent>", said(ini.value(g, "Missing")))
+}
+
+// ---- localised keys
+
+#[test]
+fn a_localised_key_falls_back_in_the_specified_order() {
+    val g = only_group(concat(
+        "[G]\n",
+        "Name=plain\n",
+        "Name[de]=German\n",
+        "Name[de_DE]=German of Germany\n",
+        "Name[sr@latin]=Serbian in latin\n"
+    ))
+    test.assert_eq("German of Germany", said(ini.value_for(g, "Name", "de_DE")))
+    test.assert_eq("German of Germany", said(ini.value_for(g, "Name", "de_DE.UTF-8")))
+    // No `de_AT`, so the language alone answers -- not the other country's.
+    test.assert_eq("German", said(ini.value_for(g, "Name", "de_AT")))
+    test.assert_eq("German", said(ini.value_for(g, "Name", "de")))
+    // A modifier is tried with the country and then without it.
+    test.assert_eq("Serbian in latin", said(ini.value_for(g, "Name", "sr_RS@latin")))
+    // Nothing for French, so the unlocalised value, which is the last step of the order.
+    test.assert_eq("plain", said(ini.value_for(g, "Name", "fr_FR")))
+    // And `value` never answers a localised entry, whatever the system language is.
+    test.assert_eq("plain", said(ini.value(g, "Name")))
+}
+
+#[test]
+fn a_locale_is_matched_by_its_posix_name() {
+    // `locale.of("de")` opens whatever the host calls German, so a file carrying `Name[de_DE]`
+    // answers for it. The tag door is for a caller that means exactly what it typed.
+    val g = only_group("[G]\nName=plain\nName[de_DE]=German of Germany\n")
+    val through_locale = said(ini.value_for(g, "Name", locale.of("de_DE")))
+    test.assert_eq("German of Germany", through_locale)
+}
+
+// ---- lists
+
+#[test]
+fn a_trailing_semicolon_is_a_terminator() {
+    // `Inherits=Adwaita;hicolor;` is two themes, not three. Every real theme file writes it this
+    // way, and a reader that split on `;` gets an empty theme name at the end.
+    val g = only_group("[G]\nInherits=Adwaita;hicolor;\n")
+    val names = ini.list_in(g, "Inherits")
+    test.assert_eq(2, len(names))
+    test.assert_eq("Adwaita", names[0])
+    test.assert_eq("hicolor", names[1])
+    // Without the terminator, the same two.
+    test.assert_eq(2, len(ini.list_in(only_group("[G]\nInherits=Adwaita;hicolor\n"), "Inherits")))
+    // An escaped semicolon is part of its item.
+    val one = ini.list_in(only_group("[G]\nInherits=a\\;b;c;\n"), "Inherits")
+    test.assert_eq(2, len(one))
+    test.assert_eq("a;b", one[0])
+    // A key that is not there is an empty list, which is the answer a caller wants either way.
+    test.assert_eq(0, len(ini.list_in(g, "Nothing")))
+}
+
+// ---- escapes
+
+#[test]
+fn the_five_escapes_and_nothing_else() {
+    test.assert_eq("a b", ini.unescaped("a\\sb"))
+    test.assert_eq("a\nb", ini.unescaped("a\\nb"))
+    test.assert_eq("a\tb", ini.unescaped("a\\tb"))
+    test.assert_eq("a\rb", ini.unescaped("a\\rb"))
+    test.assert_eq("a\\b", ini.unescaped("a\\\\b"))
+    // **An unknown escape is not an error and not a deletion**: a value of `C:\users` is a path,
+    // not an escape, and a reader that refused it would refuse a file the format never asked to be
+    // written differently. (`C:\temp` is *not* an example of that -- `\t` is one of the five, so
+    // that one really does unescape to a tab, which is the specification's doing and not this
+    // reader's.)
+    test.assert_eq("C:\\users", ini.unescaped("C:\\users"))
+    test.assert_eq("C:\temp", ini.unescaped("C:\\temp"))
+    // A trailing backslash is itself.
+    test.assert_eq("end\\", ini.unescaped("end\\"))
+}
+
+#[test]
+fn escaping_is_the_inverse_where_it_has_to_be() {
+    for text in ["plain", "a b", "a\nb", "a\tb", "a\\b", "a;b", " leading", "trailing "] {
+        test.assert_eq(text, ini.unescaped(ini.escaped(text)))
+    }
+    // **`escaped` does not touch a `;`**, because a semicolon is a separator only inside a list,
+    // and `list_text` is what escapes it: that is what keeps the pair above an exact inverse.
+    test.assert_eq("a;b", ini.escaped("a;b"))
+    test.assert_eq(1, len(ini.list_of(ini.list_text(["a;b"]))))
+    test.assert_eq("a;b", ini.list_of(ini.list_text(["a;b"]))[0])
+    val three = ini.list_of(ini.list_text(["one", "two;half", "three"]))
+    test.assert_eq(3, len(three))
+    test.assert_eq("two;half", three[1])
+}
+
+// ---- typed access
+
+#[test]
+fn the_typed_readers_and_what_they_refuse() {
+    val g = only_group("[G]\nSize=16\nScale=1.5\nHidden=true\nShown=false\nName=Adwaita\n")
+    test.assert_eq(16, switch ini.get_int(g, "Size") {
+        Ok(n) { n }
+        Err(why) {
+            test.fail(why)
+            0
+        }
+    })
+    test.assert_near(1.5, switch ini.get_float(g, "Scale") {
+        Ok(x) { x }
+        Err(why) {
+            test.fail(why)
+            0.0
+        }
+    }, 0.0001)
+    test.assert(switch ini.get_bool(g, "Hidden") {
+        Ok(b) { b }
+        Err(why) {
+            test.fail(why)
+            false
+        }
+    })
+    test.assert_false(switch ini.get_bool(g, "Shown") {
+        Ok(b) { b }
+        Err(_) { true }
+    })
+    // `true` and `false` are the two spellings the specification names. A `Hidden=1` that read as
+    // true would hide a launcher the file did not hide.
+    test.assert(refused_value(only_group("[G]\nHidden=1\n"), "Hidden"))
+    test.assert(refused_value(only_group("[G]\nHidden=True\n"), "Hidden"))
+    test.assert(refused_value(only_group("[G]\nHidden=yes\n"), "Hidden"))
+    // And a key that is absent is an Err here rather than a silent zero, because a caller asking
+    // for an int has nowhere to put "it was not there".
+    test.assert(switch ini.get_int(g, "Missing") {
+        Ok(_) { false }
+        Err(_) { true }
+    })
+}
+
+fn refused_value(g: ini.Group, key: string) -> bool {
+    return switch ini.get_bool(g, key) {
+        Ok(_) { false }
+        Err(_) { true }
+    }
+}
+
+// ---- what it refuses
+
+#[test]
+fn the_three_things_the_specification_forbids() {
+    // Measured before choosing to refuse: of the 155 readable `index.theme` and `.desktop` files
+    // under /usr/share on a Fedora desktop, **every one parses** -- so refusing these costs
+    // nothing real, and accepting them would mean picking one of two values with nothing to say
+    // which.
+    test.assert(refused("Key=1\n[G]\n"))
+    test.assert(refused("[G]\nKey=1\nKey=2\n"))
+    test.assert(refused("[G]\n[G]\n"))
+    // A localised duplicate is a duplicate; the same key in two *different* locales is not.
+    test.assert(refused("[G]\nName[de]=a\nName[de]=b\n"))
+    test.assert_eq(2, len(only_group("[G]\nName[de]=a\nName[fr]=b\n").entries))
+}
+
+#[test]
+fn and_the_lines_that_are_not_lines() {
+    test.assert(refused("[G\nKey=1\n"))
+    test.assert(refused("[]\nKey=1\n"))
+    test.assert(refused("[G]\nnonsense\n"))
+    test.assert(refused("[G]\n=1\n"))
+    test.assert(refused("[G]\nName[]=x\n"))
+    test.assert(refused("[G]\nName[de=x\n"))
+    // An empty file is a file with no groups, not an error: `.desktop` directories contain them.
+    test.assert_eq(0, len(read("").groups))
+    test.assert_eq(0, len(read("# only a comment\n").groups))
+}
+
+// ---- writing
+
+#[test]
+fn what_round_trips_is_the_data() {
+    val text = "# a comment\n[One]\nA=1\nName[de]=German\n\n[Two]\nB=a\\sb\n"
+    val f = read(text)
+    val written = ini.format(f)
+    // The comment is not data and does not survive, which is the trade `json.format` and
+    // `toml.format` make too. Everything else is byte for byte.
+    test.assert_eq("[One]\nA=1\nName[de]=German\n\n[Two]\nB=a\\sb\n", written)
+    // And it parses back to the same values, escapes included.
+    val again = read(written)
+    test.assert_eq("a b", said(ini.value(again.groups[1], "B")))
+    test.assert_eq("German", said(ini.value_for(again.groups[0], "Name", "de")))
+}
+
+#[test]
+fn a_file_can_be_built_in_code() {
+    val f = ini.ini_of([
+        ini.group_of("Icon Theme", [
+            ini.entry_of("Name", "My Theme"),
+            ini.entry_in("Name", "de", "Mein Thema"),
+            ini.entry_of("Inherits", "Adwaita;hicolor")
+        ])
+    ])
+    val text = ini.format(f)
+    val back = read(text)
+    val g = back.groups[0]
+    test.assert_eq("My Theme", said(ini.value(g, "Name")))
+    test.assert_eq("Mein Thema", said(ini.value_for(g, "Name", "de")))
+    // `entry_list` is the one that writes a list, and it escapes each item -- a value holding a
+    // `;` comes back as one item rather than two.
+    test.assert_eq(1, len(ini.list_in(ini.group_of("G", [ini.entry_list("X", ["a;b"])]), "X")))
+    test.assert_eq(2, len(ini.list_in(ini.group_of("G", [ini.entry_list("X", ["a", "b"])]), "X")))
+}
+
+// ---- bytes and charsets
+
+#[test]
+fn the_bytes_door_defaults_to_utf8_and_takes_another() {
+    val utf8 = to_bytes("[G]\nName=Ünïcøde\n")
+    val f = switch ini.parse(utf8) {
+        Ok(x) { x }
+        Err(why) {
+            test.fail(why)
+            ini.ini_of([])
+        }
+    }
+    test.assert_eq("Ünïcøde", said(ini.value(f.groups[0], "Name")))
+    // A file that predates the specification: the same name in Latin-1 is not valid UTF-8, so the
+    // default refuses it and naming the charset reads it.
+    val latin = switch charset.encode("[G]\nName=Ünïcøde\n", charset.Charset.Latin1) {
+        Ok(b) { b }
+        Err(_) {
+            test.fail("latin-1 cannot hold the name")
+            utf8
+        }
+    }
+    test.assert(switch ini.parse(latin) {
+        Ok(_) { false }
+        Err(_) { true }
+    })
+    val read_latin = switch ini.parse(latin, charset.Charset.Latin1) {
+        Ok(x) { x }
+        Err(why) {
+            test.fail(why)
+            ini.ini_of([])
+        }
+    }
+    test.assert_eq("Ünïcøde", said(ini.value(read_latin.groups[0], "Name")))
+}

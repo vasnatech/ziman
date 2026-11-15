@@ -26,6 +26,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`toml`](toml.md) | TOML 1.0 on top of `json`: a document is a `Json` object, so any `#[derive(Json)]` type decodes from it with its own `_from_json`. |
 | [`yaml`](yaml.md) | A strict YAML 1.2 subset on top of `json`. |
 | [`xml`](xml.md) | XML 1.0 as a document tree: a reader, a writer, and a small path finder. |
+| [`ini`](ini.md) | The freedesktop desktop-entry format. |
 | [`markdown`](markdown.md) | Markdown as a document tree: a reader over a declared subset, a writer, and the escaping that makes generated documents safe. |
 | [`properties`](properties.md) | Spring-Boot-style configuration. |
 | [`number`](number.md) | . |

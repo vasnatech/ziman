@@ -1,0 +1,97 @@
+use ini
+use locale
+
+// The freedesktop desktop-entry format: `index.theme` in every icon theme, every `.desktop`
+// launcher, `mimeapps.list`. One level of groups, unquoted values, localised keys, and `;`-separated
+// lists -- which is why it is neither TOML nor `properties`.
+fn demo() -> Result<unit, string> {
+    val file = concat(
+        "# Adwaita, trimmed to what a lookup reads\n",
+        "[Icon Theme]\n",
+        "Name=Adwaita\n",
+        "Name[de]=Adwaita\n",
+        "Comment=The GNOME icon theme\n",
+        "Comment[de]=Das GNOME-Symbolthema\n",
+        "Inherits=Adwaita;hicolor;\n",
+        "Directories=16x16/actions;scalable/devices\n",
+        "\n",
+        "[16x16/actions]\n",
+        "Size=16\n",
+        "Context=Actions\n",
+        "Type=Fixed\n",
+        "\n",
+        "[scalable/devices]\n",
+        "Size=128\n",
+        "MinSize=8\n",
+        "MaxSize=512\n",
+        "Type=Scalable\n"
+    )
+    val theme = try ini.parse(file)
+    val top = switch ini.group(theme, "Icon Theme") {
+        Some(g) { g }
+        None { return err("no [Icon Theme] group") }
+    }
+    printf("{} groups\n", str(len(theme.groups)))
+
+    // **A list is one value with `;` in it**, and the trailing `;` is a terminator rather than an
+    // empty item -- so this is two themes, not three.
+    val inherits = ini.list_in(top, "Inherits")
+    printf("inherits {} themes, the first is {}\n", str(len(inherits)), inherits[0])
+
+    // A localised key falls back in the specification's order: `lang_COUNTRY@MODIFIER`, then
+    // `lang_COUNTRY`, then `lang@MODIFIER`, then `lang`, then the unlocalised key.
+    print(switch ini.value_for(top, "Comment", "de_DE") {
+        Some(text) { text }
+        None { "no comment" }
+    })
+    print(switch ini.value_for(top, "Comment", "fr_FR") {
+        Some(text) { text }
+        None { "no comment" }
+    })
+
+    // The size directories are groups of their own, named by the `Directories` list.
+    for name in ini.list_in(top, "Directories") {
+        val g = switch ini.group(theme, name) {
+            Some(x) { x }
+            None { return err(concat("the Directories list names ", name, ", which is not a group")) }
+        }
+        printf(
+            "{}: size {}, {}\n",
+            name,
+            str(try ini.get_int(g, "Size")),
+            switch ini.value(g, "Type") {
+                Some(kind) { kind }
+                None { "Threshold" }
+            }
+        )
+    }
+
+    // Writing: `entry_list` escapes each item, so a value holding a `;` reads back as one.
+    val written = ini.format(ini.ini_of([
+        ini.group_of("Icon Theme", [
+            ini.entry_of("Name", "Mine"),
+            ini.entry_in("Name", "de", "Meines"),
+            ini.entry_list("Inherits", ["Adwaita", "hicolor"])
+        ])
+    ]))
+    print(written)
+
+    // What it refuses, it names -- and all three of these are things the specification forbids
+    // rather than things this reader cannot do.
+    if Err(why) = ini.parse("Name=before any group\n") {
+        print(why)
+    }
+    if Err(why) = ini.parse("[Icon Theme]\nInherits=a\nInherits=b\n") {
+        print(why)
+    }
+    if Err(why) = ini.parse("[Icon Theme\n") {
+        print(why)
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("ini example failed: {}\n", e)
+    }
+}

@@ -1,0 +1,579 @@
+// ini.zm -- the freedesktop desktop-entry format: groups of `Key=Value`, with localised keys.
+//
+// **This is the format a Linux desktop is configured in**, and nothing in this library could read
+// it. `index.theme` in every icon theme, every `.desktop` launcher, `mimeapps.list`, the user
+// directories file: all of them are this, specified by freedesktop.org's Desktop Entry
+// Specification (which `index.theme` inherits by reference from the Icon Theme Specification).
+//
+// **It is not TOML and it is not `properties`, which is why it is its own module.** TOML quotes its
+// strings, types its values and nests its tables; this has unquoted values, one level of groups,
+// and a value's type is whatever the key's definition says it is. `properties` has no groups at
+// all, a different escape set, and `!` as a second comment character. Reading an `index.theme` with
+// either of them gets the Inherits list wrong -- it is `;`-separated with escapes, not a TOML array
+// and not one value.
+//
+// **What is specified and honoured here**: comments (`#`) and blank lines anywhere, group headers
+// in `[brackets]`, `Key=Value` with the spaces around `=` ignored, **localised keys**
+// (`Name[de_DE]=...`) resolved by the specification's own fallback order, the five string escapes
+// (`\s \n \t \r \\`), and `;`-separated lists whose items may contain an escaped `\;`. UTF-8 is the
+// specified encoding, so it is the default -- the `[byte]` overloads take another for the files
+// that predate the specification.
+//
+// **What it refuses rather than guessing**: an entry before the first group header, a group or a
+// key that occurs twice, and a header that never closes its bracket. The specification forbids all
+// three; GLib keeps the last duplicate, which means a file with two `Inherits` lines silently gets
+// one of them, and a reader cannot tell which. A caller for whom a bad file must not be fatal has
+// the `Err` to act on -- the icon theme reader treats an unreadable `index.theme` as a theme that
+// is not there, which is the fallback its own specification asks for.
+use charset
+use locale
+
+// One `Key=Value`, with the locale from a `Key[locale]` if it had one.
+//
+// **`value` is the text exactly as the file wrote it, escapes and all.** The accessors unescape;
+// this does not, so `format` can write a file back without inventing or losing an escape. A caller
+// reading the field directly wants `unescaped` next.
+pub struct Entry {
+    key: string
+    locale: Option<string>
+    value: string
+}
+
+pub struct Group {
+    name: string
+    entries: [Entry]
+}
+
+pub struct Ini {
+    groups: [Group]
+}
+
+// UTF-8, which the specification mandates. The overload taking a `Charset` is for the files that
+// came before it -- a `.desktop` file from 1999 is Latin-1 and says so nowhere.
+pub fn default_charset() -> charset.Charset {
+    return charset.Charset.Utf8
+}
+
+pub fn parse(text: string) -> Result<Ini, string> {
+    val groups = mutable_array_new<Group>()
+    var name = ""
+    var started = false
+    var entries = mutable_array_new<Entry>()
+    var line_number = 0
+    for raw in split(text, "\n") {
+        line_number = line_number + 1
+        val line = trim(strip_return(raw))
+        if len(line) == 0 || starts_with(line, "#") {
+            continue
+        }
+        if starts_with(line, "[") {
+            if !ends_with(line, "]") {
+                return err(concat(
+                    "ini: line ",
+                    str(line_number),
+                    ": group header '",
+                    line,
+                    "' never closes its bracket"
+                ))
+            }
+            val header = substring(line, 1, len(line) - 1)
+            if len(header) == 0 {
+                return err(concat("ini: line ", str(line_number), ": a group needs a name"))
+            }
+            if started {
+                push(groups, Group { name: name, entries: snapshot(entries) })
+            }
+            if duplicate_group(snapshot(groups), header) {
+                return err(concat(
+                    "ini: line ",
+                    str(line_number),
+                    ": group '",
+                    header,
+                    "' occurs twice, and the specification allows one"
+                ))
+            }
+            name = header
+            started = true
+            entries = mutable_array_new<Entry>()
+            continue
+        }
+        val equals = index_of(line, "=", 0)
+        if equals < 0 {
+            return err(concat(
+                "ini: line ",
+                str(line_number),
+                ": '",
+                line,
+                "' is neither a comment, a group header nor a Key=Value"
+            ))
+        }
+        if !started {
+            return err(concat(
+                "ini: line ",
+                str(line_number),
+                ": '",
+                trim(substring(line, 0, equals)),
+                "' is before any group header"
+            ))
+        }
+        val entry = try one_entry(line, equals, line_number)
+        if duplicate_entry(snapshot(entries), entry) {
+            return err(concat(
+                "ini: line ",
+                str(line_number),
+                ": '",
+                written_key(entry),
+                "' occurs twice in group '",
+                name,
+                "', and the specification allows one"
+            ))
+        }
+        push(entries, entry)
+    }
+    if started {
+        push(groups, Group { name: name, entries: snapshot(entries) })
+    }
+    return ok(Ini { groups: snapshot(groups) })
+}
+
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Ini, string> {
+    return switch charset.decode(data, set) {
+        Ok(text) { parse(text) }
+        Err(r) { err(charset.describe(r)) }
+    }
+}
+
+pub fn parse(data: [byte]) -> Result<Ini, string> {
+    return parse(data, default_charset())
+}
+
+// A line ending in CR, because a file written on another system is still this file. `split` on
+// "\n" leaves the CR of a CRLF on the end of every line.
+fn strip_return(line: string) -> string {
+    if ends_with(line, "\r") {
+        return substring(line, 0, len(line) - 1)
+    }
+    return line
+}
+
+fn one_entry(line: string, equals: int, line_number: int) -> Result<Entry, string> {
+    val written = trim(substring(line, 0, equals))
+    val value = trim(substring(line, equals + 1, len(line)))
+    if len(written) == 0 {
+        return err(concat("ini: line ", str(line_number), ": a value with no key"))
+    }
+    val open = index_of(written, "[", 0)
+    if open < 0 {
+        return ok(Entry { key: written, locale: Option<string>.None, value: value })
+    }
+    if !ends_with(written, "]") {
+        return err(concat(
+            "ini: line ",
+            str(line_number),
+            ": key '",
+            written,
+            "' never closes its locale bracket"
+        ))
+    }
+    val tag = substring(written, open + 1, len(written) - 1)
+    if len(tag) == 0 {
+        return err(concat(
+            "ini: line ",
+            str(line_number),
+            ": key '",
+            written,
+            "' has an empty locale"
+        ))
+    }
+    return ok(Entry {
+        key: substring(written, 0, open),
+        locale: Option<string>.Some(tag),
+        value: value
+    })
+}
+
+fn written_key(e: Entry) -> string {
+    if Some(tag) = e.locale {
+        return concat(e.key, "[", tag, "]")
+    }
+    return e.key
+}
+
+fn duplicate_group(groups: [Group], name: string) -> bool {
+    for g in groups {
+        if g.name == name {
+            return true
+        }
+    }
+    return false
+}
+
+fn duplicate_entry(entries: [Entry], e: Entry) -> bool {
+    for other in entries {
+        if other.key == e.key && same_locale(other.locale, e.locale) {
+            return true
+        }
+    }
+    return false
+}
+
+fn same_locale(a: Option<string>, b: Option<string>) -> bool {
+    if Some(x) = a {
+        if Some(y) = b {
+            return x == y
+        }
+        return false
+    }
+    return Option<string>.None == b
+}
+
+// ---- reading
+
+pub fn group(f: Ini, name: string) -> Option<Group> {
+    for g in f.groups {
+        if g.name == name {
+            return Option<Group>.Some(g)
+        }
+    }
+    return Option<Group>.None
+}
+
+// The unlocalised value, unescaped. **`None` and an empty string are different answers**: a key
+// that is absent is not the same as one set to nothing, and a `.desktop` file uses both.
+pub fn value(g: Group, key: string) -> Option<string> {
+    for e in g.entries {
+        if e.key == key && Option<string>.None == e.locale {
+            return Option<string>.Some(unescaped(e.value))
+        }
+    }
+    return Option<string>.None
+}
+
+// **The value for a locale, by the specification's own fallback order**: `lang_COUNTRY@MODIFIER`,
+// then `lang_COUNTRY`, then `lang@MODIFIER`, then `lang`, then the unlocalised key. A POSIX
+// locale's name carries all three parts (`de_DE.UTF-8@euro`), and the encoding is dropped because a
+// localised key never names one.
+//
+// This is the function a user-visible string goes through -- a theme's `Name`, a launcher's
+// `Comment` -- and `value` is the one for a key whose meaning is not language (`Inherits`, `Size`).
+//
+// **It matches the locale's POSIX name, which the host may have widened**: `locale.of("de")` opens
+// `de_DE.UTF-8` on a host where that is what German means, so a file carrying `Name[de_DE]` and no
+// `Name[de]` answers with the German of Germany. A caller who means the tag it typed and nothing
+// else passes the tag instead of a `Locale`.
+pub fn value_for(g: Group, key: string, l: Locale) -> Option<string> {
+    return value_for(g, key, locale.name_of(l))
+}
+
+// The same from a locale tag as a file or an environment variable writes one -- `de_DE@euro`,
+// `pt_BR`, `sr@latin`, with or without a `.UTF-8` in the middle. This is the door for a caller
+// reading `LC_MESSAGES` itself, and for a test that means exactly what it says.
+pub fn value_for(g: Group, key: string, tag: string) -> Option<string> {
+    for tag in tags_of(tag) {
+        for e in g.entries {
+            if e.key == key {
+                if Some(have) = e.locale {
+                    if have == tag {
+                        return Option<string>.Some(unescaped(e.value))
+                    }
+                }
+            }
+        }
+    }
+    return value(g, key)
+}
+
+// The locale tags to try, most specific first.
+fn tags_of(posix: string) -> [string] {
+    var body = posix
+    val dot = index_of(body, ".", 0)
+    var modifier = ""
+    val at = index_of(body, "@", 0)
+    if at >= 0 {
+        modifier = substring(body, at + 1, len(body))
+        body = substring(body, 0, at)
+    }
+    if dot >= 0 && dot < len(body) {
+        body = substring(body, 0, dot)
+    }
+    var language = body
+    var country = ""
+    val underscore = index_of(body, "_", 0)
+    if underscore >= 0 {
+        language = substring(body, 0, underscore)
+        country = substring(body, underscore + 1, len(body))
+    }
+    val out = mutable_array_new<string>()
+    if len(country) > 0 && len(modifier) > 0 {
+        push(out, concat(language, "_", country, "@", modifier))
+    }
+    if len(country) > 0 {
+        push(out, concat(language, "_", country))
+    }
+    if len(modifier) > 0 {
+        push(out, concat(language, "@", modifier))
+    }
+    if len(language) > 0 {
+        push(out, language)
+    }
+    return snapshot(out)
+}
+
+// A `;`-separated list, the specification's own multi-value shape: `Inherits=Adwaita;hicolor;`.
+//
+// **A trailing `;` is a terminator, not an empty item**, which the specification says and which
+// every real file relies on -- `Adwaita;hicolor;` is two themes. An item may contain a `\;`.
+pub fn list_of(text: string) -> [string] {
+    val out = mutable_array_new<string>()
+    val piece = mutable_string_new()
+    var i = 0
+    while i < len(text) {
+        val c = char_at(text, i)
+        if c == "\\" && i + 1 < len(text) {
+            append(piece, c)
+            append(piece, char_at(text, i + 1))
+            i = i + 2
+            continue
+        }
+        if c == ";" {
+            push(out, unescape_item(snapshot(piece)))
+            clear(piece)
+            i = i + 1
+            continue
+        }
+        append(piece, c)
+        i = i + 1
+    }
+    if len(piece) > 0 {
+        push(out, unescape_item(snapshot(piece)))
+    }
+    return snapshot(out)
+}
+
+// The list a key holds, or an empty list when the key is absent -- which is the same answer a
+// caller wants in both cases, since a theme with no `Inherits` inherits nothing.
+pub fn list_in(g: Group, key: string) -> [string] {
+    for e in g.entries {
+        if e.key == key && Option<string>.None == e.locale {
+            return list_of(e.value)
+        }
+    }
+    return []
+}
+
+// `true` or `false`, and nothing else: the specification names those two spellings, so `True`,
+// `yes` and `1` are refusals rather than guesses -- a `Hidden=1` that read as true would hide a
+// launcher the file did not hide.
+pub fn get_bool(g: Group, key: string) -> Result<bool, string> {
+    val text = try required(g, key)
+    if text == "true" {
+        return ok(true)
+    }
+    if text == "false" {
+        return ok(false)
+    }
+    return err(concat("ini: '", g.name, "'/", key, " is '", text, "', not true or false"))
+}
+
+pub fn get_int(g: Group, key: string) -> Result<int, string> {
+    val text = try required(g, key)
+    return switch parse_int(text) {
+        Ok(n) { ok(n) }
+        Err(why) { err(concat(
+            "ini: '",
+            g.name,
+            "'/",
+            key,
+            " is '",
+            text,
+            "', not a number (",
+            why,
+            ")"
+        )) }
+    }
+}
+
+pub fn get_float(g: Group, key: string) -> Result<float, string> {
+    val text = try required(g, key)
+    return switch parse_float(text) {
+        Ok(x) { ok(x) }
+        Err(why) { err(concat(
+            "ini: '",
+            g.name,
+            "'/",
+            key,
+            " is '",
+            text,
+            "', not a number (",
+            why,
+            ")"
+        )) }
+    }
+}
+
+pub fn get_string(g: Group, key: string) -> Result<string, string> {
+    return required(g, key)
+}
+
+fn required(g: Group, key: string) -> Result<string, string> {
+    if Some(text) = value(g, key) {
+        return ok(text)
+    }
+    return err(concat("ini: group '", g.name, "' has no ", key))
+}
+
+// ---- escapes
+
+// The five escapes the specification defines, and **only** those five: `\s` is a space, `\n` a
+// newline, `\t` a tab, `\r` a carriage return and `\\` a backslash. A backslash before anything
+// else is a backslash, because a file that writes a Windows path as `C:\temp` is not written in
+// escapes and refusing it would be refusing the file over a convention it never adopted.
+pub fn unescaped(text: string) -> string {
+    return unescape(text, false)
+}
+
+// The same with `\;` for a `;`, which is an escape **only inside a list** -- the specification adds
+// it to the list types rather than to strings, so a lone `\;` in an ordinary value stays as
+// written, like any other unknown escape.
+fn unescape_item(text: string) -> string {
+    return unescape(text, true)
+}
+
+fn unescape(text: string, in_a_list: bool) -> string {
+    if index_of(text, "\\", 0) < 0 {
+        return text
+    }
+    val out = mutable_string_new()
+    var i = 0
+    while i < len(text) {
+        val c = char_at(text, i)
+        if c != "\\" || i + 1 >= len(text) {
+            append(out, c)
+            i = i + 1
+            continue
+        }
+        val next = char_at(text, i + 1)
+        if next == "s" {
+            append(out, " ")
+        } else {
+            if next == "n" {
+                append(out, "\n")
+            } else {
+                if next == "t" {
+                    append(out, "\t")
+                } else {
+                    if next == "r" {
+                        append(out, "\r")
+                    } else {
+                        if next == "\\" {
+                            append(out, "\\")
+                        } else {
+                            if next == ";" && in_a_list {
+                                append(out, ";")
+                            } else {
+                                append(out, c)
+                                append(out, next)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 2
+    }
+    return snapshot(out)
+}
+
+// The inverse, for a value going into a file: **the five, and only the five**, so that
+// `unescaped(escaped(x))` is `x` for every x. A `;` is not escaped here -- it is only a separator
+// inside a list, and `list_text` is what escapes it.
+pub fn escaped(text: string) -> string {
+    val out = mutable_string_new()
+    var i = 0
+    while i < len(text) {
+        val c = char_at(text, i)
+        if c == "\\" {
+            append(out, "\\\\")
+        } else {
+            if c == "\n" {
+                append(out, "\\n")
+            } else {
+                if c == "\t" {
+                    append(out, "\\t")
+                } else {
+                    if c == "\r" {
+                        append(out, "\\r")
+                    } else {
+                        append(out, c)
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
+// ---- writing
+
+// The data back as a file. **Comments and blank lines are not data and do not survive**, which is
+// the same trade `json.format` and `toml.format` make: what round-trips is the entries, and an
+// `Entry.value` is the raw text so no escape is invented or lost on the way through.
+pub fn format(f: Ini) -> string {
+    val out = mutable_string_new()
+    var first = true
+    for g in f.groups {
+        if !first {
+            append(out, "\n")
+        }
+        first = false
+        append(out, "[")
+        append(out, g.name)
+        append(out, "]\n")
+        for e in g.entries {
+            append(out, written_key(e))
+            append(out, "=")
+            append(out, e.value)
+            append(out, "\n")
+        }
+    }
+    return snapshot(out)
+}
+
+// Several values as one value: each item escaped, `;` between them, and a `;` at the end because
+// that is how every file in the wild terminates a list (and `list_of` reads either).
+pub fn list_text(items: [string]) -> string {
+    val out = mutable_string_new()
+    for item in items {
+        append(out, escaped_item(item))
+        append(out, ";")
+    }
+    return snapshot(out)
+}
+
+fn escaped_item(text: string) -> string {
+    return replace(escaped(text), ";", "\\;")
+}
+
+// A group built in code, for a caller writing a file rather than reading one.
+pub fn entry_of(key: string, value: string) -> Entry {
+    return Entry { key: key, locale: Option<string>.None, value: escaped(value) }
+}
+
+pub fn entry_in(key: string, l: string, value: string) -> Entry {
+    return Entry { key: key, locale: Option<string>.Some(l), value: escaped(value) }
+}
+
+// A list-valued entry, which is `entry_of` plus `list_text`: `Inherits`, `MimeType`, `Categories`
+// and `OnlyShowIn` are all this shape, and writing one by hand is how a `;` ends up unescaped.
+pub fn entry_list(key: string, items: [string]) -> Entry {
+    return Entry { key: key, locale: Option<string>.None, value: list_text(items) }
+}
+
+pub fn group_of(name: string, entries: [Entry]) -> Group {
+    return Group { name: name, entries: entries }
+}
+
+pub fn ini_of(groups: [Group]) -> Ini {
+    return Ini { groups: groups }
+}

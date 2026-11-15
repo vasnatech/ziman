@@ -567,16 +567,35 @@ fn parsing_stays_linear_in_the_number_of_items() {
 
 #[test]
 fn parsing_a_simple_statement_stays_cheap() {
-    // 2000 parses of a statement with a join, a predicate and an order: under a second unless
-    // something structural has regressed.
+    // 1000 parses of a statement with a join, a predicate and an order: under half a second unless
+    // something structural has regressed. Three rounds of a thousand cost what one round of two
+    // thousand did, so this is a steadier measurement for the same time rather than a slower one.
+    //
+    // **The best of three rounds, after a warm-up, because a collection pause lands inside the
+    // measured span.** This read 1001 and 1005 ms inside `make lib-tests` while passing three
+    // times out of three on its own: the suite shares one process, so by the time this file runs
+    // the heap is large and a pause costs more -- the same thing that made
+    // `memdb_test.zm::seeding_is_linear_in_the_rows` flap. A pause can only *add* time, so the
+    // minimum of several rounds is the honest estimate of what the parser costs, and the bound
+    // stays where it was rather than being nudged up to cover the collector.
     val text = "SELECT p.name, v.reason FROM patient AS p JOIN visit AS v ON v.patient_id = p.id WHERE v.cost > 10 AND p.age IS NOT NULL ORDER BY p.name LIMIT 5"
-    val started = clock.monotonic_millis()
-    var i = 0
-    while i < 2000 {
-        val _ = test.assert_ok(sql.parse(text))
-        i = i + 1
+    val _ = test.assert_ok(sql.parse(text))
+    var best = 0
+    var round = 0
+    while round < 3 {
+        val started = clock.monotonic_millis()
+        var i = 0
+        while i < 1000 {
+            val _ = test.assert_ok(sql.parse(text))
+            i = i + 1
+        }
+        val took = clock.monotonic_millis() - started
+        if round == 0 || took < best {
+            best = took
+        }
+        round = round + 1
     }
-    test.assert_lt(clock.monotonic_millis() - started, 1000)
+    test.assert_lt(best, 500)
 }
 
 fn timed_parse(items: int, rounds: int) -> int {

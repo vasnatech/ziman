@@ -1,0 +1,14 @@
+3 groups
+inherits 2 themes, the first is Adwaita
+Das GNOME-Symbolthema
+The GNOME icon theme
+16x16/actions: size 16, Fixed
+scalable/devices: size 128, Scalable
+[Icon Theme]
+Name=Mine
+Name[de]=Meines
+Inherits=Adwaita;hicolor;
+
+ini: line 1: 'Name' is before any group header
+ini: line 3: 'Inherits' occurs twice in group 'Icon Theme', and the specification allows one
+ini: line 1: group header '[Icon Theme' never closes its bracket

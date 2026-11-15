@@ -114,6 +114,7 @@
 #include "toml_source.h"
 #include "markdown_source.h"
 #include "xml_source.h"
+#include "ini_source.h"
 #include "yaml_source.h"
 
 typedef struct {
@@ -225,6 +226,7 @@ static const CoreModule CORE_MODULES[] = {
     {"toml", TOML_SOURCE, TOML_SOURCE_PATH},
     {"markdown", MARKDOWN_SOURCE, MARKDOWN_SOURCE_PATH},
     {"xml", XML_SOURCE, XML_SOURCE_PATH},
+    {"ini", INI_SOURCE, INI_SOURCE_PATH},
     {"yaml", YAML_SOURCE, YAML_SOURCE_PATH},
 };
 #pragma GCC diagnostic pop
