@@ -437,6 +437,36 @@ static void run_defers(Module *module, Env *env) {
     if (env->defers_tracked) defer_env_untrack(env);
 }
 
+/* **Which natives need no frame, and what that actually requires.** A frame is pushed so that an
+ * error can name where it happened; a native that (1) raises no error a *program* can cause,
+ * (2) never calls back into Ziman, and (3) takes a fixed argument list has nothing to name, no
+ * inner frame to sit under and nothing for the collapse to do.
+ *
+ * **(1) is narrower than "cannot raise", and reading the code is how that turned up.** Every one of
+ * these reaches `mutable_*_table_get` when handed a builder, which raises `not a valid MutableArray
+ * handle` -- so they *can* raise, on a broken interpreter invariant rather than on anything a
+ * program wrote. That error carries no position of its own (`ziman_error("runtime", 0, 0, ...)`),
+ * so the frame would add the call site to a message about a corrupt handle. `len` has been on this
+ * path since the builtin ids landed and reaches the same check; this is the existing bargain, now
+ * written down rather than assumed.
+ *
+ * Every entry was read before it was added. `ziman_len` answers a count on every path,
+ * `ziman_contains` a bool, the two `get_or`s the found value or the default, and the two string
+ * tests a `memcmp`. None of them allocates, so none can even reach a collection.
+ *
+ * **A variadic native is refused at resolution** rather than trusted to stay fixed, because the
+ * collapse is what builds its tail array and skipping that would hand it the wrong shape.
+ *
+ * **`char_at` and `index_of` are deliberately absent**, and they are the reason this list is read
+ * rather than guessed: both pass `line` and `col` into `utf8_byte_of_char`, which raises on a bad
+ * index -- so both can fail, and both need the frame that failure would be named in. They look
+ * exactly as pure as `starts_with` from the outside. */
+static int is_frameless_native(NativeFn native) {
+    return native == ziman_len || native == ziman_contains ||
+           native == ziman_map_get_or || native == ziman_mutable_map_get_or ||
+           native == ziman_starts_with || native == ziman_ends_with;
+}
+
 /* A native's one-element form: the receiver and the single element, answering what the variadic
  * call would have answered. `push` is void in Ziman and returns `value_int(0)` here, as its own
  * native does. */
@@ -475,18 +505,20 @@ static TailOneFn tail_one_for(NativeFn native) {
 
 static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col) {
     ZIMAN_STACK_CHECK();
-    /* **`len(x)` before the frame is pushed at all.** It takes one argument, allocates nothing and
-     * cannot fail, so there is no error for a frame to be named in and nothing for the collapse to
-     * do. Measured: converting `len`'s nine declarations off the builtin id cost **+28.6%** on
-     * 9,000,000 calls without this and **the frame push was almost all of it** -- `len` is the
-     * hottest function in the language, since every `while i < len(x)` pays it once a pass.
+    /* **The frameless natives, before the frame is pushed at all.** `len` was the first of these
+     * and the measurement is its: converting its nine declarations off the builtin id cost
+     * **+28.6%** on 9,000,000 calls without this, and the frame push was almost all of it -- `len`
+     * is the hottest function in the language, since every `while i < len(x)` pays it once a pass.
+     * `contains` and the two `get_or`s are the same shape and now take the same path; see
+     * `is_frameless_native` for what a native has to be to qualify.
      *
-     * Picked by the already-cached native pointer, like the two `push` shortcuts below, so every
-     * other call pays one integer test and a relaxed load. On the very first call the pointer is
+     * One relaxed load and one test for every other call, which is what `native_impl` and
+     * `native_tail_one` already cost beside it. On a declaration's first call the flag is
      * unresolved and this falls through, once. */
-    if (fn->is_native && raw_argc == 1 &&
-        (NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED) == ziman_len) {
-        return ziman_len(raw_args, 1, call_line, call_col);
+    if (fn->is_native && __atomic_load_n(&fn->native_frameless, __ATOMIC_RELAXED) > 0) {
+        int argc;
+        Value *args = collapse_variadic_args(fn, raw_args, raw_argc, tail_is_array_spread, &argc);
+        return ((NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED))(args, argc, call_line, call_col);
     }
     ziman_push_frame(fn->name, fn->source_file, call_line, call_col);
     /* **One element, one load, one test.** `push(b, x)`, `append(out, piece)`, `add(s, x)` and
@@ -623,6 +655,11 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
              * path is a load and a test: the table is the only place that knows which natives can
              * take a single argument without the array, and it is read once per declaration. */
             __atomic_store_n(&fn->native_tail_one, (void (*)(void))tail_one_for(native), __ATOMIC_RELAXED);
+            /* And whether it can do without a frame. A variadic tail disqualifies it whatever the
+             * native is: the collapse builds that tail, and this path runs before the collapse. */
+            int fixed = fn->params.count == 0 || !fn->params.items[fn->params.count - 1].is_variadic;
+            __atomic_store_n(&fn->native_frameless,
+                             (is_frameless_native(native) && fixed) ? 1 : -1, __ATOMIC_RELAXED);
         }
         Value result = native(args, argc, call_line, call_col);
         if (args != raw_args) free(args);

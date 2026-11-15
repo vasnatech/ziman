@@ -477,13 +477,13 @@ static Value native_equals_ignore_case(Value *args, int argc, int line, int col)
     return value_bool(1);
 }
 
-static Value native_starts_with(Value *args, int argc, int line, int col) {
+Value ziman_starts_with(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     size_t ls = SLEN(args[0]), lp = SLEN(args[1]);
     return value_bool(lp <= ls && memcmp(SPTR(args[0]), SPTR(args[1]), lp) == 0);
 }
 
-static Value native_ends_with(Value *args, int argc, int line, int col) {
+Value ziman_ends_with(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     size_t ls = SLEN(args[0]), lx = SLEN(args[1]);
     return value_bool(lx <= ls && memcmp(SPTR(args[0]) + ls - lx, SPTR(args[1]), lx) == 0);
@@ -2417,7 +2417,7 @@ static Value native_mutable_map_get(Value *args, int argc, int line, int col) {
  * where the immutable `Map`'s own `map_get_or` (a builtin in interpreter.c, no wrapper) is 5-6x
  * faster than its `map_get`. Same shape as that builtin now. The idiom this exists for is the
  * word-count line in lib/prelude/map.zm's own comment, which runs it once per input word. */
-static Value native_mutable_map_get_or(Value *args, int argc, int line, int col) {
+Value ziman_mutable_map_get_or(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -3523,7 +3523,7 @@ static Value native_map_get(Value *args, int argc, int line, int col) {
 
 /* No `Option` allocated either way, which is the whole reason this is not `get` plus `unwrap_Some`
  * -- the same point native_mutable_map_get_or above makes for the builder. */
-static Value native_map_get_or(Value *args, int argc, int line, int col) {
+Value ziman_map_get_or(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -4068,8 +4068,8 @@ void prelude_register(void) {
      * would have run this one, reading a handle as text. The same trap `last_index_of` fell into
      * the day before, and the reason that one is `string_last_index_of` now. */
     native_register("string_char_at", native_char_at);
-    native_register("starts_with", native_starts_with);
-    native_register("ends_with", native_ends_with);
+    native_register("starts_with", ziman_starts_with);
+    native_register("ends_with", ziman_ends_with);
     native_register("replace", native_replace);
     native_register("trim", native_trim);
     native_register("is_empty", native_is_empty);
@@ -4099,7 +4099,7 @@ void prelude_register(void) {
     native_register("mutable_map_new", native_mutable_map_new);
     native_register("mutable_map_set", native_mutable_map_set);
     native_register("mutable_map_get", native_mutable_map_get);
-    native_register("mutable_map_get_or", native_mutable_map_get_or);
+    native_register("mutable_map_get_or", ziman_mutable_map_get_or);
     native_register("mutable_map_remove", ziman_mutable_map_remove);
     native_register("mutable_map_discard", native_mutable_map_discard);
     native_register("mutable_set_new", native_mutable_set_new);
@@ -4116,7 +4116,7 @@ void prelude_register(void) {
     native_register("array_filter", native_array_filter);
     native_register("map_set", native_map_set);
     native_register("map_get", native_map_get);
-    native_register("map_get_or", native_map_get_or);
+    native_register("map_get_or", ziman_map_get_or);
     /* **Swapped on 2026-10-24**: `keys(m)` answers the array and `keys_set(m)` the Set, so the
      * symbol the world-prefix fallback derives from `keys` on a `Map` has to be the array one.
      * Getting this backwards compiles and passes the suite -- both are natives of the right

@@ -767,6 +767,17 @@ typedef struct {
      * costs the same whatever the family grows to, which is also what made it safe to add the two
      * string shortcuts (see `ziman_mutable_string_append_one`, prelude.c). */
     void (*native_tail_one)(void);
+    /* Whether this native needs no frame on the stack: 0 "not looked up", 1 "none", -1 "one".
+     *
+     * **A frame exists to be named in an error**, and a native that cannot raise one has nothing to
+     * name. `len` has skipped its frame since the builtin ids landed -- the measurement there was
+     * **+28.6% on 9,000,000 calls** when it did not -- and this is that same fast path widened from
+     * one native to a list, because `contains` and `get_or` are exactly as incapable of failing.
+     *
+     * Resolved once per declaration beside `native_impl`, for the reason `native_tail_one` is: a
+     * chain of pointer comparisons on every call is what this kind of fast path costs when it is
+     * written the obvious way. */
+    int native_frameless;
     int line, col;
     /* Non-NULL for a function a #[derive] generated, e.g. "derive(Json) for
      * 'Point'": every position inside it is stamped with the declaration's

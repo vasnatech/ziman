@@ -182,6 +182,13 @@ void ziman_mutable_array_push_one(Value ab, Value element);
 /* `len` over all nine types it accepts -- one implementation, registered under the bare name,
  * which is right here because every one of the nine declarations wants it. */
 Value ziman_len(Value *args, int argc, int line, int col);
+/* The other frameless natives (src/interpreter.c's `is_frameless_native`): a lookup that answers a
+ * value or a default, and the presence test. None of them can raise, so none of them needs a frame
+ * to be named in. */
+Value ziman_map_get_or(Value *args, int argc, int line, int col);
+Value ziman_mutable_map_get_or(Value *args, int argc, int line, int col);
+Value ziman_starts_with(Value *args, int argc, int line, int col);
+Value ziman_ends_with(Value *args, int argc, int line, int col);
 /* `contains`, `snapshot` and `clear` over every type each accepts -- one implementation per
  * name, registered under the bare name, which is right whenever all of a set's members want
  * the same code (see ziman_len). */
