@@ -150,6 +150,11 @@ pub enum Fit {
     // The largest it can be inside the box with its aspect kept, centred -- the common case for a
     // photograph in a panel whose size the window decides.
     Contain
+    // `Contain`, but **never larger than its own size** -- CSS's `scale-down`, and the fit a
+    // *preview* wants. The difference shows on small pictures: a 16-point favicon in a 600-point
+    // pane is a blurry wall under `Contain` and a 16-point favicon under this, which is what it
+    // is. Found by showing an image response in curly, where `Contain` enlarged everything small.
+    Shrink
     // The box exactly, aspect ignored. Right for a texture or a gradient and wrong for a face.
     Stretch
 }
@@ -163,18 +168,24 @@ pub fn picture_box(p: Pictured, within: Rect) -> Rect {
     return switch p.fit {
         Stretch { within }
         Natural { centred_in(p.width, p.height, within) }
-        Contain {
-            if p.width <= 0.0 || p.height <= 0.0 {
-                within
-            } else {
-                // The smaller of the two ratios is the one that fits both ways.
-                val by_width = within.width / p.width
-                val by_height = within.height / p.height
-                val scale = if by_width < by_height { by_width } else { by_height }
-                centred_in(p.width * scale, p.height * scale, within)
-            }
-        }
+        Contain { scaled_into(p, within, false) }
+        Shrink { scaled_into(p, within, true) }
     }
+}
+
+// The picture at the largest scale that fits, centred -- and never above 1 when `never_larger`.
+fn scaled_into(p: Pictured, within: Rect, never_larger: bool) -> Rect {
+    if p.width <= 0.0 || p.height <= 0.0 {
+        return within
+    }
+    // The smaller of the two ratios is the one that fits both ways.
+    val by_width = within.width / p.width
+    val by_height = within.height / p.height
+    var scale = if by_width < by_height { by_width } else { by_height }
+    if never_larger && scale > 1.0 {
+        scale = 1.0
+    }
+    return centred_in(p.width * scale, p.height * scale, within)
 }
 
 fn centred_in(width: float, height: float, within: Rect) -> Rect {
@@ -205,6 +216,19 @@ pub fn picture_fitted(image: int, width: float, height: float, alt: string) -> W
         width: width,
         height: height,
         fit: Fit.Contain,
+        alt: alt,
+        name: ""
+    })
+}
+
+// The same, except that a picture smaller than its box is left at its own size -- what a *preview*
+// wants, where the box is whatever the window has spare and the picture is whatever arrived.
+pub fn picture_shrunk(image: int, width: float, height: float, alt: string) -> Widget {
+    return Widget.Picture(Pictured {
+        image: image,
+        width: width,
+        height: height,
+        fit: Fit.Shrink,
         alt: alt,
         name: ""
     })

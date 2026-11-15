@@ -266,6 +266,11 @@ pub enum Fit {
     // The largest it can be inside the box with its aspect kept, centred -- the common case for a
     // photograph in a panel whose size the window decides.
     Contain
+    // `Contain`, but **never larger than its own size** -- CSS's `scale-down`, and the fit a
+    // *preview* wants. The difference shows on small pictures: a 16-point favicon in a 600-point
+    // pane is a blurry wall under `Contain` and a 16-point favicon under this, which is what it
+    // is. Found by showing an image response in curly, where `Contain` enlarged everything small.
+    Shrink
     // The box exactly, aspect ignored. Right for a texture or a gradient and wrong for a face.
     Stretch
 }
@@ -306,6 +311,15 @@ pub fn picture_fitted(image: int, width: float, height: float, alt: string) -> W
 ```
 
 A picture fitted into its box, aspect kept -- what a photograph in a panel wants.
+
+### `picture_shrunk`
+
+```
+pub fn picture_shrunk(image: int, width: float, height: float, alt: string) -> Widget
+```
+
+The same, except that a picture smaller than its box is left at its own size -- what a *preview*
+wants, where the box is whatever the window has spare and the picture is whatever arrived.
 
 ## Icons
 
