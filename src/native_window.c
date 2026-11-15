@@ -96,6 +96,7 @@ static Value window_ok(Type ok, Value v) {
 #include <sys/ipc.h>
 #include <sys/shm.h>
 
+#include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/XShm.h>
@@ -723,6 +724,72 @@ static Value native_window_id_raw(Value *args, int argc, int line, int col) {
 #endif
 }
 
+/* window.set_icon_raw(handle, pixels, width, height): the picture a task bar, an alt-tab switcher
+ * and a window list draw for this window.
+ *
+ * **`_NET_WM_ICON` is one property holding a *list* of images**, each written as its width, its
+ * height, and then its pixels row by row from the top left. This replaces the property rather than
+ * appending to it, so a caller giving several sizes gives them in one call; a window manager picks
+ * whichever it wants and scales the rest.
+ *
+ * **The pixels are 32-bit ARGB in an array of `long`**, which is the trap in this API: the property
+ * format is 32, and `XChangeProperty` nevertheless reads a `long` per element -- 64 bits wide here
+ * -- and narrows each one itself. Passing the caller's packed 32-bit buffer straight through writes
+ * half an icon made of garbage on any 64-bit machine, which is why this widens into its own array
+ * rather than casting.
+ *
+ * **Straight alpha, not premultiplied**, which is what `image.Image` carries and what every tool
+ * writing this property does. A premultiplied icon reads as a darker one wherever it is
+ * translucent, which looks like a theme problem rather than a format mistake. */
+static Value native_window_set_icon_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Type ok = type_scalar(TY_UNIT);
+#ifndef ZIMAN_X11
+    (void)args;
+    return window_err(ok, "this build of ziman has no window backend (build with `make gui`)");
+#else
+    Slot *s = slot_of(args[0].as.i);
+    if (s == NULL) return window_err(ok, "no such window (already closed?)");
+    int64_t width = args[2].as.i;
+    int64_t height = args[3].as.i;
+    if (width < 1 || height < 1) return window_err(ok, "an icon's width and height must be positive");
+
+    int n = 0;
+    uint8_t *rgba = array_copy_bytes(args[1].as.arr, &n);
+    size_t pixels = (size_t)width * (size_t)height;
+    size_t needed = pixels * 4u;
+    if ((size_t)n != needed) {
+        free(rgba);
+        char message[160];
+        snprintf(message, sizeof message,
+                 "the icon is %d bytes but %lldx%lld RGBA needs %zu", n,
+                 (long long)width, (long long)height, needed);
+        return window_err(ok, message);
+    }
+
+    size_t count = pixels + 2u;
+    unsigned long *data = ziman_xcalloc(count, sizeof(unsigned long));
+    data[0] = (unsigned long)width;
+    data[1] = (unsigned long)height;
+    for (size_t i = 0; i < pixels; i++) {
+        unsigned long r = rgba[i * 4u + 0u];
+        unsigned long g = rgba[i * 4u + 1u];
+        unsigned long b = rgba[i * 4u + 2u];
+        unsigned long a = rgba[i * 4u + 3u];
+        data[i + 2u] = (a << 24) | (r << 16) | (g << 8) | b;
+    }
+    Atom property = XInternAtom(g_display, "_NET_WM_ICON", False);
+    XChangeProperty(g_display, s->win, property, XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)data, (int)count);
+    XFlush(g_display);
+    free(data);
+    free(rgba);
+    return window_ok(ok, value_unit());
+#endif
+}
+
 /* window.close_raw(handle): unmaps and forgets. Not a Result -- closing something already closed is
  * what an unwinding `with_window` does on a path that already failed, and failing there would
  * replace the real error with this one. */
@@ -894,6 +961,7 @@ void native_window_register(void) {
     native_register("window::size_raw", native_window_size_raw);
     native_register("window::id_raw", native_window_id_raw);
     native_register("window::origin_raw", native_window_origin_raw);
+    native_register("window::set_icon_raw", native_window_set_icon_raw);
     native_register("window::close_raw", native_window_close_raw);
     native_register("window::display_scale_raw", native_window_display_scale_raw);
 }

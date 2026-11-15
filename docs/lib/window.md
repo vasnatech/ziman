@@ -374,6 +374,29 @@ pub fn size(w: Window) -> Result<Size, string>
 The window's size as the display server last reported it, which is not necessarily what was
 asked for: a window manager may have resized it on the way to the screen.
 
+### `set_icon`
+
+```
+pub fn set_icon(w: Window, pixels: [byte], width: int, height: int) -> Result<unit, string>
+```
+
+The picture a task bar, an alt-tab switcher and a window list draw for this window: straight
+(not premultiplied) RGBA bytes, row by row from the top left -- exactly what `image.Image` holds
+and what `raster.render` answers, so an icon is a scene drawn once at startup.
+
+**A window with no icon is drawn with the desktop's placeholder**, which is what every window
+this library opened looked like until now: an application that asks the user's icon theme for
+its buttons and then shows a grey square in the switcher has done the visible half and skipped
+the one people look at while alt-tabbing.
+
+**Several sizes are one call, not several**: the property holds a list and a window manager picks
+from it, so pass the sizes concatenated -- each as its own width, height and pixels -- rather
+than calling this once per size, which would replace the list each time. (`set_icon` writes one
+image; the raw door below takes whatever a caller has packed.)
+
+X11 only, like the rest of this module: a build without a window backend answers the same `Err`
+every other call here does.
+
 ### `id`
 
 ```

@@ -354,6 +354,24 @@ fn paint_region(w: window.Window) -> Result<unit, string> {
     return magenta_region(w)
 }
 
+// A **2 wide by 3 high** icon in straight RGBA: opaque red, green and blue, white at half alpha,
+// opaque black, and a fully transparent pixel.
+//
+// **Not square, and that is not an aesthetic choice.** The first version of this was 2x2, and
+// swapping the width and height in the property's header then changed nothing -- a mutation that
+// survived because the fixture could not tell the two apart. Three rows of two makes the header
+// say something.
+fn icon_pixels() -> [byte] {
+    return [
+        255b, 0b, 0b, 255b,
+        0b, 255b, 0b, 255b,
+        0b, 0b, 255b, 255b,
+        255b, 255b, 255b, 128b,
+        0b, 0b, 0b, 255b,
+        0b, 0b, 0b, 0b
+    ]
+}
+
 fn main() {
     val outcome = window.with_window<unit>(
         "ziman window test",
@@ -363,6 +381,15 @@ fn main() {
             val id = try window.id(w)
             val size = try window.size(w)
             printf("window-id {}\n", str(id))
+            // **The icon, checked through the property rather than through a picture**: nothing in
+            // the window's own pixels says what a task bar draws, so the harness reads
+            // `_NET_WM_ICON` back with `xprop`. Four pixels chosen to catch every way the packing
+            // can go wrong -- a channel swap shows as red where blue goes, and a premultiplied
+            // half-white would read as 0x80808080 instead of 0x80ffffff.
+            switch window.set_icon(w, icon_pixels(), 2, 3) {
+                Ok(_) { print("icon set") }
+                Err(why) { printf("icon failed {}\n", why) }
+            }
             printf("size {}x{}\n", str(size.width), str(size.height))
             // **Not printed here, and the reason is the whole point of the function.** A window
             // that has just been mapped has not been placed yet: asked at this line it answers

@@ -162,6 +162,32 @@ check_pixel 317 2 "srgb(0,255,0)" corner_top_right
 check_pixel 2 237 "srgb(0,0,255)" corner_bottom_left
 check_pixel 317 237 "srgb(255,255,255)" corner_bottom_right
 
+# --- the icon, which no screenshot of the window can see
+#
+# **`_NET_WM_ICON` is what a task bar, an alt-tab switcher and a window list draw**, and it is in a
+# property rather than in the window, so the only way to check it is to read the property back.
+# The program sets a **2 wide by 3 high** icon whose six pixels are chosen to catch every way the
+# packing can go wrong: opaque red, green and blue, then white at **half alpha** -- which a
+# premultiplied writer would have written as 0x80808080 rather than 0x80ffffff -- then opaque black
+# and a transparent pixel. Not square, because at 2x2 a swapped width and height is a mutation no
+# assertion here could see, which is what breaking it on purpose showed.
+#
+# The trap this gate exists for is narrower than channel order. `XChangeProperty` with a format of
+# 32 reads an array of `long`, 64 bits wide here, and narrows each element itself -- so handing it a
+# packed 32-bit buffer writes half an icon of garbage on every 64-bit machine, and nothing in the
+# window's own pixels would ever say so.
+# **`-notype 32c` or this reads an ASCII-art picture.** Without a format, `xprop` recognises
+# `_NET_WM_ICON` and pretty-prints it as a little drawing -- which is charming and says nothing
+# about the numbers, including nothing about the half-alpha pixel.
+icon_words="$(xprop -id "$id" -notype 32c _NET_WM_ICON 2>/dev/null | tr -d ' ' | sed 's/^.*=//')"
+expected_icon="2,3,4294901760,4278255360,4278190335,2164260863,4278190080,0"
+if [ "$icon_words" = "$expected_icon" ]; then
+    echo "PASS window_icon"
+else
+    echo "FAIL window_icon (_NET_WM_ICON is '$icon_words', expected '$expected_icon')"
+    fail=1
+fi
+
 # --- the other present path, against the same four triples
 #
 # `window.present` takes premultiplied floats and `present_bytes` takes bytes, and both repack into
