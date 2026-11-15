@@ -112,6 +112,65 @@ fn demo() -> Result<unit, string> {
         x = x + 1
     }
     print(concat("label darkens red:  ", str(darkest < 0.5)))
+
+    // ---- two faces, through the whole chain
+    //
+    // **The claim multi-font support makes is that a `Label` naming face 1 is *rendered* in face
+    // 1**, and neither layer can show that alone: `widget_test.zm` proves the op carries the index
+    // and `graphics_text.zm` proves the renderer honours one, while this is the only place the two
+    // meet. Caladea Bold is vendored beside the Regular for exactly this kind of case -- see the
+    // glyph-cache note in `graphics_text.zm`, where the same pair caught a cache key that did not
+    // name the face.
+    //
+    // Measured as **ink**, the sum of alpha over the glyphs: the same word in bold lays down more
+    // of it. A tree that drew everything in face 0 -- which is what this layer did until the index
+    // stopped being a literal -- would print two identical numbers.
+    val bold_data = switch fs.read_bytes("vendor/fonts/Caladea-Bold.ttf") {
+        Ok(d) { d }
+        Err(e) { return err(concat("cannot read the bold face: ", fs.fs_error_message(e))) }
+    }
+    val bold = try font.load(bold_data)
+    val both = try widget.metrics_for_faces([face, bold])
+    val word = "Hamburgefonstiv"
+    var inks = [0.0, 0.0]
+    for which in [0, 1] {
+        val tree = widget.label_in_face(word, 16.0, paint.black(), which)
+        val box = geom.rect_of(0.0, 0.0, 200.0, 30.0)
+        val scene_of_it = widget.paint(widget.layout(tree, box, both), both)
+        val pixels = try raster.render(scene_of_it, with raster.options() {
+            fonts: [face, bold],
+            samples: 4,
+            background: Option<paint.Color>.Some(paint.white())
+        })
+        var total = 0.0
+        var py = 0
+        while py < pixels.height {
+            var px = 0
+            while px < pixels.width {
+                // Ink is how far from white the pixel is, since the background is white.
+                total = total + (1.0 - unwrap(image.pixel_at(pixels, px, py)).red)
+                px = px + 1
+            }
+            py = py + 1
+        }
+        inks = if which == 0 { [total, inks[1]] } else { [inks[0], total] }
+    }
+    printf(
+        "bold lays down more ink than regular: {} ({:.0} vs {:.0})\n",
+        str(inks[1] > inks[0]),
+        inks[0],
+        inks[1]
+    )
+    // And the faces are otherwise the same font, so this cannot pass by one being wider: the
+    // measured widths differ by under a tenth, while the ink differs by far more.
+    val regular_width = widget.width_in(both, 0, word, 16.0)
+    val bold_width = widget.width_in(both, 1, word, 16.0)
+    printf(
+        "widths are close ({:.1} vs {:.1}), ink is not: {}\n",
+        regular_width,
+        bold_width,
+        str((inks[1] - inks[0]) / inks[0] > (bold_width - regular_width) / regular_width)
+    )
     return ok(unit)
 }
 

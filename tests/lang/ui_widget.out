@@ -7,4 +7,6 @@ in the toolbar:  1.0,0.0,0.0
 in the sidebar:  0.0,1.0,0.0
 in the content:  0.0,0.0,1.0
 label darkens red:  true
+bold lays down more ink than regular: true (373 vs 556)
+widths are close (119.1 vs 128.2), ink is not: true
 ok
