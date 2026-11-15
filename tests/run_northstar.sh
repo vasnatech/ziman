@@ -89,8 +89,27 @@ if [ ! -x "$APP/src/test/other/run-all.sh" ]; then
 elif ! command -v python3 >/dev/null 2>&1; then
     echo "run_northstar.sh: skipped the behavioural suite -- python3 is not on PATH"
 else
-    if ! (cd "$APP/src/test/other" && ZIMAN="$BIN" ./run-all.sh --sqlite > "$tmp_log" 2>&1); then
-        echo "run_northstar.sh: FAIL -- the North Star application's behavioural suite does not pass" >&2
+    # **Under a deadline, and with no inherited standard input.** This phase hung for eleven
+    # minutes on 2026-11-14 with no child processes at all -- blocked inside the script rather
+    # than working -- and `make check` had no way to end it: a gate that can wait forever is worse
+    # than one that fails, because the only signal is silence and the only recovery is a human.
+    # The cause was not established (the same invocation by hand, with stdin at /dev/null,
+    # completed), so this fixes the consequence and leaves the cause open: 20 minutes is roughly
+    # three times the suite's usual run, and `</dev/null` means a stray `read` ends rather than
+    # waits.
+    # **The status is captured and then tested, not tested with `if !`**: inside `if ! cmd; then`
+    # the `$?` a reader expects is gone -- it is the *negation's* status, 0 -- so the deadline
+    # branch below would never have run. Checked with `bash -c 'if ! (exit 124); then echo $?; fi'`
+    # rather than assumed.
+    (cd "$APP/src/test/other" && ZIMAN="$BIN" timeout 1200 ./run-all.sh --sqlite \
+        > "$tmp_log" 2>&1 < /dev/null)
+    suite=$?
+    if [ $suite -ne 0 ]; then
+        if [ $suite -eq 124 ]; then
+            echo "run_northstar.sh: FAIL -- the behavioural suite did not finish inside 20 minutes" >&2
+        else
+            echo "run_northstar.sh: FAIL -- the North Star application's behavioural suite does not pass" >&2
+        fi
         # The failing suites first and the per-engine summary after, rather than the tail of the
         # log: the passes outnumber the failures, so a tail hides the thing being reported.
         grep -E "^  FAIL" "$tmp_log" >&2
