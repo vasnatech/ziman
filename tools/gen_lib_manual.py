@@ -77,7 +77,7 @@ GROUPS = [
     # `widget` is a layer *above* the 2D model rather than part of it: it produces a `Scene` and
     # knows nothing about how one is rasterised. Its own group, in `lib/ui/`, because F272-F277 add
     # focus, text editing and accessibility beside it and none of those are graphics either.
-    ("User interface", "ui", ["widget", "focus", "edit", "a11y", "controls"]),
+    ("User interface", "ui", ["widget", "focus", "edit", "a11y", "controls", "icons"]),
     # A folder per backend under lib/ui: what only one of them does. `terminal` moved here from
     # lib/core and `window` from lib/core too -- both are a way of putting a user interface on a
     # screen, which is what this group is.

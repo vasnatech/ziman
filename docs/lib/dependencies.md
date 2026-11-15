@@ -105,6 +105,7 @@ flowchart LR
         edit["ui.edit"]
         focus["ui.focus"]
         ibus["ui.ibus"]
+        icons["ui.icons"]
         terminal["ui.terminal"]
         widget["ui.widget"]
         window["ui.window"]
@@ -209,6 +210,12 @@ flowchart LR
     http --> random
     http --> url
     ibus --> window
+    icons --> fs
+    icons --> ini
+    icons --> math
+    icons --> os
+    icons --> shape
+    icons --> svg
     image --> bits
     image --> compress
     image --> paint
@@ -403,7 +410,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 2 | `encoding`, `fs`, `ibus`, `json`, `metrics`, `paint`, `shape`, `terminal`, `url`, `xml` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `svg`, `template`, `time`, `uuid` |
-| 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml`, `widget` |
+| 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `icons`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml`, `widget` |
 | 6 | `a11y`, `codec`, `derive_repository`, `focus` |
 | 7 | `atspi`, `controls`, `paging`, `server` |
 | 8 | `desktop`, `rest` |
@@ -443,12 +450,13 @@ otherwise: everything on a layer depends only on lower layers.
 | `expr` | `json`, `regex` | `template` |
 | `focus` | `geom`, `widget` | `controls` |
 | `font` | `charset`, `truetype` | `layout`, `pdf`, `raster`, `widget` |
-| `fs` | `charset`, `io`, `os` | `csv`, `http`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
+| `fs` | `charset`, `io`, `os` | `csv`, `http`, `icons`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
 | `geom` | `math` | `a11y`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `svg`, `truetype`, `widget` |
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `ibus` | `window` | - |
+| `icons` | `fs`, `ini`, `math`, `os`, `shape`, `svg` | - |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
-| `ini` | `charset`, `locale` | - |
+| `ini` | `charset`, `locale` | `icons` |
 | `io` | `charset` | `client`, `csv`, `fs`, `http`, `rest`, `server`, `terminal`, `xml` |
 | `json` | `charset`, `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `paging`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
@@ -456,7 +464,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `locale` | - | `client`, `encoding`, `eql`, `http`, `ini`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `svg`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
-| `math` | - | `controls`, `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker`, `svg` |
+| `math` | - | `controls`, `geom`, `icons`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker`, `svg` |
 | `memdb` | `db`, `locale`, `sql` | - |
 | `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `metrics` | `os` | `rest`, `server` |
@@ -466,7 +474,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `ndjson` | `charset`, `json` | `codec` |
 | `net` | - | `client`, `db`, `mysql`, `pg`, `server` |
 | `number` | `locale` | `client`, `csv`, `db`, `encoding`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sql`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
-| `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
+| `os` | `clock` | `client`, `fs`, `icons`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `encoding`, `random` | - |
 | `paging` | `codec`, `json`, `mime` | - |
 | `paint` | `geom`, `locale` | `controls`, `image`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `widget` |
@@ -482,11 +490,11 @@ otherwise: everything on a layer depends only on lower layers.
 | `scene` | `geom`, `paint`, `shape` | `controls`, `desktop`, `layout`, `pdf`, `raster`, `widget` |
 | `schedule` | `clock`, `locale`, `time` | - |
 | `server` | `clock`, `codec`, `compress`, `fs`, `http`, `io`, `json`, `locale`, `metrics`, `mime`, `net`, `number`, `os`, `uuid` | `rest` |
-| `shape` | `geom`, `math` | `controls`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `truetype`, `widget` |
+| `shape` | `geom`, `math` | `controls`, `icons`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `truetype`, `widget` |
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster`, `svg` |
-| `svg` | `geom`, `locale`, `math`, `paint`, `shape`, `stroker`, `xml` | - |
+| `svg` | `geom`, `locale`, `math`, `paint`, `shape`, `stroker`, `xml` | `icons` |
 | `template` | `expr`, `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `terminal` | `charset`, `io` | - |
 | `test` | `regex` | - |

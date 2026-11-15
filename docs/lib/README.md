@@ -172,6 +172,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`edit`](edit.md) | A text field's state and every edit you can make to it. |
 | [`a11y`](a11y.md) | The accessibility tree: what a screen reader is told about a window drawn from `lib/ui/widget`. |
 | [`controls`](controls.md) | The widget set: what an input does to a control, and what a control looks like. |
+| [`icons`](icons.md) | The desktop's own icons, by name. |
 
 ## User interface: desktop
 

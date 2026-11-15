@@ -1,0 +1,120 @@
+use fs
+use icons
+use shape
+
+// The desktop's own icons, by name. On a real machine this is `icons.theme("Adwaita")` and then
+// `icons.icon_path(theme, "document-save-symbolic", 16)`; here it is a two-theme tree written to a
+// temporary directory, because an example has to print the same thing on every machine.
+val root: string = concat(fs.temp_dir(), "/ziman-icons-example/icons")
+
+fn build() -> Result<unit, string> {
+    // A parent with three sizes, and a child that has only one and inherits the rest.
+    try put(concat(root, "/example-base/index.theme"), concat(
+        "[Icon Theme]\n",
+        "Name=Base\n",
+        // **Commas**: the Icon Theme Specification separates its lists with them, where the
+        // Desktop Entry Specification it otherwise borrows says `;`.
+        "Directories=16x16/apps,22x22/apps,scalable/apps\n",
+        "\n[16x16/apps]\nSize=16\nType=Fixed\n",
+        "\n[22x22/apps]\nSize=22\nType=Fixed\n",
+        "\n[scalable/apps]\nSize=128\nMinSize=24\nMaxSize=512\nType=Scalable\n"
+    ))
+    try put(concat(root, "/example-base/16x16/apps/save.png"), "a png")
+    try put(concat(root, "/example-base/22x22/apps/save.png"), "a png")
+    try put(concat(root, "/example-base/scalable/apps/save.svg"), tick())
+    try put(concat(root, "/example-child/index.theme"), concat(
+        "[Icon Theme]\n",
+        "Name=Child\n",
+        "Inherits=example-base\n",
+        "Directories=16x16/apps\n",
+        "\n[16x16/apps]\nSize=16\nType=Fixed\n"
+    ))
+    try put(concat(root, "/example-child/16x16/apps/save.png"), "a png")
+    return unit
+}
+
+fn put(path: string, text: string) -> Result<unit, string> {
+    if Err(e) = fs.make_dirs(fs.parent_dir(path)) {
+        return err(fs.fs_error_message(e))
+    }
+    if Err(e) = fs.write_text(path, text) {
+        return err(fs.fs_error_message(e))
+    }
+    return unit
+}
+
+fn tick() -> string {
+    return "<svg viewBox=\"0 0 24 24\"><path d=\"M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z\"/></svg>"
+}
+
+fn under(path: string) -> string {
+    if starts_with(path, concat(root, "/")) {
+        return substring(path, len(root) + 1, len(path))
+    }
+    return path
+}
+
+fn found(t: icons.Theme, name: string, size: int) -> string {
+    return switch icons.find(t, name, size) {
+        Some(f) { concat(under(f.path), " (from a ", str(f.size), "-pixel directory)") }
+        None { "not found" }
+    }
+}
+
+fn demo() -> Result<unit, string> {
+    try build()
+    // On a desktop: `icons.theme("Adwaita")`, which reads the search path from the environment.
+    // The overload taking a path is for a program that ships its own theme -- or an example.
+    val theme = try icons.theme("example-child", [root])
+    val names = mutable_string_new()
+    for indexed in theme.chain {
+        append(names, concat(indexed.name, " "))
+    }
+    printf("chain: {}\n", trim(snapshot(names)))
+
+    // **Two passes, and the first one is what makes this look right.** Asked for 16, the child
+    // answers: both themes have a 16-pixel directory and the child comes first. Asked for 22 the
+    // *parent* answers, because a directory whose rule serves the size beats a theme that is
+    // nearer in the chain -- a stretched icon looks worse than a slightly different drawing.
+    printf("16: {}\n", found(theme, "save", 16))
+    printf("22: {}\n", found(theme, "save", 22))
+    // 64 is inside the scalable directory's range, so it matches rather than falling back.
+    printf("64: {}\n", found(theme, "save", 64))
+    // 13 matches nothing -- the fixed sizes are 16 and 22 and the scalable one starts at 24 -- so
+    // the closest-size pass decides, and 16 is three away where 22 is nine.
+    printf("13: {}\n", found(theme, "save", 13))
+
+    // A PNG comes before an SVG, which is the specification's order: a theme that ships both drew
+    // the PNG for that size. A caller that wants a *path* to tint asks for the scalable one.
+    printf("svg at 16: {}\n", switch icons.find_svg(theme, "save", 16) {
+        Some(f) { under(f.path) }
+        None { "not found" }
+    })
+
+    // And the whole of it: a name becomes the path `widget.IconSource.Drawn` takes.
+    val drawn = try icons.icon_path(theme, "save", 64)
+    val box = shape.path_bounds(drawn)
+    printf(
+        "drawn: {} segments in {:.2},{:.2} {:.2}x{:.2}\n",
+        str(len(drawn.segments)),
+        box.x,
+        box.y,
+        box.width,
+        box.height
+    )
+
+    // A name no theme in the chain has says so, naming the theme that was asked.
+    if Err(why) = icons.icon_path(theme, "no-such-icon", 16) {
+        print(why)
+    }
+    if Err(e) = fs.remove_all(concat(fs.temp_dir(), "/ziman-icons-example")) {
+        return err(fs.fs_error_message(e))
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("icons example failed: {}\n", e)
+    }
+}

@@ -1,0 +1,506 @@
+// icons.zm -- the desktop's own icons, by name.
+//
+// **`icons.icon_path(theme, "document-save", 16)` is the point of this module**, and it is the last
+// step of the icon work: `widget.IconSource.Drawn` takes a path in a unit box, `svg` reads a file
+// into one, and this is what turns a *name* into the file. An application that draws its own
+// artwork looks imported on a desktop; one that asks the theme for `"document-save"` looks like it
+// belongs, follows the user's theme when they change it, and inherits the accessibility work the
+// theme already did.
+//
+// **This is a filesystem problem, not a graphics one**, which is why it reads as a search rather
+// than as drawing: freedesktop.org's Icon Theme Specification defines a search path, an
+// `index.theme` per theme (`ini` reads those), a list of size directories with a matching rule, and
+// an inheritance chain ending at `hicolor`. The algorithm here is the specification's, and the
+// private functions are named after its own -- `matches_size` is `DirectoryMatchesSize`,
+// `size_distance` is `DirectorySizeDistance` -- so the two can be read side by side.
+//
+// **What a lookup answers is a FILE, not a drawing.** A theme directory holds `.png` as well as
+// `.svg`, and only an SVG becomes a tintable `shape.Path` -- so `find` answers whatever the
+// specification picks (PNG first, as it says), `find_svg` answers only what `svg` can read, and
+// `icon_path` is `find_svg` plus `svg`. A caller who wants the PNG wants `image.decode_png` and a
+// `scene.image`: a decoded picture does not tint and needs one file per state, which is the whole
+// reason the drawn source exists.
+//
+// **Measured end to end against the desktop it was written for**, because a lookup that reads its
+// own fixtures proves nothing about a real theme. Adwaita's **585 symbolic icons**, each asked for
+// by name at 16 pixels and taken all the way to a unit-box path:
+//
+//     found by name                585
+//     read exactly                  495
+//     read dropping the faint       578
+//
+// The 90 that need the tolerant door are two-tone icons -- a solid outline over a fill at 0.35 --
+// and the 7 that neither door reads mix fill rules or carry a clip path (see `svg`'s own header for
+// why that is arithmetic rather than scope). **Getting that far needed one fix nothing in the
+// specification hints at**: the Icon Theme Specification separates `Inherits` and `Directories`
+// with COMMAS where everything else freedesktop writes uses `;`, so the first version of this
+// module found a chain of two themes with zero directories between them and not one icon.
+use fs
+use ini
+use math.abs
+use os
+use shape
+use svg
+
+// How a directory's `Size` relates to the sizes it serves.
+pub enum Kind {
+    // One size only: `16x16/actions` holds 16-pixel icons and nothing else.
+    Fixed
+    // A range, which is what a `scalable/` directory of SVGs is.
+    Scalable
+    // A nominal size that stretches by `Threshold` either way. **This is the default**, which
+    // matters: a directory section with a `Size` and nothing else is a threshold directory with a
+    // threshold of 2, not a fixed one.
+    Threshold
+}
+
+// One size directory of a theme, as its `index.theme` section describes it.
+pub struct SizeDir {
+    // Relative to the theme's own directory: `16x16/actions`, `scalable/devices`.
+    path: string
+    size: int
+    scale: int
+    kind: Kind
+    min: int
+    max: int
+    threshold: int
+}
+
+// One theme's index: its name, every base directory that holds a copy of it, and its size
+// directories.
+//
+// **`roots` is a list because a theme can be spread across the search path**: a user's own
+// `~/.local/share/icons/Adwaita` adds to the system one rather than replacing it, and the
+// specification's lookup walks every base directory for each size directory in turn.
+pub struct Indexed {
+    name: string
+    roots: [string]
+    dirs: [SizeDir]
+}
+
+// A theme and the chain behind it, resolved once: the theme itself, then its parents in order,
+// then `hicolor`, which every theme inherits whether it says so or not.
+pub struct Theme {
+    asked: string
+    // The search path this was resolved with, so every later lookup walks the same directories the
+    // chain came from. **Carried rather than re-read**: `search_path()` is a function of the
+    // environment, and a theme that answered one way at startup must not answer another way later
+    // because something changed `XDG_DATA_DIRS` -- which is also what lets a caller (or a test)
+    // point this at a directory of its own.
+    path: [string]
+    chain: [Indexed]
+}
+
+// Where a name resolved to.
+pub struct Found {
+    path: string
+    // The nominal size of the directory it came from, which is not the size asked for: a 16-pixel
+    // request can land in a 22-pixel directory when that is the closest a theme has.
+    size: int
+    scalable: bool
+}
+
+// **The search path, in the specification's order**: `$XDG_DATA_HOME/icons` (or `~/.local/share`),
+// then `~/.icons` for the themes a user installed the old way, then each of `$XDG_DATA_DIRS`, then
+// `/usr/share/pixmaps` last as the unthemed fallback.
+//
+// `~/.icons` comes *after* the XDG directory and before the system ones, which is the order
+// everything else on a desktop uses -- a user's own theme wins over the distribution's.
+fn trimmed_slash(path: string) -> string {
+    var out = path
+    while len(out) > 1 && ends_with(out, "/") {
+        out = substring(out, 0, len(out) - 1)
+    }
+    return out
+}
+
+pub fn search_path() -> [string] {
+    val out = mutable_array_new<string>()
+    val home = switch os.get_env("HOME") {
+        Some(h) { h }
+        None { "" }
+    }
+    if Some(data_home) = os.get_env("XDG_DATA_HOME") {
+        if len(data_home) > 0 {
+            push(out, concat(data_home, "/icons"))
+        }
+    } else {
+        if len(home) > 0 {
+            push(out, concat(home, "/.local/share/icons"))
+        }
+    }
+    if len(home) > 0 {
+        push(out, concat(home, "/.icons"))
+    }
+    val dirs = switch os.get_env("XDG_DATA_DIRS") {
+        Some(d) { d }
+        None { "/usr/local/share:/usr/share" }
+    }
+    for dir in split(dirs, ":") {
+        if len(dir) > 0 {
+            // A trailing slash in `XDG_DATA_DIRS` is common and harmless to the OS, but it reaches
+            // a caller in every path this module reports, so it is dropped here rather than in
+            // eight `concat`s.
+            push(out, concat(trimmed_slash(dir), "/icons"))
+        }
+    }
+    push(out, "/usr/share/pixmaps")
+    return snapshot(out)
+}
+
+// A theme and everything behind it, ready to answer names.
+//
+// **A theme whose `index.theme` is unreadable is a theme that is not there**, which is the
+// specification's own fallback behaviour and the reason this does not fail: the chain simply
+// continues to the parents and to `hicolor`. The `Err` is for the one case a caller cannot recover
+// from -- *nothing* on the search path, not even `hicolor`, which means the machine has no icon
+// theme installed at all.
+pub fn theme(name: string) -> Result<Theme, string> {
+    return theme(name, search_path())
+}
+
+// With a search path of its own, for a caller that ships a theme beside its program -- or a test
+// that needs the answer to hold still.
+pub fn theme(name: string, path: [string]) -> Result<Theme, string> {
+    val chain = mutable_array_new<Indexed>()
+    val seen = mutable_set_new<string>()
+    gather(name, path, chain, seen, 0)
+    // Every theme inherits hicolor, and a theme that names it explicitly has it already.
+    if !contains(seen, "hicolor") {
+        gather("hicolor", path, chain, seen, 0)
+    }
+    if len(chain) == 0 {
+        return err(concat(
+            "icons: no theme '",
+            name,
+            "' and no hicolor on the search path (",
+            joined(path),
+            ")"
+        ))
+    }
+    return ok(Theme { asked: name, path: path, chain: snapshot(chain) })
+}
+
+// `FindIconHelper`'s recursion, flattened into the chain it would have walked. The depth bound is
+// not for inheritance that is deep but for inheritance that is **circular**: a theme naming its own
+// child is a file on disk saying so, and a reader has to survive it.
+fn gather(name: string, path: [string], chain: MutableArray<Indexed>, seen: MutableSet<string>, depth: int) {
+    if depth > 16 || contains(seen, name) || len(name) == 0 {
+        return
+    }
+    add(seen, name)
+    val roots = mutable_array_new<string>()
+    for base in path {
+        if fs.is_dir(concat(base, "/", name)) {
+            push(roots, concat(base, "/", name))
+        }
+    }
+    if len(roots) == 0 {
+        return
+    }
+    val index = read_index(snapshot(roots))
+    push(chain, Indexed { name: name, roots: snapshot(roots), dirs: index.dirs })
+    for parent in index.inherits {
+        gather(parent, path, chain, seen, depth + 1)
+    }
+}
+
+// What one theme's `index.theme` says: its size directories and the themes it inherits.
+struct Index {
+    dirs: [SizeDir]
+    inherits: [string]
+}
+
+// **The first readable `index.theme` wins, and a missing one is not an error.** A theme spread over
+// two base directories has two indexes, and the specification does not say to merge them; GTK
+// reads the first. A directory with no index at all still holds files, which the closest-size pass
+// finds by walking what is there.
+fn read_index(roots: [string]) -> Index {
+    for root in roots {
+        val file = concat(root, "/index.theme")
+        if !fs.is_file(file) {
+            continue
+        }
+        val parsed: Result<ini.Ini, string> = switch fs.read_bytes(file) {
+            Ok(data) { ini.parse(data) }
+            Err(e) { err(fs.fs_error_message(e)) }
+        }
+        if Ok(f) = parsed {
+            if Some(top) = ini.group(f, "Icon Theme") {
+                val dirs = mutable_array_new<SizeDir>()
+                for name in theme_list(top, "Directories") {
+                    if Some(section) = ini.group(f, name) {
+                        if Some(dir) = size_dir(name, section) {
+                            push(dirs, dir)
+                        }
+                    }
+                }
+                // `ScaledDirectories` is the same list for the high-density copies, and a theme
+                // that has them lists them separately so an old reader ignores them.
+                for name in theme_list(top, "ScaledDirectories") {
+                    if Some(section) = ini.group(f, name) {
+                        if Some(dir) = size_dir(name, section) {
+                            push(dirs, dir)
+                        }
+                    }
+                }
+                return Index { dirs: snapshot(dirs), inherits: theme_list(top, "Inherits") }
+            }
+        }
+    }
+    return Index { dirs: [], inherits: [] }
+}
+
+// **The Icon Theme Specification separates its lists with COMMAS**, where the Desktop Entry
+// Specification it otherwise borrows says `;`. Every theme on a Fedora desktop writes
+// `Inherits=AdwaitaLegacy,hicolor` and `Directories=16x16/actions,16x16/apps,...`, so a reader
+// using the `;` default reads the whole directory list as one unusable name and finds no icons at
+// all -- which is what this did until it was pointed at /usr/share/icons.
+//
+// Both are accepted, because the two specifications disagree and GTK has read either for twenty
+// years: a value with a `;` in it is read as a `;` list, and anything else as a comma list.
+fn theme_list(top: ini.Group, key: string) -> [string] {
+    if Some(text) = ini.value(top, key) {
+        if index_of(text, ";", 0) >= 0 {
+            return ini.list_in(top, key, ";")
+        }
+    }
+    return ini.list_in(top, key, ",")
+}
+
+// One `[16x16/actions]` section. **`Size` is the only required key**, so a section without one is
+// not a size directory and is skipped rather than defaulted -- a `[Desktop Entry]`-style section in
+// the same file would otherwise become a zero-sized directory that matches nothing and is answered
+// first by the distance pass.
+fn size_dir(path: string, section: ini.Group) -> Option<SizeDir> {
+    val size = switch ini.get_int(section, "Size") {
+        Ok(n) { n }
+        Err(_) { return Option<SizeDir>.None }
+    }
+    val kind = switch ini.value(section, "Type") {
+        Some(text) { kind_of(text) }
+        None { Kind.Threshold }
+    }
+    return Option<SizeDir>.Some(SizeDir {
+        path: path,
+        size: size,
+        scale: int_or(section, "Scale", 1),
+        kind: kind,
+        min: int_or(section, "MinSize", size),
+        max: int_or(section, "MaxSize", size),
+        threshold: int_or(section, "Threshold", 2)
+    })
+}
+
+// The specification's three words, and **`Threshold` for anything else**: it is the documented
+// default, so a typo reads as the default rather than as a refusal to show an icon.
+fn kind_of(text: string) -> Kind {
+    if text == "Fixed" {
+        return Kind.Fixed
+    }
+    if text == "Scalable" {
+        return Kind.Scalable
+    }
+    return Kind.Threshold
+}
+
+fn int_or(section: ini.Group, key: string, fallback: int) -> int {
+    return switch ini.get_int(section, key) {
+        Ok(n) { n }
+        Err(_) { fallback }
+    }
+}
+
+// ---- the lookup
+
+// `FindIcon`: the file for this name at this size, or `None`.
+//
+// **Two passes, in this order, which is the part a reader invents wrongly**: every directory whose
+// rule *matches* the size, in theme order; and only if none does, the directory whose size is
+// *closest*. So a 16-pixel request prefers a 16-pixel directory in a parent theme over a 22-pixel
+// one in the theme itself -- the size the caller asked for matters more than the theme it comes
+// from, because a stretched icon looks worse than a slightly different drawing.
+pub fn find(t: Theme, name: string, size: int) -> Option<Found> {
+    return find(t, name, size, 1)
+}
+
+// With a display scale: a 16-pixel icon on a 2x display wants the 32-pixel artwork, and a theme
+// that ships both says so with `Scale`.
+pub fn find(t: Theme, name: string, size: int, scale: int) -> Option<Found> {
+    return lookup(t, name, size, scale, extensions())
+}
+
+// Only the files `svg` can read, for a caller that wants a tintable path rather than a picture.
+// The same two passes, over one extension.
+pub fn find_svg(t: Theme, name: string, size: int) -> Option<Found> {
+    return find_svg(t, name, size, 1)
+}
+
+pub fn find_svg(t: Theme, name: string, size: int, scale: int) -> Option<Found> {
+    return lookup(t, name, size, scale, ["svg"])
+}
+
+// PNG before SVG, which is the specification's order and not an accident: a theme that ships both
+// drew the PNG for that exact size, and it is what the desktop itself shows.
+fn extensions() -> [string] {
+    return ["png", "svg", "xpm"]
+}
+
+fn lookup(t: Theme, name: string, size: int, scale: int, exts: [string]) -> Option<Found> {
+    // Pass one: a directory whose own rule says it serves this size.
+    for indexed in t.chain {
+        for dir in indexed.dirs {
+            if matches_size(dir, size, scale) {
+                if Some(found) = file_in(indexed, dir, name, exts) {
+                    return Option<Found>.Some(found)
+                }
+            }
+        }
+    }
+    // Pass two: the closest size anywhere in the chain.
+    var best = Option<Found>.None
+    var best_distance = 0
+    for indexed in t.chain {
+        for dir in indexed.dirs {
+            val distance = size_distance(dir, size, scale)
+            if Some(_) = best {
+                if distance >= best_distance {
+                    continue
+                }
+            }
+            if Some(found) = file_in(indexed, dir, name, exts) {
+                best = Option<Found>.Some(found)
+                best_distance = distance
+            }
+        }
+    }
+    if Some(found) = best {
+        return Option<Found>.Some(found)
+    }
+    // `LookupFallbackIcon`: a file sitting directly in a base directory, which is what
+    // /usr/share/pixmaps is and what an application that installed one icon with no theme did.
+    for base in t.path {
+        for ext in exts {
+            val path = concat(base, "/", name, ".", ext)
+            if fs.is_file(path) {
+                return Option<Found>.Some(Found { path: path, size: 0, scalable: ext == "svg" })
+            }
+        }
+    }
+    return Option<Found>.None
+}
+
+fn file_in(indexed: Indexed, dir: SizeDir, name: string, exts: [string]) -> Option<Found> {
+    for root in indexed.roots {
+        for ext in exts {
+            val path = concat(root, "/", dir.path, "/", name, ".", ext)
+            if fs.is_file(path) {
+                return Option<Found>.Some(Found {
+                    path: path,
+                    size: dir.size,
+                    scalable: ext == "svg"
+                })
+            }
+        }
+    }
+    return Option<Found>.None
+}
+
+// `DirectoryMatchesSize`, as specified.
+fn matches_size(dir: SizeDir, size: int, scale: int) -> bool {
+    if dir.scale != scale {
+        return false
+    }
+    return switch dir.kind {
+        Fixed { dir.size == size }
+        Scalable { dir.min <= size && size <= dir.max }
+        Threshold { dir.size - dir.threshold <= size && size <= dir.size + dir.threshold }
+    }
+}
+
+// `DirectorySizeDistance`, as specified -- in *scaled* pixels, so a 32-pixel directory at scale 1
+// and a 16-pixel one at scale 2 are the same distance from a request for 32 at scale 1.
+fn size_distance(dir: SizeDir, size: int, scale: int) -> int {
+    val want = size * scale
+    return switch dir.kind {
+        Fixed { abs(dir.size * dir.scale - want) }
+        Scalable {
+            if want < dir.min * dir.scale {
+                dir.min * dir.scale - want
+            } else {
+                if want > dir.max * dir.scale {
+                    want - dir.max * dir.scale
+                } else {
+                    0
+                }
+            }
+        }
+        Threshold {
+            if want < (dir.size - dir.threshold) * dir.scale {
+                dir.min * dir.scale - want
+            } else {
+                if want > (dir.size + dir.threshold) * dir.scale {
+                    want - dir.max * dir.scale
+                } else {
+                    0
+                }
+            }
+        }
+    }
+}
+
+// ---- a name as a drawing
+
+// **The whole of it: a name, and the path to draw.** Looks up the SVG, reads it, merges what it
+// paints and scales that into the unit box `widget.IconSource.Drawn` wants.
+//
+// This is the exact reading, so it refuses a file one path cannot express -- a gradient fill, or a
+// part that is not fully opaque, which a fifth of Adwaita is. The overload taking a tolerance is
+// the one a real desktop wants; see `svg.solid_path` for what it gives up.
+pub fn icon_path(t: Theme, name: string, size: int) -> Result<shape.Path, string> {
+    return svg.icon(try svg_bytes(t, name, size))
+}
+
+// The same, dropping every part below `least` opacity rather than refusing it. `1.0` keeps only
+// what is fully opaque, which is what reads 917 of a desktop's 1,206 icons where the exact door
+// reads 718.
+pub fn icon_path(t: Theme, name: string, size: int, least: float) -> Result<shape.Path, string> {
+    val drawing = try svg.parse(try svg_bytes(t, name, size))
+    return ok(svg.in_unit_box(try svg.solid_path(drawing, least), drawing.view))
+}
+
+// The bytes rather than the text, so that a file whose XML declaration names a charset is read in
+// it -- which one file in a desktop's icon themes needs.
+fn svg_bytes(t: Theme, name: string, size: int) -> Result<[byte], string> {
+    val found = switch find_svg(t, name, size) {
+        Some(f) { f }
+        None {
+            return err(concat(
+                "icons: no scalable '",
+                name,
+                "' at ",
+                str(size),
+                " in theme '",
+                t.asked,
+                "' or anything it inherits"
+            ))
+        }
+    }
+    return switch fs.read_bytes(found.path) {
+        Ok(data) { ok(data) }
+        Err(e) { err(concat("icons: ", found.path, ": ", fs.fs_error_message(e))) }
+    }
+}
+
+fn joined(items: [string]) -> string {
+    val out = mutable_string_new()
+    var first = true
+    for item in items {
+        if !first {
+            append(out, ", ")
+        }
+        first = false
+        append(out, item)
+    }
+    return snapshot(out)
+}

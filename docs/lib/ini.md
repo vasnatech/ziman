@@ -257,10 +257,22 @@ reading `LC_MESSAGES` itself, and for a test that means exactly what it says.
 pub fn list_of(text: string) -> [string]
 ```
 
-A `;`-separated list, the specification's own multi-value shape: `Inherits=Adwaita;hicolor;`.
+A `;`-separated list, the Desktop Entry Specification's own multi-value shape:
+`MimeType=image/png;image/jpeg;`.
 
-**A trailing `;` is a terminator, not an empty item**, which the specification says and which
-every real file relies on -- `Adwaita;hicolor;` is two themes. An item may contain a `\;`.
+**A trailing separator is a terminator, not an empty item**, which the specification says and
+which every real file relies on -- `a;b;` is two items. An item may contain an escaped separator.
+
+```
+pub fn list_of(text: string, separator: string) -> [string]
+```
+
+The same with another separator, because **the freedesktop specifications disagree with each
+other**: Desktop Entry says `;` and the Icon Theme Specification says commas, so an
+`index.theme` writes `Inherits=AdwaitaLegacy,hicolor` and `Directories=16x16/actions,...`.
+Measured on a Fedora desktop: all four themes that list directories use commas and none uses
+semicolons, so a reader with only `;` reads a theme's whole directory list as one unusable name
+-- which is exactly what it did until this was measured.
 
 ### `list_in`
 
@@ -270,6 +282,10 @@ pub fn list_in(g: Group, key: string) -> [string]
 
 The list a key holds, or an empty list when the key is absent -- which is the same answer a
 caller wants in both cases, since a theme with no `Inherits` inherits nothing.
+
+```
+pub fn list_in(g: Group, key: string, separator: string) -> [string]
+```
 
 ### `get_bool`
 
@@ -343,6 +359,13 @@ pub fn list_text(items: [string]) -> string
 Several values as one value: each item escaped, `;` between them, and a `;` at the end because
 that is how every file in the wild terminates a list (and `list_of` reads either).
 
+```
+pub fn list_text(items: [string], separator: string) -> string
+```
+
+With the separator a given specification asks for -- a comma, for the two keys in an
+`index.theme` that are lists.
+
 ### `entry_of`
 
 ```
@@ -365,6 +388,10 @@ pub fn entry_list(key: string, items: [string]) -> Entry
 
 A list-valued entry, which is `entry_of` plus `list_text`: `Inherits`, `MimeType`, `Categories`
 and `OnlyShowIn` are all this shape, and writing one by hand is how a `;` ends up unescaped.
+
+```
+pub fn entry_list(key: string, items: [string], separator: string) -> Entry
+```
 
 ### `group_of`
 

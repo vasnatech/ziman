@@ -1,0 +1,367 @@
+// `icons`: the freedesktop icon theme lookup.
+//
+// **The theme is built in a temporary directory and the search path pointed at it**, because the
+// cases that matter are about *which* file wins and a system's own themes cannot be made to hold
+// still. The one thing measured against the real desktop is in the module comment, where it
+// belongs: 495 of Adwaita's 585 symbolic icons read exactly through this chain and 578 with the
+// tolerant door.
+//
+// What the cases are about: a directory whose rule matches the asked-for size beats a nearer theme
+// (which is the part of the specification a reader invents backwards), the closest-size pass is
+// only a fallback, an inherited theme is searched before `hicolor`, circular inheritance
+// terminates, and a broken `index.theme` is a theme that is not there rather than an error.
+use fs
+use icons
+use os
+use shape
+use test
+
+val base: string = concat(fs.temp_dir(), "/ziman-icons-test")
+
+// The tree, written once. Two themes, `zchild` inheriting `zbase`, with the sizes arranged so that
+// every branch of `DirectoryMatchesSize` and `DirectorySizeDistance` is reachable.
+fn tree() -> string {
+    val root = concat(base, "/icons")
+    if fs.is_dir(concat(root, "/zbase")) {
+        return root
+    }
+    // **The order of `Directories` is load-bearing and so are the two `@2` entries.** Both passes
+    // of the lookup walk this list in order, so putting the scaled directories first is what makes
+    // the difference between "a directory whose rule matches" and "the closest directory" visible
+    // at all: without them, deleting the whole matching pass changes no answer in this tree, which
+    // is what a mutation run showed before these were added.
+    write(concat(root, "/zbase/index.theme"), concat(
+        "[Icon Theme]\n",
+        "Name=Base\n",
+        // Commas, which is what the Icon Theme Specification says and what every real theme writes.
+        "Directories=32x32@2/apps,16x16@2/apps,16x16/apps,22x22/apps,48x48/apps,scalable/apps,32x32/apps,junk/apps\n",
+        "\n[32x32@2/apps]\nSize=32\nScale=2\nType=Fixed\n",
+        "\n[16x16@2/apps]\nSize=16\nScale=2\nType=Fixed\n",
+        "\n[16x16/apps]\nSize=16\nType=Fixed\n",
+        "\n[22x22/apps]\nSize=22\nType=Fixed\n",
+        // No `Type`, so this one is a threshold directory with a threshold of 2 -- the default, and
+        // the thing a reader gets wrong by assuming `Fixed`.
+        "\n[48x48/apps]\nSize=48\n",
+        // Deliberately not reaching down to 13, so the closest-size pass is reachable.
+        "\n[scalable/apps]\nSize=128\nMinSize=24\nMaxSize=512\nType=Scalable\n",
+        "\n[32x32/apps]\nSize=32\nType=Fixed\n",
+        // No `Size` at all, which is not a size directory: the list names it and the reader must
+        // skip it rather than treat it as serving size 0.
+        "\n[junk/apps]\nContext=Applications\n"
+    ))
+    write(concat(root, "/zbase/16x16/apps/both.png"), "png")
+    write(concat(root, "/zbase/22x22/apps/both.png"), "png")
+    write(concat(root, "/zbase/16x16/apps/only-base.png"), "png")
+    write(concat(root, "/zbase/22x22/apps/only-base.png"), "png")
+    write(concat(root, "/zbase/scalable/apps/only-base.svg"), square())
+    write(concat(root, "/zbase/scalable/apps/vector.svg"), square())
+    write(concat(root, "/zbase/16x16/apps/vector.png"), "png")
+    write(concat(root, "/zbase/16x16/apps/vector.svg"), square())
+    // `dense` is in both scaled directories and in the scale-1 32, so which one answers says
+    // whether the scale is honoured and whether the matching pass ran.
+    write(concat(root, "/zbase/32x32@2/apps/dense.png"), "png")
+    write(concat(root, "/zbase/16x16@2/apps/dense.png"), "png")
+    write(concat(root, "/zbase/32x32/apps/dense.png"), "png")
+    // `only-dense` is only in a scaled directory and in 22x22, so the closest-size pass has to
+    // compare 16-at-scale-2 against 22-at-scale-1 -- which is the same 32 pixels.
+    write(concat(root, "/zbase/16x16@2/apps/only-dense.png"), "png")
+    write(concat(root, "/zbase/22x22/apps/only-dense.png"), "png")
+    // `thresholded` is in the directory with no `Type` and, as an SVG, in the scalable one.
+    write(concat(root, "/zbase/48x48/apps/thresholded.png"), "png")
+    write(concat(root, "/zbase/scalable/apps/thresholded.svg"), square())
+    // And a file in the section that has no `Size`.
+    write(concat(root, "/zbase/junk/apps/junk.png"), "png")
+
+    write(concat(root, "/zchild/index.theme"), concat(
+        "[Icon Theme]\n",
+        "Name=Child\n",
+        "Inherits=zbase\n",
+        "Directories=16x16/apps\n",
+        "\n[16x16/apps]\nSize=16\nType=Fixed\n"
+    ))
+    write(concat(root, "/zchild/16x16/apps/both.png"), "png")
+
+    // Inheritance that points back at itself, which is a file on disk saying so.
+    write(concat(root, "/zloop/index.theme"),
+        "[Icon Theme]\nName=Loop\nInherits=zloop2\nDirectories=\n")
+    write(concat(root, "/zloop2/index.theme"),
+        "[Icon Theme]\nName=Loop2\nInherits=zloop\nDirectories=\n")
+
+    // A duplicate key, which `ini` refuses -- so this theme has no index as far as a reader is
+    // concerned.
+    write(concat(root, "/zbroken/index.theme"),
+        "[Icon Theme]\nName=Broken\nInherits=a\nInherits=b\nDirectories=16x16/apps\n")
+    write(concat(root, "/zbroken/16x16/apps/hidden.png"), "png")
+
+    // A file sitting directly in a base directory, which is what /usr/share/pixmaps is.
+    write(concat(root, "/loose.png"), "png")
+    return root
+}
+
+fn write(path: string, text: string) {
+    if Err(e) = fs.make_dirs(fs.parent_dir(path)) {
+        test.fail(fs.fs_error_message(e))
+    }
+    if Err(e) = fs.write_text(path, text) {
+        test.fail(fs.fs_error_message(e))
+    }
+}
+
+fn square() -> string {
+    return "<svg viewBox=\"0 0 16 16\"><path d=\"M2 2h12v12H2z\"/></svg>"
+}
+
+// **The tree and nothing else**, passed as a search path rather than set in the environment: these
+// tests share a process with every other stdlib test, and a `HOME` left pointing at a temporary
+// directory is the kind of thing that makes an unrelated test fail a week later.
+fn from_the_tree(name: string) -> icons.Theme {
+    val root = tree()
+    return switch icons.theme(name, [root]) {
+        Ok(t) { t }
+        Err(why) {
+            test.fail(why)
+            icons.Theme { asked: "", path: [], chain: [] }
+        }
+    }
+}
+
+fn pointed_at_the_tree() -> icons.Theme {
+    return from_the_tree("zchild")
+}
+
+fn where_is(t: icons.Theme, name: string, size: int) -> string {
+    return switch icons.find(t, name, size) {
+        Some(f) { f.path }
+        None { "<not found>" }
+    }
+}
+
+fn under(path: string) -> string {
+    val root = concat(base, "/icons/")
+    if starts_with(path, root) {
+        return substring(path, len(root), len(path))
+    }
+    return path
+}
+
+// ---- the search path
+
+#[test]
+fn the_search_path_is_the_specifications_order() {
+    // The one test that has to touch the environment, because the thing under test *is* the
+    // environment -- and it puts all three variables back, since the suite is one process.
+    val had_dirs = os.get_env("XDG_DATA_DIRS")
+    val had_home_data = os.get_env("XDG_DATA_HOME")
+    val had_home = os.get_env("HOME")
+    os.set_env("XDG_DATA_DIRS", "/one:/two")
+    os.set_env("XDG_DATA_HOME", "/home/data")
+    os.set_env("HOME", "/home/someone")
+    val path = icons.search_path()
+    test.assert_eq("/home/data/icons", path[0])
+    // `~/.icons` after the XDG directory and before the system ones: a user's own theme wins over
+    // the distribution's.
+    test.assert_eq("/home/someone/.icons", path[1])
+    test.assert_eq("/one/icons", path[2])
+    test.assert_eq("/two/icons", path[3])
+    // The unthemed fallback is last, which is what makes it a fallback.
+    test.assert_eq("/usr/share/pixmaps", path[len(path) - 1])
+    // A trailing slash in the variable does not reach the paths this module reports.
+    os.set_env("XDG_DATA_DIRS", "/three/")
+    test.assert_eq("/three/icons", icons.search_path()[2])
+    restore("XDG_DATA_DIRS", had_dirs)
+    restore("XDG_DATA_HOME", had_home_data)
+    restore("HOME", had_home)
+}
+
+fn restore(name: string, had: Option<string>) {
+    if Some(value) = had {
+        os.set_env(name, value)
+    }
+}
+
+// ---- the chain
+
+#[test]
+fn a_theme_carries_its_parents() {
+    val t = pointed_at_the_tree()
+    test.assert_eq("zchild", t.chain[0].name)
+    test.assert_eq("zbase", t.chain[1].name)
+    test.assert_eq(1, len(t.chain[0].dirs))
+    // Seven of the eight sections `Directories` names: the one without a `Size` is not a size
+    // directory.
+    test.assert_eq(7, len(t.chain[1].dirs))
+}
+
+#[test]
+fn circular_inheritance_terminates() {
+    val t = from_the_tree("zloop")
+    // Each theme once, in the order it was reached, and no third visit to the first.
+    test.assert_eq(2, len(t.chain))
+    test.assert_eq("zloop", t.chain[0].name)
+    test.assert_eq("zloop2", t.chain[1].name)
+}
+
+#[test]
+fn a_theme_whose_index_cannot_be_read_is_a_theme_with_no_directories() {
+    // `ini` refuses the duplicate key, which is the specification's own position -- and the theme
+    // is still *there*, so the chain continues rather than failing. The specification asks for
+    // exactly this fallback, and a desktop with one malformed theme should still show icons.
+    val t = from_the_tree("zbroken")
+    test.assert_eq("zbroken", t.chain[0].name)
+    test.assert_eq(0, len(t.chain[0].dirs))
+    // Its own file is unreachable, because nothing says that directory holds 16-pixel icons.
+    test.assert_eq("<not found>", where_is(t, "hidden", 16))
+}
+
+// ---- which file wins
+
+#[test]
+fn the_size_that_matches_beats_the_nearer_theme() {
+    // **The part of the algorithm a reader invents backwards.** `zchild` has a 16-pixel directory
+    // and nothing else; `zbase` has 16 and 22. Asked for 16, the child wins because both match and
+    // it comes first. Asked for 22, the *parent* wins -- a directory whose rule serves the size
+    // beats a theme that is closer in the chain, because a stretched icon looks worse than a
+    // slightly different drawing.
+    val t = pointed_at_the_tree()
+    test.assert_eq("zchild/16x16/apps/both.png", under(where_is(t, "both", 16)))
+    test.assert_eq("zbase/22x22/apps/both.png", under(where_is(t, "both", 22)))
+}
+
+#[test]
+fn the_closest_size_is_only_a_fallback() {
+    val t = pointed_at_the_tree()
+    // 13 matches nothing: the fixed directories are 16 and 22, and the scalable one starts at 24.
+    // So the closest wins, which is the 16 three away rather than the 22 nine away.
+    test.assert_eq("zbase/16x16/apps/only-base.png", under(where_is(t, "only-base", 13)))
+    // 30 is inside the scalable range, so it matches rather than falling back to 22.
+    test.assert_eq("zbase/scalable/apps/only-base.svg", under(where_is(t, "only-base", 30)))
+}
+
+#[test]
+fn png_comes_before_svg_and_find_svg_asks_for_one() {
+    // The specification's order, and not an accident: a theme that ships both drew the PNG for
+    // that exact size.
+    val t = pointed_at_the_tree()
+    test.assert_eq("zbase/16x16/apps/vector.png", under(where_is(t, "vector", 16)))
+    test.assert_eq("zbase/16x16/apps/vector.svg", under(switch icons.find_svg(t, "vector", 16) {
+        Some(f) { f.path }
+        None { "<not found>" }
+    }))
+    // And `scalable=` says which kind arrived, so a caller need not read the extension back.
+    test.assert(switch icons.find_svg(t, "vector", 16) {
+        Some(f) { f.scalable }
+        None { false }
+    })
+    test.assert_false(switch icons.find(t, "vector", 16) {
+        Some(f) { f.scalable }
+        None { true }
+    })
+}
+
+#[test]
+fn a_scaled_directory_answers_only_its_own_scale() {
+    val t = pointed_at_the_tree()
+    // `32x32@2` is listed first and its `Size` is 32, so a reader that ignored `Scale` would
+    // answer with it. At scale 1 the answer is the scale-1 directory of the same size, further
+    // down the list.
+    test.assert_eq("zbase/32x32/apps/dense.png", under(where_is(t, "dense", 32)))
+    // Asked at scale 2, the scaled directory is the one that matches.
+    test.assert_eq("zbase/32x32@2/apps/dense.png", under(switch icons.find(t, "dense", 32, 2) {
+        Some(f) { f.path }
+        None { "<not found>" }
+    }))
+    // A size that another directory serves at scale 1 is not answered by the scaled one.
+    test.assert_eq("zbase/16x16/apps/only-base.png", under(where_is(t, "only-base", 16)))
+}
+
+#[test]
+fn the_distance_is_measured_in_scaled_pixels() {
+    // `only-dense` is in `16x16@2` and in `22x22`, and nothing matches a request for 32 at scale 1.
+    // So the closest-size pass decides, and **16 at scale 2 is the same 32 pixels** -- distance 0,
+    // against the 22's 10. A reader comparing the nominal sizes would pick the 22.
+    val t = pointed_at_the_tree()
+    test.assert_eq("zbase/16x16@2/apps/only-dense.png", under(where_is(t, "only-dense", 32)))
+}
+
+#[test]
+fn a_directory_with_no_type_is_a_threshold_directory() {
+    // `48x48/apps` has a `Size` and no `Type`, which the specification says is `Threshold` with a
+    // threshold of 2 -- so it serves 46 to 50. Asked for 47 it matches, and it is listed before
+    // the scalable directory that would otherwise answer with an SVG. A reader defaulting to
+    // `Fixed` answers `scalable/apps/thresholded.svg` instead.
+    val t = pointed_at_the_tree()
+    test.assert_eq("zbase/48x48/apps/thresholded.png", under(where_is(t, "thresholded", 47)))
+    // Outside the threshold, the scalable directory is the one whose rule matches.
+    test.assert_eq("zbase/scalable/apps/thresholded.svg", under(where_is(t, "thresholded", 40)))
+}
+
+#[test]
+fn a_section_with_no_size_is_not_a_size_directory() {
+    // `junk/apps` is named by `Directories` and has no `Size`, so it serves nothing. Treating it
+    // as size 0 would make it the closest directory to a small request and answer with a file no
+    // theme ever offered.
+    val t = pointed_at_the_tree()
+    test.assert_eq("<not found>", where_is(t, "junk", 16))
+}
+
+#[test]
+fn a_loose_file_in_a_base_directory_is_the_last_resort() {
+    // `LookupFallbackIcon`: what /usr/share/pixmaps is, and what an application that installed one
+    // icon with no theme at all did.
+    val t = pointed_at_the_tree()
+    test.assert_eq("loose.png", under(where_is(t, "loose", 16)))
+    test.assert_eq("<not found>", where_is(t, "no-such-icon-anywhere", 16))
+}
+
+// ---- a name as a drawing
+
+#[test]
+fn a_name_becomes_a_path_in_a_unit_box() {
+    val t = pointed_at_the_tree()
+    val p = switch icons.icon_path(t, "vector", 16) {
+        Ok(x) { x }
+        Err(why) {
+            test.fail(why)
+            shape.empty_path()
+        }
+    }
+    // The 16-unit drawing is a 12-unit square at 2,2, so in the unit box it runs 0.125 to 0.875.
+    val b = shape.path_bounds(p)
+    test.assert_near(0.125, b.x, 0.001)
+    test.assert_near(0.75, b.width, 0.001)
+    test.assert(len(p.segments) > 0)
+    // The tolerant door answers the same thing for a drawing with nothing faint in it.
+    val tolerant = switch icons.icon_path(t, "vector", 16, 1.0) {
+        Ok(x) { x }
+        Err(why) {
+            test.fail(why)
+            shape.empty_path()
+        }
+    }
+    test.assert_eq(len(p.segments), len(tolerant.segments))
+}
+
+#[test]
+fn a_name_with_no_scalable_file_says_so() {
+    val t = pointed_at_the_tree()
+    // `both` is a PNG everywhere, and a PNG is not a path: the Err names the theme that was asked
+    // rather than the file that was not found, because that is what a caller can act on.
+    test.assert(switch icons.icon_path(t, "both", 16) {
+        Ok(_) { false }
+        Err(why) { contains(why, "zchild") }
+    })
+    test.assert(switch icons.icon_path(t, "no-such-icon-anywhere", 16) {
+        Ok(_) { false }
+        Err(_) { true }
+    })
+}
+
+#[test]
+fn no_theme_and_no_hicolor_is_the_one_error() {
+    // The only case a caller cannot recover from: nothing on the search path at all. A missing
+    // *theme* is not it -- that falls back to hicolor, which is what every desktop has.
+    test.assert(switch icons.theme("no-such-theme", [concat(base, "/empty")]) {
+        Ok(_) { false }
+        Err(why) { contains(why, "hicolor") }
+    })
+}

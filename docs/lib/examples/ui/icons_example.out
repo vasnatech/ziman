@@ -1,0 +1,8 @@
+chain: example-child example-base
+16: example-child/16x16/apps/save.png (from a 16-pixel directory)
+22: example-base/22x22/apps/save.png (from a 22-pixel directory)
+64: example-base/scalable/apps/save.svg (from a 128-pixel directory)
+13: example-child/16x16/apps/save.png (from a 16-pixel directory)
+svg at 16: example-base/scalable/apps/save.svg
+drawn: 7 segments in 0.14,0.23 0.73x0.56
+icons: no scalable 'no-such-icon' at 16 in theme 'example-child' or anything it inherits

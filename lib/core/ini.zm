@@ -319,11 +319,22 @@ fn tags_of(posix: string) -> [string] {
     return snapshot(out)
 }
 
-// A `;`-separated list, the specification's own multi-value shape: `Inherits=Adwaita;hicolor;`.
+// A `;`-separated list, the Desktop Entry Specification's own multi-value shape:
+// `MimeType=image/png;image/jpeg;`.
 //
-// **A trailing `;` is a terminator, not an empty item**, which the specification says and which
-// every real file relies on -- `Adwaita;hicolor;` is two themes. An item may contain a `\;`.
+// **A trailing separator is a terminator, not an empty item**, which the specification says and
+// which every real file relies on -- `a;b;` is two items. An item may contain an escaped separator.
 pub fn list_of(text: string) -> [string] {
+    return list_of(text, ";")
+}
+
+// The same with another separator, because **the freedesktop specifications disagree with each
+// other**: Desktop Entry says `;` and the Icon Theme Specification says commas, so an
+// `index.theme` writes `Inherits=AdwaitaLegacy,hicolor` and `Directories=16x16/actions,...`.
+// Measured on a Fedora desktop: all four themes that list directories use commas and none uses
+// semicolons, so a reader with only `;` reads a theme's whole directory list as one unusable name
+// -- which is exactly what it did until this was measured.
+pub fn list_of(text: string, separator: string) -> [string] {
     val out = mutable_array_new<string>()
     val piece = mutable_string_new()
     var i = 0
@@ -335,8 +346,8 @@ pub fn list_of(text: string) -> [string] {
             i = i + 2
             continue
         }
-        if c == ";" {
-            push(out, unescape_item(snapshot(piece)))
+        if c == separator {
+            push(out, unescape_item(snapshot(piece), separator))
             clear(piece)
             i = i + 1
             continue
@@ -345,7 +356,7 @@ pub fn list_of(text: string) -> [string] {
         i = i + 1
     }
     if len(piece) > 0 {
-        push(out, unescape_item(snapshot(piece)))
+        push(out, unescape_item(snapshot(piece), separator))
     }
     return snapshot(out)
 }
@@ -353,9 +364,13 @@ pub fn list_of(text: string) -> [string] {
 // The list a key holds, or an empty list when the key is absent -- which is the same answer a
 // caller wants in both cases, since a theme with no `Inherits` inherits nothing.
 pub fn list_in(g: Group, key: string) -> [string] {
+    return list_in(g, key, ";")
+}
+
+pub fn list_in(g: Group, key: string, separator: string) -> [string] {
     for e in g.entries {
         if e.key == key && Option<string>.None == e.locale {
-            return list_of(e.value)
+            return list_of(e.value, separator)
         }
     }
     return []
@@ -429,17 +444,19 @@ fn required(g: Group, key: string) -> Result<string, string> {
 // else is a backslash, because a file that writes a Windows path as `C:\temp` is not written in
 // escapes and refusing it would be refusing the file over a convention it never adopted.
 pub fn unescaped(text: string) -> string {
-    return unescape(text, false)
+    return unescape(text, "")
 }
 
-// The same with `\;` for a `;`, which is an escape **only inside a list** -- the specification adds
-// it to the list types rather than to strings, so a lone `\;` in an ordinary value stays as
-// written, like any other unknown escape.
-fn unescape_item(text: string) -> string {
-    return unescape(text, true)
+// The same with an escaped separator for the separator, which is an escape **only inside a list**
+// -- the specification adds it to the list types rather than to strings, so a lone `\;` in an
+// ordinary value stays as written, like any other unknown escape.
+fn unescape_item(text: string, separator: string) -> string {
+    return unescape(text, separator)
 }
 
-fn unescape(text: string, in_a_list: bool) -> string {
+// `separator` is the list separator this text was split on, or `""` when the text is not a list
+// item: `\,` is an escaped comma in an `index.theme` list and an unknown escape anywhere else.
+fn unescape(text: string, separator: string) -> string {
     if index_of(text, "\\", 0) < 0 {
         return text
     }
@@ -468,8 +485,8 @@ fn unescape(text: string, in_a_list: bool) -> string {
                         if next == "\\" {
                             append(out, "\\")
                         } else {
-                            if next == ";" && in_a_list {
-                                append(out, ";")
+                            if len(separator) > 0 && next == separator {
+                                append(out, separator)
                             } else {
                                 append(out, c)
                                 append(out, next)
@@ -543,16 +560,22 @@ pub fn format(f: Ini) -> string {
 // Several values as one value: each item escaped, `;` between them, and a `;` at the end because
 // that is how every file in the wild terminates a list (and `list_of` reads either).
 pub fn list_text(items: [string]) -> string {
+    return list_text(items, ";")
+}
+
+// With the separator a given specification asks for -- a comma, for the two keys in an
+// `index.theme` that are lists.
+pub fn list_text(items: [string], separator: string) -> string {
     val out = mutable_string_new()
     for item in items {
-        append(out, escaped_item(item))
-        append(out, ";")
+        append(out, escaped_item(item, separator))
+        append(out, separator)
     }
     return snapshot(out)
 }
 
-fn escaped_item(text: string) -> string {
-    return replace(escaped(text), ";", "\\;")
+fn escaped_item(text: string, separator: string) -> string {
+    return replace(escaped(text), separator, concat("\\", separator))
 }
 
 // A group built in code, for a caller writing a file rather than reading one.
@@ -568,6 +591,10 @@ pub fn entry_in(key: string, l: string, value: string) -> Entry {
 // and `OnlyShowIn` are all this shape, and writing one by hand is how a `;` ends up unescaped.
 pub fn entry_list(key: string, items: [string]) -> Entry {
     return Entry { key: key, locale: Option<string>.None, value: list_text(items) }
+}
+
+pub fn entry_list(key: string, items: [string], separator: string) -> Entry {
+    return Entry { key: key, locale: Option<string>.None, value: list_text(items, separator) }
 }
 
 pub fn group_of(name: string, entries: [Entry]) -> Group {

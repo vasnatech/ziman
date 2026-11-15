@@ -730,7 +730,11 @@ pub fn value_for(g: Group, key: string, tag: string) -> Option<string>
 
 pub fn list_of(text: string) -> [string]
 
+pub fn list_of(text: string, separator: string) -> [string]
+
 pub fn list_in(g: Group, key: string) -> [string]
+
+pub fn list_in(g: Group, key: string, separator: string) -> [string]
 
 pub fn get_bool(g: Group, key: string) -> Result<bool, string>
 
@@ -748,11 +752,15 @@ pub fn format(f: Ini) -> string
 
 pub fn list_text(items: [string]) -> string
 
+pub fn list_text(items: [string], separator: string) -> string
+
 pub fn entry_of(key: string, value: string) -> Entry
 
 pub fn entry_in(key: string, l: string, value: string) -> Entry
 
 pub fn entry_list(key: string, items: [string]) -> Entry
+
+pub fn entry_list(key: string, items: [string], separator: string) -> Entry
 
 pub fn group_of(name: string, entries: [Entry]) -> Group
 
