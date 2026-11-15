@@ -271,11 +271,21 @@ fn still(b: Button) -> ButtonStep {
 // The role and the label are declared here, which is what F275 is for -- a reader announces
 // "button, Save" from this one call, and nothing downstream has to guess that a group of rectangles
 // was a button.
-// The icon's name, for a button that has no words of its own -- and nothing otherwise, so a
-// labelled button is read by its label and its icon stays silent.
-fn icon_name_if_wordless(b: Button) -> string {
+// What a reader says for this button: its words, or its icon's name when it has none.
+//
+// **Declared rather than left to be gathered, and a glyph icon is why.** `a11y` builds a name
+// from the text inside a control when nothing is declared, which gave the right answer for every
+// button that existed before icons: the only text in one was its label. A `Drawing` has no text,
+// so a drawn icon stayed silent by itself -- but a **glyph** icon *is* text, and a button with one
+// was announced as "A Done", the private-use character read out in front of the word. A test
+// caught it the same hour the source was added.
+//
+// So the control says its own name in every case. The icon is silent beside words because nothing
+// is gathered at all, and it speaks without them because that is the one case where an icon is
+// not decoration.
+fn announced_name(b: Button) -> string {
     if b.label != "" {
-        return ""
+        return b.label
     }
     return switch b.icon {
         Some(icon) { icon.name }
@@ -293,7 +303,7 @@ pub fn button_widget(b: Button, style: Style) -> widget.Widget {
     val label = widget.label_of(b.label, style.text_size, ink)
     switch b.icon {
         Some(icon) {
-            val mark = widget.icon_widget(icon, style.text_size, ink)
+            val mark = widget.icon_widget(icon, style.text_size, ink, style.icon_font)
             // A label-less button is just the icon: no gap, and nothing to put one between.
             if b.label == "" {
                 push(content, mark)
@@ -333,12 +343,9 @@ pub fn button_widget(b: Button, style: Style) -> widget.Widget {
     return widget.Widget.Control(widget.Focusable {
         name: b.name,
         role: widget.Role.Button,
-        // **An icon-only button is announced by its icon**, which is the accessibility half of the
-        // icon decision and falls out of two rules already here: `a11y` prefers a declared label
-        // over the text it can gather, and a `Drawing` contributes no text to gather. So a button
-        // with words says its words and needs nothing declared; a button with only a mark would
-        // otherwise be nameless, and says the icon's name instead.
-        label: icon_name_if_wordless(b),
+        // **A button says its own name**, words or icon -- see `announced_name`, which explains
+        // why this is declared rather than gathered from the text inside.
+        label: announced_name(b),
         description: "",
         value: "",
         state: with widget.no_state() { disabled: b.disabled },
@@ -420,8 +427,7 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
     // also what makes the box exactly as tall as the label beside it, which is the relationship a
     // check box has on every platform. `entry_widget` and `multi_line_widget` already take a
     // `Metrics` for the same kind of reason, so this is the pattern rather than a new one.
-    val line = m.line_height
-    val side = line(style.text_size)
+    val side = widget.height_in(m, style.text_font, style.text_size)
     val box = widget.fixed_of(side, side, widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
@@ -660,8 +666,7 @@ fn following_caret(step: EntryStep, bounds: Rect, style: Style, m: widget.Metric
     if e.rows <= 1 {
         return step
     }
-    val height = m.line_height
-    val line = height(style.text_size)
+    val line = widget.height_in(m, style.text_font, style.text_size)
     val at = edit.line_index(e.editor.text, e.editor.caret)
     val view = bounds.height - style.padding.top - style.padding.bottom
     return EntryStep {
@@ -707,7 +712,7 @@ fn entry_step(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metr
                     // **`shown_text`, not `e.editor.text`** -- a click lands on the bullet the
                     // user aimed at, which is only the same index if the thing measured is the
                     // thing drawn.
-                    caret_at_x(shown_text(e), style.text_size, m, p.x - text_left(bounds, style)),
+                    caret_at_x(shown_text(e), style.text_size, m, p.x - text_left(bounds, style), style.text_font),
                     false
                 ),
                 dragging: true,
@@ -719,7 +724,7 @@ fn entry_step(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metr
                 kept(with e {
                     editor: edit.place_caret(
                         e.editor,
-                        caret_at_x(shown_text(e), style.text_size, m, p.x - text_left(bounds, style)),
+                        caret_at_x(shown_text(e), style.text_size, m, p.x - text_left(bounds, style), style.text_font),
                         true
                     )
                 })
@@ -900,15 +905,25 @@ fn text_left(bounds: Rect, style: Style) -> float {
 // and would disagree with the layout that drew the text. That makes this O(n^2) in the length of
 // the field, which is the right trade for one line of text and the wrong one for a document.
 pub fn caret_at_x(text: string, size: float, m: widget.Metrics, x: float) -> int {
+    return caret_at_x(text, size, m, x, 0)
+}
+
+// The same, measuring in a named face.
+//
+// **A fifth argument rather than a changed signature**: the four-argument form is what a caller
+// with one face wants, which is most of them, and an entry in a second face is the one that has to
+// say so. `entry_input` passes `style.text_font`, so a field drawn in a face measures its clicks
+// in the same one -- a caret placed by the wrong face's widths lands between the wrong letters,
+// and only on the text where the two faces differ.
+pub fn caret_at_x(text: string, size: float, m: widget.Metrics, x: float, face: int) -> int {
     if x <= 0.0 {
         return 0
     }
-    val width = m.text_width
     val n = len(text)
     var i = 0
     while i < n {
-        val before = width(substring(text, 0, i), size)
-        val after = width(substring(text, 0, i + 1), size)
+        val before = widget.width_in(m, face, substring(text, 0, i), size)
+        val after = widget.width_in(m, face, substring(text, 0, i + 1), size)
         if x < (before + after) / 2.0 {
             return i
         }
@@ -1118,8 +1133,7 @@ fn entry_line(
 
 fn multi_line_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget {
     val ink = if e.disabled { style.disabled_ink } else { style.ink }
-    val height = m.line_height
-    val line = height(style.text_size)
+    val line = widget.height_in(m, style.text_font, style.text_size)
     val text = e.editor.text
     val caret_line = edit.line_index(text, e.editor.caret)
     val lines = mutable_array_new<widget.Widget>()
@@ -1168,8 +1182,7 @@ pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget 
         return multi_line_widget(e, style, m)
     }
     val ink = if e.disabled { style.disabled_ink } else { style.ink }
-    val height = m.line_height
-    val line = height(style.text_size)
+    val line = widget.height_in(m, style.text_font, style.text_size)
     val text = shown_text(e)
     // **A field is never selecting and composing at once**, which is not a simplification taken
     // but one the model gives: `edit.compose` deletes a selection before it opens a composition,
@@ -2707,6 +2720,15 @@ pub struct Style {
     // same rule `tab_width` and `bar_thickness` follow. A theme with four-point buttons and
     // square selection is not a theme, it is two.
     corner_radius: float
+    // Which face a control's text is drawn in, and which an icon *glyph* comes from: indices into
+    // the faces a window gave `widget.Metrics` and `raster.Options.fonts`.
+    //
+    // **Named by purpose here so that no control writes a literal index.** `widget` works in
+    // indices because the renderer does; meaning belongs at this layer, where a theme can say "the
+    // text is face 1 and the icons are face 2" once and every control follows. Both default to 0,
+    // which is the single-face window every application starts as.
+    text_font: int
+    icon_font: int
     // The space between an icon and the label it sits beside.
     //
     // **One number, like `corner_radius` above and for the same reason**: a theme with a wide gap
@@ -2734,6 +2756,8 @@ pub fn default_style() -> Style {
         scrim: paint.rgba(0.0, 0.0, 0.0, 0.35),
         face_border: Option<widget.Border>.None,
         corner_radius: 0.0,
+        text_font: 0,
+        icon_font: 0,
         // Half the text size: at 12 points that is 6, which reads as a space between two things
         // rather than as a gap. Scaling with the text keeps it right at any size, the way the
         // icon's own square does.

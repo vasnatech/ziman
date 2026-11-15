@@ -76,6 +76,14 @@ pub struct Label {
     // The em size, in device units.
     size: float
     colour: Color
+    // Which face to draw it in: an index into the faces a window gave `widget.Metrics` and
+    // `raster.Options.fonts`, 0 being the text face.
+    //
+    // **An index rather than a name, because the layer below uses one** -- `scene.text_of` takes
+    // an `int` and `raster.Options.fonts` is positional -- and because a name here would need a
+    // table at paint time that only the application can fill. Meaning is added one layer up:
+    // `controls.Style` names the faces it uses by purpose, so no control writes a literal.
+    font: int
     // What a focus or accessibility layer refers to this node by, or "" for none. **A name, not an
     // index**: a path changes when a sibling is inserted above it, and focus that moved because an
     // unrelated widget appeared is a bug a user notices and a test does not.
@@ -113,6 +121,19 @@ pub enum IconSource {
     // gives it. `shape` has everything needed to write one and `scene.fill` draws it, so this
     // source costs no new native code and no registry: see `Drawn`.
     Drawn(shape.Path)
+    // One character from a face -- an icon font's private-use code point, or a character from the
+    // text font where that is what the mark is.
+    //
+    // **This was blocked until the face stopped being a literal 0.** The whole of the blockage
+    // was `paint` passing `0` to `scene.text_of`, so a `Label` could not name the second face a
+    // window had loaded; the renderer has taken an index since it existed. `Style.icon_font` says
+    // which face, so the control carries the character and the theme carries the font.
+    //
+    // **The glyph is a string, not a code point**, for the reason `Style.collapsed_mark` is: a
+    // caller that has `"\u{e5ca}"` in a constant can put it here, and this layer never has to
+    // encode anything. It is one character by convention and nothing enforces that, because an
+    // icon font with a two-character ligature is a real thing.
+    Glyph(string)
 }
 
 // Which side of the label an icon sits on.
@@ -158,12 +179,29 @@ pub fn trailing_icon(path: shape.Path, name: string) -> Icon {
 // **The control calls this; nothing else should need to.** It is the one place an icon becomes a
 // `Widget`, so the rules an icon has -- a square from the text's measure, one colour from the
 // control's state, no accessibility text of its own -- are applied once rather than per control.
-pub fn icon_widget(icon: Icon, size: float, colour: Color) -> Widget {
+pub fn icon_widget(icon: Icon, size: float, colour: Color, face: int) -> Widget {
     return switch icon.source {
         // `Drawing` contributes no text to a reader, which is what makes the silence automatic:
         // the name travels on the control's `Focusable`, not on this.
         Drawn(path) { fixed_of(size, size, drawn_of(path, colour)) }
+        // **A glyph is text, so it does contribute text** -- and that is a problem this one has
+        // and the drawn one does not: a reader would announce a private-use character, which is
+        // either nothing or a wrong word. So it is boxed the same way and the box is what the
+        // layout sees, while `a11y` is kept away from it by the control declaring its own name.
+        //
+        // Sized by its box rather than by its own advance, so an icon font whose glyphs are not
+        // square still occupies the square the control gave it.
+        Glyph(ch) { fixed_of(size, size, label_in_face(ch, size, colour, face)) }
     }
+}
+
+// A glyph icon from the icon face: `widget.glyph_icon("\u{e5ca}", "done")`.
+pub fn glyph_icon(glyph: string, name: string) -> Icon {
+    return Icon { source: IconSource.Glyph(glyph), name: name, side: IconSide.Leading }
+}
+
+pub fn trailing_glyph_icon(glyph: string, name: string) -> Icon {
+    return Icon { source: IconSource.Glyph(glyph), name: name, side: IconSide.Trailing }
 }
 
 pub fn drawn_of(path: shape.Path, colour: Color) -> Widget {
@@ -175,11 +213,16 @@ pub fn named_drawing(path: shape.Path, colour: Color, name: string) -> Widget {
 }
 
 pub fn label_of(text: string, size: float, colour: Color) -> Widget {
-    return Widget.Text(Label { text: text, size: size, colour: colour, name: "" })
+    return Widget.Text(Label { text: text, size: size, colour: colour, name: "", font: 0 })
+}
+
+// A label in a named face: a heading in a bold one, a mark in an icon font.
+pub fn label_in_face(text: string, size: float, colour: Color, face: int) -> Widget {
+    return Widget.Text(Label { text: text, size: size, colour: colour, name: "", font: face })
 }
 
 pub fn named_label(text: string, size: float, colour: Color, name: string) -> Widget {
-    return Widget.Text(Label { text: text, size: size, colour: colour, name: name })
+    return Widget.Text(Label { text: text, size: size, colour: colour, name: name, font: 0 })
 }
 
 // A border: a colour and a width, together.
@@ -898,19 +941,74 @@ pub fn flex_of(weight: float) -> Widget {
 
 // ---------------------------------------------------------------- measurement
 
-// How wide a string is, and how tall a line of it is, at a given em size.
+// How wide a string is, and how tall a line of it is, at a given em size, **for one face**.
 //
 // Two functions rather than a font, so that nothing here can fail and nothing here needs a face.
 // `font.advance` answers a `Result` -- a standard font that is not Courier cannot be measured
 // without the file -- and threading that failure through every layout would make a window's shape
 // a fallible computation. A caller resolves it once, when it loads its font.
-pub struct Metrics {
+pub struct FaceMetrics {
     text_width: fn(string, float) -> float
     line_height: fn(float) -> float
 }
 
+// The faces a window can draw text in.
+//
+// **An array, because `raster.Options.fonts` is one and `scene.text_of` names a face by index.**
+// This layer passed a literal `0` to every text op until 2026-11-14, so a `Label` could not name a
+// second face however many the renderer was given -- which blocked a bold heading and an *icon
+// font* alike, and the icon font is why this changed.
+//
+// Index 0 is the text face: what a control draws in unless its style says otherwise. A tree of
+// widgets naming a face beyond this array still **lays out**, against face 0, because a window's
+// shape must not depend on which fonts were loaded; the renderer is where the mismatch is reported
+// ("a text run names font 7 but Options.fonts holds 1"), the same way `scene` names an image by
+// index and `raster` answers for it.
+pub struct Metrics {
+    faces: [FaceMetrics]
+}
+
+// The measurements of one face, which is what most windows have.
 pub fn metrics_of(text_width: fn(string, float) -> float, line_height: fn(float) -> float) -> Metrics {
-    return Metrics { text_width: text_width, line_height: line_height }
+    return Metrics { faces: [FaceMetrics { text_width: text_width, line_height: line_height }] }
+}
+
+// Several faces, in the order `raster.Options.fonts` holds them.
+pub fn metrics_of_faces(faces: [FaceMetrics]) -> Metrics {
+    return Metrics { faces: faces }
+}
+
+pub fn face_metrics_of(
+    text_width: fn(string, float) -> float,
+    line_height: fn(float) -> float
+) -> FaceMetrics {
+    return FaceMetrics { text_width: text_width, line_height: line_height }
+}
+
+// The face at `which`, or face 0 when the tree names one this window was not given.
+//
+// **A layout that refused would make a window's shape depend on its fonts**, which is the one
+// thing this whole layer is arranged to avoid: `present` takes pixels and knows nothing about
+// where they came from, and a tree measured against a missing face would be a different tree.
+pub fn face_at(m: Metrics, which: int) -> FaceMetrics {
+    if which >= 0 && which < prelude.len(m.faces) {
+        return m.faces[which]
+    }
+    return m.faces[0]
+}
+
+// How wide `text` is in the face a label names, at its own size.
+pub fn width_in(m: Metrics, which: int, text: string, size: float) -> float {
+    val f = face_at(m, which)
+    val measure_width = f.text_width
+    return measure_width(text, size)
+}
+
+// How tall a line is in the face a label names.
+pub fn height_in(m: Metrics, which: int, size: float) -> float {
+    val f = face_at(m, which)
+    val measure_height = f.line_height
+    return measure_height(size)
 }
 
 // The real metrics of a face.
@@ -922,9 +1020,29 @@ pub fn metrics_of(text_width: fn(string, float) -> float, line_height: fn(float)
 // every string; the closures then treat a later failure as a zero width, which cannot happen for a
 // face that got past this line.
 pub fn metrics_for(f: font.FontRef) -> Result<Metrics, string> {
+    return ok(Metrics { faces: [try face_metrics_for(f)] })
+}
+
+// The real metrics of several faces, in the order `raster.Options.fonts` will hold them.
+//
+// **The order is the contract.** A window passes the same list to both, and index 0 is the text
+// face; `controls.Style` names the rest by purpose (`text_font`, `icon_font`) so that no control
+// writes a literal index.
+pub fn metrics_for_faces(fs: [font.FontRef]) -> Result<Metrics, string> {
+    if prelude.len(fs) == 0 {
+        return err("widget: a window needs at least one face to measure text with")
+    }
+    val out = mutable_array_new<FaceMetrics>()
+    for f in fs {
+        push(out, try face_metrics_for(f))
+    }
+    return ok(Metrics { faces: prelude.snapshot(out) })
+}
+
+pub fn face_metrics_for(f: font.FontRef) -> Result<FaceMetrics, string> {
     val _ = try font.advance(f, "0", 10.0)
     val face = f
-    return ok(Metrics {
+    return ok(FaceMetrics {
         text_width: fn(text: string, size: float) -> float {
             return switch font.advance(face, text, size) {
                 Ok(w) { w }
@@ -947,11 +1065,7 @@ pub fn measure(w: Widget, m: Metrics) -> Size {
         // widget answering a question that is not its to answer.
         Drawing(_) { size_of(0.0, 0.0) }
         Flex(_) { size_of(0.0, 0.0) }
-        Text(it) {
-            val width = m.text_width
-            val height = m.line_height
-            size_of(width(it.text, it.size), height(it.size))
-        }
+        Text(it) { size_of(width_in(m, it.font, it.text, it.size), height_in(m, it.font, it.size)) }
         Sized(it) { size_of(it.width, it.height) }
         Group(it) { measure_stack(it, m) }
         // Its child's natural size: the *cross* axis still comes from here, and only the axis its
@@ -1589,14 +1703,16 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>) {
         push(ops, scene.fill(shape.transform_path(it.path, into), Paint.Solid(it.colour)))
     }
     if Text(it) = l.widget {
-        val height = m.line_height
         push(
             ops,
             scene.text_of(
                 it.text,
-                geom.point_of(l.bounds.x, l.bounds.y + height(it.size)),
+                geom.point_of(l.bounds.x, l.bounds.y + height_in(m, it.font, it.size)),
                 it.size,
-                0,
+                // **The label's own face, which was a literal 0 until 2026-11-14.** The renderer
+                // has taken an index since it existed; this layer simply never offered one, so a
+                // window with two faces loaded could draw in only the first.
+                it.font,
                 Paint.Solid(it.colour)
             )
         )

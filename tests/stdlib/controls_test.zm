@@ -595,7 +595,7 @@ fn found_x(l: widget.Laid) -> float {
 #[test]
 fn the_drawn_caret_and_the_clicked_caret_agree() {
     val e = field()
-    val width = metrics().text_width
+    val width = widget.face_at(metrics(), 0).text_width
     var at = 0
     while at <= len(e.editor.text) {
         val placed = with e { editor: edit.place_caret(e.editor, at, false) }
@@ -2681,7 +2681,7 @@ fn a_check_box_is_square() {
 #[test]
 fn a_check_box_is_one_line_square() {
     val m = metrics()
-    val height = m.line_height
+    val height = widget.face_at(m, 0).line_height
     val laid = widget.layout(
         controls.check_box_widget(a_check_box(), controls.default_style(), metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
@@ -2732,7 +2732,7 @@ fn first_fill_radius(ops: [scene.Op], left: float) -> float {
 #[test]
 fn a_check_box_caps_the_radius_its_size_cannot_carry() {
     val m = metrics()
-    val height = m.line_height
+    val height = widget.face_at(m, 0).line_height
     val side = height(controls.default_style().text_size)
     // A radius the square cannot carry: 10 against a side of 24, where the cap is 6.
     val asking = with edged_style() { corner_radius: 10.0 }
@@ -2921,4 +2921,63 @@ fn an_icon_takes_the_controls_own_ink() {
     // The tick is drawn as a fill in the disabled ink; a bright icon beside grey words would be
     // zero here.
     test.assert(marks > 0)
+}
+
+// **A glyph icon comes from the face the theme names**, which is what multi-font support was for:
+// an icon font's private-use character is text, and until a `Label` could name a second face
+// there was nowhere to draw it from.
+#[test]
+fn a_glyph_icon_is_drawn_in_the_styles_icon_face() {
+    val m = widget.metrics_of_faces([
+        widget.face_metrics_of(
+            fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+            fn(size: float) -> float { return size * 2.0 }
+        ),
+        widget.face_metrics_of(
+            fn(text: string, size: float) -> float { return (len(text) as float) * 30.0 },
+            fn(size: float) -> float { return size * 2.0 }
+        )
+    ])
+    val style = with controls.default_style() { icon_font: 1 }
+    val b = controls.icon_button_of("done", "Done", widget.glyph_icon("A", "done"))
+    val laid = widget.layout(controls.button_widget(b, style), geom.rect_of(0.0, 0.0, 400.0, 60.0), m)
+
+    // The glyph's run names the icon face and the label's names the text face: one button, two
+    // fonts, and no control that had to know.
+    var icon_face = 0 - 1
+    var label_face = 0 - 1
+    for op in widget.paint(laid, m).ops {
+        if Text(run) = op {
+            if run.text == "A" {
+                icon_face = run.font
+            }
+            if run.text == "Done" {
+                label_face = run.font
+            }
+        }
+    }
+    test.assert_eq(icon_face, 1)
+    test.assert_eq(label_face, 0)
+
+    // **And it is still an em square**, not the glyph's own advance: an icon font whose characters
+    // are not square must not make the button a different height than its words.
+    val row = laid.children[0]
+    test.assert_eq(row.children[0].bounds.width, style.text_size)
+    test.assert_eq(row.children[0].bounds.height, style.text_size)
+
+    // **A reader says the label and not the private-use character.** This is the case that forced
+    // `announced_name`: a drawn icon is silent by itself because a `Drawing` has no text, and a
+    // glyph icon is text, so this button announced itself as "A Done" until the control started
+    // declaring its own name instead of letting one be gathered.
+    test.assert_eq(named(a11y.tree_of(laid, "demo", ""), "done"), "Done")
+}
+
+// With no words, the glyph button is announced by the icon's name rather than by the character.
+#[test]
+fn a_wordless_glyph_button_says_its_name_and_not_its_character() {
+    val m = metrics()
+    val style = with controls.default_style() { icon_font: 0 }
+    val b = controls.icon_button_of("close", "", widget.glyph_icon("x", "close"))
+    val laid = widget.layout(controls.button_widget(b, style), geom.rect_of(0.0, 0.0, 400.0, 60.0), m)
+    test.assert_eq(named(a11y.tree_of(laid, "demo", ""), "close"), "close")
 }

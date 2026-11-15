@@ -624,6 +624,18 @@ Measured as prefixes rather than as a sum of per-character widths, because a sum
 and would disagree with the layout that drew the text. That makes this O(n^2) in the length of
 the field, which is the right trade for one line of text and the wrong one for a document.
 
+```
+pub fn caret_at_x(text: string, size: float, m: widget.Metrics, x: float, face: int) -> int
+```
+
+The same, measuring in a named face.
+
+**A fifth argument rather than a changed signature**: the four-argument form is what a caller
+with one face wants, which is most of them, and an entry in a second face is the one that has to
+say so. `entry_input` passes `style.text_font`, so a field drawn in a face measures its clicks
+in the same one -- a caret placed by the wrong face's widths lands between the wrong letters,
+and only on the text where the two faces differ.
+
 ### `caret_name`
 
 ```
@@ -1375,6 +1387,15 @@ pub struct Style {
     // same rule `tab_width` and `bar_thickness` follow. A theme with four-point buttons and
     // square selection is not a theme, it is two.
     corner_radius: float
+    // Which face a control's text is drawn in, and which an icon *glyph* comes from: indices into
+    // the faces a window gave `widget.Metrics` and `raster.Options.fonts`.
+    //
+    // **Named by purpose here so that no control writes a literal index.** `widget` works in
+    // indices because the renderer does; meaning belongs at this layer, where a theme can say "the
+    // text is face 1 and the icons are face 2" once and every control follows. Both default to 0,
+    // which is the single-face window every application starts as.
+    text_font: int
+    icon_font: int
     // The space between an icon and the label it sits beside.
     //
     // **One number, like `corner_radius` above and for the same reason**: a theme with a wide gap

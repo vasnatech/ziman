@@ -1550,3 +1550,70 @@ fn an_edged_surface_does_both_in_order() {
     test.assert(scene.Op.is_StrokePath(ops[1]))
     test.assert(has_curve(fill_path(ops[0])))
 }
+
+// ---- more than one face
+
+// Face 0 measures every character at 10 and face 1 at 30, so a tree measured entirely in face 0
+// -- which is what this layer did until the index stopped being a literal -- is visible as a
+// number rather than as a wrong-looking window.
+fn two_faces() -> widget.Metrics {
+    return widget.metrics_of_faces([
+        widget.face_metrics_of(
+            fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+            fn(size: float) -> float { return size }
+        ),
+        widget.face_metrics_of(
+            fn(text: string, size: float) -> float { return (len(text) as float) * 30.0 },
+            fn(size: float) -> float { return size * 3.0 }
+        )
+    ])
+}
+
+#[test]
+fn a_label_is_measured_in_the_face_it_names() {
+    val m = two_faces()
+    val in_text = widget.measure(widget.label_in_face("abc", 10.0, paint.black(), 0), m)
+    test.assert_eq(in_text.width, 30.0)
+    test.assert_eq(in_text.height, 10.0)
+    val in_icons = widget.measure(widget.label_in_face("abc", 10.0, paint.black(), 1), m)
+    test.assert_eq(in_icons.width, 90.0)
+    test.assert_eq(in_icons.height, 30.0)
+    // `label_of` is the one-face door and stays face 0.
+    test.assert_eq(widget.measure(widget.label_of("abc", 10.0, paint.black()), m).width, 30.0)
+}
+
+// **A window's shape must not depend on which fonts were loaded**, so a tree naming a face this
+// window has not got measures against face 0 instead of refusing. The renderer is where the
+// mismatch is reported, the way `scene` names an image by index and `raster` answers for it.
+#[test]
+fn a_face_a_window_does_not_have_falls_back_rather_than_failing() {
+    val m = two_faces()
+    test.assert_eq(widget.measure(widget.label_in_face("abc", 10.0, paint.black(), 7), m).width, 30.0)
+    test.assert_eq(widget.measure(widget.label_in_face("abc", 10.0, paint.black(), 0 - 1), m).width, 30.0)
+    // And `face_at` says the same thing for a caller that asks directly.
+    val zero = widget.face_at(m, 0)
+    val missing = widget.face_at(m, 9)
+    val a = zero.text_width
+    val b = missing.text_width
+    test.assert_eq(a("abc", 10.0), b("abc", 10.0))
+}
+
+// The paint op carries the index, which is the half the renderer reads: this layer passed a
+// literal 0 to `scene.text_of` until 2026-11-14, so a window with two faces loaded could draw in
+// only the first.
+#[test]
+fn the_text_op_names_the_labels_face() {
+    val m = two_faces()
+    val laid = widget.layout(
+        widget.label_in_face("abc", 10.0, paint.black(), 1),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        m
+    )
+    var named = 0 - 1
+    for op in widget.paint(laid, m).ops {
+        if Text(run) = op {
+            named = run.font
+        }
+    }
+    test.assert_eq(named, 1)
+}

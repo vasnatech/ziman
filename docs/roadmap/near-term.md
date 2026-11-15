@@ -1292,9 +1292,27 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   cost of each further source, paid once.
 
   **What is left, and the first two are blocked on something else:**
-    * **A glyph from an icon font** is blocked on multi-font support: `widget.zm` passes font index
-      `0` to `scene.text_of` (line 1531), so a `Label` cannot name a second face. A glyph from the
-      *text* font already works and is what the tree's marks are.
+    * ~~**A glyph from an icon font**~~ -- **built 2026-11-14, with the multi-font support it was
+      blocked on.** `widget.Metrics` holds *faces* rather than two functions, so `metrics_of` is
+      still the one-face door every existing caller uses and `metrics_of_faces` is the new one;
+      `widget.Label.font` is an index into them, matching `scene.text_of` and
+      `raster.Options.fonts`; and `controls.Style` names the faces by purpose (`text_font`,
+      `icon_font`) so no control writes a literal index. A face the window was not given **falls
+      back to face 0 for measurement** rather than refusing, because a window's shape must not
+      depend on which fonts loaded -- the renderer reports the mismatch, as it already does for an
+      image index.
+
+      Measured: one button drawing its glyph in font 1 and its label in font 0, a label measuring
+      30 wide in a face that says 10 per character and 90 in one that says 30, and the glyph still
+      occupying an em square rather than its own advance, so an icon font with non-square glyphs
+      cannot change a button's height.
+
+      **It also broke the icon decision's accessibility rule, which a test caught the same hour.**
+      A glyph icon *is* text, so `a11y` gathered it and the button announced itself as "A Done" --
+      the private-use character read out in front of the word. A drawn icon had been silent only
+      because `Drawing` has no text to gather. The button now *declares* its name (its words, or
+      the icon's name when it has none) instead of letting one be gathered, which is what the rule
+      said and what the drawn source had been getting by luck.
     * **A picture icon** is blocked on decoders: `image` has `decode_png` and, for JPEG, only
       `jpeg_dimensions` -- there is no JPEG decoder and no SVG parser at all.
     * ~~**`Button.icon`**~~ -- **built 2026-11-14.** `widget.Icon` is a source, a name and a side;

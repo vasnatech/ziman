@@ -182,6 +182,14 @@ pub struct Label {
     // The em size, in device units.
     size: float
     colour: Color
+    // Which face to draw it in: an index into the faces a window gave `widget.Metrics` and
+    // `raster.Options.fonts`, 0 being the text face.
+    //
+    // **An index rather than a name, because the layer below uses one** -- `scene.text_of` takes
+    // an `int` and `raster.Options.fonts` is positional -- and because a name here would need a
+    // table at paint time that only the application can fill. Meaning is added one layer up:
+    // `controls.Style` names the faces it uses by purpose, so no control writes a literal.
+    font: int
     // What a focus or accessibility layer refers to this node by, or "" for none. **A name, not an
     // index**: a path changes when a sibling is inserted above it, and focus that moved because an
     // unrelated widget appeared is a bug a user notices and a test does not.
@@ -223,6 +231,19 @@ pub enum IconSource {
     // gives it. `shape` has everything needed to write one and `scene.fill` draws it, so this
     // source costs no new native code and no registry: see `Drawn`.
     Drawn(shape.Path)
+    // One character from a face -- an icon font's private-use code point, or a character from the
+    // text font where that is what the mark is.
+    //
+    // **This was blocked until the face stopped being a literal 0.** The whole of the blockage
+    // was `paint` passing `0` to `scene.text_of`, so a `Label` could not name the second face a
+    // window had loaded; the renderer has taken an index since it existed. `Style.icon_font` says
+    // which face, so the control carries the character and the theme carries the font.
+    //
+    // **The glyph is a string, not a code point**, for the reason `Style.collapsed_mark` is: a
+    // caller that has `"\u{e5ca}"` in a constant can put it here, and this layer never has to
+    // encode anything. It is one character by convention and nothing enforces that, because an
+    // icon font with a two-character ligature is a real thing.
+    Glyph(string)
 }
 ```
 
@@ -292,7 +313,7 @@ The same, after the label -- a disclosure chevron, a clear `x`.
 ### `icon_widget`
 
 ```
-pub fn icon_widget(icon: Icon, size: float, colour: Color) -> Widget
+pub fn icon_widget(icon: Icon, size: float, colour: Color, face: int) -> Widget
 ```
 
 The icon as a widget of its own, square at `size` points and inked in `colour`.
@@ -300,6 +321,20 @@ The icon as a widget of its own, square at `size` points and inked in `colour`.
 **The control calls this; nothing else should need to.** It is the one place an icon becomes a
 `Widget`, so the rules an icon has -- a square from the text's measure, one colour from the
 control's state, no accessibility text of its own -- are applied once rather than per control.
+
+### `glyph_icon`
+
+```
+pub fn glyph_icon(glyph: string, name: string) -> Icon
+```
+
+A glyph icon from the icon face: `widget.glyph_icon("\u{e5ca}", "done")`.
+
+### `trailing_glyph_icon`
+
+```
+pub fn trailing_glyph_icon(glyph: string, name: string) -> Icon
+```
 
 ### `drawn_of`
 
@@ -318,6 +353,14 @@ pub fn named_drawing(path: shape.Path, colour: Color, name: string) -> Widget
 ```
 pub fn label_of(text: string, size: float, colour: Color) -> Widget
 ```
+
+### `label_in_face`
+
+```
+pub fn label_in_face(text: string, size: float, colour: Color, face: int) -> Widget
+```
+
+A label in a named face: a heading in a bold one, a mark in an icon font.
 
 ### `named_label`
 
@@ -1090,27 +1133,95 @@ pub fn flex_of(weight: float) -> Widget
 
 ## Measurement
 
-### `Metrics`
+### `FaceMetrics`
 
 ```
-pub struct Metrics {
+pub struct FaceMetrics {
     text_width: fn(string, float) -> float
     line_height: fn(float) -> float
 }
 ```
 
-How wide a string is, and how tall a line of it is, at a given em size.
+How wide a string is, and how tall a line of it is, at a given em size, **for one face**.
 
 Two functions rather than a font, so that nothing here can fail and nothing here needs a face.
 `font.advance` answers a `Result` -- a standard font that is not Courier cannot be measured
 without the file -- and threading that failure through every layout would make a window's shape
 a fallible computation. A caller resolves it once, when it loads its font.
 
+### `Metrics`
+
+```
+pub struct Metrics {
+    faces: [FaceMetrics]
+}
+```
+
+The faces a window can draw text in.
+
+**An array, because `raster.Options.fonts` is one and `scene.text_of` names a face by index.**
+This layer passed a literal `0` to every text op until 2026-11-14, so a `Label` could not name a
+second face however many the renderer was given -- which blocked a bold heading and an *icon
+font* alike, and the icon font is why this changed.
+
+Index 0 is the text face: what a control draws in unless its style says otherwise. A tree of
+widgets naming a face beyond this array still **lays out**, against face 0, because a window's
+shape must not depend on which fonts were loaded; the renderer is where the mismatch is reported
+("a text run names font 7 but Options.fonts holds 1"), the same way `scene` names an image by
+index and `raster` answers for it.
+
 ### `metrics_of`
 
 ```
 pub fn metrics_of(text_width: fn(string, float) -> float, line_height: fn(float) -> float) -> Metrics
 ```
+
+The measurements of one face, which is what most windows have.
+
+### `metrics_of_faces`
+
+```
+pub fn metrics_of_faces(faces: [FaceMetrics]) -> Metrics
+```
+
+Several faces, in the order `raster.Options.fonts` holds them.
+
+### `face_metrics_of`
+
+```
+pub fn face_metrics_of(
+    text_width: fn(string, float) -> float,
+    line_height: fn(float) -> float
+) -> FaceMetrics
+```
+
+### `face_at`
+
+```
+pub fn face_at(m: Metrics, which: int) -> FaceMetrics
+```
+
+The face at `which`, or face 0 when the tree names one this window was not given.
+
+**A layout that refused would make a window's shape depend on its fonts**, which is the one
+thing this whole layer is arranged to avoid: `present` takes pixels and knows nothing about
+where they came from, and a tree measured against a missing face would be a different tree.
+
+### `width_in`
+
+```
+pub fn width_in(m: Metrics, which: int, text: string, size: float) -> float
+```
+
+How wide `text` is in the face a label names, at its own size.
+
+### `height_in`
+
+```
+pub fn height_in(m: Metrics, which: int, size: float) -> float
+```
+
+How tall a line is in the face a label names.
 
 ### `metrics_for`
 
@@ -1126,6 +1237,24 @@ the file -- and a `Metrics` whose functions could fail would make every box in a
 fallible computation. So the face is probed once, now, and a face that answers once answers for
 every string; the closures then treat a later failure as a zero width, which cannot happen for a
 face that got past this line.
+
+### `metrics_for_faces`
+
+```
+pub fn metrics_for_faces(fs: [font.FontRef]) -> Result<Metrics, string>
+```
+
+The real metrics of several faces, in the order `raster.Options.fonts` will hold them.
+
+**The order is the contract.** A window passes the same list to both, and index 0 is the text
+face; `controls.Style` names the rest by purpose (`text_font`, `icon_font`) so that no control
+writes a literal index.
+
+### `face_metrics_for`
+
+```
+pub fn face_metrics_for(f: font.FontRef) -> Result<FaceMetrics, string>
+```
 
 ### `measure`
 
