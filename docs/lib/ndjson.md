@@ -60,14 +60,33 @@ false
 1
 ```
 
-### `parse`
+### `default_charset`
 
 ```
-pub fn parse(text: string) -> Result<[Json], string>
+pub fn default_charset() -> charset.Charset
 ```
 
 Every non-blank line as a JSON value, in order. A line that is not valid JSON is an
 error naming its (1-based) line number. A trailing CR (CRLF files) is ignored.
+The charset an NDJSON stream is in: UTF-8, for the reason `json.default_charset` gives -- every
+line of this is a JSON document.
+
+### `parse`
+
+```
+pub fn parse(data: [byte], set: charset.Charset) -> Result<[Json], string>
+```
+
+`parse` over bytes, decoded in `set`. The mark can only be before the first line, and is
+dropped there.
+
+```
+pub fn parse(data: [byte]) -> Result<[Json], string>
+```
+
+```
+pub fn parse(text: string) -> Result<[Json], string>
+```
 
 ### `records`
 

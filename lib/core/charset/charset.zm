@@ -385,9 +385,25 @@ pub fn utf8_text(data: [byte]) -> Result<string, Refusal> {
     }
     return switch bytes_to_string(data) {
         Ok(s) { ok(s) }
-        // Unreachable: the scan above accepts a subset of what the native does.
-        Err(why) { err(refuse_bytes(Charset.Utf8, why, 0)) }
+        // **Reachable for exactly one reason, and it is not an encoding fault**: a NUL byte is
+        // perfectly good UTF-8 and cannot be in a ziman string, so the scan above -- which is
+        // about UTF-8 -- passes and the native refuses. The position is *found* rather than
+        // invented, because a refusal that says "at 0" about a byte at 37 is worse than one that
+        // says nothing.
+        Err(why) { err(refuse_bytes(Charset.Utf8, why, first_nul(data))) }
     }
+}
+
+// Where the first NUL byte is, or the length when there is none.
+fn first_nul(data: [byte]) -> int {
+    var i = 0
+    while i < prelude.len(data) {
+        if data[i] == 0b {
+            return i
+        }
+        i = i + 1
+    }
+    return prelude.len(data)
 }
 
 // Whether `data` is UTF-8, for the callers that want the question and not the text. Allocates
@@ -623,8 +639,8 @@ pub fn ascii_text(data: [byte]) -> Result<string, Refusal> {
     }
     return switch bytes_to_string(data) {
         Ok(s) { ok(s) }
-        // Unreachable: ASCII bytes are UTF-8 bytes.
-        Err(why) { err(refuse_bytes(Charset.Ascii, why, 0)) }
+        // A NUL, for the reason `utf8_text` gives: ASCII has one and a ziman string cannot.
+        Err(why) { err(refuse_bytes(Charset.Ascii, why, first_nul(data))) }
     }
 }
 
@@ -881,6 +897,26 @@ fn begins_with(data: [byte], mark: [byte]) -> bool {
         i = i + 1
     }
     return true
+}
+
+// `text` without a leading byte order mark.
+//
+// **A mark is only a mark at the beginning**, so this is for a caller holding a whole document:
+// every format parser whose door takes a string. `csv` and `xml` each did it by hand, with their
+// own spelling of the mark, before this existed. Nothing is copied when there is no mark, which
+// is almost always.
+pub fn without_mark(text: string) -> string {
+    if starts_with(text, bom_text) {
+        return substring(text, 1, len(text))
+    }
+    return text
+}
+
+// The same over bytes, in a named set: the mark `set` would write, dropped if the data opens with
+// it. `decode` does this already -- this is for a parser that reads the bytes themselves, as
+// `json` does, where decoding to a string first would cost more than the parse.
+pub fn without_mark(data: [byte], set: Charset) -> [byte] {
+    return dropped_mark(data, set)
 }
 
 // ---- the sets as values

@@ -409,6 +409,12 @@ pub fn parse_rows(text: string, delimiter: string) -> Result<[[string]], string>
 
 pub fn parse(text: string) -> Result<Json, string>
 
+pub fn default_charset() -> charset.Charset
+
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Json, string>
+
+pub fn parse(data: [byte]) -> Result<Json, string>
+
 pub fn parse(text: string, delimiter: string) -> Result<Json, string>
 
 pub fn parse_typed(text: string) -> Result<Json, string>
@@ -800,9 +806,13 @@ pub enum Json {
 
 pub fn parse(s: string) -> Result<Json, string>
 
+pub fn default_charset() -> charset.Charset
+
 pub fn parse_strict(s: string) -> Result<Json, string>
 
 pub fn parse(data: [byte]) -> Result<Json, string>
+
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Json, string>
 
 pub fn parse_strict(data: [byte]) -> Result<Json, string>
 
@@ -1651,6 +1661,12 @@ pub fn of_path(path: string) -> Option<MediaType>
 Newline-delimited JSON (one value per line) on top of `json`.
 
 ```
+pub fn default_charset() -> charset.Charset
+
+pub fn parse(data: [byte], set: charset.Charset) -> Result<[Json], string>
+
+pub fn parse(data: [byte]) -> Result<[Json], string>
+
 pub fn parse(text: string) -> Result<[Json], string>
 
 pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string>
@@ -2064,6 +2080,12 @@ pub fn lookup(props: Properties, key: string) -> Option<Entry>
 
 pub fn parse(text: string, source: string) -> Result<Properties, string>
 
+pub fn default_charset() -> charset.Charset
+
+pub fn parse(data: [byte], source: string, set: charset.Charset) -> Result<Properties, string>
+
+pub fn parse(data: [byte], source: string) -> Result<Properties, string>
+
 pub fn load(name: string) -> Result<Properties, string>
 
 pub fn get_string(e: Entry) -> Result<string, string>
@@ -2329,6 +2351,12 @@ pub fn reset<T>(key: ThreadLocal<T>)
 **Experimental** (see docs/design/journal/ "Experimental modules"). TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected.
 
 ```
+pub fn default_charset() -> charset.Charset
+
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Json, string>
+
+pub fn parse(data: [byte]) -> Result<Json, string>
+
 pub fn parse(text: string) -> Result<Json, string>
 
 pub fn format(j: Json) -> Result<string, string>
@@ -2576,6 +2604,9 @@ pub struct StartTag {
 pub struct Reader {
     cs: io.Cursor
     limits: XmlLimits
+    // The set the bytes are being read in, so that a declaration naming one can be **checked**
+    // against it rather than guessed at -- see `read_declaration`.
+    set: charset.Charset
     pos: Mutable<int>
     stack: Mutable<[Frame]>
     // The `End` owed for a self-closing tag, which is reported as two events.
@@ -2585,7 +2616,13 @@ pub struct Reader {
     done: Mutable<bool>
 }
 
+pub fn default_charset() -> charset.Charset
+
 pub fn reader(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Reader
+
+pub fn reader(
+
+pub fn events(
 
 pub fn events(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Iter<Result<Event, string>>
 
@@ -2620,6 +2657,12 @@ pub fn format(e: Element) -> Result<string, string>
 **Experimental** (see docs/design/journal/ "Experimental modules"). A strict YAML 1.2 subset to and from a `Json` tree: block and flow collections, quoted/plain/block scalars. Anchors, tags, merge keys and multiple documents are errors.
 
 ```
+pub fn default_charset() -> charset.Charset
+
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Json, string>
+
+pub fn parse(data: [byte]) -> Result<Json, string>
+
 pub fn parse(text: string) -> Result<Json, string>
 
 pub fn format(j: Json) -> string

@@ -188,8 +188,16 @@ A decoder for bodies of `media`, from their bytes.
 pub fn text_decoder<I>(media: mime.MediaType, decode: fn(string) -> Result<I, string>) -> Decoder<I>
 ```
 
-A decoder for bodies of `media` that are text: the bytes are turned into a string first (an
-`Err` when they hold a NUL byte) and `decode` reads that.
+A decoder for bodies of `media` that are text: the bytes are decoded **in the charset the media
+type names** and `decode` reads the result.
+
+**The `charset` parameter was ignored until 2026-11-14**, and this is the function an HTTP
+server decodes request bodies with: a client sending `text/csv; charset=iso-8859-2` had its
+bytes read as UTF-8, which refuses them or -- worse, where they happen to be valid UTF-8 --
+reads them as different characters. `charset=` exists for exactly this and nothing was asking.
+
+**A charset nobody ships is refused rather than read as UTF-8.** Guessing there is how a body
+becomes mojibake in a database, and the client said what it meant.
 
 ### `encoder`
 

@@ -27,6 +27,7 @@
 // Placeholders are resolved once, when the properties are built, so a bad
 // one fails startup and every lookup afterwards is a plain array scan.
 
+use charset
 use fs
 use locale
 // For `math.min` in the edit-distance scan below; it was bare prelude vocabulary until
@@ -183,7 +184,32 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
 
 // Parses one properties text, resolving placeholders within it.
 pub fn parse(text: string, source: string) -> Result<Properties, string> {
-    return resolve_all(try parse_raw(text, source))
+    return resolve_all(try parse_raw(charset.without_mark(text), source))
+}
+
+// The charset a `.properties` file is in when nothing says otherwise.
+//
+// **UTF-8 -- deliberately not ISO-8859-1, which is what the Java specification says.**
+// `java.util.Properties.load(InputStream)` reads Latin-1 and expects `\uXXXX` escapes for
+// anything else, so the spec-faithful default would be `Charset.Latin1`. It is not, because every
+// `.properties` file in this repository and its siblings is UTF-8, and Latin-1 would decode their
+// bytes into *plausible mojibake* rather than failing -- silent wrongness being the one outcome
+// worth ruling out. A file written by Java reads correctly through `parse(data, source,
+// charset.Charset.Latin1)`.
+pub fn default_charset() -> charset.Charset {
+    return charset.Charset.Utf8
+}
+
+// `parse` over bytes, decoded in `set`: `charset.Charset.Latin1` for a file Java wrote.
+pub fn parse(data: [byte], source: string, set: charset.Charset) -> Result<Properties, string> {
+    return switch charset.decode(data, set) {
+        Ok(text) { parse(text, source) }
+        Err(r) { err(charset.describe(r)) }
+    }
+}
+
+pub fn parse(data: [byte], source: string) -> Result<Properties, string> {
+    return parse(data, source, default_charset())
 }
 
 // Resolves `file` through `ZIMAN_RESOURCE_PATH` (see `fs.resolve`) before reading it, so `load`

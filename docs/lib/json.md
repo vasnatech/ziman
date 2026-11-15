@@ -140,6 +140,18 @@ the position of the first. Errors say what was expected and the byte position
 (`expected ',' or ']' at position 12`); nesting deeper than 512 levels is an error. The whole
 input must be one value: `trailing content at position N` otherwise.
 
+### `default_charset`
+
+```
+pub fn default_charset() -> charset.Charset
+```
+
+The charset a JSON document is in when nothing says otherwise.
+
+**UTF-8, because RFC 8259 requires it**: "JSON text exchanged between systems that are not part
+of a closed ecosystem MUST be encoded using UTF-8". A document out of a closed ecosystem that
+used something else is read by naming it -- `parse(data, set)` below.
+
 ### `parse_strict`
 
 ```
@@ -157,6 +169,23 @@ pub fn parse(data: [byte]) -> Result<Json, string>
 
 `parse` over the bytes of a document, with no string made first: what a file read with `fs.read_bytes` or a body read
 off a socket is. The same rules and the same errors (the position is a byte offset).
+
+```
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Json, string>
+```
+
+`parse` over bytes in a named charset, for a document that is not UTF-8 -- which RFC 8259 says
+should not happen and files out of a closed system do anyway.
+
+**This decodes and then parses the text; `parse(data)` parses the bytes natively.** Those are
+two different trades and naming the set picks the second: the native path is what a body off a
+socket deserves and it only speaks UTF-8, so a caller who has to say `iso-8859-2` is already
+paying for a decode. Passing `Charset.Utf8` here is therefore *slower* than passing nothing,
+and that is the whole difference between the two doors.
+
+No comparison against the default decides it, deliberately: `Charset` carries a table in its
+`SingleByte` variant, so comparing two of them is comparing arrays, and a dispatch that looked
+cheap would not be.
 
 ### `parse_strict`
 

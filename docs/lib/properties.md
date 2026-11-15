@@ -118,6 +118,34 @@ pub fn parse(text: string, source: string) -> Result<Properties, string>
 
 Parses one properties text, resolving placeholders within it.
 
+### `default_charset`
+
+```
+pub fn default_charset() -> charset.Charset
+```
+
+The charset a `.properties` file is in when nothing says otherwise.
+
+**UTF-8 -- deliberately not ISO-8859-1, which is what the Java specification says.**
+`java.util.Properties.load(InputStream)` reads Latin-1 and expects `\uXXXX` escapes for
+anything else, so the spec-faithful default would be `Charset.Latin1`. It is not, because every
+`.properties` file in this repository and its siblings is UTF-8, and Latin-1 would decode their
+bytes into *plausible mojibake* rather than failing -- silent wrongness being the one outcome
+worth ruling out. A file written by Java reads correctly through `parse(data, source,
+charset.Charset.Latin1)`.
+
+### `parse`
+
+```
+pub fn parse(data: [byte], source: string, set: charset.Charset) -> Result<Properties, string>
+```
+
+`parse` over bytes, decoded in `set`: `charset.Charset.Latin1` for a file Java wrote.
+
+```
+pub fn parse(data: [byte], source: string) -> Result<Properties, string>
+```
+
 ### `load`
 
 ```

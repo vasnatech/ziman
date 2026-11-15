@@ -563,6 +563,27 @@ The same character as a one-character string, for a caller that meets the mark *
 rather than in bytes -- `csv` strips one off a spreadsheet's first heading, where the bytes are
 long since decoded and the mark has become an invisible character at the front of a cell.
 
+### `without_mark`
+
+```
+pub fn without_mark(text: string) -> string
+```
+
+`text` without a leading byte order mark.
+
+**A mark is only a mark at the beginning**, so this is for a caller holding a whole document:
+every format parser whose door takes a string. `csv` and `xml` each did it by hand, with their
+own spelling of the mark, before this existed. Nothing is copied when there is no mark, which
+is almost always.
+
+```
+pub fn without_mark(data: [byte], set: Charset) -> [byte]
+```
+
+The same over bytes, in a named set: the mark `set` would write, dropped if the data opens with
+it. `decode` does this already -- this is for a parser that reads the bytes themselves, as
+`json` does, where decoding to a string first would cost more than the parse.
+
 ### `Charset`
 
 ```

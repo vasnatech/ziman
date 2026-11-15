@@ -1217,6 +1217,69 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   Also still unmeasured: whether the 4x at `px_per_pt: 2.0` is rows alone, since the row count
   doubles while the ink quadruples.
 
+- **~~Every file format read UTF-8 and nothing else, and they disagreed about a byte order
+  mark~~ -- surveyed and fixed 2026-11-14.** Asked which charset each format used, which turned
+  out to have a worse answer underneath it than the question expected.
+
+  **What the survey found, by measuring rather than reading.** Every parser took a `string`, so
+  its charset was whoever produced that string -- `fs.read_text` or `io.text`, both UTF-8 -- and
+  the two with byte doors (`json.parse`, `xml.events`) were UTF-8 too. A document with a mark at
+  the front was answered **three different ways**:
+
+  | | with a leading mark |
+  |---|---|
+  | `json`, `ndjson`, `toml` | refused: "unexpected character at position 0" |
+  | `yaml` | **parsed as `{"﻿a":1}`** -- the mark became part of the key, silently |
+  | `properties` | **parsed, and the key was then missing** -- `get_string(p, "a")` reported it absent |
+  | `csv`, `xml` | correct, each dropping it by hand with its own spelling of the bytes |
+
+  The two silent ones are the point: a refusal is a bad day and a wrong parse is a bug report
+  from someone else, months later.
+
+  **And `fs.read_text` answered `Ok` with a string whose bytes were not UTF-8** (570a2607),
+  which `chars` *raises* on -- so a Latin-1 log, a Java `.properties` file (ISO-8859-1 **by
+  specification**) or an Excel CSV came back as a value that failed somewhere else entirely. It
+  validates now, in `src/utf8.h` beside the strict decoder, and `fs.read_text_in(path, set)` and
+  `fs.lines_in` came with it, because refusing with no alternative removes a capability.
+
+  **The shape, one convention across eight modules**: `parse` overloaded on `[byte]` and
+  `([byte], Charset)`, a `default_charset()` per module, and `charset.without_mark` applied where
+  a parser is handed a whole document -- written once instead of inline in two formats.
+
+  | module | default | why |
+  |---|---|---|
+  | `json`, `ndjson` | UTF-8 | RFC 8259: "MUST be encoded using UTF-8" |
+  | `toml` | UTF-8 | the spec says *must*; the door exists so a file that is not one can still be read |
+  | `yaml` | UTF-8, **or what a mark says** | YAML 1.2 makes mark detection the format's own rule |
+  | `csv` | UTF-8, **or what a mark says** | the format where it matters most: a spreadsheet writes marked UTF-16 |
+  | `properties` | **UTF-8, not Latin-1** | see below |
+  | `xml` | UTF-8, and the **declaration is checked** against the set in use |
+  | `codec.text_decoder` | the media type's own `charset=`, else UTF-8 | and an unknown one is refused |
+
+  **`properties` is a deliberate break from its specification and the reason is worth keeping.**
+  `java.util.Properties.load(InputStream)` reads ISO-8859-1, so the faithful default is Latin-1.
+  It is not Latin-1, because every `.properties` file in these repositories is UTF-8 and Latin-1
+  would decode their bytes into *plausible mojibake* rather than failing. Of the two ways to be
+  wrong, the one that says nothing is worse. A Java-written file reads through
+  `parse(data, source, charset.Charset.Latin1)`.
+
+  **`codec.text_decoder` is the one that was quietly costing something**: it is what an HTTP
+  server decodes a request body with, and it ignored `charset=` entirely, so a client that said
+  `text/csv; charset=iso-8859-2` had its bytes read as UTF-8 -- refused, or worse, read as
+  different characters where they happened to be valid. A charset this build does not ship is now
+  refused rather than read as UTF-8: guessing is how a body becomes mojibake in a database, and
+  the client said what it meant.
+
+  **`xml` checks rather than guesses.** It refused any declaration but UTF-8 before, with an
+  honest reason ("guessing would misread the text"). Now a caller that knows the set says so --
+  `xml.events(source, limits, charset.Charset.Latin1)` -- and a document whose declaration
+  disagrees with the set it is being read in is an error, because one of the two is wrong and the
+  reader cannot tell which.
+
+  Held by `tests/lang/formats_charset.zm`: every format against a marked document, every bytes
+  door against an ISO-8859-2 one, `csv` sniffing a marked UTF-16 file the way a spreadsheet writes
+  it, and the declaration check both ways round.
+
 - **`lib/ui` has no icons, and no concept of an image at all** -- **the design is decided and the
   first kind is built (fc5e46e3, `widget.Drawing`); four sources and the control field are not.**
   Asked 2026-11-13, after the design dialect and the builder were both built without anyone

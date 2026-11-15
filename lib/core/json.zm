@@ -31,6 +31,7 @@
 // expected to be built on top of it (see `get`, `get_path` and the
 // `json_require_*` helpers below, or `#[derive(Json)]`), not inside this module.
 
+use charset
 use math
 use number.float_to_text
 
@@ -81,24 +82,79 @@ native fn to_string_native(j: Json) -> string
 // (`expected ',' or ']' at position 12`); nesting deeper than 512 levels is an error. The whole
 // input must be one value: `trailing content at position N` otherwise.
 pub fn parse(s: string) -> Result<Json, string> {
-    return parse_native(s, Json.JNull, Number.Int(0), false, false)
+    return parse_native(charset.without_mark(s), Json.JNull, Number.Int(0), false, false)
+}
+
+// The charset a JSON document is in when nothing says otherwise.
+//
+// **UTF-8, because RFC 8259 requires it**: "JSON text exchanged between systems that are not part
+// of a closed ecosystem MUST be encoded using UTF-8". A document out of a closed ecosystem that
+// used something else is read by naming it -- `parse(data, set)` below.
+pub fn default_charset() -> charset.Charset {
+    return charset.Charset.Utf8
 }
 
 // parse, but a repeated key in any object is an error -- for input where a duplicate
 // means something is wrong (a signed or audited document, a config file).
 pub fn parse_strict(s: string) -> Result<Json, string> {
-    return parse_native(s, Json.JNull, Number.Int(0), true, false)
+    return parse_native(charset.without_mark(s), Json.JNull, Number.Int(0), true, false)
 }
 
 // `parse` over the bytes of a document, with no string made first: what a file read with `fs.read_bytes` or a body read
 // off a socket is. The same rules and the same errors (the position is a byte offset).
 pub fn parse(data: [byte]) -> Result<Json, string> {
-    return parse_bytes_native(data, Json.JNull, Number.Int(0), false, false)
+    return parse_bytes_native(try as_json_text(data), Json.JNull, Number.Int(0), false, false)
+}
+
+// The bytes with a leading mark dropped and their text checked, which is what every byte door
+// below parses.
+//
+// **`parse` over bytes answered `Ok` with a string that was not UTF-8** until 2026-11-14: the
+// native scanner copies a string's bytes through, so `{"name":"<0xB9>"}` -- one byte of
+// ISO-8859-2 -- parsed into a `JString` whose `chars` *raises*, reachable from any request body.
+// RFC 8259 is explicit that such a document is not JSON, and the third function found with this
+// shape in one day (`url.percent_decode` and `fs.read_text` were the others) is enough to call it
+// a pattern: a function that answers `Ok` with a value that cannot be used is worse than one that
+// refuses.
+//
+// One pass over the body, against a parse that does far more per byte, and the reason is read from
+// `charset` only on the failing path. **The faster place for this is the native scanner**, which
+// already walks every byte and could check as it goes; this is the honest version rather than the
+// fast one.
+fn as_json_text(data: [byte]) -> Result<[byte], string> {
+    val body = charset.without_mark(data, default_charset())
+    if charset.is_utf8(body) {
+        return ok(body)
+    }
+    return switch charset.utf8_text(body) {
+        // Unreachable: `is_utf8` is the same scan.
+        Ok(_) { err("the input is not valid UTF-8, so it is not JSON") }
+        Err(r) { err(concat("the input is not JSON: ", charset.describe(r))) }
+    }
+}
+
+// `parse` over bytes in a named charset, for a document that is not UTF-8 -- which RFC 8259 says
+// should not happen and files out of a closed system do anyway.
+//
+// **This decodes and then parses the text; `parse(data)` parses the bytes natively.** Those are
+// two different trades and naming the set picks the second: the native path is what a body off a
+// socket deserves and it only speaks UTF-8, so a caller who has to say `iso-8859-2` is already
+// paying for a decode. Passing `Charset.Utf8` here is therefore *slower* than passing nothing,
+// and that is the whole difference between the two doors.
+//
+// No comparison against the default decides it, deliberately: `Charset` carries a table in its
+// `SingleByte` variant, so comparing two of them is comparing arrays, and a dispatch that looked
+// cheap would not be.
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Json, string> {
+    return switch charset.decode(data, set) {
+        Ok(text) { parse(text) }
+        Err(r) { err(charset.describe(r)) }
+    }
 }
 
 // `parse_strict` over bytes.
 pub fn parse_strict(data: [byte]) -> Result<Json, string> {
-    return parse_bytes_native(data, Json.JNull, Number.Int(0), true, false)
+    return parse_bytes_native(try as_json_text(data), Json.JNull, Number.Int(0), true, false)
 }
 
 // `parse`, but a number with a fraction or an exponent is a `Number.Decimal` with every digit and its scale kept, not a
@@ -106,12 +162,12 @@ pub fn parse_strict(data: [byte]) -> Result<Json, string> {
 // money, doses and lab values with; an integer is still `Int` or, past 64 bits, `Bigint`. At most 1000 digits per number, and
 // an exponent of at most 100000 in size.
 pub fn parse_exact(s: string) -> Result<Json, string> {
-    return parse_native(s, Json.JNull, Number.Int(0), false, true)
+    return parse_native(charset.without_mark(s), Json.JNull, Number.Int(0), false, true)
 }
 
 // `parse_exact` over the bytes of a document.
 pub fn parse_exact(data: [byte]) -> Result<Json, string> {
-    return parse_bytes_native(data, Json.JNull, Number.Int(0), false, true)
+    return parse_bytes_native(try as_json_text(data), Json.JNull, Number.Int(0), false, true)
 }
 
 // ---------------------------------------------------------------- writing

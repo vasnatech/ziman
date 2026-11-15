@@ -22,6 +22,7 @@
 // Nothing here carries the module's own name: a caller writes `csv.parse(text)` and
 // `csv.format(rows)`, where `csv.parse_csv` and `csv.csv_to_string` stuttered.
 
+use charset
 use charset.bom_text
 use fs
 use io
@@ -248,6 +249,30 @@ pub fn parse_rows(text: string, delimiter: string) -> Result<[[string]], string>
 //
 pub fn parse(text: string) -> Result<Json, string> {
     return table_of(text, ",", false)
+}
+
+// The charset a CSV file is in when nothing says otherwise.
+//
+// **UTF-8, and this is the format where naming another one matters most**: `text/csv` carries a
+// `charset` parameter precisely because the files in the world are not UTF-8 -- a spreadsheet
+// writes UTF-16 with a mark, or CP1252, depending on which button was pressed. `rows_of` already
+// drops a mark from the text, which is how a UTF-8 file with one has always worked here.
+pub fn default_charset() -> charset.Charset {
+    return charset.Charset.Utf8
+}
+
+// `parse` over bytes, decoded in `set`, or in the set a byte order mark names when there is one --
+// which for this format is worth doing automatically, because a marked UTF-16 file is exactly what
+// a spreadsheet hands over.
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Json, string> {
+    return switch charset.decode(data, set) {
+        Ok(text) { parse(text) }
+        Err(r) { err(charset.describe(r)) }
+    }
+}
+
+pub fn parse(data: [byte]) -> Result<Json, string> {
+    return parse(data, get_or(charset.sniff(data), default_charset()))
 }
 
 // The same with another one-character delimiter.

@@ -18,6 +18,7 @@
 // A format that is not a Json-shaped tree -- XML, a PDF, a spreadsheet -- is not a `TreeFormat`
 // and must not be bent into one: build its `Encoder` with `encoder` directly. `Encoder`/`Decoder`
 // is the interface; `TreeFormat` is a shortcut for the four formats it happens to fit.
+use charset
 use csv
 use json
 use json.Json
@@ -180,18 +181,46 @@ pub fn decoder<I>(media: mime.MediaType, decode: fn([byte]) -> Result<I, string>
     return Decoder<I> { media: media, decode: decode }
 }
 
-// A decoder for bodies of `media` that are text: the bytes are turned into a string first (an
-// `Err` when they hold a NUL byte) and `decode` reads that.
+// A decoder for bodies of `media` that are text: the bytes are decoded **in the charset the media
+// type names** and `decode` reads the result.
+//
+// **The `charset` parameter was ignored until 2026-11-14**, and this is the function an HTTP
+// server decodes request bodies with: a client sending `text/csv; charset=iso-8859-2` had its
+// bytes read as UTF-8, which refuses them or -- worse, where they happen to be valid UTF-8 --
+// reads them as different characters. `charset=` exists for exactly this and nothing was asking.
+//
+// **A charset nobody ships is refused rather than read as UTF-8.** Guessing there is how a body
+// becomes mojibake in a database, and the client said what it meant.
 pub fn text_decoder<I>(media: mime.MediaType, decode: fn(string) -> Result<I, string>) -> Decoder<I> {
     val go = decode
+    // Resolved once, when the decoder is built, rather than per body.
+    val chosen = charset_of(media)
     return Decoder<I> {
         media: media,
         decode: fn(data: [byte]) -> Result<I, string> {
-            return switch bytes_to_string(data) {
+            val set = try chosen
+            return switch charset.decode(data, set) {
                 Ok(text) { go(text) }
-                Err(reason) { err(format("the input is not text ({})", reason)) }
+                // `describe` names the set already, so this does not: "the input is not text:
+                // UTF-8: ..." reads once rather than saying UTF-8 twice, which is what the first
+                // version of this message did.
+                Err(r) { err(format("the input is not text: {}", charset.describe(r))) }
             }
         }
+    }
+}
+
+// The charset a media type names, or UTF-8 when it names none -- which is what every text media
+// type on the web assumes, and what `mime` leaves absent rather than inventing.
+fn charset_of(media: mime.MediaType) -> Result<charset.Charset, string> {
+    return switch mime.charset(media) {
+        Some(name) {
+            switch charset.charset_named(name) {
+                Some(set) { ok(set) }
+                None { err(format("charset '{}' is not one this build can read", name)) }
+            }
+        }
+        None { ok(charset.Charset.Utf8) }
     }
 }
 

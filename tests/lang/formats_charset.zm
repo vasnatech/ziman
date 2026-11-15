@@ -1,0 +1,154 @@
+// Every file format, and the charset it reads.
+//
+// **Two questions, and the second one is the bug.** A format that only ever reads UTF-8 cannot
+// read the files the world has -- a Java `.properties` file is ISO-8859-1 by specification, a
+// spreadsheet writes UTF-16 -- which is what the bytes doors below are for. And a document with a
+// **byte order mark** at the front of it used to be answered three different ways: `json`,
+// `ndjson` and `toml` refused it, `yaml` and `properties` parsed it *wrongly* (the mark became
+// part of the first key, silently), and only `csv` and `xml` dropped it. One rule now:
+// `charset.without_mark`, applied where a parser is handed a whole document.
+use charset
+use charset.bom_text
+use codec
+use csv
+use io
+use json
+use mime
+use ndjson
+use properties
+use toml
+use xml
+use yaml
+
+val mark = bom_text
+
+// **`csv.parse` cannot be passed as a value any more**, which is the one cost of overloading it
+// on `[byte]`: with no arguments at the call site there is nothing to choose between the four of
+// them, and the compiler says so and says how to fix it. Nothing in the library or either backend
+// passed a format's `parse` as a value, so this fixture is the only place that had to.
+fn csv_text(text: string) -> Result<json.Json, string> {
+    return csv.parse(text)
+}
+
+fn shown(r: Result<json.Json, string>) -> string {
+    return switch r {
+        Ok(j) { json.format(j) }
+        Err(why) { concat("REFUSED: ", why) }
+    }
+}
+
+// The bytes of a document in a single-byte set, which is what a file written by something else is.
+fn in_set(text: string, set: charset.Charset) -> [byte] {
+    return switch charset.encode(text, set) {
+        Ok(data) { data }
+        Err(r) {
+            print(concat("could not encode the fixture: ", charset.describe(r)))
+            to_bytes("")
+        }
+    }
+}
+
+fn main() {
+    print("-- a mark at the front of a document, which every format now drops --")
+    printf("json:       {}\n", shown(json.parse(concat(mark, "{\"a\":1}"))))
+    printf("yaml:       {}\n", shown(yaml.parse(concat(mark, "a: 1"))))
+    printf("toml:       {}\n", shown(toml.parse(concat(mark, "a = 1"))))
+    printf("csv:        {}\n", shown(csv.parse(concat(mark, "a,b\n1,2"))))
+    switch ndjson.parse(concat(mark, "{\"a\":1}")) {
+        Ok(items) { printf("ndjson:     {} item(s), first {}\n", str(len(items)), json.format(items[0])) }
+        Err(why) { printf("ndjson:     REFUSED: {}\n", why) }
+    }
+    switch properties.parse(concat(mark, "a=1"), "marked.properties") {
+        Ok(p) {
+            switch properties.get_string(p, "a") {
+                Ok(v) { printf("properties: a={}\n", v) }
+                Err(why) { printf("properties: the key was lost -- {}\n", why) }
+            }
+        }
+        Err(why) { printf("properties: REFUSED: {}\n", why) }
+    }
+    switch xml.parse(concat(mark, "<r/>")) {
+        Ok(d) { printf("xml:        root {}\n", d.root.name.local) }
+        Err(why) { printf("xml:        REFUSED: {}\n", why) }
+    }
+
+    print("-- the same documents in a set that is not UTF-8, through each bytes door --")
+    // ISO-8859-2, where `š` is one byte (0xB9) rather than two.
+    val latin2 = charset.iso_8859_2()
+    printf("json:       {}\n", shown(json.parse(in_set("{\"name\":\"š\"}", latin2), latin2)))
+    printf("yaml:       {}\n", shown(yaml.parse(in_set("name: š", latin2), latin2)))
+    printf("toml:       {}\n", shown(toml.parse(in_set("name = \"š\"", latin2), latin2)))
+    printf("csv:        {}\n", shown(csv.parse(in_set("name\nš", latin2), latin2)))
+    switch properties.parse(in_set("name=š", latin2), "latin2.properties", latin2) {
+        Ok(p) {
+            switch properties.get_string(p, "name") {
+                Ok(v) { printf("properties: name={}\n", v) }
+                Err(why) { printf("properties: {}\n", why) }
+            }
+        }
+        Err(why) { printf("properties: REFUSED: {}\n", why) }
+    }
+    // And the same bytes read as UTF-8, which is what used to happen to them.
+    printf("json as utf-8: {}\n", shown(json.parse(in_set("{\"name\":\"š\"}", latin2))))
+
+    print("-- a mark that names the set, which csv and yaml read without being told --")
+    // What a spreadsheet writes: UTF-16LE with a mark. `csv.parse(data)` sniffs it.
+    val marked = concat(
+        charset.mark_of(charset.Charset.Utf16le),
+        switch charset.encode("a,b\n1,2", charset.Charset.Utf16le) {
+            Ok(d) { d }
+            Err(_) { to_bytes("") }
+        }
+    )
+    printf("csv:        {}\n", shown(csv.parse(marked)))
+
+    print("-- a media type's own charset parameter, which codec ignored --")
+    // `text/csv; charset=iso-8859-2`: the client said what it meant, and this is the function an
+    // HTTP server decodes a request body with.
+    switch mime.parse("text/csv; charset=iso-8859-2") {
+        Ok(media) {
+            val d = codec.text_decoder<json.Json>(media, csv_text)
+            printf("declared iso-8859-2: {}\n", shown(d.decode(in_set("name\nš", latin2))))
+        }
+        Err(why) { printf("mime refused: {}\n", why) }
+    }
+    // A charset nobody ships is refused rather than read as UTF-8, because guessing there is how
+    // a body becomes mojibake in a database.
+    switch mime.parse("text/csv; charset=shift_jis") {
+        Ok(media) {
+            val d = codec.text_decoder<json.Json>(media, csv_text)
+            printf("declared shift_jis:  {}\n", shown(d.decode(to_bytes("name\na"))))
+        }
+        Err(why) { printf("mime refused: {}\n", why) }
+    }
+
+    print("-- xml checks its own declaration against the set it is read in --")
+    val declared = in_set("<?xml version=\"1.0\" encoding=\"ISO-8859-2\"?><r>š</r>", latin2)
+    var read_as_latin2 = ""
+    for item in xml.events(io.of_bytes(declared), xml.xml_limits(), latin2) {
+        switch item {
+            Ok(e) {
+                switch e {
+                    Text(t) { read_as_latin2 = concat(read_as_latin2, t) }
+                    Declaration(_) {}
+                    Start(_) {}
+                    End(_) {}
+                    Comment(_) {}
+                    ProcessingInstruction(_) {}
+                    CData(t) { read_as_latin2 = concat(read_as_latin2, t) }
+                }
+            }
+            Err(why) { read_as_latin2 = concat("REFUSED: ", why) }
+        }
+    }
+    printf("read as iso-8859-2: {}\n", read_as_latin2)
+    // The same document read as UTF-8 disagrees with its own declaration, and says so rather than
+    // quietly preferring one of the two.
+    var read_as_utf8 = ""
+    for item in xml.events(io.of_bytes(declared)) {
+        if Err(why) = item {
+            read_as_utf8 = why
+        }
+    }
+    printf("read as utf-8:      {}\n", read_as_utf8)
+}

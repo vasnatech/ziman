@@ -1080,6 +1080,9 @@ struct Frame {
 pub struct Reader {
     cs: io.Cursor
     limits: XmlLimits
+    // The set the bytes are being read in, so that a declaration naming one can be **checked**
+    // against it rather than guessed at -- see `read_declaration`.
+    set: charset.Charset
     pos: Mutable<int>
     stack: Mutable<[Frame]>
     // The `End` owed for a self-closing tag, which is reported as two events.
@@ -1095,10 +1098,32 @@ pub struct Reader {
 // `parse` of a string can measure it before starting and say so, and a source cannot be measured at
 // all. So the limit is a layer, and a document over it fails partway through reading with
 // `TooLarge` rather than before reading with a count.
+// The charset an XML document is in when the caller names none.
+//
+// **UTF-8, and the format has its own opinion too**: a document may carry
+// `encoding="..."` in its declaration, and a byte order mark says it again in bytes. `charset.sniff`
+// answers the second for a caller holding the first chunk; the declaration is *checked* against
+// whatever set the bytes are actually being read in, because a reader that preferred one over the
+// other silently would misread exactly the documents that bothered to say.
+pub fn default_charset() -> charset.Charset {
+    return charset.Charset.Utf8
+}
+
 pub fn reader(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Reader {
+    return reader(source, limits, default_charset())
+}
+
+// A reader over bytes in a named charset -- `charset.Charset.Latin1` for a document that says
+// `encoding="ISO-8859-1"`, which this refused outright before the sets existed.
+pub fn reader(
+    source: Iter<Result<[byte], io.IoError>>,
+    limits: XmlLimits,
+    set: charset.Charset
+) -> Reader {
     return Reader {
-        cs: io.cursor(normalised(without_bom(io.text(io.limited(source, limits.max_bytes))))),
+        cs: io.cursor(normalised(without_bom(io.text_in(io.limited(source, limits.max_bytes), set)))),
         limits: limits,
+        set: set,
         pos: mutable_new(0),
         stack: mutable_new<[Frame]>([]),
         owed: mutable_new<Option<Name>>(None),
@@ -1113,6 +1138,18 @@ pub fn reader(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Re
 // **Release is what keeps this bounded**, and it happens here: after each event, everything before
 // the position the reader has reached is dropped, because no later event refers to it. Without that
 // the cursor holds the document and this is `parse` with extra steps.
+pub fn events(
+    source: Iter<Result<[byte], io.IoError>>,
+    limits: XmlLimits,
+    set: charset.Charset
+) -> Iter<Result<Event, string>> {
+    val r = reader(source, limits, set)
+    return iter_from(
+        fn() -> Option<Result<Event, string>> { next_event(r) },
+        fn() { io.cursor_close(r.cs) }
+    )
+}
+
 pub fn events(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Iter<Result<Event, string>> {
     val r = reader(source, limits)
     return iter_from(
@@ -1151,7 +1188,7 @@ pub fn next_event(r: Reader) -> Option<Result<Event, string>> {
     val cs = r.cs
     if !get(r.started) {
         set(r.started, true)
-        val decl = read_declaration(cs)
+        val decl = read_declaration(cs, r.set)
         if Err(why) = decl {
             return stop(r, why)
         }
@@ -1470,7 +1507,7 @@ fn resolved_attributes(
 
 val tok_decl_start: [string] = ["<", "?", "x", "m", "l"]
 
-fn read_declaration(cs: io.Cursor) -> Result<Option<Declaration>, string> {
+fn read_declaration(cs: io.Cursor, set: charset.Charset) -> Result<Option<Declaration>, string> {
     if !at_starts(cs, 0, tok_decl_start) {
         return ok(Option<Declaration>.None)
     }
@@ -1515,11 +1552,25 @@ fn read_declaration(cs: io.Cursor) -> Result<Option<Declaration>, string> {
     if version != "1.0" {
         return err(fail(cs, 0, prelude.format("XML {} is not supported; this reader is XML 1.0", version)))
     }
+    // **The declaration is checked against the set the bytes are being read in**, which is the
+    // one thing a reader can do honestly here. It refused anything but UTF-8 before the single-byte
+    // sets existed ("guessing would misread the text", which was true); now a caller that knows
+    // the set says so -- `xml.events(source, limits, charset.Charset.Latin1)` -- and a document
+    // that disagrees with what it was read as is an error rather than a quiet reinterpretation,
+    // because one of the two is wrong and the reader cannot tell which.
     if Some(enc) = encoding {
-        if !equals_ignore_case(enc, "utf-8", invariant) && !equals_ignore_case(enc, "utf8", invariant) {
+        val named = charset.charset_named(enc)
+        if None = named {
             return err(fail(cs, 0, prelude.format(
-                "encoding '{}' is not supported; this reader reads UTF-8, and guessing would misread the text",
+                "encoding '{}' is not one this build can read, and guessing would misread the text",
                 enc
+            )))
+        }
+        if charset.name_of(unwrap(named)) != charset.name_of(set) {
+            return err(fail(cs, 0, prelude.format(
+                "this document says encoding '{}' and is being read as {} -- read it with xml.events(source, limits, charset) to agree with it",
+                enc,
+                charset.name_of(set)
             )))
         }
     }

@@ -76,16 +76,40 @@ false
 
 ## Block structure
 
-### `parse`
+### `default_charset`
 
 ```
-pub fn parse(text: string) -> Result<Json, string>
+pub fn default_charset() -> charset.Charset
 ```
 
 Parses a YAML document (the subset described above) into a `Json` tree; an empty document is
 `JNull`. An Err carries `line N: ...` for a syntax error, a duplicate key, bad indentation, or
 something unsupported (anchors, aliases, tags, the `<<` merge key, multiple documents, tab
 indentation), so nothing is silently misread.
+The charset a YAML document is in when nothing says otherwise.
+
+**UTF-8.** YAML 1.2 permits UTF-8, UTF-16 and UTF-32 and says a reader detects which from the
+byte order mark; `charset.sniff` answers that for a caller holding the bytes, and this is the
+answer for the common case of no mark at all.
+
+### `parse`
+
+```
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Json, string>
+```
+
+`parse` over bytes, decoded in `set` -- a whole document, so a leading mark is dropped.
+
+```
+pub fn parse(data: [byte]) -> Result<Json, string>
+```
+
+`parse` over bytes in this format's own default, or in the set a byte order mark names -- which
+for YAML is the format's own rule rather than a convenience.
+
+```
+pub fn parse(text: string) -> Result<Json, string>
+```
 
 ## Writing
 

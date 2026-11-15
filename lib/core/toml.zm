@@ -905,7 +905,31 @@ fn flush_table(root: Json, pending: Json, path: [string], op: int) -> Result<Jso
 // string must pass -- `parse_basic` went from 5.9% to 7.7% of the profile and `is_control` is 3.3%
 // of it. There is no cheaper way to know that a string holds no raw control character than to look
 // at each one.
+// The charset a TOML document is in.
+//
+// **UTF-8, and the specification says "must"**: "A TOML file must be a valid UTF-8 encoded Unicode
+// document". `parse(data, set)` exists for a file that is not one, because a file that is not one
+// still has to be read before anybody can say so.
+pub fn default_charset() -> charset.Charset {
+    return charset.Charset.Utf8
+}
+
+// `parse` over bytes, decoded in `set`. A leading mark is dropped: a whole document is the one
+// place a mark can only be a mark.
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Json, string> {
+    return switch charset.decode(data, set) {
+        Ok(text) { parse(text) }
+        Err(r) { err(charset.describe(r)) }
+    }
+}
+
+pub fn parse(data: [byte]) -> Result<Json, string> {
+    return parse(data, default_charset())
+}
+
 pub fn parse(text: string) -> Result<Json, string> {
+    // A byte order mark at the front is how the document said it was UTF-8, not a key.
+    val document = charset.without_mark(text)
     // **Decoded once into its characters, and indexed as an array from here on.** Every function
     // below took `(s: string, pos: int)` and reached position `pos` with `char_at`, which walks from
     // the start of the string on text that is not all-ASCII -- so a parser threading a character
@@ -913,7 +937,7 @@ pub fn parse(text: string) -> Result<Json, string> {
     // and a profile put 60% of that in `char_at`/`is_char_at`. Indexing a decoded array is O(1) per
     // access and costs one pass plus one view per character up front; ASCII input is unaffected,
     // since there `char_at` was already O(1) and this measures the same.
-    val cs = chars(text)
+    val cs = chars(document)
     var root = Json.JObject(Map<string, Json> {})
     // The table being filled. A key goes in here, not into `root`: the whole table is written
     // into the tree once, when the next header arrives or the document ends. Walking from the

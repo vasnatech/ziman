@@ -1,6 +1,7 @@
 // ndjson.zm -- newline-delimited JSON: one JSON value per line, written on top of `json`.
 // The format of the FHIR bulk-data files and of most log pipelines.
 
+use charset
 use json
 use json.Json
 use json.Number
@@ -13,10 +14,29 @@ native fn records_raw(path: string, sample: Json, number_sample: Number) -> Resu
 
 // Every non-blank line as a JSON value, in order. A line that is not valid JSON is an
 // error naming its (1-based) line number. A trailing CR (CRLF files) is ignored.
+// The charset an NDJSON stream is in: UTF-8, for the reason `json.default_charset` gives -- every
+// line of this is a JSON document.
+pub fn default_charset() -> charset.Charset {
+    return charset.Charset.Utf8
+}
+
+// `parse` over bytes, decoded in `set`. The mark can only be before the first line, and is
+// dropped there.
+pub fn parse(data: [byte], set: charset.Charset) -> Result<[Json], string> {
+    return switch charset.decode(data, set) {
+        Ok(text) { parse(text) }
+        Err(r) { err(charset.describe(r)) }
+    }
+}
+
+pub fn parse(data: [byte]) -> Result<[Json], string> {
+    return parse(data, default_charset())
+}
+
 pub fn parse(text: string) -> Result<[Json], string> {
     val items = mutable_array_new<Json>()
     var line_no = 0
-    for raw in split(text, "\n") {
+    for raw in split(charset.without_mark(text), "\n") {
         line_no = line_no + 1
         val line = trim(raw)
         if byte_len(line) == 0 {

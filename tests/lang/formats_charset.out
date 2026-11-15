@@ -1,0 +1,23 @@
+-- a mark at the front of a document, which every format now drops --
+json:       {"a":1}
+yaml:       {"a":1}
+toml:       {"a":1}
+csv:        [{"a":"1","b":"2"}]
+ndjson:     1 item(s), first {"a":1}
+properties: a=1
+xml:        root r
+-- the same documents in a set that is not UTF-8, through each bytes door --
+json:       {"name":"š"}
+yaml:       {"name":"š"}
+toml:       {"name":"š"}
+csv:        [{"name":"š"}]
+properties: name=š
+json as utf-8: REFUSED: the input is not JSON: UTF-8: a byte that cannot begin a character at 9
+-- a mark that names the set, which csv and yaml read without being told --
+csv:        [{"a":"1","b":"2"}]
+-- a media type's own charset parameter, which codec ignored --
+declared iso-8859-2: [{"name":"š"}]
+declared shift_jis:  REFUSED: charset 'shift_jis' is not one this build can read
+-- xml checks its own declaration against the set it is read in --
+read as iso-8859-2: š
+read as utf-8:      the stream is malformed: the stream is not UTF-8: a byte that cannot begin a character at byte 46

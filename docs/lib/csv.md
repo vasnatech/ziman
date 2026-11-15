@@ -112,6 +112,33 @@ them, so `#[derive(Json)]` types with `string` fields decode straight from it. A
 duplicate column name, or for a row whose cell count differs from the header's (the message
 names the line). An empty file is an empty array.
 
+### `default_charset`
+
+```
+pub fn default_charset() -> charset.Charset
+```
+
+The charset a CSV file is in when nothing says otherwise.
+
+**UTF-8, and this is the format where naming another one matters most**: `text/csv` carries a
+`charset` parameter precisely because the files in the world are not UTF-8 -- a spreadsheet
+writes UTF-16 with a mark, or CP1252, depending on which button was pressed. `rows_of` already
+drops a mark from the text, which is how a UTF-8 file with one has always worked here.
+
+### `parse`
+
+```
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Json, string>
+```
+
+`parse` over bytes, decoded in `set`, or in the set a byte order mark names when there is one --
+which for this format is worth doing automatically, because a marked UTF-16 file is exactly what
+a spreadsheet hands over.
+
+```
+pub fn parse(data: [byte]) -> Result<Json, string>
+```
+
 ```
 pub fn parse(text: string, delimiter: string) -> Result<Json, string>
 ```

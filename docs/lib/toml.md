@@ -89,10 +89,10 @@ hosts = ["a.example", "b.example"]
 
 ## Reading
 
-### `parse`
+### `default_charset`
 
 ```
-pub fn parse(text: string) -> Result<Json, string>
+pub fn default_charset() -> charset.Charset
 ```
 
 Parses a TOML document into a `Json` object (tables and inline tables become objects, arrays
@@ -107,6 +107,28 @@ dates (about 5 microseconds each) but the control-character test, which every ch
 string must pass -- `parse_basic` went from 5.9% to 7.7% of the profile and `is_control` is 3.3%
 of it. There is no cheaper way to know that a string holds no raw control character than to look
 at each one.
+The charset a TOML document is in.
+
+**UTF-8, and the specification says "must"**: "A TOML file must be a valid UTF-8 encoded Unicode
+document". `parse(data, set)` exists for a file that is not one, because a file that is not one
+still has to be read before anybody can say so.
+
+### `parse`
+
+```
+pub fn parse(data: [byte], set: charset.Charset) -> Result<Json, string>
+```
+
+`parse` over bytes, decoded in `set`. A leading mark is dropped: a whole document is the one
+place a mark can only be a mark.
+
+```
+pub fn parse(data: [byte]) -> Result<Json, string>
+```
+
+```
+pub fn parse(text: string) -> Result<Json, string>
+```
 
 ## Writing
 

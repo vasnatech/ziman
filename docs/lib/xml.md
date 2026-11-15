@@ -484,6 +484,9 @@ point is that they have not.
 pub struct Reader {
     cs: io.Cursor
     limits: XmlLimits
+    // The set the bytes are being read in, so that a declaration naming one can be **checked**
+    // against it rather than guessed at -- see `read_declaration`.
+    set: charset.Charset
     pos: Mutable<int>
     stack: Mutable<[Frame]>
     // The `End` owed for a self-closing tag, which is reported as two events.
@@ -496,10 +499,10 @@ pub struct Reader {
 
 A document being read. Made by `reader`, walked by `next_event`, wrapped in an `Iter` by `events`.
 
-### `reader`
+### `default_charset`
 
 ```
-pub fn reader(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Reader
+pub fn default_charset() -> charset.Charset
 ```
 
 A reader over a document arriving as bytes.
@@ -508,11 +511,39 @@ A reader over a document arriving as bytes.
 `parse` of a string can measure it before starting and say so, and a source cannot be measured at
 all. So the limit is a layer, and a document over it fails partway through reading with
 `TooLarge` rather than before reading with a count.
+The charset an XML document is in when the caller names none.
+
+**UTF-8, and the format has its own opinion too**: a document may carry
+`encoding="..."` in its declaration, and a byte order mark says it again in bytes. `charset.sniff`
+answers the second for a caller holding the first chunk; the declaration is *checked* against
+whatever set the bytes are actually being read in, because a reader that preferred one over the
+other silently would misread exactly the documents that bothered to say.
+
+### `reader`
+
+```
+pub fn reader(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Reader
+```
+
+```
+pub fn reader(
+    source: Iter<Result<[byte], io.IoError>>,
+    limits: XmlLimits,
+    set: charset.Charset
+) -> Reader
+```
+
+A reader over bytes in a named charset -- `charset.Charset.Latin1` for a document that says
+`encoding="ISO-8859-1"`, which this refused outright before the sets existed.
 
 ### `events`
 
 ```
-pub fn events(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Iter<Result<Event, string>>
+pub fn events(
+    source: Iter<Result<[byte], io.IoError>>,
+    limits: XmlLimits,
+    set: charset.Charset
+) -> Iter<Result<Event, string>>
 ```
 
 Every event of the document, in order. An `Err` ends the stream, as it does for a byte source.
@@ -520,6 +551,10 @@ Every event of the document, in order. An `Err` ends the stream, as it does for 
 **Release is what keeps this bounded**, and it happens here: after each event, everything before
 the position the reader has reached is dropped, because no later event refers to it. Without that
 the cursor holds the document and this is `parse` with extra steps.
+
+```
+pub fn events(source: Iter<Result<[byte], io.IoError>>, limits: XmlLimits) -> Iter<Result<Event, string>>
+```
 
 ```
 pub fn events(source: Iter<Result<[byte], io.IoError>>) -> Iter<Result<Event, string>>
