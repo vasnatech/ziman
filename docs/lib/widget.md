@@ -221,6 +221,92 @@ One colour, because this is a *mark* rather than a picture. A mark tints with th
 state -- disabled, pressed -- and a picture does not; conflating them is how a disabled button
 ends up with a bright icon on a grey label.
 
+### `Pictured`
+
+```
+pub struct Pictured {
+    image: int
+    // The picture's own size **in points**, which is what `measure` answers and what `fit` fits.
+    //
+    // **Given rather than discovered.** The widget layer never sees the pixels -- the images table
+    // belongs to the painter -- and a tree that had to be laid out against it could not be built
+    // before one existed. A caller that decoded the image has its dimensions and its own idea of
+    // how many points a pixel is; both are decisions this layer must not make.
+    width: float
+    height: float
+    fit: Fit
+    // **What a reader is told, and a picture must declare it.** The same rule a control follows: a
+    // picture that gathered its name from somewhere else would be named by whatever happened to sit
+    // next to it. Empty means decorative -- a border, a texture -- and a reader is told nothing
+    // rather than told something useless.
+    alt: string
+    name: string
+}
+```
+
+A decoded picture drawn into whatever box the layout gives it.
+
+**Content, where an icon is a mark.** That line was drawn when `Button.icon` was built: an image
+is a `Widget` and an icon is a *field* on a control. Everything about this type follows from it
+-- a picture has a size of its own where a mark has none, it keeps its own colours where a mark
+tints with the control's state, and it carries alternative text where a mark is silent beside the
+label it belongs to.
+
+**`image` is an index into `raster.Options.images`**, for the same reason `Label.font` indexes
+`fonts`: the scene carries handles and the application fills the table. `scene.image` has taken
+one since the renderer existed; this layer simply never offered a way to say so, which is what
+made "no concept of an image at all" true of a toolkit that could already draw one.
+
+### `Fit`
+
+```
+pub enum Fit {
+    // Its own size, centred in the box. What a thumbnail of a known size wants.
+    Natural
+    // The largest it can be inside the box with its aspect kept, centred -- the common case for a
+    // photograph in a panel whose size the window decides.
+    Contain
+    // The box exactly, aspect ignored. Right for a texture or a gradient and wrong for a face.
+    Stretch
+}
+```
+
+What a picture does when its box is not its own size.
+
+**Three, and the fourth is named here rather than guessed at.** CSS calls these `none`,
+`contain` and `fill`; the missing one is `cover`, which fills the box and crops the overflow --
+it needs a clip, and a clip in this renderer was a full-surface mask until it learned to narrow
+the window instead (2026-11-13). It is affordable now and is the obvious next variant; adding it
+will break every switch here, which is the point.
+
+### `picture_box`
+
+```
+pub fn picture_box(p: Pictured, within: Rect) -> Rect
+```
+
+Where a picture is drawn inside the box it was given.
+
+**Public, because a caller that needs to know where the pixels landed cannot ask the painter.**
+A hit test on a photograph, an overlay drawn on top of one, a test asserting a fit: all of them
+need this answer and none of them is painting.
+
+### `picture_of`
+
+```
+pub fn picture_of(image: int, width: float, height: float, alt: string) -> Widget
+```
+
+A picture at its own size, centred in whatever box it is given.
+
+### `picture_fitted`
+
+```
+pub fn picture_fitted(image: int, width: float, height: float, alt: string) -> Widget
+```
+
+A picture fitted into its box, aspect kept -- what a photograph in a panel wants.
+
 ## Icons
 
 ### `IconSource`
@@ -987,6 +1073,10 @@ pub enum Role {
     // Static text, which is not a control. Produced by `a11y` for a `Text` outside any control, and
     // not declarable here: a label is text, and text already knows it is text.
     Label
+    // A picture, which is not text. Produced by `a11y` for a `Picture`, and not declarable here
+    // for the same reason: a picture knows what it is, and what a reader needs from it is the
+    // alternative text it carries.
+    Image
     // The window itself, which `a11y` puts at the root.
     Window
     Unknown
@@ -1157,6 +1247,8 @@ pub enum Widget {
     Text(Label)
     // A path scaled into its box: a mark rather than a picture. See `Drawn`.
     Drawing(Drawn)
+    // A decoded image drawn into its box: a picture rather than a mark. See `Pictured`.
+    Picture(Pictured)
     Group(Stack)
     Sized(Fixed)
     // Flexible space. **Its weight is how leftover space is shared**, so two spacers of 1 and 3

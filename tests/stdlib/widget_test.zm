@@ -1661,3 +1661,98 @@ fn the_text_op_names_the_labels_face() {
     }
     test.assert_eq(named, 1)
 }
+
+// ---- a picture
+
+// **Content, where a drawing is a mark**, and the cases below are the differences that follow from
+// it: a picture measures its own size, keeps its own colours, and tells a reader what it is.
+fn a_picture(fit: widget.Fit) -> widget.Widget {
+    return widget.Widget.Picture(widget.Pictured {
+        image: 3,
+        width: 40.0,
+        height: 20.0,
+        fit: fit,
+        alt: "a kingfisher",
+        name: "bird"
+    })
+}
+
+fn image_op(ops: [scene.Op]) -> Option<scene.Placed> {
+    for op in ops {
+        if DrawImage(it) = op {
+            return Option<scene.Placed>.Some(it)
+        }
+    }
+    return Option<scene.Placed>.None
+}
+
+fn drawn_box(w: widget.Widget, within: geom.Rect) -> geom.Rect {
+    val ops = widget.paint_ops(widget.layout(w, within, fake_metrics()), fake_metrics())
+    return switch image_op(ops) {
+        Some(it) { geom.rect_of(it.into.x, it.into.y, it.into.width, it.into.height) }
+        None {
+            test.fail("no image op")
+            geom.empty_rect()
+        }
+    }
+}
+
+#[test]
+fn a_picture_measures_its_own_size() {
+    // A drawing measures nothing, on purpose -- a mark is sized by the control it belongs to. A
+    // picture is a size before it is anywhere, which is what makes a column of photographs as tall
+    // as the photographs.
+    val size = widget.measure(a_picture(widget.Fit.Natural), fake_metrics())
+    test.assert_near(40.0, size.width, 0.001)
+    test.assert_near(20.0, size.height, 0.001)
+}
+
+#[test]
+fn the_three_fits_put_it_in_different_places() {
+    val box = geom.rect_of(0.0, 0.0, 100.0, 100.0)
+    // Its own size, centred: 40x20 in a 100 square leaves 30 either side and 40 above and below.
+    test.assert(same_rect(drawn_box(a_picture(widget.Fit.Natural), box), geom.rect_of(30.0, 40.0, 40.0, 20.0)))
+    // The box exactly, aspect ignored.
+    test.assert(same_rect(drawn_box(a_picture(widget.Fit.Stretch), box), box))
+    // The largest it can be with its aspect kept: 2:1 in a square is 100x50, centred.
+    test.assert(same_rect(drawn_box(a_picture(widget.Fit.Contain), box), geom.rect_of(0.0, 25.0, 100.0, 50.0)))
+    // And the other way round, so the fit cannot be passing by always picking the width.
+    val tall = geom.rect_of(0.0, 0.0, 20.0, 100.0)
+    test.assert(same_rect(drawn_box(a_picture(widget.Fit.Contain), tall), geom.rect_of(0.0, 45.0, 20.0, 10.0)))
+}
+
+#[test]
+fn a_picture_draws_the_handle_it_was_given() {
+    // The handle is an index into `raster.Options.images`, and nothing between here and the
+    // renderer may renumber it.
+    val ops = widget.paint_ops(
+        widget.layout(a_picture(widget.Fit.Stretch), geom.rect_of(0.0, 0.0, 10.0, 10.0), fake_metrics()),
+        fake_metrics()
+    )
+    test.assert_eq(3, switch image_op(ops) {
+        Some(it) { it.image }
+        None {
+            test.fail("no image op")
+            0 - 1
+        }
+    })
+}
+
+#[test]
+fn a_picture_is_not_a_control() {
+    // It takes no focus and Tab does not land on it: it is something to look at.
+    val laid = widget.layout(a_picture(widget.Fit.Natural), geom.rect_of(0.0, 0.0, 50.0, 50.0), fake_metrics())
+    test.assert_false(widget.is_control(laid))
+    test.assert_false(widget.is_tab_stop(laid))
+    // Its name reaches the layout, so a caller can find where it landed.
+    test.assert_eq("bird", laid.name)
+}
+
+fn same_rect(a: geom.Rect, b: geom.Rect) -> bool {
+    return close(a.x, b.x) && close(a.y, b.y) && close(a.width, b.width) && close(a.height, b.height)
+}
+
+fn close(a: float, b: float) -> bool {
+    val d = a - b
+    return if d < 0.0 { 0.0 - d < 0.001 } else { d < 0.001 }
+}

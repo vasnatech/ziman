@@ -223,7 +223,11 @@ fn collect_plain(l: Laid, path: string, focus: string, nodes: MutableArray<Node>
     if own != "" {
         push(nodes, Node {
             key: path_key(path),
-            role: Role.Label,
+            // **A picture is not static text**, which is what every node here used to be: a reader
+            // that says "image" first tells a user there is something to look at and that they are
+            // not going to be read the whole of it. The role is the only thing distinguishing them
+            // once the alt text has been gathered.
+            role: role_for(l),
             name: own,
             description: "",
             value: "",
@@ -341,6 +345,7 @@ fn path_key(path: string) -> string {
 fn focusable_in(l: Laid) -> Option<widget.Focusable> {
     return switch l.widget {
         Drawing(_) { Option<widget.Focusable>.None }
+        Picture(_) { Option<widget.Focusable>.None }
         Control(f) { Option<widget.Focusable>.Some(f) }
         // A viewport is not a control: it scrolls, and what a reader navigates to are the things
         // inside it. **Its children stay in the tree even when they are scrolled out of sight**,
@@ -357,12 +362,38 @@ fn focusable_in(l: Laid) -> Option<widget.Focusable> {
     }
 }
 
+// The role of a node that is not a control: a picture, or text.
+fn role_for(l: Laid) -> Role {
+    return switch l.widget {
+        Picture(_) { Role.Image }
+        Drawing(_) { Role.Label }
+        Text(_) { Role.Label }
+        Scroll(_) { Role.Label }
+        Layered(_) { Role.Label }
+        Nothing { Role.Label }
+        Group(_) { Role.Label }
+        Sized(_) { Role.Label }
+        Flex(_) { Role.Label }
+        Expand(_) { Role.Label }
+        Control(_) { Role.Label }
+    }
+}
+
 fn text_of(l: Laid) -> string {
     return switch l.widget {
         // **A mark contributes no text, deliberately.** An icon beside a label would otherwise
         // announce twice -- "Save button, save" -- and an icon *without* a label is named by the
         // control that holds it, which is where the name belongs.
         Drawing(_) { "" }
+        // **A picture speaks, where a mark does not.** Its alternative text is the only thing a
+        // reader can say about it, so it is gathered like a label -- which also means a button
+        // whose whole content is a picture is named by that text, the same way an icon-only
+        // button is named by its icon.
+        //
+        // An empty `alt` is a decorative picture and contributes nothing, which is the web's rule
+        // and the right one: a reader announcing "image" for every border is noise a user turns
+        // off, taking the useful ones with it.
+        Picture(it) { it.alt }
         Text(label) { label.text }
         Scroll(_) { "" }
         Layered(_) { "" }
@@ -416,6 +447,9 @@ fn role_word(r: Role) -> string {
         Window { "window" }
         // Static text leads with nothing: a reader reads it, it does not introduce it.
         Label { "" }
+        // A picture does lead with its role, because a user has to be told that what follows is a
+        // description of something they cannot see rather than words that are there.
+        Image { "image" }
         // **Not silent, and not a guess either.** A control nothing declared is announced as a
         // control, which tells the user there is something here to operate without claiming to
         // know what. While F277 is unbuilt this is the common case, and it should be visible in

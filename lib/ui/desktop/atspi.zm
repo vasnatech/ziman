@@ -61,6 +61,7 @@ fn code_of(r: Role) -> int {
         Dialog { 15 }
         Group { 16 }
         Label { 17 }
+        Image { 22 }
         Window { 18 }
         Unknown { 0 }
     }

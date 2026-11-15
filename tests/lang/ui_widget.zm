@@ -171,6 +171,52 @@ fn demo() -> Result<unit, string> {
         bold_width,
         str((inks[1] - inks[0]) / inks[0] > (bold_width - regular_width) / regular_width)
     )
+    // ---- a picture, through the whole chain
+    //
+    // **The one thing only pixels can answer about an image: that the handle lines up.** Everything
+    // between `widget.picture_of(1, ...)` and `raster.Options.images[1]` is an integer passed
+    // along, and a layer that renumbered would draw the wrong picture rather than fail. So two
+    // images are registered and the *second* is asked for -- with one, an index dropped to zero
+    // would pass.
+    val red = try image.canvas(2, 2, image.Pixels.Rgba8)
+    val _ = try image.set(red, 0, 0, paint.rgb(1.0, 0.0, 0.0))
+    val _ = try image.set(red, 1, 0, paint.rgb(1.0, 0.0, 0.0))
+    val _ = try image.set(red, 0, 1, paint.rgb(1.0, 0.0, 0.0))
+    val _ = try image.set(red, 1, 1, paint.rgb(1.0, 0.0, 0.0))
+    val green = try image.canvas(2, 2, image.Pixels.Rgba8)
+    val _ = try image.set(green, 0, 0, paint.rgb(0.0, 1.0, 0.0))
+    val _ = try image.set(green, 1, 0, paint.rgb(0.0, 1.0, 0.0))
+    val _ = try image.set(green, 0, 1, paint.rgb(0.0, 1.0, 0.0))
+    val _ = try image.set(green, 1, 1, paint.rgb(0.0, 1.0, 0.0))
+
+    // A 40x20 picture fitted into a 40x40 box: aspect kept, so it lands 10 points down and 20 tall.
+    val framed = widget.layout(
+        widget.picture_fitted(1, 40.0, 20.0, "a green square"),
+        geom.rect_of(0.0, 0.0, 40.0, 40.0),
+        metrics
+    )
+    val shown = try raster.render(
+        widget.paint(framed, metrics),
+        with raster.options() {
+            images: [image.snapshot_image(red), image.snapshot_image(green)],
+            fonts: [face],
+            samples: 1
+        }
+    )
+    print(concat("the picture is the second image: ", triple(shown, 20, 20)))
+    val above = try image.pixel_at(shown, 20, 2)
+    print(concat("above the picture is clear:      ", str(above.alpha < 0.01)))
+    print(concat("where it landed: ", rect_text(widget.picture_box(
+        widget.Pictured {
+            image: 1,
+            width: 40.0,
+            height: 20.0,
+            fit: widget.Fit.Contain,
+            alt: "",
+            name: ""
+        },
+        geom.rect_of(0.0, 0.0, 40.0, 40.0)
+    ))))
     return ok(unit)
 }
 

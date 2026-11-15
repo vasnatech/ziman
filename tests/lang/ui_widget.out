@@ -9,4 +9,7 @@ in the content:  0.0,0.0,1.0
 label darkens red:  true
 bold lays down more ink than regular: true (373 vs 556)
 widths are close (119.1 vs 128.2), ink is not: true
+the picture is the second image: 0.0,1.0,0.0
+above the picture is clear:      true
+where it landed: 0.0,10.0 40.0x20.0
 ok

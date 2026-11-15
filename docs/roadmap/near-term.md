@@ -1305,8 +1305,12 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   door against an ISO-8859-2 one, `csv` sniffing a marked UTF-16 file the way a spreadsheet writes
   it, and the declaration check both ways round.
 
-- **`lib/ui` has no icons, and no concept of an image at all** -- **the design is decided and the
-  first kind is built (fc5e46e3, `widget.Drawing`); four sources and the control field are not.**
+- **`lib/ui` has no icons, and no concept of an image at all** -- ~~the design is decided and the
+  first kind is built; four sources and the control field are not~~ **BUILT 2026-11-14, except the
+  two that need something else: `Button.icon`, the drawn source, the glyph source, the desktop's
+  theme (`icons` + `svg`), and `widget.Picture` -- an image is a `Widget` and has its own size, its
+  own colours, its own `Fit` and its own accessibility role. What is left is a *decoded* icon
+  (blocked on a JPEG decoder) and a layered one.**
   Asked 2026-11-13, after the design dialect and the builder were both built without anyone
   noticing the gap.
 

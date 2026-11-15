@@ -375,3 +375,60 @@ fn a_nodes_bounds_are_the_box_a_click_lands_in() {
 fn a_key_that_is_not_in_the_tree_answers_none() {
     test.assert(Option.is_None(a11y.node_of(tree(button("a", "A"), ""), "nope")))
 }
+
+// --- a picture
+
+fn picture(alt: string) -> widget.Widget {
+    return widget.picture_of(0, 40.0, 20.0, alt)
+}
+
+// **A picture is not static text, and a reader has to be told which it is.** Every node a plain
+// widget produced was a `Label` until pictures existed, so the alt text would have been read out
+// as though it were words on the screen -- where "image, a kingfisher" tells a user there is
+// something here they are not being read.
+#[test]
+fn a_picture_is_announced_as_an_image() {
+    // Found by name rather than by key: a node at the tree's root shares the window's path, and
+    // what this case is about is the role, not where the node sits.
+    test.assert_eq("image, a kingfisher", announcement_of(tree(picture("a kingfisher"), ""), "a kingfisher"))
+}
+
+// What a reader would say about the node with this name, or why it could not.
+fn announcement_of(t: a11y.Tree, name: string) -> string {
+    for one in t.nodes {
+        if one.name == name {
+            return a11y.announce(one)
+        }
+    }
+    return concat("(no node named ", name, ")")
+}
+
+// **An empty alt is a decorative picture and says nothing**, which is the web's rule: a reader
+// that announced "image" for every border and rule is noise, and noise gets turned off along with
+// the useful ones.
+#[test]
+fn a_decorative_picture_is_silent() {
+    // One node, the window, and nothing else: a picture with no alt text produces no node at all.
+    val t = tree(picture(""), "")
+    test.assert_eq(1, len(t.nodes))
+    test.assert_eq("window, Records", a11y.announce(t.nodes[0]))
+}
+
+// And inside a control, the alt names the control -- the same way an icon-only button is named by
+// its icon. A button whose whole content is a picture has nothing else to be called.
+#[test]
+fn a_picture_names_the_control_that_holds_it() {
+    val t = tree(
+        widget.focusable_of("open", widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            surface: widget.no_surface(),
+            align: widget.stretched(),
+            children: [picture("open the file")],
+            name: ""
+        })),
+        ""
+    )
+    test.assert_contains(said(t, "open"), "open the file")
+}

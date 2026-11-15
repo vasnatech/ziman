@@ -106,6 +106,110 @@ pub struct Drawn {
     name: string
 }
 
+// A decoded picture drawn into whatever box the layout gives it.
+//
+// **Content, where an icon is a mark.** That line was drawn when `Button.icon` was built: an image
+// is a `Widget` and an icon is a *field* on a control. Everything about this type follows from it
+// -- a picture has a size of its own where a mark has none, it keeps its own colours where a mark
+// tints with the control's state, and it carries alternative text where a mark is silent beside the
+// label it belongs to.
+//
+// **`image` is an index into `raster.Options.images`**, for the same reason `Label.font` indexes
+// `fonts`: the scene carries handles and the application fills the table. `scene.image` has taken
+// one since the renderer existed; this layer simply never offered a way to say so, which is what
+// made "no concept of an image at all" true of a toolkit that could already draw one.
+pub struct Pictured {
+    image: int
+    // The picture's own size **in points**, which is what `measure` answers and what `fit` fits.
+    //
+    // **Given rather than discovered.** The widget layer never sees the pixels -- the images table
+    // belongs to the painter -- and a tree that had to be laid out against it could not be built
+    // before one existed. A caller that decoded the image has its dimensions and its own idea of
+    // how many points a pixel is; both are decisions this layer must not make.
+    width: float
+    height: float
+    fit: Fit
+    // **What a reader is told, and a picture must declare it.** The same rule a control follows: a
+    // picture that gathered its name from somewhere else would be named by whatever happened to sit
+    // next to it. Empty means decorative -- a border, a texture -- and a reader is told nothing
+    // rather than told something useless.
+    alt: string
+    name: string
+}
+
+// What a picture does when its box is not its own size.
+//
+// **Three, and the fourth is named here rather than guessed at.** CSS calls these `none`,
+// `contain` and `fill`; the missing one is `cover`, which fills the box and crops the overflow --
+// it needs a clip, and a clip in this renderer was a full-surface mask until it learned to narrow
+// the window instead (2026-11-13). It is affordable now and is the obvious next variant; adding it
+// will break every switch here, which is the point.
+pub enum Fit {
+    // Its own size, centred in the box. What a thumbnail of a known size wants.
+    Natural
+    // The largest it can be inside the box with its aspect kept, centred -- the common case for a
+    // photograph in a panel whose size the window decides.
+    Contain
+    // The box exactly, aspect ignored. Right for a texture or a gradient and wrong for a face.
+    Stretch
+}
+
+// Where a picture is drawn inside the box it was given.
+//
+// **Public, because a caller that needs to know where the pixels landed cannot ask the painter.**
+// A hit test on a photograph, an overlay drawn on top of one, a test asserting a fit: all of them
+// need this answer and none of them is painting.
+pub fn picture_box(p: Pictured, within: Rect) -> Rect {
+    return switch p.fit {
+        Stretch { within }
+        Natural { centred_in(p.width, p.height, within) }
+        Contain {
+            if p.width <= 0.0 || p.height <= 0.0 {
+                within
+            } else {
+                // The smaller of the two ratios is the one that fits both ways.
+                val by_width = within.width / p.width
+                val by_height = within.height / p.height
+                val scale = if by_width < by_height { by_width } else { by_height }
+                centred_in(p.width * scale, p.height * scale, within)
+            }
+        }
+    }
+}
+
+fn centred_in(width: float, height: float, within: Rect) -> Rect {
+    return geom.rect_of(
+        within.x + (within.width - width) / 2.0,
+        within.y + (within.height - height) / 2.0,
+        width,
+        height
+    )
+}
+
+// A picture at its own size, centred in whatever box it is given.
+pub fn picture_of(image: int, width: float, height: float, alt: string) -> Widget {
+    return Widget.Picture(Pictured {
+        image: image,
+        width: width,
+        height: height,
+        fit: Fit.Natural,
+        alt: alt,
+        name: ""
+    })
+}
+
+// A picture fitted into its box, aspect kept -- what a photograph in a panel wants.
+pub fn picture_fitted(image: int, width: float, height: float, alt: string) -> Widget {
+    return Widget.Picture(Pictured {
+        image: image,
+        width: width,
+        height: height,
+        fit: Fit.Contain,
+        alt: alt,
+        name: ""
+    })
+}
+
 // ---- icons
 
 // Where an icon's shape comes from.
@@ -810,6 +914,10 @@ pub enum Role {
     // Static text, which is not a control. Produced by `a11y` for a `Text` outside any control, and
     // not declarable here: a label is text, and text already knows it is text.
     Label
+    // A picture, which is not text. Produced by `a11y` for a `Picture`, and not declarable here
+    // for the same reason: a picture knows what it is, and what a reader needs from it is the
+    // alternative text it carries.
+    Image
     // The window itself, which `a11y` puts at the root.
     Window
     Unknown
@@ -972,6 +1080,8 @@ pub enum Widget {
     Text(Label)
     // A path scaled into its box: a mark rather than a picture. See `Drawn`.
     Drawing(Drawn)
+    // A decoded image drawn into its box: a picture rather than a mark. See `Pictured`.
+    Picture(Pictured)
     Group(Stack)
     Sized(Fixed)
     // Flexible space. **Its weight is how leftover space is shared**, so two spacers of 1 and 3
@@ -1124,6 +1234,9 @@ pub fn measure(w: Widget, m: Metrics) -> Size {
         // control it belongs to, from the text it sits beside, so measuring it would be the
         // widget answering a question that is not its to answer.
         Drawing(_) { size_of(0.0, 0.0) }
+        // **A picture does have one**, which is the difference between content and a mark: a
+        // photograph is a size before it is anywhere, and a column of them is as tall as they are.
+        Picture(it) { size_of(it.width, it.height) }
         Flex(_) { size_of(0.0, 0.0) }
         Text(it) { size_of(width_in(m, it.font, it.text, it.size), height_in(m, it.font, it.size)) }
         Sized(it) { size_of(it.width, it.height) }
@@ -1237,6 +1350,7 @@ fn place(w: Widget, within: Rect, m: Metrics, index: int, parent_name: string) -
     val name = if own_name == "" { parent_name } else { own_name }
     return switch w {
         Drawing(_) { leaf(w, within, index, name) }
+        Picture(_) { leaf(w, within, index, name) }
         Group(it) { place_stack(it, w, within, m, index, name) }
         Sized(it) {
             Laid {
@@ -1409,6 +1523,7 @@ fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, index: int, name: 
 fn flex_weight(w: Widget) -> Option<float> {
     return switch w {
         Drawing(_) { Option<float>.None }
+        Picture(_) { Option<float>.None }
         Flex(weight) { Option<float>.Some(weight) }
         Expand(it) { Option<float>.Some(it.weight) }
         Control(_) { Option<float>.None }
@@ -1438,6 +1553,7 @@ fn across_of(s: Size, direction: Direction) -> float {
 fn name_of(w: Widget) -> string {
     return switch w {
         Drawing(it) { it.name }
+        Picture(it) { it.name }
         Nothing { "" }
         Flex(_) { "" }
         Expand(_) { "" }
@@ -1574,6 +1690,7 @@ pub fn contains(r: Rect, p: Point) -> bool {
 pub fn is_tab_stop(l: Laid) -> bool {
     return switch l.widget {
         Drawing(_) { false }
+        Picture(_) { false }
         Control(it) { it.tab_stop }
         Layered(_) { false }
         Nothing { false }
@@ -1590,6 +1707,7 @@ pub fn is_tab_stop(l: Laid) -> bool {
 pub fn is_control(l: Laid) -> bool {
     return switch l.widget {
         Drawing(_) { false }
+        Picture(_) { false }
         Control(_) { true }
         Scroll(_) { false }
         Layered(_) { false }
@@ -1769,6 +1887,11 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>) {
             geom.scaling(l.bounds.width, l.bounds.height)
         )
         push(ops, scene.fill(shape.transform_path(it.path, into), Paint.Solid(it.colour)))
+    }
+    if Picture(it) = l.widget {
+        // Where the pixels land is `picture_box`'s answer and not this function's, so a caller
+        // hit-testing a photograph and the painter drawing it cannot disagree.
+        push(ops, scene.image(it.image, picture_box(it, l.bounds)))
     }
     if Text(it) = l.widget {
         push(
