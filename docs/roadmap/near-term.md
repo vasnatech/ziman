@@ -625,6 +625,42 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   pays its own share of that, so it is worth more than anything left in this entry -- see F140,
   including why reordering the chain is *not* the fix.
 
+  **Re-measured 2026-11-15 on the day's binary, because a table a month old cannot be trusted
+  after a month of interpreter changes.** Same benchmark, same machine, 5,000,000 ops, loop
+  overhead subtracted:
+
+  | operation | 2026-10-15/16 | 2026-11-15 | CPython `dict` |
+  | --- | --- | --- | --- |
+  | `Map` get | 344-389 | 389 | 16 |
+  | `Map` get_or | 67-77 | 81 | 21 |
+  | `Map` contains | 87-88 | **67** | 9 |
+  | `Map` len | 18-20 | 20 | 11 |
+  | `Map` set (persistent) | 1316-1335 | **1057** | 15 |
+  | `Map` remove (persistent) | 914-923 | 1114 | 37 |
+  | `MutableMap` get | 480-486 | **355** | 16 |
+  | `MutableMap` get_or | 45-81 | 50 | 21 |
+  | `MutableMap` contains | 101-103 | **42** | 9 |
+  | `MutableMap` set | 47-49 | 53 | 15 |
+  | `MutableMap` remove+set | 130 (2026-11-14) | 120 | 37 |
+
+  **Most rows moved the right way and none of it was aimed at them**: `contains` on both types, the
+  `MutableMap` get and the persistent `set` are 1.2-2.4x better than October, which is a month of
+  unrelated interpreter work landing on the call path. The `remove` row reads 20% worse and **is
+  not reported here as a regression**, because the same binary measures it at 1,114 unpinned and
+  1,171-1,191 pinned to one core: the figure moves further with the machine than the month moved
+  it, and this entry's own rule is that a ratio belongs to its own sitting.
+
+  **And one thing was tried and reverted, which is the useful half.** The persistent `remove` and
+  `add` are variadic, so each builds the one-element array that `push`/`append`/`add` got a
+  shortcut for on 2026-11-14 -- the obvious extension of a family that had just paid off. It made
+  `Map remove` **2.6x slower**: 1,926-1,940 ns/op against 4,952-4,955, one row per process, paired,
+  repeated, semantics identical. `GC_PRINT_STATS` says the same million removals ran **54
+  collections against 32, at a 76 ms average pause against 26** -- removing an allocation made the
+  collector run more often and work harder, which is the opposite of the mechanism the shortcut is
+  built on. **The reason is unexplained**, which is why the change went back rather than shipping
+  on a story, and the measurement is recorded in `tail_one_for` (src/interpreter.c) so the next
+  person to see that gap does not spend the day finding it again.
+
   **Checked whether the int keys were flattering CPython, 2026-10-15: they are, and it does not
   matter.** `hash(i) == i` for a small int and the slot is `hash & mask`, so keys 0..n-1 land one
   per slot in a `dict` with no collisions and no hashing cost, while `map_hash` (mapobj.c) runs a

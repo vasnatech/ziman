@@ -450,6 +450,19 @@ static Value push_tail_one(Value owner, Value element) {
 /* **Which natives have one, in one table.** A new shortcut is a line here and a function beside
  * the native it shortens -- nothing in `call_function` changes, which is the point of resolving
  * this per declaration rather than testing candidates per call. */
+// **The persistent map and set are NOT in this table, and that is a measurement rather than an
+// oversight.** `remove(m, k)` on an immutable `Map` and `add(s, x)` on an immutable `Set` are
+// variadic too, so both build the one-element array this shortcut exists to skip -- and skipping
+// it made `Map remove` **2.6x slower**: 1,926-1,940 ns/op against 4,952-4,955, one row per
+// process, paired, repeated. `GC_PRINT_STATS` says what happened and not why: the same million
+// removals ran **54 collections against 32, at a 76 ms average pause against 26**. Removing an
+// allocation made the collector run more often and work harder each time, which is the opposite of
+// the mechanism this shortcut is built on, and the reason stayed unexplained after the
+// measurement -- so the change went back rather than shipping on a story.
+//
+// The sibling row (`Set add`, 2,117-2,127 -> 2,020-2,028) was a 4% win and went back with it: a
+// mechanism that costs 160% on one row and buys 4% on its twin is not understood well enough to
+// keep either half.
 static TailOneFn tail_one_for(NativeFn native) {
     if (native == ziman_mutable_array_push) return push_tail_one;
     if (native == ziman_array_push_values) return ziman_array_push_one;
