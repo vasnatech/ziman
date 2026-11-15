@@ -193,6 +193,11 @@ Value ziman_array_concat(Value *args, int argc, int line, int col);
 Value ziman_mutable_array_concat(Value *args, int argc, int line, int col);
 Value ziman_snapshot(Value *args, int argc, int line, int col);
 Value ziman_clear(Value *args, int argc, int line, int col);
+Value ziman_mutable_string_append(Value *args, int argc, int line, int col);
+Value ziman_mutable_string_append_byte(Value *args, int argc, int line, int col);
+Value ziman_mutable_string_append_byte_one(Value owner, Value b);
+/* `append(out, piece)`'s one-piece path -- see the comment there for what it is and is not worth. */
+Value ziman_mutable_string_append_one(Value owner, Value piece);
 Value ziman_mutable_set_add(Value *args, int argc, int line, int col);
 Value ziman_mutable_map_remove(Value *args, int argc, int line, int col);
 /* `remove(m, k)`'s one-key path, shared by the map and the set -- one C symbol, as the two

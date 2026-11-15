@@ -19,6 +19,16 @@
 // machine it is 53-54 ms, to the millisecond what it was. The yaml parse halving while its control
 // does not move is the interpreter getting cheaper, not the machine getting faster.
 //
+// **This bench's wall-clock is unusually sensitive to where collections land, so read it with a
+// control and never alone.** Measured 2026-11-14 while judging the one-element `append` shortcut:
+// the same parse ran 952 ms without it and 1069 with -- 5 alternating pinned runs each, tight
+// spreads, a real difference -- because removing an allocation from a hot loop removes the safe
+// point its growth threshold fires at. 14 collections instead of 16, each over a heap 30 MB bigger,
+// average world-stopped pause 20 ms against 29 (`GC_PRINT_STATS=1`). At `--gc-heap-floor-mb=1024`
+// the two binaries are indistinguishable, and five other benchmarks in this directory were 2-36%
+// *faster* with the same change. A number from this file is a claim about pacing as much as about
+// the parser.
+//
 // That day's work was five changes, none of them in this module: the collection guard becoming a
 // root source (F267), the collection floor becoming a 4 MB setting, an enum access resolving once
 // instead of per evaluation (F268), the variadic tail's type cached on its declaration, and the

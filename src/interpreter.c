@@ -437,6 +437,29 @@ static void run_defers(Module *module, Env *env) {
     if (env->defers_tracked) defer_env_untrack(env);
 }
 
+/* A native's one-element form: the receiver and the single element, answering what the variadic
+ * call would have answered. `push` is void in Ziman and returns `value_int(0)` here, as its own
+ * native does. */
+typedef Value (*TailOneFn)(Value, Value);
+
+static Value push_tail_one(Value owner, Value element) {
+    ziman_mutable_array_push_one(owner, element);
+    return value_int(0);
+}
+
+/* **Which natives have one, in one table.** A new shortcut is a line here and a function beside
+ * the native it shortens -- nothing in `call_function` changes, which is the point of resolving
+ * this per declaration rather than testing candidates per call. */
+static TailOneFn tail_one_for(NativeFn native) {
+    if (native == ziman_mutable_array_push) return push_tail_one;
+    if (native == ziman_array_push_values) return ziman_array_push_one;
+    if (native == ziman_mutable_string_append) return ziman_mutable_string_append_one;
+    if (native == ziman_mutable_string_append_byte) return ziman_mutable_string_append_byte_one;
+    if (native == ziman_mutable_set_add) return ziman_mutable_set_add_one;
+    if (native == ziman_mutable_map_remove) return ziman_mutable_map_remove_one;
+    return NULL;
+}
+
 static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col) {
     ZIMAN_STACK_CHECK();
     /* **`len(x)` before the frame is pushed at all.** It takes one argument, allocates nothing and
@@ -453,44 +476,26 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
         return ziman_len(raw_args, 1, call_line, call_col);
     }
     ziman_push_frame(fn->name, fn->source_file, call_line, call_col);
-    /* `push(b, x)` with exactly one element, before the variadic collapse allocates a
-     * temporary array to carry it -- see ziman_mutable_array_push_one for what that cost is and how
-     * it was measured (D18). Picked by comparing the already-cached native pointer rather than by
-     * name, so every other call pays two integer tests and a relaxed load. On the very first call
-     * the pointer is not resolved yet and this falls through to the general path, once. */
+    /* **One element, one load, one test.** `push(b, x)`, `append(out, piece)`, `add(s, x)` and
+     * their family skip the variadic collapse entirely, which otherwise allocates a one-element
+     * array to carry the argument: two `ziman_xmalloc`s and an `ArrayObj`, measured at 124 of
+     * `append`'s 155 ns/op and -- where a large live heap prices the allocation -- 350 of `add`'s
+     * 379.
+     *
+     * **Dispatched through a pointer resolved once per declaration rather than a chain of
+     * comparisons**, which is the lesson of adding the fifth and sixth of these: the chain ran on
+     * every two-argument native call, and a parser makes millions that match none of them -- 5% of
+     * tests/bench/yaml_scan.zm. See `FunctionDecl.native_tail_one` for that measurement, and
+     * `ziman_mutable_string_append_one` (prelude.c) for what the shortcuts themselves are worth
+     * across six benchmarks, including the one they cost.
+     *
+     * A spread is not a one-element call however short the array is -- `push(b, ...xs)` must go
+     * through the collapse, because the native's contract is an array and the spread already has
+     * one. */
     if (fn->is_native && raw_argc == 2 && !tail_is_array_spread) {
-        NativeFn impl = (NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED);
-        if (impl == ziman_mutable_array_push) {
-            ziman_mutable_array_push_one(raw_args[0], raw_args[1]);
-            ziman_pop_frame();
-            return value_int(0);
-        }
-        /* The array half, since F216 made it a declaration too. Without this the temporary the
-         * collapse allocates is 65% of the call: `a = push(a, i)` is the array-building loop, and
-         * one value is how it is always written. The result's element type is patched by the
-         * caller, as it is for any generic native. */
-        if (impl == ziman_array_push_values) {
-            Value one = ziman_array_push_one(raw_args[0], raw_args[1]);
-            ziman_pop_frame();
-            return one;
-        }
-        /* `add(s, x)` on a `MutableSet`, found as a **regression** rather than chosen as an
-         * optimisation: `add` became the variadic member itself on 2026-10-22, and
-         * `tests/bench/map_ops.zm` went from 12-25 to 379 ns/op on the already-present case with
-         * nothing about the table changed. The collapse's one-element array is the whole of it --
-         * see `ziman_mutable_set_add_one` for the measurement and for why a non-variadic overload
-         * is not available. */
-        if (impl == ziman_mutable_set_add) {
-            Value answer = ziman_mutable_set_add_one(raw_args[0], raw_args[1]);
-            ziman_pop_frame();
-            return answer;
-        }
-        /* `remove(m, k)` and `remove(s, k)`, which are one symbol over one table and were the
-         * other half of the same regression: the row that measures a removal and a re-insert went
-         * 104-126 ns/op (2026-10-15) to 845 (2026-11-14), and the add shortcut above recovered
-         * only part of it. */
-        if (impl == ziman_mutable_map_remove) {
-            Value answer = ziman_mutable_map_remove_one(raw_args[0], raw_args[1]);
+        TailOneFn one = (TailOneFn)__atomic_load_n(&fn->native_tail_one, __ATOMIC_RELAXED);
+        if (one != NULL) {
+            Value answer = one(raw_args[0], raw_args[1]);
             ziman_pop_frame();
             return answer;
         }
@@ -601,6 +606,10 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
                 ziman_error("runtime", call_line, call_col, "native function '%s' has no registered implementation", fn->name);
             }
             __atomic_store_n(&fn->native_impl, (void (*)(void))native, __ATOMIC_RELAXED);
+            /* And the one-element shortcut, if this native has one. Done here so the per-call
+             * path is a load and a test: the table is the only place that knows which natives can
+             * take a single argument without the array, and it is read once per declaration. */
+            __atomic_store_n(&fn->native_tail_one, (void (*)(void))tail_one_for(native), __ATOMIC_RELAXED);
         }
         Value result = native(args, argc, call_line, call_col);
         if (args != raw_args) free(args);

@@ -754,6 +754,19 @@ typedef struct {
      * plus `native_lookup`, docs/design/journal/). A `FunctionDecl` lives as long as the program and its
      * name never changes, so one resolution per declaration is all that was ever needed. */
     void (*native_impl)(void);
+    /* The one-element shortcut for this declaration, or NULL when it has none: a
+     * `Value (*)(Value, Value)` taking the receiver and the single element, cast the way
+     * `native_impl` is and for the same reason.
+     *
+     * **Resolved once beside `native_impl`, because a chain of pointer comparisons is not free.**
+     * `call_function` used to test the candidates one by one, and that chain ran on *every*
+     * two-argument native call while a parser makes millions that match none of them. Measured
+     * 2026-11-14 on tests/bench/yaml_scan.zm, 5 alternating runs pinned to one core, the same four
+     * shortcuts either way: **chain 991-1007 ms, this field 936-969** -- 5% of a parse for
+     * something no reader would suspect of costing anything. One load and one test per call now
+     * costs the same whatever the family grows to, which is also what made it safe to add the two
+     * string shortcuts (see `ziman_mutable_string_append_one`, prelude.c). */
+    void (*native_tail_one)(void);
     int line, col;
     /* Non-NULL for a function a #[derive] generated, e.g. "derive(Json) for
      * 'Point'": every position inside it is stamped with the declaration's

@@ -987,7 +987,53 @@ static Value native_mutable_string_new(Value *args, int argc, int line, int col)
     return value_struct(&g_mutable_string_type, struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
 }
 
-static Value native_mutable_string_append(Value *args, int argc, int line, int col) {
+/* `append(out, piece)` with exactly one piece, before the collapse allocates an array for it.
+ *
+ * **The measurement first, since this shortcut family has been wrong about its own cause before.**
+ * `append(out, "x")` 2,000,000 times, loop overhead subtracted, measured 155 ns/op with nothing
+ * else alive and 153 with a 100,000-entry map alive -- *no* sensitivity to the live set, which is
+ * what separates this from `add`'s regression, where the same array cost 290ns of collection
+ * pressure. So the array here is a `ziman_xmalloc` pair and a cheap `ArrayObj`: 31 ns/op with the
+ * shortcut against 155 without, and `append_byte` 61 against 129.
+ *
+ * **And what that is worth on real work, which is the part a microbenchmark cannot answer.**
+ * `append` is how this language builds every string -- 512 calls in `lib/` alone, almost all of
+ * them one piece in a loop -- so the parsers in `tests/bench/` are where it shows. Best of three,
+ * pinned to one core, without these two shortcuts against with:
+ *
+ *     toml_scan     2.48 s -> 1.58 s      -36%
+ *     xml_scan      4.85 s -> 4.10 s      -16%
+ *     time_scan     5.95 s -> 5.69 s       -4%
+ *     sql_parse     1.68 s -> 1.64 s       -2%
+ *     string_scan   0.38 s -> 0.38 s        --
+ *     yaml_scan     0.95 s -> 1.07 s      +12%
+ *
+ * **The last row is the collector's pacing, not this function, and it is worth knowing why.** A
+ * collection is considered at an allocation, so a loop that stops allocating also stops offering
+ * the growth threshold anywhere to fire: on yaml_scan at the default 4 MB floor the same parse
+ * runs 14 collections instead of 16, each over a heap 30 MB larger (191 -> 223 MB peak), and the
+ * collector's own average pause goes 20 ms -> 29 ms. Raise the floor until pacing is the floor's
+ * doing rather than the loop's (`--gc-heap-floor-mb=1024`) and all three binaries land inside each
+ * other's noise at 1098-1188 ms, with this shortcut now holding the *smaller* heap (371 against
+ * 387 MB) as the garbage it never made would suggest. The 12% is real for that one workload at
+ * that one floor; the 36% is real for every floor.
+ *
+ * **Measuring one benchmark said the opposite.** yaml_scan alone read as "no gain and possibly a
+ * regression", which is what this family was believed to be for most of a day. */
+Value ziman_mutable_string_append_one(Value owner, Value piece) {
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(owner));
+    const char *s = SPTR(piece);
+    size_t len = SLEN(piece);
+    mutable_string_ensure_capacity(buf, len);
+    memcpy(buf->data + buf->length, s, len);
+    buf->length += len;
+    /* The same one-way ascii bit the loop keeps: a builder that has held a multi-byte character
+     * holds one until `clear`, and the piece's own flag is reused rather than rescanned. */
+    if (buf->ascii && !(piece.as.str.flags & ZSTR_ASCII)) buf->ascii = 0;
+    return value_int(0);
+}
+
+Value ziman_mutable_string_append(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -1011,7 +1057,25 @@ static Value native_mutable_string_append(Value *args, int argc, int line, int c
  * from decoded bytes without a [byte] in between. A string can't hold a 0
  * byte, so if any of them is 0b nothing at all is appended and the result is
  * false. */
-static Value native_mutable_string_append_byte(Value *args, int argc, int line, int col) {
+/* `append_byte(out, b)` with one byte, before the collapse allocates an array. The third of these
+ * shortcuts and the same measurement: 129 ns/op through the collapse against `append`'s 155, both
+ * of which are mostly the array rather than the work.
+ *
+ * **A NUL is still refused**, which is the whole contract of this native: a ziman string cannot
+ * hold one, so the answer is `false` and nothing is written. */
+Value ziman_mutable_string_append_byte_one(Value owner, Value b) {
+    if (b.as.by == 0) return value_bool(0);
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(owner));
+    mutable_string_ensure_capacity(buf, 1);
+    buf->data[buf->length] = (char)b.as.by;
+    buf->length += 1;
+    /* As the loop does: the flag only ever claims "every byte is below 0x80", which is a fact
+     * about bytes and needs no opinion about whether they decode. */
+    if (buf->ascii && b.as.by >= 0x80) buf->ascii = 0;
+    return value_bool(1);
+}
+
+Value ziman_mutable_string_append_byte(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
     ArrayObj *bytes = args[1].as.arr;
@@ -4124,8 +4188,8 @@ void prelude_register(void) {
     native_register("mutable_string_index_of", native_mutable_string_index_of);
     native_register("mutable_string_last_index_of", native_mutable_string_last_index_of);
     native_register("mutable_string_new", native_mutable_string_new);
-    native_register("mutable_string_append", native_mutable_string_append);
-    native_register("mutable_string_append_byte", native_mutable_string_append_byte);
+    native_register("mutable_string_append", ziman_mutable_string_append);
+    native_register("mutable_string_append_byte", ziman_mutable_string_append_byte);
     native_register("mutable_new", native_mutable_new);
     native_register("mutable_get", native_mutable_get);
     native_register("mutable_set", native_mutable_set);
