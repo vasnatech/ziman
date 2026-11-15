@@ -1383,10 +1383,16 @@ pub struct Style {
     // was before this widened, so nothing that compared pixels had to be re-blessed and nothing an
     // application already ships moved by a point. A look and feel is what you get by setting them.
     face_border: Option<widget.Border>
-    // One radius, shared by every control's face and by a list's and a tree's selected row -- the
+    // One rounding, shared by every control's face and by a list's and a tree's selected row -- the
     // same rule `tab_width` and `bar_thickness` follow. A theme with four-point buttons and
     // square selection is not a theme, it is two.
-    corner_radius: float
+    //
+    // **A `widget.Radius` rather than a number**, because a number could not serve the sizes a
+    // theme has to cover at once: `Points(6)` is right on a button and nearly circular on a check
+    // box, which is why the check box used to carry a cap of its own. The cap is now part of what
+    // `Points` means, and a theme that wants a capsule says `Fraction(0.5)` -- see
+    // `widget.Radius`, which has the whole argument.
+    corner: widget.Radius
     // Which face a control's text is drawn in, and which an icon *glyph* comes from: indices into
     // the faces a window gave `widget.Metrics` and `raster.Options.fonts`.
     //

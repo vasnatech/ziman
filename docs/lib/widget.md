@@ -400,12 +400,12 @@ pub struct Surface {
     // second look and feel from moving the frame cost F284 measured, where building and laying out
     // already dominate painting by six to one.
     border: Option<Border>
-    // Rounds the fill and the border alike. Zero is a square corner, and the common case.
+    // Rounds the fill and the border alike. `Radius.Square` is the common case.
     //
     // **One radius for all four corners**, not four. Four is what a design tool offers and what no
     // application here has yet wanted; the day one does, this is the place it widens, and a single
     // number cannot disagree with itself in the meantime.
-    corner_radius: float
+    corner: Radius
 }
 ```
 
@@ -418,6 +418,48 @@ every theme was a flat rectangle: an application could already replace the whole
 looked different, because what distinguishes one look and feel from another is *shape*. The
 capability was always one layer down (`shape.round_rect_path`, and `paint_focused` has stroked a
 path in this very module since F270); only the way to ask for it was missing.
+
+### `Radius`
+
+```
+pub enum Radius {
+    Square
+    Points(float)
+    Fraction(float)
+}
+```
+
+How far a surface's corners are rounded: a number of points, or a proportion of the box.
+
+**A plain float could not say what a theme means, which is the whole reason this is an enum.**
+One absolute radius has to serve a 400-point dialog panel, a 24-point button, a 16-point check
+box and a 10-point scroll thumb -- and at `6` the button is right, the check box is very nearly a
+circle (`shape.round_rect_path` clamps at *half* the shorter side, which on a small square is a
+semicircle) and the thumb is a capsule. Until 2026-11-14 the check box carried its own cap for
+exactly this, which was a patch on one control rather than a rule.
+
+* `Square` -- no rounding. What `default_style` uses, so the default look is unchanged.
+* `Points(p)` -- an absolute radius, as a design system specifies one (`4`, `6`, `8`), **never
+  more than a quarter of the box's shorter side**. That cap is what makes one number right at
+  every size: it leaves a tall control exactly as asked (a quarter of a 24-point button is 6)
+  and keeps a small one a rounded square rather than a blob.
+* `Fraction(f)` -- `f` times the shorter side, which is how a *capsule* is said: `Fraction(0.5)`
+  is a pill at any size, and that has to stay sayable because a switch, a badge and a scroll
+  thumb are drawn that way on purpose. Nothing is capped here; the clamp in `round_rect_path`
+  means anything above 0.5 is a capsule too.
+
+**Resolved against the box being painted, not when the surface is built**, because a widget tree
+is built before it is laid out: a control knows its look and the layout knows its size, and this
+is where the two meet -- the same seam `paint_focused` uses for the focus ring.
+
+### `radius_in`
+
+```
+pub fn radius_in(r: Radius, box: geom.Rect) -> float
+```
+
+The radius to draw with, for this rounding and this box. The one place the rules above are
+applied, so a painter, a focus ring and a test cannot disagree about them.
 
 ### `no_surface`
 
@@ -461,6 +503,14 @@ Three rather than one, because the cases a caller means are "filled", "outlined"
 and the one-constructor alternative needs a sentinel for the absent half, which is what
 `Option` is here to avoid.
 
+```
+pub fn rounded(fill: Color, corner: Radius) -> Surface
+```
+
+**A number of points is the common case and stays the short spelling**, with the `Radius` form
+for a design that wants a proportion: these pairs are what a `*_ui.zm` file writes, and
+`rounded(colour, 6.0)` is what every one of them already said.
+
 ### `outlined`
 
 ```
@@ -469,10 +519,18 @@ pub fn outlined(border: Color, width: float, corner_radius: float) -> Surface
 
 A border and nothing behind it -- a "ghost" panel, where whatever is underneath shows through.
 
+```
+pub fn outlined(border: Color, width: float, corner: Radius) -> Surface
+```
+
 ### `edged`
 
 ```
 pub fn edged(fill: Color, border: Color, width: float, corner_radius: float) -> Surface
+```
+
+```
+pub fn edged(fill: Color, border: Color, width: float, corner: Radius) -> Surface
 ```
 
 ### `Across`

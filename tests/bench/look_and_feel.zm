@@ -51,7 +51,7 @@ fn form(rows: int, style: controls.Style, m: widget.Metrics) -> widget.Widget {
 fn edged() -> controls.Style {
     return with controls.default_style() {
         face_border: Option<widget.Border>.Some(widget.border_of(paint.rgb(0.4, 0.4, 0.45), 1.0)),
-        corner_radius: 4.0
+        corner: widget.Radius.Points(4.0)
     }
 }
 

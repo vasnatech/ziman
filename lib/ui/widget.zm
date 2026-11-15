@@ -258,12 +258,57 @@ pub struct Surface {
     // second look and feel from moving the frame cost F284 measured, where building and laying out
     // already dominate painting by six to one.
     border: Option<Border>
-    // Rounds the fill and the border alike. Zero is a square corner, and the common case.
+    // Rounds the fill and the border alike. `Radius.Square` is the common case.
     //
     // **One radius for all four corners**, not four. Four is what a design tool offers and what no
     // application here has yet wanted; the day one does, this is the place it widens, and a single
     // number cannot disagree with itself in the meantime.
-    corner_radius: float
+    corner: Radius
+}
+
+// How far a surface's corners are rounded: a number of points, or a proportion of the box.
+//
+// **A plain float could not say what a theme means, which is the whole reason this is an enum.**
+// One absolute radius has to serve a 400-point dialog panel, a 24-point button, a 16-point check
+// box and a 10-point scroll thumb -- and at `6` the button is right, the check box is very nearly a
+// circle (`shape.round_rect_path` clamps at *half* the shorter side, which on a small square is a
+// semicircle) and the thumb is a capsule. Until 2026-11-14 the check box carried its own cap for
+// exactly this, which was a patch on one control rather than a rule.
+//
+// * `Square` -- no rounding. What `default_style` uses, so the default look is unchanged.
+// * `Points(p)` -- an absolute radius, as a design system specifies one (`4`, `6`, `8`), **never
+//   more than a quarter of the box's shorter side**. That cap is what makes one number right at
+//   every size: it leaves a tall control exactly as asked (a quarter of a 24-point button is 6)
+//   and keeps a small one a rounded square rather than a blob.
+// * `Fraction(f)` -- `f` times the shorter side, which is how a *capsule* is said: `Fraction(0.5)`
+//   is a pill at any size, and that has to stay sayable because a switch, a badge and a scroll
+//   thumb are drawn that way on purpose. Nothing is capped here; the clamp in `round_rect_path`
+//   means anything above 0.5 is a capsule too.
+//
+// **Resolved against the box being painted, not when the surface is built**, because a widget tree
+// is built before it is laid out: a control knows its look and the layout knows its size, and this
+// is where the two meet -- the same seam `paint_focused` uses for the focus ring.
+pub enum Radius {
+    Square
+    Points(float)
+    Fraction(float)
+}
+
+// The radius to draw with, for this rounding and this box. The one place the rules above are
+// applied, so a painter, a focus ring and a test cannot disagree about them.
+pub fn radius_in(r: Radius, box: geom.Rect) -> float {
+    val shorter = if box.width < box.height { box.width } else { box.height }
+    if shorter <= 0.0 {
+        return 0.0
+    }
+    return switch r {
+        Square { 0.0 }
+        Points(p) {
+            val cap = shorter * 0.25
+            if p > cap { cap } else { p }
+        }
+        Fraction(f) { f * shorter }
+    }
 }
 
 // A surface that draws nothing, which is what most containers want. Named for what it is, like
@@ -272,7 +317,7 @@ pub fn no_surface() -> Surface {
     return Surface {
         fill: Option<Color>.None,
         border: Option<Border>.None,
-        corner_radius: 0.0
+        corner: Radius.Square
     }
 }
 
@@ -282,7 +327,7 @@ pub fn filled(colour: Color) -> Surface {
     return Surface {
         fill: Option<Color>.Some(colour),
         border: Option<Border>.None,
-        corner_radius: 0.0
+        corner: Radius.Square
     }
 }
 
@@ -302,27 +347,42 @@ pub fn border_of(colour: Color, width: float) -> Border {
 // and the one-constructor alternative needs a sentinel for the absent half, which is what
 // `Option` is here to avoid.
 pub fn rounded(fill: Color, corner_radius: float) -> Surface {
+    return rounded(fill, Radius.Points(corner_radius))
+}
+
+// **A number of points is the common case and stays the short spelling**, with the `Radius` form
+// for a design that wants a proportion: these pairs are what a `*_ui.zm` file writes, and
+// `rounded(colour, 6.0)` is what every one of them already said.
+pub fn rounded(fill: Color, corner: Radius) -> Surface {
     return Surface {
         fill: Option<Color>.Some(fill),
         border: Option<Border>.None,
-        corner_radius: corner_radius
+        corner: corner
     }
 }
 
 // A border and nothing behind it -- a "ghost" panel, where whatever is underneath shows through.
 pub fn outlined(border: Color, width: float, corner_radius: float) -> Surface {
+    return outlined(border, width, Radius.Points(corner_radius))
+}
+
+pub fn outlined(border: Color, width: float, corner: Radius) -> Surface {
     return Surface {
         fill: Option<Color>.None,
         border: Option<Border>.Some(border_of(border, width)),
-        corner_radius: corner_radius
+        corner: corner
     }
 }
 
 pub fn edged(fill: Color, border: Color, width: float, corner_radius: float) -> Surface {
+    return edged(fill, border, width, Radius.Points(corner_radius))
+}
+
+pub fn edged(fill: Color, border: Color, width: float, corner: Radius) -> Surface {
     return Surface {
         fill: Option<Color>.Some(fill),
         border: Option<Border>.Some(border_of(border, width)),
-        corner_radius: corner_radius
+        corner: corner
     }
 }
 
@@ -1584,8 +1644,8 @@ pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: f
         val box = node.bounds
         // **The radius comes from the control, not from a theme.** This drew a square ring with
         // `rect_path` until 2026-11-13, which was indistinguishable from right while
-        // `default_style` left `corner_radius` at zero -- and wrong the moment F286 made a
-        // rounded look possible, as a square ring across the corners of a rounded button.
+        // `default_style` left the corners square -- and wrong the moment F286 made a rounded look
+        // possible, as a square ring across the corners of a rounded button.
         //
         // Asking the box it is drawing around beats taking a number from the style: a check box
         // caps its own radius against its side (`controls.face_within`), so a themed value would
@@ -1608,7 +1668,10 @@ pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: f
     )
 }
 
-// The corner radius the focused control actually drew itself with, or zero.
+// The corner radius the focused control actually drew itself with, in points, or zero.
+//
+// **Resolved against each node's own box** as it walks, because a `Fraction` means nothing without
+// one -- and the ring has to follow the curve the control drew, not the one a theme asked for.
 //
 // **The outermost surface in its subtree**, because that is the one whose outline a ring has to
 // follow: a control is a `Focusable` wrapping the group that carries the face, and anything
@@ -1616,8 +1679,9 @@ pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: f
 // than its edge.
 fn radius_of(l: Laid) -> float {
     if Group(it) = l.widget {
-        if it.surface.corner_radius > 0.0 {
-            return it.surface.corner_radius
+        val radius = radius_in(it.surface.corner, l.bounds)
+        if radius > 0.0 {
+            return radius
         }
     }
     var i = 0
@@ -1670,8 +1734,12 @@ pub fn paint_ops(l: Laid, m: Metrics) -> [Op] {
 // testing found them by leaving two mutants alive: removing each changed no output, which is what a
 // branch nothing can observe looks like.
 fn paint_surface(s: Surface, bounds: Rect, ops: MutableArray<Op>) {
+    // **Resolved here, once, against the box actually being painted** -- which is the point of
+    // `Radius` being a kind rather than a number: the tree was built before anything knew how big
+    // this control would be.
+    val radius = radius_in(s.corner, bounds)
     if Some(colour) = s.fill {
-        push(ops, scene.fill(shape.round_rect_path(bounds, s.corner_radius), Paint.Solid(colour)))
+        push(ops, scene.fill(shape.round_rect_path(bounds, radius), Paint.Solid(colour)))
     }
     if Some(edge) = s.border {
         val half = edge.width * 0.5
@@ -1682,7 +1750,7 @@ fn paint_surface(s: Surface, bounds: Rect, ops: MutableArray<Op>) {
             bounds.height - edge.width
         )
         push(ops, scene.stroke(
-            shape.round_rect_path(inner, s.corner_radius - half),
+            shape.round_rect_path(inner, radius - half),
             Paint.Solid(edge.colour),
             paint.stroke_of(edge.width)
         ))

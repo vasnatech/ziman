@@ -2470,7 +2470,7 @@ fn a_masked_field_masks_the_composition_too() {
 fn edged_style() -> controls.Style {
     return with controls.default_style() {
         face_border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
-        corner_radius: 5.0
+        corner: widget.Radius.Points(5.0)
     }
 }
 
@@ -2707,6 +2707,23 @@ fn a_tall_row_leaves_the_check_box_square() {
 
 // The x a rounded box's path starts at is `bounds.x + radius` -- `round_rect_path` moves to the
 // end of the top-left arc -- so the radius a control actually used is readable from what it drew.
+// The box the first fill covers, for a case that has to compare the radius against the face's own
+// shorter side rather than against a number the test knew in advance.
+fn first_fill_bounds(ops: [scene.Op]) -> geom.Rect {
+    for op in ops {
+        if Fill(it) = op {
+            return shape.path_bounds(it.path)
+        }
+        if Nested(group) = op {
+            val found = first_fill_bounds(group.ops)
+            if found.width > 0.0 {
+                return found
+            }
+        }
+    }
+    return geom.empty_rect()
+}
+
 fn first_fill_radius(ops: [scene.Op], left: float) -> float {
     for op in ops {
         if Fill(it) = op {
@@ -2727,15 +2744,16 @@ fn first_fill_radius(ops: [scene.Op], left: float) -> float {
 }
 
 // **A theme's radius is chosen for a button, and a check box is a sixth of its width.** At
-// `corner_radius: 6` a 16-point square comes out nearly circular, so the check box caps its own
-// corners at a quarter of its side. Read back off the path it drew.
+// `Points(6)` a 16-point square comes out nearly circular, so a quarter of the shorter side is
+// what `Points` means -- applied to whatever box is painted rather than by a cap the check box
+// carries itself, which is what this was until 2026-11-14. Read back off the path it drew.
 #[test]
 fn a_check_box_caps_the_radius_its_size_cannot_carry() {
     val m = metrics()
     val height = widget.face_at(m, 0).line_height
     val side = height(controls.default_style().text_size)
     // A radius the square cannot carry: 10 against a side of 24, where the cap is 6.
-    val asking = with edged_style() { corner_radius: 10.0 }
+    val asking = with edged_style() { corner: widget.Radius.Points(10.0) }
     val laid = widget.layout(
         controls.check_box_widget(a_check_box(), asking, metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
@@ -2764,7 +2782,7 @@ fn a_button_keeps_the_radius_the_theme_asked_for() {
 // different radius for check boxes. Without this, "always use the cap" passes every other test.
 #[test]
 fn a_check_box_keeps_a_radius_that_fits() {
-    val asking = with edged_style() { corner_radius: 2.0 }
+    val asking = with edged_style() { corner: widget.Radius.Points(2.0) }
     val laid = widget.layout(
         controls.check_box_widget(a_check_box(), asking, metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
@@ -2772,6 +2790,34 @@ fn a_check_box_keeps_a_radius_that_fits() {
     )
     val ops = widget.paint_ops(laid, metrics())
     test.assert_eq(first_fill_radius(ops, face_box(laid).x), 2.0)
+}
+
+// **A capsule is sayable, which the old per-control cap made impossible.** `Fraction(0.5)` is half
+// the shorter side at every size, so a theme can ask for pill-shaped controls and get them on the
+// check box too -- where a cap at a quarter would have quietly answered a rounded square.
+#[test]
+fn a_fraction_is_a_capsule_at_any_size() {
+    val m = metrics()
+    val height = widget.face_at(m, 0).line_height
+    val side = height(controls.default_style().text_size)
+    val asking = with edged_style() { corner: widget.Radius.Fraction(0.5) }
+    val checked = widget.layout(
+        controls.check_box_widget(a_check_box(), asking, metrics()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    val ops = widget.paint_ops(checked, metrics())
+    test.assert_eq(first_fill_radius(ops, face_box(checked).x), side * 0.5)
+    // And on a button, whose face is wider than it is tall: half of the *shorter* side.
+    val laid = widget.layout(
+        controls.button_widget(controls.button_of("save", "Save"), asking),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    val painted = widget.paint_ops(laid, metrics())
+    val face = first_fill_bounds(painted)
+    val shorter = if face.width < face.height { face.width } else { face.height }
+    test.assert_eq(first_fill_radius(painted, 0.0), shorter * 0.5)
 }
 
 // ---- an icon on a button

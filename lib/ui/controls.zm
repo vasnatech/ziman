@@ -432,7 +432,12 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.no_insets(),
-        surface: face_within(style, face, side),
+        // **No cap of its own any more.** This used to pass its own side in so that a theme's
+        // radius could be capped against it, because one absolute number rounded a 16-point square
+        // into a blob. That cap is now what `widget.Radius.Points` *means*, applied against
+        // whatever box is painted, so the check box is an ordinary face again -- and a theme asking
+        // for a capsule (`Fraction(0.5)`) gets one here too, which the old cap made impossible.
+        surface: face_of(style, face),
         // Centred both ways inside the square -- which is the thing F287 existed to make possible
         // and the reason this could not be fixed before it.
         align: widget.centred(),
@@ -2716,10 +2721,16 @@ pub struct Style {
     // was before this widened, so nothing that compared pixels had to be re-blessed and nothing an
     // application already ships moved by a point. A look and feel is what you get by setting them.
     face_border: Option<widget.Border>
-    // One radius, shared by every control's face and by a list's and a tree's selected row -- the
+    // One rounding, shared by every control's face and by a list's and a tree's selected row -- the
     // same rule `tab_width` and `bar_thickness` follow. A theme with four-point buttons and
     // square selection is not a theme, it is two.
-    corner_radius: float
+    //
+    // **A `widget.Radius` rather than a number**, because a number could not serve the sizes a
+    // theme has to cover at once: `Points(6)` is right on a button and nearly circular on a check
+    // box, which is why the check box used to carry a cap of its own. The cap is now part of what
+    // `Points` means, and a theme that wants a capsule says `Fraction(0.5)` -- see
+    // `widget.Radius`, which has the whole argument.
+    corner: widget.Radius
     // Which face a control's text is drawn in, and which an icon *glyph* comes from: indices into
     // the faces a window gave `widget.Metrics` and `raster.Options.fonts`.
     //
@@ -2755,7 +2766,7 @@ pub fn default_style() -> Style {
         expanded_mark: "▾",
         scrim: paint.rgba(0.0, 0.0, 0.0, 0.35),
         face_border: Option<widget.Border>.None,
-        corner_radius: 0.0,
+        corner: widget.Radius.Square,
         text_font: 0,
         icon_font: 0,
         // Half the text size: at 12 points that is 6, which reads as a space between two things
@@ -2776,30 +2787,7 @@ fn face_of(style: Style, colour: Color) -> widget.Surface {
     return widget.Surface {
         fill: Option<Color>.Some(colour),
         border: style.face_border,
-        corner_radius: style.corner_radius
-    }
-}
-
-// A face on a control small enough that the style's radius would round it away.
-//
-// **One radius cannot serve a 90-point button and a 16-point check box.** A theme picks its number
-// for the thing it is looking at, which is a button; the check box is a sixth of the width, and at
-// `corner_radius: 6` it comes out very nearly a circle -- `round_rect_path` clamps at half the
-// shorter side, which on a small square is still a semicircle. Capping at a quarter of the side
-// keeps it a rounded square at any radius a theme picks.
-//
-// **Here rather than in the painter**, which would be the blanket fix and the wrong one: a radius
-// of half the shorter side is a capsule, and a capsule is a thing a design asks for on purpose --
-// a pill badge, a switch. Clamping everywhere would make those unsayable. The check box is the
-// only control whose face is as small as a line of text, and it is the one that knows its own
-// side.
-fn face_within(style: Style, colour: Color, side: float) -> widget.Surface {
-    val cap = side * 0.25
-    val radius = if style.corner_radius > cap { cap } else { style.corner_radius }
-    return widget.Surface {
-        fill: Option<Color>.Some(colour),
-        border: style.face_border,
-        corner_radius: radius
+        corner: style.corner
     }
 }
 
@@ -2813,7 +2801,7 @@ fn highlight_of(style: Style, colour: Color) -> widget.Surface {
     return widget.Surface {
         fill: Option<Color>.Some(colour),
         border: Option<widget.Border>.None,
-        corner_radius: style.corner_radius
+        corner: style.corner
     }
 }
 
