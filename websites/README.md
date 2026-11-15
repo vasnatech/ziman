@@ -14,9 +14,10 @@ every push to `main` that touches `websites/ziman.dev/**`, and on demand through
 ziman.dev (Cloudflare) -> Run workflow*. It is a Direct Upload of the directory: no build step,
 because the site is three static files.
 
-The job first runs `python3 tools/check_site.py websites/ziman.dev` -- the same check you can run
-locally, and the only thing in the repository that looks at `websites/` at all (`make check` does
-not). It asserts the files are present, the title survived, `CNAME` still names the directory's
+The job first runs `python3 tools/check_site.py websites/ziman.dev` -- **and so does `make check`,
+since 2026-11-15, through `site-check` in `docs-check`.** It did not until then, and the cost was
+four red deploys in a row: a day's work added four worked examples, the page has to link every one
+of them, and nothing local knew. A gate that only runs at deploy time tells you after the push. It asserts the files are present, the title survived, `CNAME` still names the directory's
 domain, and `index.html` has no unclosed or stray tags. Then `cloudflare/wrangler-action` uploads
 the directory with the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` repository secrets.
 

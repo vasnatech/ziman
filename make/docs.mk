@@ -59,6 +59,17 @@ highlight-check:
 	@python3 tools/gen_highlight.py --check websites/ziman.dev/index.html
 	@python3 tools/gen_highlight.py --check README.md
 
+# Fails when the site would not publish: a file missing, the title gone, the CNAME wrong, an
+# unclosed tag, or -- the one that actually bit -- a worked example the page does not link.
+#
+# **It is here because the deploy was the only thing running it, and a deploy reports after the
+# push.** `websites/README.md` says in as many words that `make check` does not look at
+# `websites/`, and on 2026-11-15 that cost four red deploys in a row: four examples were added over
+# a day's work (charset, ini, svg, icons) and nothing local knew the page had to list them. The
+# check was always cheap; it was only ever in the wrong place.
+site-check:
+	@python3 tools/check_site.py websites/ziman.dev --examples docs/lib/examples
+
 # Fails when the editor grammar stops giving a token the scope it is meant to. The grammar had no
 # test of any kind until 2026-10-12 -- nothing loaded it, nothing asserted a scope -- and three real
 # gaps sat in it unnoticed (`internal` matched nothing, `#![...]` was not an attribute, `val`/`var`
@@ -170,4 +181,4 @@ design-status-check:
 template-example-check:
 	python3 tools/check_template_examples.py
 
-docs-check: lint-check lib-manual-check corelib-reference-check charsets-check not-yet-check experimental-check doc-module-check syntax-check design-index-check design-status-check vscode-grammar-check showcase-check lib-map-check highlight-check template-example-check
+docs-check: lint-check lib-manual-check corelib-reference-check charsets-check not-yet-check experimental-check doc-module-check syntax-check design-index-check design-status-check vscode-grammar-check showcase-check lib-map-check highlight-check site-check template-example-check
