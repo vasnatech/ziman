@@ -337,8 +337,12 @@ flowchart LR
     stroker --> paint
     stroker --> shape
     svg --> geom
+    svg --> locale
     svg --> math
+    svg --> paint
     svg --> shape
+    svg --> stroker
+    svg --> xml
     template --> expr
     template --> json
     terminal --> charset
@@ -394,8 +398,8 @@ otherwise: everything on a layer depends only on lower layers.
 | 0 | `bits`, `charset`, `clock`, `compress`, `edit`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
 | 1 | `derive_reflect`, `geom`, `io`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `validate`, `window` |
 | 2 | `encoding`, `fs`, `ibus`, `json`, `metrics`, `paint`, `shape`, `terminal`, `url`, `xml` |
-| 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `svg`, `truetype`, `yaml`, `zone` |
-| 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `template`, `time`, `uuid` |
+| 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
+| 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `svg`, `template`, `time`, `uuid` |
 | 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml`, `widget` |
 | 6 | `a11y`, `codec`, `derive_repository`, `focus` |
 | 7 | `atspi`, `controls`, `paging`, `server` |
@@ -445,7 +449,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `json` | `charset`, `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `paging`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
-| `locale` | - | `client`, `encoding`, `eql`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `time`, `toml`, `url`, `xml`, `yaml` |
+| `locale` | - | `client`, `encoding`, `eql`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `svg`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
 | `math` | - | `controls`, `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker`, `svg` |
@@ -461,7 +465,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `encoding`, `random` | - |
 | `paging` | `codec`, `json`, `mime` | - |
-| `paint` | `geom`, `locale` | `controls`, `image`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `widget` |
+| `paint` | `geom`, `locale` | `controls`, `image`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `widget` |
 | `pdf` | `charset`, `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
 | `pdfobj` | `compress` | `pdf` |
 | `pg` | `crypto`, `db`, `encoding`, `locale`, `net`, `number`, `random` | - |
@@ -477,8 +481,8 @@ otherwise: everything on a layer depends only on lower layers.
 | `shape` | `geom`, `math` | `controls`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `truetype`, `widget` |
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
-| `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
-| `svg` | `geom`, `math`, `shape` | - |
+| `stroker` | `geom`, `math`, `paint`, `shape` | `raster`, `svg` |
+| `svg` | `geom`, `locale`, `math`, `paint`, `shape`, `stroker`, `xml` | - |
 | `template` | `expr`, `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `terminal` | `charset`, `io` | - |
 | `test` | `regex` | - |
@@ -491,7 +495,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `validate` | `regex` | - |
 | `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `atspi`, `controls`, `desktop`, `focus` |
 | `window` | `charset` | `desktop`, `ibus` |
-| `xml` | `charset`, `io`, `locale` | `codec` |
+| `xml` | `charset`, `io`, `locale` | `codec`, `svg` |
 | `yaml` | `charset`, `json`, `locale`, `number` | `codec` |
 | `zone` | `fs`, `number`, `os` | `time` |
 

@@ -2,13 +2,21 @@ use geom
 use shape
 use svg
 
-// An SVG path's `d` attribute as a `shape.Path`: what importing an icon is, once `shape` already
-// has the segments an SVG path is written in. Not a graphics stack -- no styling, no document, no
-// text: an icon set ships one outline per file and this reads that outline.
+// An SVG file as shapes: one `d` attribute with `path_data`, or the whole document with `parse`.
+// What it is not is a graphics stack -- no text, no gradients, no clipping, and it says so rather
+// than drawing a shape nobody designed.
 // A box in one line, rounded: an arc lowered to cubics lands a rounding error away from a whole
 // number, and `0.00` is what a reader wants to see rather than `-3.4e-16`.
 fn box_text(r: geom.Rect) -> string {
     return format("{:.2},{:.2} {:.2}x{:.2}", r.x, r.y, r.width, r.height)
+}
+
+fn fill_text(f: svg.Fill) -> string {
+    return switch f {
+        Color(c) { format("#{:.2},{:.2},{:.2}", c.red, c.green, c.blue) }
+        Current { "currentColor" }
+        Nothing { "unpainted" }
+    }
 }
 
 fn demo() -> Result<unit, string> {
@@ -35,11 +43,56 @@ fn demo() -> Result<unit, string> {
     print(box_text(shape.path_bounds(try svg.icon_path(tick, geom.rect_of(0.0, 0.0, 24.0, 24.0)))))
     print(box_text(shape.path_bounds(try svg.icon_path("M 0 0 H 24 V 12 H 0 Z", geom.rect_of(0.0, 0.0, 24.0, 12.0)))))
 
-    // What it will not read, it refuses: a path that quietly skipped a command it did not know
-    // would draw something nobody drew.
+    // **And the document around it**, which is how an icon actually arrives: a file with a
+    // viewBox, a group or two, and a title nobody draws.
+    val file = concat(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">",
+        "<title>a tick in a ring</title>",
+        "<circle cx=\"12\" cy=\"12\" r=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/>",
+        "<g transform=\"translate(1 0)\"><path fill=\"currentColor\" d=\"",
+        tick,
+        "\"/></g>",
+        "</svg>"
+    )
+    val drawing = try svg.parse(file)
+    printf("{} figures in {}\n", str(len(drawing.figures)), box_text(drawing.view))
+    // Each figure is in the viewBox's own coordinates: the `translate(1 0)` above the tick is
+    // already in its path, so a caller never sees the tree it came out of.
+    for f in drawing.figures {
+        printf("  {} {}\n", box_text(shape.path_bounds(f.path)), fill_text(f.fill))
+    }
+
+    // **`currentColor` reaches the caller as a case rather than a colour**, because the colour of
+    // an icon is the ink of the control it sits on, and only the control knows that.
+
+    // One path out of the whole drawing: the ring is stroked, not filled, so its stroke becomes an
+    // area on the way in -- which is what makes an outline icon set come out as something.
+    printf("merged: {}\n", box_text(shape.path_bounds(try svg.filled_path(drawing))))
+    // And the file as an icon, in one call: parsed, merged, scaled into the unit box.
+    printf("icon: {}\n", box_text(shape.path_bounds(try svg.icon(file))))
+
+    // What it will not read, it refuses -- a path that quietly skipped a command it did not know
+    // would draw something nobody drew, and so would a document.
     if Err(why) = svg.path_data("M 0 0 X 5 5") {
         print(why)
     }
+    if Err(why) = svg.parse("<svg viewBox=\"0 0 8 8\"><text x=\"0\" y=\"0\">hi</text></svg>") {
+        print(why)
+    }
+    if Err(why) = svg.parse("<svg viewBox=\"0 0 8 8\"><path fill=\"url(#g)\" d=\"M0 0h8v8H0z\"/></svg>") {
+        print(why)
+    }
+    // Two fill rules, or a part at 30%, are things one path cannot say: `figures` is still there.
+    val faint = try svg.parse(concat(
+        "<svg viewBox=\"0 0 8 8\">",
+        "<path opacity=\"0.3\" d=\"M0 0h8v8H0z\"/><path d=\"M2 2h4v4H2z\"/></svg>"
+    ))
+    if Err(why) = svg.filled_path(faint) {
+        print(why)
+    }
+    // And the door for a caller who would rather have the shape: the faint layer is dropped and
+    // the solid one kept, which is how a fifth of a desktop icon theme has to be read.
+    printf("solid: {}\n", box_text(shape.path_bounds(try svg.solid_path(faint, 1.0))))
     return unit
 }
 

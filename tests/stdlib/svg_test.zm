@@ -5,6 +5,7 @@
 // control of its own family; an arc with a radius too small to reach its endpoint is *scaled up*
 // rather than refused, because that is what an exported file looks like after rounding.
 use geom
+use paint
 use shape
 use svg
 use test
@@ -226,4 +227,468 @@ fn a_drawing_that_is_not_square_is_centred_rather_than_stretched() {
     test.assert(close(tall.height, 1.0))
     test.assert(close(tall.width, 0.5))
     test.assert(close(tall.x, 0.25))
+}
+
+// ---- the document side
+
+fn drawing(text: string) -> svg.Drawing {
+    return switch svg.parse(text) {
+        Ok(d) { d }
+        Err(why) {
+            test.fail(why)
+            svg.Drawing { view: geom.empty_rect(), figures: [] }
+        }
+    }
+}
+
+fn turned_down(text: string) -> bool {
+    return switch svg.parse(text) {
+        Ok(_) { false }
+        Err(_) { true }
+    }
+}
+
+fn merged(text: string) -> shape.Path {
+    return switch svg.filled_path(drawing(text)) {
+        Ok(p) { p }
+        Err(why) {
+            test.fail(why)
+            shape.empty_path()
+        }
+    }
+}
+
+fn unmergeable(text: string) -> bool {
+    return switch svg.filled_path(drawing(text)) {
+        Ok(_) { false }
+        Err(_) { true }
+    }
+}
+
+fn only_figure(text: string) -> svg.Figure {
+    val d = drawing(text)
+    test.assert_eq(1, len(d.figures))
+    return d.figures[0]
+}
+
+fn wrapped(body: string) -> string {
+    return concat("<svg viewBox=\"0 0 24 24\">", body, "</svg>")
+}
+
+#[test]
+fn a_document_is_its_viewbox_and_its_figures() {
+    val d = drawing("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"1 2 24 25\"><path d=\"M4 4h16v16H4z\"/></svg>")
+    test.assert(same_box(d.view, geom.rect_of(1.0, 2.0, 24.0, 25.0)))
+    test.assert_eq(1, len(d.figures))
+    test.assert(same_box(shape.path_bounds(d.figures[0].path), geom.rect_of(4.0, 4.0, 16.0, 16.0)))
+}
+
+#[test]
+fn every_basic_shape_lands_where_it_was_written() {
+    test.assert(same_box(
+        shape.path_bounds(only_figure(wrapped("<rect x=\"1\" y=\"2\" width=\"10\" height=\"20\"/>")).path),
+        geom.rect_of(1.0, 2.0, 10.0, 20.0)
+    ))
+    test.assert(same_box(
+        shape.path_bounds(only_figure(wrapped("<rect x=\"1\" y=\"2\" width=\"10\" height=\"20\" rx=\"3\"/>")).path),
+        geom.rect_of(1.0, 2.0, 10.0, 20.0)
+    ))
+    test.assert(same_box(
+        shape.path_bounds(only_figure(wrapped("<circle cx=\"50\" cy=\"25\" r=\"5\"/>")).path),
+        geom.rect_of(45.0, 20.0, 10.0, 10.0)
+    ))
+    test.assert(same_box(
+        shape.path_bounds(only_figure(wrapped("<ellipse cx=\"80\" cy=\"25\" rx=\"10\" ry=\"4\"/>")).path),
+        geom.rect_of(70.0, 21.0, 20.0, 8.0)
+    ))
+    test.assert(same_box(
+        shape.path_bounds(only_figure(wrapped("<polygon points=\"0,0 10,0 10,10\"/>")).path),
+        geom.rect_of(0.0, 0.0, 10.0, 10.0)
+    ))
+    test.assert(same_box(
+        shape.path_bounds(only_figure(wrapped("<line x1=\"0\" y1=\"1\" x2=\"9\" y2=\"4\"/>")).path),
+        geom.rect_of(0.0, 1.0, 9.0, 3.0)
+    ))
+}
+
+#[test]
+fn a_rect_can_have_two_corner_radii() {
+    // Measured against an icon theme: 16 of 1,206 files write an `rx` and an `ry` that differ, most
+    // of them by a rounding error from a non-uniform scale and some of them by a third. Both are
+    // elliptical corners, which `shape.round_rect_path` takes as two radii.
+    val oval = only_figure(wrapped("<rect width=\"4\" height=\"4\" rx=\"2\" ry=\"1\"/>"))
+    test.assert(same_box(shape.path_bounds(oval.path), geom.rect_of(0.0, 0.0, 4.0, 4.0)))
+    // `rx` alone means both, and so does `ry` alone.
+    test.assert(same_box(
+        shape.path_bounds(only_figure(wrapped("<rect width=\"4\" height=\"4\" ry=\"1\"/>")).path),
+        geom.rect_of(0.0, 0.0, 4.0, 4.0)
+    ))
+    // A zero radius in either axis is a square corner, not a rounded one: the two paths agree
+    // segment for segment.
+    test.assert_eq(
+        len(only_figure(wrapped("<rect width=\"4\" height=\"4\"/>")).path.segments),
+        len(only_figure(wrapped("<rect width=\"4\" height=\"4\" rx=\"2\" ry=\"0\"/>")).path.segments)
+    )
+    // And a radius that differs by a rounding error is still read, where a reader with one radius
+    // had to refuse it.
+    test.assert_eq(1, len(drawing(wrapped(
+        "<rect width=\"9\" height=\"9\" rx=\"3.9631047\" ry=\"3.9649484\"/>"
+    )).figures))
+}
+
+#[test]
+fn a_shape_that_draws_nothing_is_not_an_error() {
+    // All legal, all drawing nothing: SVG says so and exporters write every one of them.
+    test.assert_eq(0, len(drawing(wrapped("<path/>")).figures))
+    test.assert_eq(0, len(drawing(wrapped("<rect width=\"0\" height=\"10\"/>")).figures))
+    test.assert_eq(0, len(drawing(wrapped("<circle r=\"0\"/>")).figures))
+    test.assert_eq(0, len(drawing(wrapped("<polygon points=\"1,1\"/>")).figures))
+    test.assert_eq(0, len(drawing(wrapped("<polyline/>")).figures))
+}
+
+// ---- transforms
+
+#[test]
+fn a_group_transform_reaches_the_figure() {
+    // `translate(10 0) scale(2)` on a 2x2 rect at the origin: scaled first, moved second, because
+    // the leftmost function is the outermost.
+    val f = only_figure(wrapped("<g transform=\"translate(10 0) scale(2)\"><rect width=\"2\" height=\"2\"/></g>"))
+    test.assert(same_box(shape.path_bounds(f.path), geom.rect_of(10.0, 0.0, 4.0, 4.0)))
+}
+
+#[test]
+fn the_order_of_a_transform_list_is_left_to_right() {
+    // The same two functions the other way round: moved first, then the move itself is scaled.
+    val f = only_figure(wrapped("<rect width=\"2\" height=\"2\" transform=\"scale(2) translate(10 0)\"/>"))
+    test.assert(same_box(shape.path_bounds(f.path), geom.rect_of(20.0, 0.0, 4.0, 4.0)))
+}
+
+#[test]
+fn rotate_takes_a_centre() {
+    val f = only_figure(wrapped("<rect width=\"10\" height=\"2\" transform=\"rotate(90 0 0)\"/>"))
+    test.assert(same_box(shape.path_bounds(f.path), geom.rect_of(-2.0, 0.0, 2.0, 10.0)))
+    // About its own middle, a 10x2 bar stays centred there: 2 wide and 10 tall around (5, 1), so
+    // x runs 4 to 6 and y runs -4 to 6.
+    val g = only_figure(wrapped("<rect width=\"10\" height=\"2\" transform=\"rotate(90 5 1)\"/>"))
+    test.assert(same_box(shape.path_bounds(g.path), geom.rect_of(4.0, -4.0, 2.0, 10.0)))
+}
+
+#[test]
+fn matrix_is_the_same_six_numbers_geom_uses() {
+    // `matrix(2 0 0 2 10 0)` is `translate(10 0) scale(2)`, which is the assertion that this
+    // reader's matrix convention is the specification's and not its transpose.
+    val m = only_figure(wrapped("<rect width=\"2\" height=\"2\" transform=\"matrix(2 0 0 2 10 0)\"/>"))
+    val t = only_figure(wrapped("<g transform=\"translate(10 0) scale(2)\"><rect width=\"2\" height=\"2\"/></g>"))
+    test.assert(same_box(shape.path_bounds(m.path), shape.path_bounds(t.path)))
+}
+
+#[test]
+fn skew_leans_the_shape_it_is_given() {
+    // skewX(45) sends (0,2) to (2,2), so a 2-tall unit square's box widens by its height.
+    val f = only_figure(wrapped("<rect width=\"1\" height=\"2\" transform=\"skewX(45)\"/>"))
+    test.assert(same_box(shape.path_bounds(f.path), geom.rect_of(0.0, 0.0, 3.0, 2.0)))
+}
+
+#[test]
+fn transforms_nest_through_groups() {
+    val f = only_figure(wrapped(
+        "<g transform=\"translate(4 0)\"><g transform=\"translate(0 3)\"><rect width=\"1\" height=\"1\"/></g></g>"
+    ))
+    test.assert(same_box(shape.path_bounds(f.path), geom.rect_of(4.0, 3.0, 1.0, 1.0)))
+}
+
+// ---- the view box, and its two fallbacks
+
+#[test]
+fn width_and_height_stand_in_for_a_missing_viewbox() {
+    val d = drawing("<svg width=\"48\" height=\"12\"><path d=\"M0 0h4v4H0z\"/></svg>")
+    test.assert(same_box(d.view, geom.rect_of(0.0, 0.0, 48.0, 12.0)))
+}
+
+#[test]
+fn with_neither_the_view_is_what_the_drawing_covers() {
+    // A measurement rather than a guess -- and the only box the author can have meant.
+    val d = drawing("<svg><path d=\"M2 3h4v4H2z\"/></svg>")
+    test.assert(same_box(d.view, geom.rect_of(2.0, 3.0, 4.0, 4.0)))
+}
+
+#[test]
+fn a_viewbox_needs_four_numbers() {
+    test.assert(turned_down("<svg viewBox=\"0 0 24\"><path d=\"M0 0h1v1H0z\"/></svg>"))
+    test.assert(turned_down("<svg viewBox=\"0 0 24 24 24\"><path d=\"M0 0h1v1H0z\"/></svg>"))
+}
+
+// ---- presentation
+
+#[test]
+fn a_fill_is_a_colour_or_one_of_the_two_keywords() {
+    test.assert(painted_with(
+        only_figure(wrapped("<path fill=\"#00ff00\" d=\"M0 0h1v1H0z\"/>")).fill,
+        paint.rgb8(0, 255, 0)
+    ))
+    test.assert(is_current(only_figure(wrapped("<path fill=\"currentColor\" d=\"M0 0h1v1H0z\"/>")).fill))
+    test.assert(is_nothing(only_figure(wrapped("<path fill=\"none\" stroke=\"red\" d=\"M0 0h1v1H0z\"/>")).fill))
+    // The default is black, which is SVG's default and not "unset".
+    test.assert(painted_with(only_figure(wrapped("<path d=\"M0 0h1v1H0z\"/>")).fill, paint.black()))
+}
+
+#[test]
+fn a_color_attribute_is_what_currentcolor_means() {
+    // `color` sets it, and it inherits -- so a group can colour its children without naming a fill.
+    val f = only_figure(wrapped("<g color=\"#0000ff\"><path fill=\"currentColor\" d=\"M0 0h1v1H0z\"/></g>"))
+    test.assert(painted_with(f.fill, paint.rgb8(0, 0, 255)))
+    // Without one it stays unresolved, because only the caller knows its own ink.
+    test.assert(is_current(only_figure(wrapped("<path fill=\"currentColor\" d=\"M0 0h1v1H0z\"/>")).fill))
+}
+
+#[test]
+fn a_style_declaration_beats_the_attribute_beside_it() {
+    // CSS's own order, and the reason this matters: a design tool writes `style`, a hand-written
+    // icon writes the attribute, and a reader that knows one of them reads half the files there are.
+    val f = only_figure(wrapped("<path fill=\"red\" style=\"fill:#00ff00\" d=\"M0 0h1v1H0z\"/>"))
+    test.assert(painted_with(f.fill, paint.rgb8(0, 255, 0)))
+}
+
+#[test]
+fn presentation_inherits_and_a_child_overrides() {
+    val d = drawing(wrapped(concat(
+        "<g fill=\"#ff0000\" fill-rule=\"evenodd\">",
+        "<path d=\"M0 0h1v1H0z\"/>",
+        "<path fill=\"#0000ff\" d=\"M2 2h1v1H2z\"/>",
+        "</g>"
+    )))
+    test.assert_eq(2, len(d.figures))
+    test.assert(painted_with(d.figures[0].fill, paint.rgb8(255, 0, 0)))
+    test.assert(painted_with(d.figures[1].fill, paint.rgb8(0, 0, 255)))
+    test.assert(is_even_odd(d.figures[0].path))
+    test.assert(is_even_odd(d.figures[1].path))
+}
+
+#[test]
+fn the_stroke_arrives_with_its_width_caps_and_joins() {
+    val f = only_figure(wrapped(
+        "<path fill=\"none\" stroke=\"#000000\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"bevel\" stroke-miterlimit=\"2\" d=\"M0 0h10\"/>"
+    ))
+    test.assert_near(3.0, f.edge.width, 0.0001)
+    test.assert_near(2.0, f.edge.miter_limit, 0.0001)
+    test.assert(switch f.edge.cap {
+        Round { true }
+        Butt { false }
+        Square { false }
+    })
+    test.assert(switch f.edge.join {
+        Bevel { true }
+        Miter { false }
+        Round { false }
+    })
+    // SVG's default miter limit is 4 and PDF's is 10, and a reader that took the PDF default would
+    // round one join in a thousand differently from every browser.
+    test.assert_near(4.0, only_figure(wrapped("<path stroke=\"red\" d=\"M0 0h1\"/>")).edge.miter_limit, 0.0001)
+}
+
+#[test]
+fn a_dash_array_arrives_as_numbers() {
+    val f = only_figure(wrapped("<path stroke=\"red\" stroke-dasharray=\"4 2 1\" stroke-dashoffset=\"3\" d=\"M0 0h9\"/>"))
+    test.assert_eq(3, len(f.edge.dash))
+    test.assert_near(4.0, f.edge.dash[0], 0.0001)
+    test.assert_near(1.0, f.edge.dash[2], 0.0001)
+    test.assert_near(3.0, f.edge.dash_phase, 0.0001)
+}
+
+#[test]
+fn opacity_multiplies_down_the_tree_and_zero_drops_the_figure() {
+    test.assert_near(0.25, only_figure(wrapped(
+        "<g opacity=\"0.5\"><path opacity=\"0.5\" d=\"M0 0h1v1H0z\"/></g>"
+    )).opacity, 0.0001)
+    test.assert_near(0.5, only_figure(wrapped("<path fill-opacity=\"50%\" d=\"M0 0h1v1H0z\"/>")).opacity, 0.0001)
+    test.assert_eq(0, len(drawing(wrapped("<path opacity=\"0\" d=\"M0 0h1v1H0z\"/>")).figures))
+}
+
+// ---- what is skipped, and what is refused
+
+#[test]
+fn an_element_in_another_namespace_is_skipped() {
+    // Inkscape furniture: `sodipodi:namedview` draws nothing by SVG's own rules, and refusing it
+    // would refuse most files on a Linux desktop.
+    val d = drawing(concat(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:sodipodi=\"http://sodipodi.net/x\" viewBox=\"0 0 8 8\">",
+        "<sodipodi:namedview pagecolor=\"#fff\"/><path d=\"M0 0h8v8H0z\"/></svg>"
+    ))
+    test.assert_eq(1, len(d.figures))
+}
+
+#[test]
+fn the_elements_that_draw_nothing_are_skipped() {
+    val d = drawing(wrapped("<title>a square</title><desc>nothing</desc><defs><path d=\"M0 0h9v9H0z\"/></defs><path d=\"M0 0h8v8H0z\"/>"))
+    test.assert_eq(1, len(d.figures))
+    test.assert(same_box(shape.path_bounds(d.figures[0].path), geom.rect_of(0.0, 0.0, 8.0, 8.0)))
+}
+
+#[test]
+fn display_none_takes_its_subtree_with_it() {
+    val d = drawing(wrapped("<g display=\"none\"><path d=\"M0 0h8v8H0z\"/></g><path d=\"M1 1h2v2H1z\"/>"))
+    test.assert_eq(1, len(d.figures))
+    test.assert(same_box(shape.path_bounds(d.figures[0].path), geom.rect_of(1.0, 1.0, 2.0, 2.0)))
+    test.assert_eq(0, len(drawing(wrapped("<path visibility=\"hidden\" d=\"M0 0h8v8H0z\"/>")).figures))
+    test.assert_eq(0, len(drawing(wrapped("<path style=\"display:none\" d=\"M0 0h8v8H0z\"/>")).figures))
+}
+
+#[test]
+fn what_it_cannot_draw_it_refuses() {
+    // The module's rule from the start: refusing names the file's problem, while dropping what it
+    // cannot read draws something nobody designed and nothing can explain.
+    test.assert(turned_down(wrapped("<use href=\"#a\"/>")))
+    test.assert(turned_down(wrapped("<text x=\"0\" y=\"0\">hi</text>")))
+    test.assert(turned_down(wrapped("<image href=\"a.png\"/>")))
+    test.assert(turned_down(wrapped("<path clip-path=\"url(#c)\" d=\"M0 0h8v8H0z\"/>")))
+    test.assert(turned_down(wrapped("<path mask=\"url(#m)\" d=\"M0 0h8v8H0z\"/>")))
+    test.assert(turned_down(wrapped("<path filter=\"url(#f)\" d=\"M0 0h8v8H0z\"/>")))
+    test.assert(turned_down(wrapped("<path fill=\"url(#g)\" d=\"M0 0h8v8H0z\"/>")))
+    test.assert(turned_down(wrapped("<rect width=\"2em\" height=\"2\"/>")))
+    test.assert(turned_down(wrapped("<rect width=\"50%\" height=\"2\"/>")))
+    test.assert(turned_down(wrapped("<path fill-rule=\"wrongly\" d=\"M0 0h1v1H0z\"/>")))
+    test.assert(turned_down(wrapped("<path stroke-linecap=\"pointy\" stroke=\"red\" d=\"M0 0h1\"/>")))
+    test.assert(turned_down(wrapped("<rect width=\"4\" height=\"4\" transform=\"wobble(2)\"/>")))
+    test.assert(turned_down(wrapped("<rect width=\"4\" height=\"4\" transform=\"translate(1 2 3)\"/>")))
+    test.assert(turned_down(wrapped("<rect width=\"4\" height=\"4\" transform=\"scale(2\"/>")))
+    test.assert(turned_down("<html><body/></html>"))
+    // A `clip-path` of "none" clips nothing, so it is not a refusal.
+    test.assert_eq(1, len(drawing(wrapped("<path clip-path=\"none\" d=\"M0 0h8v8H0z\"/>")).figures))
+}
+
+#[test]
+fn the_units_css_fixes_are_converted_and_the_rest_refused() {
+    // 96 px to the inch, which is a definition and not a screen.
+    val f = only_figure("<svg viewBox=\"0 0 192 192\"><rect x=\"1in\" y=\"25.4mm\" width=\"72pt\" height=\"1px\"/></svg>")
+    test.assert(same_box(shape.path_bounds(f.path), geom.rect_of(96.0, 96.0, 96.0, 1.0)))
+}
+
+// ---- one path out of a whole drawing
+
+#[test]
+fn a_fill_and_a_stroke_both_reach_the_merged_path() {
+    // The stroke is turned into an area by `stroker.outline`, which is what makes a stroke-only
+    // icon set -- most of them -- come out as something rather than nothing.
+    val stroked = merged(wrapped("<path fill=\"none\" stroke=\"#000\" stroke-width=\"2\" d=\"M2 2h8\"/>"))
+    test.assert(same_box(shape.path_bounds(stroked), geom.rect_of(2.0, 1.0, 8.0, 2.0)))
+    test.assert(len(stroked.segments) > 0)
+    // A figure that is neither filled nor stroked contributes nothing at all.
+    test.assert_eq(0, len(merged(wrapped("<path fill=\"none\" d=\"M2 2h8v8H2z\"/>")).segments))
+}
+
+#[test]
+fn merging_keeps_every_figure() {
+    val p = merged(wrapped("<path d=\"M0 0h2v2H0z\"/><path d=\"M10 10h2v2H10z\"/>"))
+    test.assert(same_box(shape.path_bounds(p), geom.rect_of(0.0, 0.0, 12.0, 12.0)))
+    test.assert_eq(10, len(p.segments))
+}
+
+#[test]
+fn it_refuses_to_merge_what_one_path_cannot_say() {
+    // Two fill rules fill differently, and a part at 30% is not solid. Both answers are in
+    // `Drawing.figures`, which is why this can refuse instead of flattening the difference away.
+    test.assert(unmergeable(wrapped("<path fill-rule=\"evenodd\" d=\"M0 0h8v8H0z\"/><path d=\"M1 1h2v2H1z\"/>")))
+    test.assert(unmergeable(wrapped("<path opacity=\"0.3\" d=\"M0 0h8v8H0z\"/>")))
+    // One rule throughout is fine, whichever it is.
+    test.assert(len(merged(wrapped("<path fill-rule=\"evenodd\" d=\"M0 0h8v8H0zM2 2h4v4H2z\"/>")).segments) > 0)
+}
+
+#[test]
+fn an_icon_is_the_whole_file_in_a_unit_box() {
+    // The three steps end here: a 12-by-24 drawing in a 24 box is half as wide as it is tall, and
+    // it is centred on the short axis rather than stretched.
+    val p = switch svg.icon("<svg viewBox=\"0 0 24 24\"><path d=\"M0 0h12v24H0z\"/></svg>") {
+        Ok(q) { q }
+        Err(why) {
+            test.fail(why)
+            shape.empty_path()
+        }
+    }
+    test.assert(same_box(shape.path_bounds(p), geom.rect_of(0.0, 0.0, 0.5, 1.0)))
+}
+
+#[test]
+fn a_document_reads_the_same_from_bytes() {
+    // `parse([byte])` is the door a file arrives through, and the charset comes from the
+    // declaration or the mark, which is `xml.parse`'s job rather than this reader's.
+    val text = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><svg viewBox=\"0 0 8 8\"><path d=\"M1 1h6v6H1z\"/></svg>"
+    val d = switch svg.parse(to_bytes(text)) {
+        Ok(x) { x }
+        Err(why) {
+            test.fail(why)
+            svg.Drawing { view: geom.empty_rect(), figures: [] }
+        }
+    }
+    test.assert_eq(1, len(d.figures))
+    test.assert(same_box(shape.path_bounds(d.figures[0].path), geom.rect_of(1.0, 1.0, 6.0, 6.0)))
+}
+
+fn painted_with(f: svg.Fill, want: paint.Color) -> bool {
+    return switch f {
+        Color(c) {
+            close(c.red, want.red) && close(c.green, want.green) &&
+                close(c.blue, want.blue) && close(c.alpha, want.alpha)
+        }
+        Current { false }
+        Nothing { false }
+    }
+}
+
+fn is_current(f: svg.Fill) -> bool {
+    return switch f {
+        Current { true }
+        Color(_) { false }
+        Nothing { false }
+    }
+}
+
+fn is_nothing(f: svg.Fill) -> bool {
+    return switch f {
+        Nothing { true }
+        Color(_) { false }
+        Current { false }
+    }
+}
+
+fn is_even_odd(p: shape.Path) -> bool {
+    return switch p.winding {
+        EvenOdd { true }
+        NonZero { false }
+    }
+}
+
+#[test]
+fn the_tolerant_door_drops_the_faint_and_keeps_the_shape() {
+    // What `filled_path` refuses, `solid_path` approximates **on purpose**, because a fifth of a
+    // desktop icon theme draws its two-tone icons this way: a solid outline over a fill at 0.35.
+    val two_tone = wrapped("<path opacity=\"0.35\" d=\"M0 0h24v24H0z\"/><path d=\"M8 8h8v8H8z\"/>")
+    test.assert(unmergeable(two_tone))
+    val kept = switch svg.solid_path(drawing(two_tone), 1.0) {
+        Ok(p) { p }
+        Err(why) {
+            test.fail(why)
+            shape.empty_path()
+        }
+    }
+    // The faint 24-square is gone and the solid 8-square is what is left.
+    test.assert(same_box(shape.path_bounds(kept), geom.rect_of(8.0, 8.0, 8.0, 8.0)))
+    // A lower cut takes the faint layer too, and takes it solid.
+    val both = switch svg.solid_path(drawing(two_tone), 0.3) {
+        Ok(p) { p }
+        Err(why) {
+            test.fail(why)
+            shape.empty_path()
+        }
+    }
+    test.assert(same_box(shape.path_bounds(both), geom.rect_of(0.0, 0.0, 24.0, 24.0)))
+    // A drawing whose every figure is faint comes out empty rather than refused, which is the one
+    // thing a caller has to notice about this door.
+    val all_faint = switch svg.solid_path(drawing(wrapped("<path opacity=\"0.5\" d=\"M0 0h8v8H0z\"/>")), 1.0) {
+        Ok(p) { p }
+        Err(why) {
+            test.fail(why)
+            shape.empty_path()
+        }
+    }
+    test.assert_eq(0, len(all_faint.segments))
 }

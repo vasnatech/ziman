@@ -101,6 +101,395 @@ fn byte_at(body: string, at: int, whole: string) -> Result<float, string> {
     return ok((hi * 16.0 + lo) / 255.0)
 }
 
+// Bytes rather than fractions, because that is how a document writes a colour: `rgb(240, 248, 255)`
+// and `#f0f8ff` are the same colour and neither of them is written as a float.
+//
+// **Out of range clamps rather than refusing**, which is what CSS says to do and what every browser
+// does: a reader that rejects `rgb(300, 0, 0)` rejects a file everything else draws.
+pub fn rgb8(r: int, g: int, b: int) -> Color {
+    return rgba8(r, g, b, 255)
+}
+
+pub fn rgba8(r: int, g: int, b: int, a: int) -> Color {
+    return Color {
+        red: byte_fraction(r),
+        green: byte_fraction(g),
+        blue: byte_fraction(b),
+        alpha: byte_fraction(a)
+    }
+}
+
+fn byte_fraction(v: int) -> float {
+    if v <= 0 {
+        return 0.0
+    }
+    if v >= 255 {
+        return 1.0
+    }
+    return (v as float) / 255.0
+}
+
+// **The 148 colour names CSS and SVG share**, or `None` for a name that is not one of them. Case
+// is folded under the invariant locale, because a colour name read out of a file is protocol text:
+// a Turkish locale folds the `I` of `Indigo` to a dotless `i` and the name stops matching.
+//
+// **`transparent` is deliberately absent**, because it is not one of the 148 -- it is a keyword CSS
+// accepts wherever a colour is allowed, and `parse` answers it. `none` is likewise not a colour but
+// an instruction not to paint, which only the caller can act on.
+//
+// The table is generated from the list every browser agrees on (Python's
+// `PIL.ImageColor.colormap`, the CSS3/SVG set) and then committed, because the set is closed: the
+// last addition was `rebeccapurple` in 2014, in memory of Eric Meyer's daughter. One value is
+// checkable in a line -- `python3 -c "from PIL import ImageColor;
+// print(ImageColor.colormap['papayawhip'])"`.
+//
+// Grouped by first letter rather than written flat for the reason `charset.table_named` is: a flat
+// chain of this length pays for every name before the one it wants, and the grouping turns 148
+// comparisons into at most 21.
+pub fn named(name: string) -> Option<Color> {
+    val key = to_lower(trim(name), invariant)
+    if len(key) == 0 {
+        return Option<Color>.None
+    }
+    if starts_with(key, "a") {
+        if key == "aliceblue" { return Option<Color>.Some(rgb8(240, 248, 255)) }
+        if key == "antiquewhite" { return Option<Color>.Some(rgb8(250, 235, 215)) }
+        if key == "aqua" { return Option<Color>.Some(rgb8(0, 255, 255)) }
+        if key == "aquamarine" { return Option<Color>.Some(rgb8(127, 255, 212)) }
+        if key == "azure" { return Option<Color>.Some(rgb8(240, 255, 255)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "b") {
+        if key == "beige" { return Option<Color>.Some(rgb8(245, 245, 220)) }
+        if key == "bisque" { return Option<Color>.Some(rgb8(255, 228, 196)) }
+        if key == "black" { return Option<Color>.Some(rgb8(0, 0, 0)) }
+        if key == "blanchedalmond" { return Option<Color>.Some(rgb8(255, 235, 205)) }
+        if key == "blue" { return Option<Color>.Some(rgb8(0, 0, 255)) }
+        if key == "blueviolet" { return Option<Color>.Some(rgb8(138, 43, 226)) }
+        if key == "brown" { return Option<Color>.Some(rgb8(165, 42, 42)) }
+        if key == "burlywood" { return Option<Color>.Some(rgb8(222, 184, 135)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "c") {
+        if key == "cadetblue" { return Option<Color>.Some(rgb8(95, 158, 160)) }
+        if key == "chartreuse" { return Option<Color>.Some(rgb8(127, 255, 0)) }
+        if key == "chocolate" { return Option<Color>.Some(rgb8(210, 105, 30)) }
+        if key == "coral" { return Option<Color>.Some(rgb8(255, 127, 80)) }
+        if key == "cornflowerblue" { return Option<Color>.Some(rgb8(100, 149, 237)) }
+        if key == "cornsilk" { return Option<Color>.Some(rgb8(255, 248, 220)) }
+        if key == "crimson" { return Option<Color>.Some(rgb8(220, 20, 60)) }
+        if key == "cyan" { return Option<Color>.Some(rgb8(0, 255, 255)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "d") {
+        if key == "darkblue" { return Option<Color>.Some(rgb8(0, 0, 139)) }
+        if key == "darkcyan" { return Option<Color>.Some(rgb8(0, 139, 139)) }
+        if key == "darkgoldenrod" { return Option<Color>.Some(rgb8(184, 134, 11)) }
+        if key == "darkgray" { return Option<Color>.Some(rgb8(169, 169, 169)) }
+        if key == "darkgreen" { return Option<Color>.Some(rgb8(0, 100, 0)) }
+        if key == "darkgrey" { return Option<Color>.Some(rgb8(169, 169, 169)) }
+        if key == "darkkhaki" { return Option<Color>.Some(rgb8(189, 183, 107)) }
+        if key == "darkmagenta" { return Option<Color>.Some(rgb8(139, 0, 139)) }
+        if key == "darkolivegreen" { return Option<Color>.Some(rgb8(85, 107, 47)) }
+        if key == "darkorange" { return Option<Color>.Some(rgb8(255, 140, 0)) }
+        if key == "darkorchid" { return Option<Color>.Some(rgb8(153, 50, 204)) }
+        if key == "darkred" { return Option<Color>.Some(rgb8(139, 0, 0)) }
+        if key == "darksalmon" { return Option<Color>.Some(rgb8(233, 150, 122)) }
+        if key == "darkseagreen" { return Option<Color>.Some(rgb8(143, 188, 143)) }
+        if key == "darkslateblue" { return Option<Color>.Some(rgb8(72, 61, 139)) }
+        if key == "darkslategray" { return Option<Color>.Some(rgb8(47, 79, 79)) }
+        if key == "darkslategrey" { return Option<Color>.Some(rgb8(47, 79, 79)) }
+        if key == "darkturquoise" { return Option<Color>.Some(rgb8(0, 206, 209)) }
+        if key == "darkviolet" { return Option<Color>.Some(rgb8(148, 0, 211)) }
+        if key == "deeppink" { return Option<Color>.Some(rgb8(255, 20, 147)) }
+        if key == "deepskyblue" { return Option<Color>.Some(rgb8(0, 191, 255)) }
+        if key == "dimgray" { return Option<Color>.Some(rgb8(105, 105, 105)) }
+        if key == "dimgrey" { return Option<Color>.Some(rgb8(105, 105, 105)) }
+        if key == "dodgerblue" { return Option<Color>.Some(rgb8(30, 144, 255)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "f") {
+        if key == "firebrick" { return Option<Color>.Some(rgb8(178, 34, 34)) }
+        if key == "floralwhite" { return Option<Color>.Some(rgb8(255, 250, 240)) }
+        if key == "forestgreen" { return Option<Color>.Some(rgb8(34, 139, 34)) }
+        if key == "fuchsia" { return Option<Color>.Some(rgb8(255, 0, 255)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "g") {
+        if key == "gainsboro" { return Option<Color>.Some(rgb8(220, 220, 220)) }
+        if key == "ghostwhite" { return Option<Color>.Some(rgb8(248, 248, 255)) }
+        if key == "gold" { return Option<Color>.Some(rgb8(255, 215, 0)) }
+        if key == "goldenrod" { return Option<Color>.Some(rgb8(218, 165, 32)) }
+        if key == "gray" { return Option<Color>.Some(rgb8(128, 128, 128)) }
+        if key == "green" { return Option<Color>.Some(rgb8(0, 128, 0)) }
+        if key == "greenyellow" { return Option<Color>.Some(rgb8(173, 255, 47)) }
+        if key == "grey" { return Option<Color>.Some(rgb8(128, 128, 128)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "h") {
+        if key == "honeydew" { return Option<Color>.Some(rgb8(240, 255, 240)) }
+        if key == "hotpink" { return Option<Color>.Some(rgb8(255, 105, 180)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "i") {
+        if key == "indianred" { return Option<Color>.Some(rgb8(205, 92, 92)) }
+        if key == "indigo" { return Option<Color>.Some(rgb8(75, 0, 130)) }
+        if key == "ivory" { return Option<Color>.Some(rgb8(255, 255, 240)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "k") {
+        if key == "khaki" { return Option<Color>.Some(rgb8(240, 230, 140)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "l") {
+        if key == "lavender" { return Option<Color>.Some(rgb8(230, 230, 250)) }
+        if key == "lavenderblush" { return Option<Color>.Some(rgb8(255, 240, 245)) }
+        if key == "lawngreen" { return Option<Color>.Some(rgb8(124, 252, 0)) }
+        if key == "lemonchiffon" { return Option<Color>.Some(rgb8(255, 250, 205)) }
+        if key == "lightblue" { return Option<Color>.Some(rgb8(173, 216, 230)) }
+        if key == "lightcoral" { return Option<Color>.Some(rgb8(240, 128, 128)) }
+        if key == "lightcyan" { return Option<Color>.Some(rgb8(224, 255, 255)) }
+        if key == "lightgoldenrodyellow" { return Option<Color>.Some(rgb8(250, 250, 210)) }
+        if key == "lightgray" { return Option<Color>.Some(rgb8(211, 211, 211)) }
+        if key == "lightgreen" { return Option<Color>.Some(rgb8(144, 238, 144)) }
+        if key == "lightgrey" { return Option<Color>.Some(rgb8(211, 211, 211)) }
+        if key == "lightpink" { return Option<Color>.Some(rgb8(255, 182, 193)) }
+        if key == "lightsalmon" { return Option<Color>.Some(rgb8(255, 160, 122)) }
+        if key == "lightseagreen" { return Option<Color>.Some(rgb8(32, 178, 170)) }
+        if key == "lightskyblue" { return Option<Color>.Some(rgb8(135, 206, 250)) }
+        if key == "lightslategray" { return Option<Color>.Some(rgb8(119, 136, 153)) }
+        if key == "lightslategrey" { return Option<Color>.Some(rgb8(119, 136, 153)) }
+        if key == "lightsteelblue" { return Option<Color>.Some(rgb8(176, 196, 222)) }
+        if key == "lightyellow" { return Option<Color>.Some(rgb8(255, 255, 224)) }
+        if key == "lime" { return Option<Color>.Some(rgb8(0, 255, 0)) }
+        if key == "limegreen" { return Option<Color>.Some(rgb8(50, 205, 50)) }
+        if key == "linen" { return Option<Color>.Some(rgb8(250, 240, 230)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "m") {
+        if key == "magenta" { return Option<Color>.Some(rgb8(255, 0, 255)) }
+        if key == "maroon" { return Option<Color>.Some(rgb8(128, 0, 0)) }
+        if key == "mediumaquamarine" { return Option<Color>.Some(rgb8(102, 205, 170)) }
+        if key == "mediumblue" { return Option<Color>.Some(rgb8(0, 0, 205)) }
+        if key == "mediumorchid" { return Option<Color>.Some(rgb8(186, 85, 211)) }
+        if key == "mediumpurple" { return Option<Color>.Some(rgb8(147, 112, 219)) }
+        if key == "mediumseagreen" { return Option<Color>.Some(rgb8(60, 179, 113)) }
+        if key == "mediumslateblue" { return Option<Color>.Some(rgb8(123, 104, 238)) }
+        if key == "mediumspringgreen" { return Option<Color>.Some(rgb8(0, 250, 154)) }
+        if key == "mediumturquoise" { return Option<Color>.Some(rgb8(72, 209, 204)) }
+        if key == "mediumvioletred" { return Option<Color>.Some(rgb8(199, 21, 133)) }
+        if key == "midnightblue" { return Option<Color>.Some(rgb8(25, 25, 112)) }
+        if key == "mintcream" { return Option<Color>.Some(rgb8(245, 255, 250)) }
+        if key == "mistyrose" { return Option<Color>.Some(rgb8(255, 228, 225)) }
+        if key == "moccasin" { return Option<Color>.Some(rgb8(255, 228, 181)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "n") {
+        if key == "navajowhite" { return Option<Color>.Some(rgb8(255, 222, 173)) }
+        if key == "navy" { return Option<Color>.Some(rgb8(0, 0, 128)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "o") {
+        if key == "oldlace" { return Option<Color>.Some(rgb8(253, 245, 230)) }
+        if key == "olive" { return Option<Color>.Some(rgb8(128, 128, 0)) }
+        if key == "olivedrab" { return Option<Color>.Some(rgb8(107, 142, 35)) }
+        if key == "orange" { return Option<Color>.Some(rgb8(255, 165, 0)) }
+        if key == "orangered" { return Option<Color>.Some(rgb8(255, 69, 0)) }
+        if key == "orchid" { return Option<Color>.Some(rgb8(218, 112, 214)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "p") {
+        if key == "palegoldenrod" { return Option<Color>.Some(rgb8(238, 232, 170)) }
+        if key == "palegreen" { return Option<Color>.Some(rgb8(152, 251, 152)) }
+        if key == "paleturquoise" { return Option<Color>.Some(rgb8(175, 238, 238)) }
+        if key == "palevioletred" { return Option<Color>.Some(rgb8(219, 112, 147)) }
+        if key == "papayawhip" { return Option<Color>.Some(rgb8(255, 239, 213)) }
+        if key == "peachpuff" { return Option<Color>.Some(rgb8(255, 218, 185)) }
+        if key == "peru" { return Option<Color>.Some(rgb8(205, 133, 63)) }
+        if key == "pink" { return Option<Color>.Some(rgb8(255, 192, 203)) }
+        if key == "plum" { return Option<Color>.Some(rgb8(221, 160, 221)) }
+        if key == "powderblue" { return Option<Color>.Some(rgb8(176, 224, 230)) }
+        if key == "purple" { return Option<Color>.Some(rgb8(128, 0, 128)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "r") {
+        if key == "rebeccapurple" { return Option<Color>.Some(rgb8(102, 51, 153)) }
+        if key == "red" { return Option<Color>.Some(rgb8(255, 0, 0)) }
+        if key == "rosybrown" { return Option<Color>.Some(rgb8(188, 143, 143)) }
+        if key == "royalblue" { return Option<Color>.Some(rgb8(65, 105, 225)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "s") {
+        if key == "saddlebrown" { return Option<Color>.Some(rgb8(139, 69, 19)) }
+        if key == "salmon" { return Option<Color>.Some(rgb8(250, 128, 114)) }
+        if key == "sandybrown" { return Option<Color>.Some(rgb8(244, 164, 96)) }
+        if key == "seagreen" { return Option<Color>.Some(rgb8(46, 139, 87)) }
+        if key == "seashell" { return Option<Color>.Some(rgb8(255, 245, 238)) }
+        if key == "sienna" { return Option<Color>.Some(rgb8(160, 82, 45)) }
+        if key == "silver" { return Option<Color>.Some(rgb8(192, 192, 192)) }
+        if key == "skyblue" { return Option<Color>.Some(rgb8(135, 206, 235)) }
+        if key == "slateblue" { return Option<Color>.Some(rgb8(106, 90, 205)) }
+        if key == "slategray" { return Option<Color>.Some(rgb8(112, 128, 144)) }
+        if key == "slategrey" { return Option<Color>.Some(rgb8(112, 128, 144)) }
+        if key == "snow" { return Option<Color>.Some(rgb8(255, 250, 250)) }
+        if key == "springgreen" { return Option<Color>.Some(rgb8(0, 255, 127)) }
+        if key == "steelblue" { return Option<Color>.Some(rgb8(70, 130, 180)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "t") {
+        if key == "tan" { return Option<Color>.Some(rgb8(210, 180, 140)) }
+        if key == "teal" { return Option<Color>.Some(rgb8(0, 128, 128)) }
+        if key == "thistle" { return Option<Color>.Some(rgb8(216, 191, 216)) }
+        if key == "tomato" { return Option<Color>.Some(rgb8(255, 99, 71)) }
+        if key == "turquoise" { return Option<Color>.Some(rgb8(64, 224, 208)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "v") {
+        if key == "violet" { return Option<Color>.Some(rgb8(238, 130, 238)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "w") {
+        if key == "wheat" { return Option<Color>.Some(rgb8(245, 222, 179)) }
+        if key == "white" { return Option<Color>.Some(rgb8(255, 255, 255)) }
+        if key == "whitesmoke" { return Option<Color>.Some(rgb8(245, 245, 245)) }
+        return Option<Color>.None
+    }
+    if starts_with(key, "y") {
+        if key == "yellow" { return Option<Color>.Some(rgb8(255, 255, 0)) }
+        if key == "yellowgreen" { return Option<Color>.Some(rgb8(154, 205, 50)) }
+        return Option<Color>.None
+    }
+    return Option<Color>.None
+}
+
+// A colour as a document writes one: `#f0f`, `#ff00ff`, `#ff00ff80`, `rgb(255, 0, 255)`,
+// `rgb(100%, 0%, 100%)`, `rgba(255, 0, 255, 0.5)`, `rgb(255 0 255 / 50%)`, any of the 148 names, or
+// `transparent`.
+//
+// **An Err rather than a fallback**, for `hex`'s reason: a colour that silently reads as black is a
+// wrong drawing with nothing to point at. What this deliberately does not accept is the rest of CSS
+// Color -- `hsl()`, `lab()`, `color()` -- and the two keywords that are not colours at all:
+// `currentColor` says to use somebody else's colour and `none` says to paint nothing, and only the
+// caller knows what either means (`svg.Fill` is one answer).
+//
+// Hex needs its `#` here, although `hex` itself does not: without it `fff` and `red` are the same
+// kind of word, and guessing between a name and three hex digits is how `beef` becomes a colour.
+pub fn parse(text: string) -> Result<Color, string> {
+    val body = trim(text)
+    if len(body) == 0 {
+        return err("paint.parse: a colour was expected and the text is empty")
+    }
+    if starts_with(body, "#") {
+        return hex(body)
+    }
+    val key = to_lower(body, invariant)
+    // Not one of the 148 and not a colour in SVG 1.1 either -- but CSS allows it wherever a colour
+    // is allowed, and design tools write it.
+    if key == "transparent" {
+        return ok(transparent())
+    }
+    if starts_with(key, "rgb(") || starts_with(key, "rgba(") {
+        return functional(body, key)
+    }
+    if Some(c) = named(key) {
+        return ok(c)
+    }
+    return err(concat(
+        "paint.parse: '",
+        body,
+        "' is not a colour: expected #rgb, #rrggbb, rgb(..), rgba(..) or one of the 148 colour names"
+    ))
+}
+
+// **`rgb()` and `rgba()` are one function**, which is what CSS Color 4 made them: `rgb()` takes an
+// optional fourth component and `rgba()` is an alias for it. A file written to SVG 1.1 only ever
+// writes three, so both spellings accept both shapes rather than policing a distinction every
+// browser dropped.
+//
+// Components may be separated by commas or by spaces, and the alpha may follow a `/` -- the three
+// spellings that occur in files, from SVG 1.1 through CSS Color 4.
+fn functional(whole: string, key: string) -> Result<Color, string> {
+    if !ends_with(key, ")") {
+        return err(concat("paint.parse: '", whole, "' never closes its '('"))
+    }
+    val open = index_of(key, "(", 0)
+    val inside = substring(key, open + 1, len(key) - 1)
+    val flat = replace(replace(replace(replace(inside, ",", " "), "/", " / "), "\t", " "), "\n", " ")
+    var alpha_text = ""
+    var head = flat
+    val slash = index_of(flat, "/", 0)
+    if slash >= 0 {
+        head = substring(flat, 0, slash)
+        alpha_text = trim(substring(flat, slash + 1, len(flat)))
+        if len(alpha_text) == 0 {
+            return err(concat("paint.parse: '", whole, "' has a '/' with no alpha after it"))
+        }
+    }
+    val fields = words(head)
+    if len(fields) != 3 && len(fields) != 4 {
+        return err(concat(
+            "paint.parse: '",
+            whole,
+            "' has ",
+            str(len(fields)),
+            " components, and rgb() takes three or four"
+        ))
+    }
+    if len(fields) == 4 {
+        if len(alpha_text) > 0 {
+            return err(concat("paint.parse: '", whole, "' gives the alpha twice"))
+        }
+        alpha_text = fields[3]
+    }
+    // Red, green and blue are bytes unless written as percentages; the alpha is a fraction unless
+    // written as one. That asymmetry is CSS's, not this reader's.
+    val r = try component(fields[0], 255.0, whole)
+    val g = try component(fields[1], 255.0, whole)
+    val b = try component(fields[2], 255.0, whole)
+    var a = 1.0
+    if len(alpha_text) > 0 {
+        a = try component(alpha_text, 1.0, whole)
+    }
+    return ok(rgba(r, g, b, a))
+}
+
+fn component(text: string, full: float, whole: string) -> Result<float, string> {
+    var body = trim(text)
+    var scale = full
+    if ends_with(body, "%") {
+        body = trim(substring(body, 0, len(body) - 1))
+        scale = 100.0
+    }
+    val read = parse_float(body)
+    if Err(why) = read {
+        return err(concat("paint.parse: '", text, "' is not a number, in '", whole, "' (", why, ")"))
+    }
+    val v = try read
+    return ok(clamped(v / scale))
+}
+
+fn clamped(v: float) -> float {
+    if v < 0.0 {
+        return 0.0
+    }
+    if v > 1.0 {
+        return 1.0
+    }
+    return v
+}
+
+// `split` takes one separator and keeps the empties a run of spaces leaves, so this is the
+// whitespace split the standard library does not have as a builtin.
+fn words(s: string) -> [string] {
+    val out = mutable_array_new<string>()
+    for piece in split(s, " ") {
+        if len(piece) > 0 {
+            push(out, piece)
+        }
+    }
+    return snapshot(out)
+}
+
 // One stop of a gradient: `offset` runs 0.0 to 1.0 along the gradient's own axis.
 pub struct Stop {
     offset: float

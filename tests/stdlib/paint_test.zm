@@ -1,0 +1,184 @@
+// `paint`: a colour as a document writes one.
+//
+// **The cases here are the ones a reader written from the happy path gets wrong**: a name under a
+// Turkish locale, the four spellings of an alpha, a percentage where a byte was expected, and the
+// out-of-range component CSS says to clamp rather than refuse. The 148-name table is checked at its
+// edges and at one value nobody could guess (`#ffefd5` is papayawhip).
+use locale
+use paint
+use test
+
+fn colour(text: string) -> paint.Color {
+    return switch paint.parse(text) {
+        Ok(c) { c }
+        Err(why) {
+            test.fail(why)
+            paint.black()
+        }
+    }
+}
+
+fn refused(text: string) -> bool {
+    return switch paint.parse(text) {
+        Ok(_) { false }
+        Err(_) { true }
+    }
+}
+
+fn same(a: paint.Color, b: paint.Color) -> bool {
+    return close(a.red, b.red) && close(a.green, b.green) &&
+        close(a.blue, b.blue) && close(a.alpha, b.alpha)
+}
+
+fn close(a: float, b: float) -> bool {
+    val d = a - b
+    return if d < 0.0 { 0.0 - d < 0.002 } else { d < 0.002 }
+}
+
+// ---- the three notations are one colour
+
+#[test]
+fn hex_bytes_and_a_name_agree() {
+    val magenta = paint.rgb8(255, 0, 255)
+    test.assert(same(colour("#f0f"), magenta))
+    test.assert(same(colour("#ff00ff"), magenta))
+    test.assert(same(colour("rgb(255,0,255)"), magenta))
+    test.assert(same(colour("rgb(100%, 0%, 100%)"), magenta))
+    test.assert(same(colour("magenta"), magenta))
+    // The CSS alias for the same colour, which is in the table under its own name.
+    test.assert(same(colour("fuchsia"), magenta))
+}
+
+#[test]
+fn a_short_hex_doubles_its_digits() {
+    // `#abc` is `#aabbcc`, not `#a0b0c0`: 0xaa/255, not 0xa0/255.
+    test.assert(same(colour("#abc"), paint.rgb8(170, 187, 204)))
+}
+
+// ---- the alpha, in all four spellings
+
+#[test]
+fn alpha_in_four_spellings() {
+    val half = paint.rgba8(255, 0, 128, 128)
+    test.assert_near(0.502, colour("#ff008080").alpha, 0.002)
+    test.assert_near(0.502, colour("rgba(255, 0, 128, 0.502)").alpha, 0.002)
+    test.assert_near(0.502, colour("rgb(255 0 128 / 50.2%)").alpha, 0.002)
+    // `rgb()` takes a fourth component since CSS Color 4, and `rgba()` a slash: both spellings
+    // accept both shapes, because the distinction browsers dropped is not worth policing.
+    test.assert_near(0.502, colour("rgb(255, 0, 128, 0.502)").alpha, 0.002)
+    test.assert_near(0.502, colour("rgba(255 0 128 / 50.2%)").alpha, 0.002)
+    test.assert_near(0.502, half.alpha, 0.002)
+}
+
+#[test]
+fn no_alpha_is_opaque() {
+    test.assert_near(1.0, colour("#f0f").alpha, 0.002)
+    test.assert_near(1.0, colour("rgb(1,2,3)").alpha, 0.002)
+    test.assert_near(1.0, colour("teal").alpha, 0.002)
+}
+
+#[test]
+fn transparent_is_not_black() {
+    val c = colour("transparent")
+    test.assert_near(0.0, c.alpha, 0.002)
+}
+
+// ---- what the table knows
+
+#[test]
+fn the_table_has_all_148_and_nothing_else() {
+    // The ends of the alphabet, the one addition since 1999, and a value nobody can guess.
+    test.assert(same(colour("aliceblue"), paint.rgb8(240, 248, 255)))
+    test.assert(same(colour("yellowgreen"), paint.rgb8(154, 205, 50)))
+    test.assert(same(colour("rebeccapurple"), paint.rgb8(102, 51, 153)))
+    test.assert(same(colour("papayawhip"), paint.rgb8(255, 239, 213)))
+    // Both spellings of the grey family are names in their own right.
+    test.assert(same(colour("darkgray"), colour("darkgrey")))
+    test.assert(refused("burntsienna"))
+    test.assert(refused("rebecca"))
+    // A near miss must not match the group it was looked up in.
+    test.assert(refused("re"))
+    test.assert(refused("reddish"))
+}
+
+#[test]
+fn a_name_folds_under_the_invariant_locale() {
+    // `INDIGO` folded under Turkish gives a dotless `ı` and stops being a colour name, so a
+    // program that called `locale.set_default` would lose a colour it can see in the file. Both
+    // doors fold under the root locale, and **both are checked here** -- `parse` folds before it
+    // reaches `named`, so going through `parse` alone leaves `named`'s own fold unproven (which it
+    // did: removing it changed no test).
+    locale.set_default(locale.of("tr-TR"))
+    val through_parse = colour("INDIGO")
+    val direct = switch paint.named("INDIGO") {
+        Some(c) { c }
+        None { paint.white() }
+    }
+    locale.set_default(locale.root())
+    val indigo = paint.rgb8(75, 0, 130)
+    test.assert(same(through_parse, indigo))
+    test.assert(same(direct, indigo))
+}
+
+#[test]
+fn named_answers_none_rather_than_black() {
+    // The whole point of an Option here: a missing name is not a colour, and black is a colour.
+    test.assert(switch paint.named("NOTACOLOUR") {
+        Some(_) { false }
+        None { true }
+    })
+    test.assert(switch paint.named("") {
+        Some(_) { false }
+        None { true }
+    })
+    test.assert(switch paint.named("  Teal  ") {
+        Some(_) { true }
+        None { false }
+    })
+}
+
+// ---- out of range, and the things that are not colours
+
+#[test]
+fn an_out_of_range_component_clamps() {
+    // What CSS says and what every browser does. Refusing here refuses files that render fine.
+    test.assert(same(colour("rgb(300, -5, 0)"), paint.rgb8(255, 0, 0)))
+    test.assert(same(colour("rgb(150%, 0%, 0%)"), paint.rgb8(255, 0, 0)))
+    test.assert_near(1.0, colour("rgba(0,0,0,9)").alpha, 0.002)
+    test.assert_near(0.0, colour("rgba(0,0,0,-1)").alpha, 0.002)
+}
+
+#[test]
+fn the_keywords_that_are_not_colours_are_refused() {
+    // `currentColor` says to use somebody else's colour and `none` says to paint nothing. Neither
+    // is a colour, and answering black for either draws a wrong picture silently.
+    test.assert(refused("currentColor"))
+    test.assert(refused("none"))
+    test.assert(refused("inherit"))
+    // The rest of CSS Color is deliberately out.
+    test.assert(refused("hsl(0, 100%, 50%)"))
+    test.assert(refused("lab(50% 40 59)"))
+}
+
+#[test]
+fn hex_needs_its_hash_here() {
+    // `hex` itself takes it or leaves it, but in `parse` a bare `fff` and a name are the same kind
+    // of word -- and `beef` is four hex digits and not a colour.
+    test.assert(refused("fff"))
+    test.assert(refused("beef"))
+    test.assert(refused("#ff"))
+    test.assert(refused("#gggggg"))
+}
+
+#[test]
+fn a_malformed_function_is_refused_by_shape() {
+    test.assert(refused("rgb(1,2)"))
+    test.assert(refused("rgb(1,2,3,4,5)"))
+    test.assert(refused("rgb(1,2,3"))
+    test.assert(refused("rgb(1,2,x)"))
+    test.assert(refused("rgb(1,2,3 /)"))
+    // The alpha given twice is a contradiction rather than a preference.
+    test.assert(refused("rgb(1,2,3,0.5 / 0.5)"))
+    test.assert(refused(""))
+    test.assert(refused("   "))
+}

@@ -143,6 +143,67 @@ pub fn hex(text: string) -> Result<Color, string>
 `#rgb`, `#rrggbb` or `#rrggbbaa`, with or without the leading `#`. An Err names what it could not
 read, since a colour typo is otherwise a silent black.
 
+### `rgb8`
+
+```
+pub fn rgb8(r: int, g: int, b: int) -> Color
+```
+
+Bytes rather than fractions, because that is how a document writes a colour: `rgb(240, 248, 255)`
+and `#f0f8ff` are the same colour and neither of them is written as a float.
+
+**Out of range clamps rather than refusing**, which is what CSS says to do and what every browser
+does: a reader that rejects `rgb(300, 0, 0)` rejects a file everything else draws.
+
+### `rgba8`
+
+```
+pub fn rgba8(r: int, g: int, b: int, a: int) -> Color
+```
+
+### `named`
+
+```
+pub fn named(name: string) -> Option<Color>
+```
+
+**The 148 colour names CSS and SVG share**, or `None` for a name that is not one of them. Case
+is folded under the invariant locale, because a colour name read out of a file is protocol text:
+a Turkish locale folds the `I` of `Indigo` to a dotless `i` and the name stops matching.
+
+**`transparent` is deliberately absent**, because it is not one of the 148 -- it is a keyword CSS
+accepts wherever a colour is allowed, and `parse` answers it. `none` is likewise not a colour but
+an instruction not to paint, which only the caller can act on.
+
+The table is generated from the list every browser agrees on (Python's
+`PIL.ImageColor.colormap`, the CSS3/SVG set) and then committed, because the set is closed: the
+last addition was `rebeccapurple` in 2014, in memory of Eric Meyer's daughter. One value is
+checkable in a line -- `python3 -c "from PIL import ImageColor;
+print(ImageColor.colormap['papayawhip'])"`.
+
+Grouped by first letter rather than written flat for the reason `charset.table_named` is: a flat
+chain of this length pays for every name before the one it wants, and the grouping turns 148
+comparisons into at most 21.
+
+### `parse`
+
+```
+pub fn parse(text: string) -> Result<Color, string>
+```
+
+A colour as a document writes one: `#f0f`, `#ff00ff`, `#ff00ff80`, `rgb(255, 0, 255)`,
+`rgb(100%, 0%, 100%)`, `rgba(255, 0, 255, 0.5)`, `rgb(255 0 255 / 50%)`, any of the 148 names, or
+`transparent`.
+
+**An Err rather than a fallback**, for `hex`'s reason: a colour that silently reads as black is a
+wrong drawing with nothing to point at. What this deliberately does not accept is the rest of CSS
+Color -- `hsl()`, `lab()`, `color()` -- and the two keywords that are not colours at all:
+`currentColor` says to use somebody else's colour and `none` says to paint nothing, and only the
+caller knows what either means (`svg.Fill` is one answer).
+
+Hex needs its `#` here, although `hex` itself does not: without it `fff` and `red` are the same
+kind of word, and guessing between a name and three hex digits is how `beef` becomes a colour.
+
 ### `Stop`
 
 ```

@@ -1,33 +1,82 @@
-// svg.zm -- an SVG path's `d` attribute as a `shape.Path`.
+// svg.zm -- an SVG file as shapes: one `d` attribute, or a whole document.
 //
-// **A reader for one attribute, not a graphics stack**, which is the scope the icon work settled
-// on: `shape` already has the segment vocabulary an SVG path is written in -- `move_to`,
-// `line_to`, `quad_to`, `cubic_to`, `close_path` -- so importing an icon is a parser for the
-// string in `d=` and nothing more. Styling, gradients, text, clipping and the document around it
-// are all somebody else's problem, and most of them are problems an *icon* does not have: an icon
-// set ships one outline per file.
+// **A reader for the geometry, not a graphics stack.** `shape` already has the segment vocabulary
+// an SVG path is written in -- `move_to`, `line_to`, `quad_to`, `cubic_to`, `close_path` -- and
+// `geom` has the matrices a `transform` is written in, so reading an SVG is a parser over types
+// this library already had. What it answers is where the shapes are and what colour each one asked
+// for. Text, gradients, patterns, clips, masks, filters and `<use>` are out, and **it says so
+// rather than dropping them**: a reader that silently ignored a clip would draw a shape nobody
+// designed, and nothing in the result could explain it.
 //
 // **Why this exists at all**: `widget.IconSource.Drawn` takes a path in a unit box, and before
 // this the only way to get one was to write it by hand with the builder. An icon set on disk was
 // unreachable, which is what made the drawn source a developer's tool rather than a designer's.
+// `svg.icon(text)` is now the whole of that: parse the file, merge what it paints, scale it in.
 //
-// What is here: every path command (`M L H V C S Q T A Z`, absolute and relative), implicit
-// repetition, the number grammar as SVG actually writes it (`.5`, `-.5`, `1e-3`, and `10-5` as
-// two numbers), and **arcs lowered to cubics**, because `shape` has no arc primitive and neither
-// does PDF -- `ellipse_path` makes the same choice with the same constant.
+// **Two halves, usable separately.** `path_data` reads one `d` attribute -- every command
+// (`M L H V C S Q T A Z`, absolute and relative), implicit repetition, the number grammar as SVG
+// actually writes it (`.5`, `-.5`, `1e-3`, and `10-5` as two numbers), and **arcs lowered to
+// cubics**, because `shape` has no arc primitive and neither does PDF (`ellipse_path` makes the
+// same choice with the same constant). `parse` reads the document around it: the `viewBox`, the
+// basic shapes (`rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`), the groups and their
+// `transform`s, and the presentation each figure inherits -- fill, stroke, fill rule, dashes,
+// opacity, `currentColor`.
+//
+// **A `Figure` is in the document's own coordinates with every transform already applied**, which
+// is what makes the figures comparable without the tree they came out of. `filled_path` then
+// merges them into the single path a monochrome icon wants, strokes turned into areas by
+// `stroker.outline` -- and refuses, rather than flattening, the two things one path cannot say:
+// two fill rules, and a part that is not fully opaque. `solid_path` is the approximation for a
+// caller who would rather have the shape than the exactness, and `Drawing.figures` is there for
+// one who wants to paint them properly.
+//
+// **What that comes to on a real icon theme, which is the measurement this was built against**:
+// the 1,206 SVG files under `/usr/share/icons` on a Fedora desktop, each through `parse` and then
+// one path.
+//
+//     exact (filled_path)                   718 read
+//     dropping the faint (solid_path, 1.0)  917 read, 20 of them empty
+//
+// and the 289 the second one still refuses, by cause:
+//
+//     139  a gradient or pattern fill -- `fill="url(#a)"`, which a path cannot carry
+//      69  an even-odd fill on a figure that is also stroked
+//      30  a clip, a mask or a filter
+//      30  two fill rules across the figures
+//      15  `<use>`
+//       3  `<text>`
+//       2  `<image>`
+//       1  a declaration saying iso-8859-1, read through `parse(text)` instead of `parse(bytes)`
+//
+// Three things worth reading off that list. The **99 winding conflicts are not a scope decision
+// but an arithmetic one**: an even-odd outline and a nonzero one fill differently wherever
+// subpaths nest or a subpath crosses itself, and a bounding-box test cannot tell the difference
+// (a pentagram is one subpath that crosses itself and is hollow under one rule). The **20 empty
+// drawings are files whose every figure is faint**, which a lower cut reads. And the **one
+// encoding refusal is the charset work doing its job**: a file whose declaration is not UTF-8 has
+// to arrive as bytes, which is what `parse([byte])` is for.
 use geom
 use geom.Point
 use geom.point_of
+use locale
 use math.abs
 use math.acos
 use math.cos
 use math.sin
 use math.sqrt
+use math.tan
+use paint
 use shape
+use stroker
+use xml
 
 // A quarter-circle's worth of cubic control-point offset. The same constant `shape.ellipse_path`
 // uses, for the same reason: an arc has to become curves, and this is the standard approximation.
 val kappa: float = 0.5522847498307933
+
+// Protocol folding, not the user's language: a `fill-rule` or a colour name compared under a
+// Turkish locale is a bug, for `paint`'s reason. Hoisted because `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 // Where the reader is: the point it has reached, the point a `Z` would return to, and the control
 // point a smooth command reflects.
@@ -537,4 +586,938 @@ pub fn in_unit_box(p: shape.Path, view: geom.Rect) -> shape.Path {
 // `svg.icon_path(d, geom.rect_of(0.0, 0.0, 24.0, 24.0))`.
 pub fn icon_path(d: string, view: geom.Rect) -> Result<shape.Path, string> {
     return ok(in_unit_box(try path_data(d), view))
+}
+
+// ---- the document side: a file, not one attribute
+
+// The namespace every SVG document declares. An element in **any other** namespace is not rendered
+// by SVG's own rules, which is what lets an Inkscape file through: `sodipodi:namedview` and
+// `inkscape:perspective` are editor furniture in their own namespaces and draw nothing. An element
+// with no namespace at all is taken as SVG, because an icon pasted out of a file often has none.
+val svg_ns: string = "http://www.w3.org/2000/svg"
+
+// SVG writes angles in degrees and `math.sin` takes radians.
+val per_degree: float = 0.017453292519943295
+
+// **How a figure is painted, including the two answers that are not colours.** `currentColor` means
+// the colour of whatever this drawing is placed in -- a control's ink, for an icon -- and `none`
+// means the part is not painted at all. Resolving either here would be a guess, so both travel as
+// cases and the caller decides: an icon tints `Current` with `style.ink`, and `filled_path` keeps
+// `Current` and drops `Nothing`.
+pub enum Fill {
+    Color(paint.Color)
+    Current
+    Nothing
+}
+
+// One thing the document draws, in the coordinates its `viewBox` is written in: every `transform`
+// on it and on every group above it is already in the path.
+//
+// **Flattening the transforms here rather than carrying a matrix per figure** is what makes the
+// figures comparable -- a caller can union their bounds, hit-test them or merge them without
+// knowing the tree they came out of, which was the whole point of reading the document.
+pub struct Figure {
+    path: shape.Path
+    fill: Fill
+    stroke: Fill
+    // Width, caps, joins and dashes, as the document asked for them. Meaningful when `stroke` is
+    // not `Nothing`; `stroker.outline` turns it into an area.
+    edge: paint.Stroke
+    // `opacity` times `fill-opacity`, 0.0 to 1.0. A figure at 0 is dropped before it gets here, so
+    // this is above 0 and at most 1.
+    opacity: float
+}
+
+pub struct Drawing {
+    // The `viewBox`, or `0 0 width height` when the root gives those instead, or the union of what
+    // the figures cover when it gives neither.
+    view: geom.Rect
+    figures: [Figure]
+}
+
+// The presentation a group hands its children. Not public: what a *caller* gets is the resolved
+// `Figure`, and these are the SVG defaults -- a black fill, no stroke, nonzero, miter limit 4.
+//
+// **`current` is what `currentColor` means here**, which a `color` attribute anywhere above sets.
+// Absent, `currentColor` stays unresolved and reaches the caller as `Fill.Current`.
+struct Style {
+    fill: Fill
+    rule: shape.Winding
+    stroke: Fill
+    current: Option<paint.Color>
+    edge: paint.Stroke
+    opacity: float
+    fill_opacity: float
+}
+
+fn base_style() -> Style {
+    return Style {
+        fill: Fill.Color(paint.black()),
+        rule: shape.Winding.NonZero,
+        stroke: Fill.Nothing,
+        current: Option<paint.Color>.None,
+        edge: svg_default_edge(),
+        opacity: 1.0,
+        fill_opacity: 1.0
+    }
+}
+
+// SVG's own defaults, which are not `paint.stroke_of`'s: the miter limit is **4** in SVG and 10 in
+// PDF and PostScript. A reader that took the PDF default would round one join in a thousand
+// differently from every browser.
+fn svg_default_edge() -> paint.Stroke {
+    return with paint.stroke_of(1.0) {
+        miter_limit: 4.0
+    }
+}
+
+// An SVG document as the figures it draws. `Err` names the element or attribute it could not read.
+pub fn parse(text: string) -> Result<Drawing, string> {
+    return drawing_of(try xml.parse(text))
+}
+
+// The same from bytes, which is how a file arrives. The charset comes from the XML declaration or
+// the byte-order mark, because that is `xml.parse`'s job and not this reader's.
+pub fn parse(data: [byte]) -> Result<Drawing, string> {
+    return drawing_of(try xml.parse(data))
+}
+
+// For a caller who already has the document -- a theme index that reads several things out of one
+// file, or a test that builds the tree by hand.
+pub fn drawing_of(doc: xml.Document) -> Result<Drawing, string> {
+    val root = doc.root
+    if root.name.local != "svg" {
+        return err(concat("svg: the root element is <", root.name.local, ">, not <svg>"))
+    }
+    if !is_svg(root) {
+        return err("svg: the root <svg> is in another namespace")
+    }
+    val figures = mutable_array_new<Figure>()
+    try collect(root, base_style(), geom.identity(), figures)
+    val drawn = snapshot(figures)
+    return ok(Drawing { view: try view_of(root, drawn), figures: drawn })
+}
+
+// `viewBox`, else `width`/`height`, else what the figures cover.
+//
+// **The last fallback is a measurement rather than a guess**: a document with neither is still a
+// drawing, and the box that encloses it is the only box its author can have meant. An empty
+// document gets an empty rect, which `in_unit_box` leaves alone.
+fn view_of(root: xml.Element, figures: [Figure]) -> Result<geom.Rect, string> {
+    if Some(box) = xml.attr(root, "viewBox") {
+        val numbers = try numbers_of(box, "viewBox")
+        if len(numbers) != 4 {
+            return err(concat("svg: viewBox needs four numbers, got ", str(len(numbers))))
+        }
+        return ok(geom.rect_of(numbers[0], numbers[1], numbers[2], numbers[3]))
+    }
+    val w = try optional_length(root, "width")
+    val h = try optional_length(root, "height")
+    if Some(width) = w {
+        if Some(height) = h {
+            return ok(geom.rect_of(0.0, 0.0, width, height))
+        }
+    }
+    var box = geom.empty_rect()
+    for f in figures {
+        box = geom.rect_union(box, shape.path_bounds(f.path))
+    }
+    return ok(box)
+}
+
+// Walks the tree, pushing a `Figure` for everything that draws. `ok(0)` is this language's shape
+// for a fallible call with nothing to answer (`toml`'s writer is the same), and the count a draft
+// of this returned was information nobody read.
+fn collect(e: xml.Element, inherited: Style, outer: geom.Matrix, out: MutableArray<Figure>) -> Result<int, string> {
+    // Not ours, not rendered -- see `svg_ns`.
+    if !is_svg(e) {
+        return ok(0)
+    }
+    val name = e.name.local
+    // `display:none` takes the subtree with it, and `visibility:hidden` is inherited the same way
+    // here. (SVG lets a child turn visibility back on; a reader that modelled that would have to
+    // keep hidden figures, and no icon needs it.)
+    if hidden(e) {
+        return ok(0)
+    }
+    try refuse_unreadable(e)
+    val local = try style_of(e, inherited)
+    val here = geom.matrix_concat(outer, try transform_of(e))
+    // A container: `<a>` is one in SVG, and a nested `<svg>` is treated as a group because its own
+    // viewport only matters to a document that places it.
+    if name == "g" || name == "svg" || name == "a" {
+        for child in xml.children(e) {
+            try collect(child, local, here, out)
+        }
+        return ok(0)
+    }
+    if draws_nothing(name) {
+        return ok(0)
+    }
+    val shaped = try geometry_of(e, local)
+    if !shaped.known {
+        return err(concat(
+            "svg: <",
+            name,
+            "> is not something this reader can draw -- it reads paths, rects,",
+            " circles, ellipses, lines, polylines, polygons and the groups around them"
+        ))
+    }
+    // A shape that draws nothing is not an error and not a figure: `<path>` with no `d`, a rect of
+    // zero width, a `points` list with one point in it.
+    if len(shaped.path.segments) == 0 {
+        return ok(0)
+    }
+    val alpha = local.opacity * local.fill_opacity
+    if alpha <= 0.0 {
+        return ok(0)
+    }
+    // The figure's own fill rule travels in its path, which is where `shape` keeps it.
+    val placed = shape.path_of(shape.transform_path(shaped.path, here).segments, local.rule)
+    push(out, Figure {
+        path: placed,
+        fill: local.fill,
+        stroke: local.stroke,
+        edge: local.edge,
+        opacity: alpha
+    })
+    return ok(0)
+}
+
+// **The attributes that change the drawing and cannot be honoured**, which is the one place this
+// reader has to say no rather than ignore. A clip, a mask or a filter makes the shape on screen a
+// different shape, so dropping it silently is the failure `path_data` already refuses to make.
+fn refuse_unreadable(e: xml.Element) -> Result<int, string> {
+    for a in ["clip-path", "mask", "filter", "marker", "marker-start", "marker-mid", "marker-end"] {
+        if Some(v) = property(e, a) {
+            if trim(v) != "none" {
+                return err(concat(
+                    "svg: <",
+                    e.name.local,
+                    "> has ",
+                    a,
+                    "=\"",
+                    v,
+                    "\", which changes the shape and this reader cannot apply"
+                ))
+            }
+        }
+    }
+    return ok(0)
+}
+
+// **An element SVG never renders directly**, which is a longer list than it looks and the
+// difference between reading a desktop icon theme and refusing a third of it.
+//
+// Measured over /usr/share/icons on a Fedora desktop, 1,206 files: a first draft refused these as
+// "something this reader cannot draw" and **97 files were refused for the wrong reason** -- a
+// gradient or a clip path is a *definition*, and Inkscape writes `<linearGradient>` as a sibling
+// of the drawing rather than inside `<defs>`, where nothing is painted until something references
+// it. Skipping them moved every one of those refusals to the `fill="url(#g)"` or `clip-path=` that
+// actually cannot be drawn, which is where a reader can act on it. The same 1,206 files read
+// either way: this bought accuracy, not coverage.
+//
+// `<image>`, `<text>`, `<use>`, `<foreignObject>` and `<switch>` are deliberately NOT here: each
+// of them paints, so skipping one would silently drop part of the drawing. `<switch>` paints the
+// first child whose conditions pass, and "draw them all" is a guess rather than a reading.
+fn draws_nothing(name: string) -> bool {
+    // Describing, not drawing.
+    if name == "title" || name == "desc" || name == "metadata" || name == "view" {
+        return true
+    }
+    // Held for a reference: nothing here is painted where it stands.
+    if name == "defs" || name == "symbol" || name == "clipPath" || name == "mask" ||
+        name == "marker" || name == "pattern" || name == "filter" || name == "cursor" ||
+        name == "hatch" || name == "solidColor" {
+        return true
+    }
+    if name == "linearGradient" || name == "radialGradient" || name == "meshgradient" ||
+        name == "stop" || name == "hatchpath" {
+        return true
+    }
+    // The document's own furniture, and the parts of SVG this reader has no time axis for.
+    if name == "style" || name == "script" || name == "animate" || name == "animateTransform" ||
+        name == "animateMotion" || name == "animateColor" || name == "set" || name == "mpath" {
+        return true
+    }
+    // An SVG font, which is a font rather than a drawing.
+    return name == "font" || name == "font-face" || name == "glyph" || name == "missing-glyph" ||
+        name == "hkern" || name == "vkern"
+}
+
+fn is_svg(e: xml.Element) -> bool {
+    if Some(uri) = e.name.namespace {
+        return uri == svg_ns
+    }
+    return true
+}
+
+fn hidden(e: xml.Element) -> bool {
+    if Some(d) = property(e, "display") {
+        if trim(d) == "none" {
+            return true
+        }
+    }
+    if Some(v) = property(e, "visibility") {
+        val how = trim(v)
+        return how == "hidden" || how == "collapse"
+    }
+    return false
+}
+
+// **A property is an attribute or a `style` declaration, and `style` wins**, which is CSS's own
+// order. A file from a design tool writes `style="fill:#fff"` and a hand-written icon writes
+// `fill="#fff"`, and a reader that knows only one of them reads half the files on disk.
+fn property(e: xml.Element, name: string) -> Option<string> {
+    if Some(css) = xml.attr(e, "style") {
+        if Some(v) = declaration(css, name) {
+            return Option<string>.Some(v)
+        }
+    }
+    return xml.attr(e, name)
+}
+
+// One `name: value` out of a `style` attribute. A declaration list is `;`-separated and this reads
+// it each time it is asked, which is the right trade for the two or three properties an icon has.
+fn declaration(css: string, name: string) -> Option<string> {
+    for part in split(css, ";") {
+        val colon = index_of(part, ":", 0)
+        if colon > 0 {
+            if trim(substring(part, 0, colon)) == name {
+                return Option<string>.Some(trim(substring(part, colon + 1, len(part))))
+            }
+        }
+    }
+    return Option<string>.None
+}
+
+// What this element paints, starting from what its parents painted. Every one of these inherits in
+// SVG except `opacity`, which applies to a group as a whole -- multiplied down here, which is exact
+// for a single shape and an approximation for a group of overlapping ones (the exact answer needs
+// a compositing pass this reader has no pixels to do).
+fn style_of(e: xml.Element, inherited: Style) -> Result<Style, string> {
+    var s = inherited
+    if Some(v) = property(e, "color") {
+        val c = try colour_of(v, "color")
+        if Some(resolved) = colour_value(c) {
+            s = with s { current: Option<paint.Color>.Some(resolved) }
+        }
+    }
+    if Some(v) = property(e, "fill") {
+        s = with s { fill: resolve(try colour_of(v, "fill"), s.current) }
+    }
+    if Some(v) = property(e, "stroke") {
+        s = with s { stroke: resolve(try colour_of(v, "stroke"), s.current) }
+    }
+    if Some(v) = property(e, "fill-rule") {
+        val rule = trim(v)
+        if rule == "evenodd" {
+            s = with s { rule: shape.Winding.EvenOdd }
+        } else {
+            if rule != "nonzero" && rule != "inherit" {
+                return err(concat("svg: fill-rule=\"", v, "\" is neither nonzero nor evenodd"))
+            }
+            if rule == "nonzero" {
+                s = with s { rule: shape.Winding.NonZero }
+            }
+        }
+    }
+    if Some(v) = property(e, "opacity") {
+        s = with s { opacity: s.opacity * try fraction_of(v, "opacity") }
+    }
+    if Some(v) = property(e, "fill-opacity") {
+        s = with s { fill_opacity: try fraction_of(v, "fill-opacity") }
+    }
+    var edge = s.edge
+    if Some(v) = property(e, "stroke-width") {
+        edge = with edge { width: try length_of(v, "stroke-width") }
+    }
+    if Some(v) = property(e, "stroke-linecap") {
+        edge = with edge { cap: try cap_of(v) }
+    }
+    if Some(v) = property(e, "stroke-linejoin") {
+        edge = with edge { join: try join_of(v) }
+    }
+    if Some(v) = property(e, "stroke-miterlimit") {
+        edge = with edge { miter_limit: try length_of(v, "stroke-miterlimit") }
+    }
+    if Some(v) = property(e, "stroke-dasharray") {
+        val dashes = trim(v)
+        if dashes == "none" {
+            edge = with edge { dash: [] }
+        } else {
+            edge = with edge { dash: try numbers_of(dashes, "stroke-dasharray") }
+        }
+    }
+    if Some(v) = property(e, "stroke-dashoffset") {
+        edge = with edge { dash_phase: try length_of(v, "stroke-dashoffset") }
+    }
+    return ok(with s { edge: edge })
+}
+
+fn colour_value(f: Fill) -> Option<paint.Color> {
+    return switch f {
+        Color(c) { Option<paint.Color>.Some(c) }
+        Current { Option<paint.Color>.None }
+        Nothing { Option<paint.Color>.None }
+    }
+}
+
+fn resolve(f: Fill, current: Option<paint.Color>) -> Fill {
+    return switch f {
+        Current {
+            switch current {
+                Some(c) { Fill.Color(c) }
+                None { Fill.Current }
+            }
+        }
+        Color(c) { Fill.Color(c) }
+        Nothing { Fill.Nothing }
+    }
+}
+
+// A paint value as a document writes one. `paint.parse` knows the colours; the two keywords that
+// are not colours are this reader's to answer, and a `url(#gradient)` is the one paint it has to
+// refuse -- there is nowhere for a gradient to go in a `shape.Path`.
+fn colour_of(text: string, what: string) -> Result<Fill, string> {
+    val v = trim(text)
+    val folded = to_lower(v, invariant)
+    if folded == "none" {
+        return ok(Fill.Nothing)
+    }
+    if folded == "currentcolor" {
+        return ok(Fill.Current)
+    }
+    if starts_with(folded, "url(") {
+        return err(concat(
+            "svg: ",
+            what,
+            "=\"",
+            v,
+            "\" is a gradient or a pattern, and a path can only carry a",
+            " colour -- read the document with xml and build the paint yourself"
+        ))
+    }
+    if folded == "inherit" {
+        return ok(Fill.Current)
+    }
+    return ok(Fill.Color(try paint.parse(v)))
+}
+
+fn cap_of(text: string) -> Result<paint.Cap, string> {
+    val how = trim(text)
+    if how == "butt" {
+        return ok(paint.Cap.Butt)
+    }
+    if how == "round" {
+        return ok(paint.Cap.Round)
+    }
+    if how == "square" {
+        return ok(paint.Cap.Square)
+    }
+    return err(concat("svg: stroke-linecap=\"", text, "\" is not butt, round or square"))
+}
+
+fn join_of(text: string) -> Result<paint.Join, string> {
+    val how = trim(text)
+    if how == "miter" {
+        return ok(paint.Join.Miter)
+    }
+    if how == "round" {
+        return ok(paint.Join.Round)
+    }
+    if how == "bevel" {
+        return ok(paint.Join.Bevel)
+    }
+    return err(concat("svg: stroke-linejoin=\"", text, "\" is not miter, round or bevel"))
+}
+
+// Whether this element is a shape at all, and what it draws. **Three answers rather than two**: an
+// element this reader does not know is an error, while a `<path>` with no `d` and a `<rect>` of
+// zero width are shapes that draw nothing, which SVG says is legal and an exporter writes.
+struct Shaped {
+    known: bool
+    path: shape.Path
+}
+
+fn nothing_drawn() -> Shaped {
+    return Shaped { known: true, path: shape.empty_path() }
+}
+
+fn geometry_of(e: xml.Element, s: Style) -> Result<Shaped, string> {
+    val name = e.name.local
+    if name == "path" {
+        if Some(d) = xml.attr(e, "d") {
+            return ok(Shaped { known: true, path: try path_data(d) })
+        }
+        return ok(nothing_drawn())
+    }
+    if name == "rect" {
+        val x = try length_or(e, "x", 0.0)
+        val y = try length_or(e, "y", 0.0)
+        val w = try length_or(e, "width", 0.0)
+        val h = try length_or(e, "height", 0.0)
+        if w <= 0.0 || h <= 0.0 {
+            return ok(nothing_drawn())
+        }
+        val box = geom.rect_of(x, y, w, h)
+        // **`rx` alone means `ry` is the same, and vice versa** -- SVG's own rule, and the reason a
+        // rounded rect usually carries only one of them. Where a file gives both and they differ,
+        // the corner is elliptical, which `shape.round_rect_path` takes as two radii.
+        val rx = try optional_length(e, "rx")
+        val ry = try optional_length(e, "ry")
+        var hx = 0.0
+        var hy = 0.0
+        if Some(r) = rx {
+            hx = r
+            hy = r
+        }
+        if Some(r) = ry {
+            hy = r
+            if Option<float>.None == rx {
+                hx = r
+            }
+        }
+        if hx <= 0.0 || hy <= 0.0 {
+            return ok(Shaped { known: true, path: shape.rect_path(box) })
+        }
+        return ok(Shaped { known: true, path: shape.round_rect_path(box, hx, hy) })
+    }
+    if name == "circle" {
+        val cx = try length_or(e, "cx", 0.0)
+        val cy = try length_or(e, "cy", 0.0)
+        val r = try length_or(e, "r", 0.0)
+        if r <= 0.0 {
+            return ok(nothing_drawn())
+        }
+        return ok(Shaped { known: true, path: shape.circle_path(point_of(cx, cy), r) })
+    }
+    if name == "ellipse" {
+        val cx = try length_or(e, "cx", 0.0)
+        val cy = try length_or(e, "cy", 0.0)
+        val rx = try length_or(e, "rx", 0.0)
+        val ry = try length_or(e, "ry", 0.0)
+        if rx <= 0.0 || ry <= 0.0 {
+            return ok(nothing_drawn())
+        }
+        val box = geom.rect_of(cx - rx, cy - ry, rx * 2.0, ry * 2.0)
+        return ok(Shaped { known: true, path: shape.ellipse_path(box) })
+    }
+    if name == "line" {
+        val x1 = try length_or(e, "x1", 0.0)
+        val y1 = try length_or(e, "y1", 0.0)
+        val x2 = try length_or(e, "x2", 0.0)
+        val y2 = try length_or(e, "y2", 0.0)
+        return ok(Shaped { known: true, path: shape.line_path(point_of(x1, y1), point_of(x2, y2)) })
+    }
+    if name == "polyline" || name == "polygon" {
+        if Some(text) = xml.attr(e, "points") {
+            val numbers = try numbers_of(text, "points")
+            if len(numbers) < 4 {
+                return ok(nothing_drawn())
+            }
+            // An odd trailing number is a truncated point, and SVG says to render the prefix. This
+            // reader keeps the pairs and drops the stray, because an exporter's rounding error is
+            // not worth refusing a whole icon over.
+            val points = mutable_array_new<Point>()
+            var i = 0
+            while i + 1 < len(numbers) {
+                push(points, point_of(numbers[i], numbers[i + 1]))
+                i = i + 2
+            }
+            return ok(Shaped {
+                known: true,
+                path: shape.polygon_path(snapshot(points), name == "polygon")
+            })
+        }
+        return ok(nothing_drawn())
+    }
+    return ok(Shaped { known: false, path: shape.empty_path() })
+}
+
+// `translate(2 3) rotate(45 12 12) scale(.5)`.
+//
+// **Left to right, outermost first**, which is the specification's order and the reverse of what a
+// reader expects: the rightmost function is applied to the geometry first.
+fn transform_of(e: xml.Element) -> Result<geom.Matrix, string> {
+    if Some(text) = xml.attr(e, "transform") {
+        return transform_list(text)
+    }
+    return ok(geom.identity())
+}
+
+fn transform_list(text: string) -> Result<geom.Matrix, string> {
+    val cs = chars(text)
+    var at = skipped(cs, 0)
+    var m = geom.identity()
+    while at < len(cs) {
+        val start = at
+        while at < len(cs) && is_name_char(cs[at]) {
+            at = at + 1
+        }
+        if at == start {
+            return err(concat("svg: transform=\"", text, "\" has a '", cs[at], "' where a name goes"))
+        }
+        val name = joined(cs, start, at)
+        at = skipped(cs, at)
+        if at >= len(cs) || cs[at] != "(" {
+            return err(concat("svg: transform=\"", text, "\": ", name, " is missing its '('"))
+        }
+        at = skipped(cs, at + 1)
+        val args = mutable_array_new<float>()
+        while at < len(cs) && cs[at] != ")" {
+            val n = try read_number(cs, at)
+            push(args, n.value)
+            at = skipped(cs, n.at)
+        }
+        if at >= len(cs) {
+            return err(concat("svg: transform=\"", text, "\": ", name, " never closes its '('"))
+        }
+        m = geom.matrix_concat(m, try one_transform(name, snapshot(args), text))
+        at = skipped(cs, at + 1)
+    }
+    return ok(m)
+}
+
+fn one_transform(name: string, args: [float], whole: string) -> Result<geom.Matrix, string> {
+    if name == "translate" {
+        if len(args) == 1 {
+            return ok(geom.translation(args[0], 0.0))
+        }
+        if len(args) == 2 {
+            return ok(geom.translation(args[0], args[1]))
+        }
+        return wrong_count(name, args, whole, "one or two")
+    }
+    if name == "scale" {
+        if len(args) == 1 {
+            return ok(geom.scaling(args[0], args[0]))
+        }
+        if len(args) == 2 {
+            return ok(geom.scaling(args[0], args[1]))
+        }
+        return wrong_count(name, args, whole, "one or two")
+    }
+    if name == "rotate" {
+        if len(args) == 1 {
+            return ok(geom.rotation(args[0] * per_degree))
+        }
+        if len(args) == 3 {
+            // About a point: there, turn, back. Written out rather than left to the caller because
+            // every icon that rotates an arrow rotates it about its own centre.
+            return ok(geom.matrix_concat(
+                geom.matrix_concat(
+                    geom.translation(args[1], args[2]),
+                    geom.rotation(args[0] * per_degree)
+                ),
+                geom.translation(0.0 - args[1], 0.0 - args[2])
+            ))
+        }
+        return wrong_count(name, args, whole, "one or three")
+    }
+    if name == "matrix" {
+        if len(args) == 6 {
+            // SVG's six and `geom.Matrix`'s six are the same six, in the same order: `transform_point`
+            // computes `a*x + c*y + e` exactly as the specification does.
+            return ok(geom.Matrix {
+                a: args[0],
+                b: args[1],
+                c: args[2],
+                d: args[3],
+                e: args[4],
+                f: args[5]
+            })
+        }
+        return wrong_count(name, args, whole, "six")
+    }
+    if name == "skewX" {
+        if len(args) == 1 {
+            return ok(geom.shearing(tan(args[0] * per_degree), 0.0))
+        }
+        return wrong_count(name, args, whole, "one")
+    }
+    if name == "skewY" {
+        if len(args) == 1 {
+            return ok(geom.shearing(0.0, tan(args[0] * per_degree)))
+        }
+        return wrong_count(name, args, whole, "one")
+    }
+    return err(concat(
+        "svg: transform=\"",
+        whole,
+        "\" asks for ",
+        name,
+        "(), and the list is translate, scale, rotate, matrix, skewX and skewY"
+    ))
+}
+
+fn wrong_count(name: string, args: [float], whole: string, wanted: string) -> Result<geom.Matrix, string> {
+    return err(concat(
+        "svg: ",
+        name,
+        "() takes ",
+        wanted,
+        " numbers and transform=\"",
+        whole,
+        "\" gives ",
+        str(len(args))
+    ))
+}
+
+fn is_name_char(c: string) -> bool {
+    return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z")
+}
+
+// ---- numbers with units
+
+// Every number in a `viewBox`, a `points` list or a dash array, read with the same scanner the `d`
+// attribute uses -- so `10-5` is two numbers here too, and a file that writes its points without
+// separators is read the way a browser reads it.
+fn numbers_of(text: string, what: string) -> Result<[float], string> {
+    val cs = chars(text)
+    var at = skipped(cs, 0)
+    val out = mutable_array_new<float>()
+    while at < len(cs) {
+        val read = read_number(cs, at)
+        if Err(why) = read {
+            return err(concat("svg: ", what, "=\"", text, "\": ", why))
+        }
+        val n = try read
+        push(out, n.value)
+        at = skipped(cs, n.at)
+    }
+    return ok(snapshot(out))
+}
+
+// **A length in user units, with the CSS absolute units converted exactly.** `px` is the user unit,
+// and `pt`, `pc`, `in`, `mm` and `cm` have fixed ratios to it (96 px to the inch) -- so a drawing
+// authored in millimetres lands in the right place rather than being refused. A percentage is
+// refused, because it means a fraction of a viewport this reader does not have.
+fn length_of(text: string, what: string) -> Result<float, string> {
+    val body = trim(text)
+    if len(body) == 0 {
+        return err(concat("svg: ", what, " is empty"))
+    }
+    if ends_with(body, "%") {
+        return err(concat(
+            "svg: ",
+            what,
+            "=\"",
+            body,
+            "\" is a percentage, which needs a viewport this reader",
+            " does not have -- give it in user units"
+        ))
+    }
+    var number = body
+    var scale = 1.0
+    for unit in ["px", "pt", "pc", "in", "mm", "cm", "em", "ex"] {
+        if ends_with(body, unit) {
+            number = trim(substring(body, 0, len(body) - 2))
+            scale = try per_unit(unit, what, body)
+        }
+    }
+    val read = parse_float(number)
+    if Err(why) = read {
+        return err(concat("svg: ", what, "=\"", body, "\" is not a length (", why, ")"))
+    }
+    return ok(try read * scale)
+}
+
+fn per_unit(unit: string, what: string, whole: string) -> Result<float, string> {
+    if unit == "px" {
+        return ok(1.0)
+    }
+    if unit == "pt" {
+        return ok(96.0 / 72.0)
+    }
+    if unit == "pc" {
+        return ok(16.0)
+    }
+    if unit == "in" {
+        return ok(96.0)
+    }
+    if unit == "mm" {
+        return ok(96.0 / 25.4)
+    }
+    if unit == "cm" {
+        return ok(96.0 / 2.54)
+    }
+    // `em` and `ex` are font-relative, and this reader has no font: refusing says so, where
+    // guessing 16 px would put the shape in the wrong place by whatever the real size was.
+    return err(concat(
+        "svg: ",
+        what,
+        "=\"",
+        whole,
+        "\" is in ",
+        unit,
+        ", which is relative to a font size this reader does not have"
+    ))
+}
+
+fn optional_length(e: xml.Element, name: string) -> Result<Option<float>, string> {
+    if Some(v) = xml.attr(e, name) {
+        return ok(Option<float>.Some(try length_of(v, name)))
+    }
+    return ok(Option<float>.None)
+}
+
+fn length_or(e: xml.Element, name: string, fallback: float) -> Result<float, string> {
+    if Some(v) = try optional_length(e, name) {
+        return ok(v)
+    }
+    return ok(fallback)
+}
+
+// An opacity: a number 0 to 1, or a percentage. Out of range clamps, as CSS says.
+fn fraction_of(text: string, what: string) -> Result<float, string> {
+    val body = trim(text)
+    if ends_with(body, "%") {
+        val read = parse_float(trim(substring(body, 0, len(body) - 1)))
+        if Err(why) = read {
+            return err(concat("svg: ", what, "=\"", body, "\" is not a number (", why, ")"))
+        }
+        return ok(clamp01(try read / 100.0))
+    }
+    val read = parse_float(body)
+    if Err(why) = read {
+        return err(concat("svg: ", what, "=\"", body, "\" is not a number (", why, ")"))
+    }
+    return ok(clamp01(try read))
+}
+
+fn clamp01(v: float) -> float {
+    if v < 0.0 {
+        return 0.0
+    }
+    if v > 1.0 {
+        return 1.0
+    }
+    return v
+}
+
+// ---- the whole drawing as one path
+
+// **Everything the drawing paints, as one path**: each filled figure's own outline, and each
+// stroked figure's stroke turned into an area by `stroker.outline`. This is what a monochrome icon
+// needs, because a themed icon is tinted by the control it sits on and its parts are not separately
+// coloured.
+//
+// **It refuses rather than flattening away a difference it cannot express.** Two fill rules in one
+// drawing are not one path -- an even-odd outline inside a nonzero one fills differently in each --
+// and a figure at 30% opacity is not solid. Both cases return an `Err` naming the figure and leave
+// `Drawing.figures` to a caller that wants to paint them one at a time, which is the only way to
+// honour either.
+pub fn filled_path(d: Drawing) -> Result<shape.Path, string> {
+    val segments = mutable_array_new<shape.Segment>()
+    var rule = shape.Winding.NonZero
+    var rule_seen = false
+    var at = 0
+    for f in d.figures {
+        at = at + 1
+        if f.opacity < 1.0 {
+            return err(concat(
+                "svg: figure ",
+                str(at),
+                " is at ",
+                str(f.opacity),
+                " opacity, which one path cannot express -- paint Drawing.figures yourself"
+            ))
+        }
+        if painted(f.fill) {
+            if rule_seen && !same_winding(rule, f.path.winding) {
+                return err(concat(
+                    "svg: figure ",
+                    str(at),
+                    " fills with a different rule from the ones before it,",
+                    " and two rules are not one path -- paint Drawing.figures yourself"
+                ))
+            }
+            rule = f.path.winding
+            rule_seen = true
+            for s in f.path.segments {
+                push(segments, s)
+            }
+        }
+        if painted(f.stroke) {
+            // A stroke's outline overlaps itself at every join, so it fills nonzero whatever the
+            // figure's own rule was.
+            if rule_seen && !same_winding(rule, shape.Winding.NonZero) {
+                return err(concat(
+                    "svg: figure ",
+                    str(at),
+                    " is stroked, and a stroke outline fills nonzero while an even-odd fill is",
+                    " already in this path -- paint Drawing.figures yourself"
+                ))
+            }
+            rule = shape.Winding.NonZero
+            rule_seen = true
+            for s in (try stroker.outline(f.path, f.edge)).segments {
+                push(segments, s)
+            }
+        }
+    }
+    return ok(shape.path_of(snapshot(segments), rule))
+}
+
+// **Every figure at or above `least` opacity, taken as solid, and the fainter ones left out.** The
+// approximation `filled_path` refuses to make, offered as its own function so that a caller asks
+// for it on purpose.
+//
+// **Why it exists, measured rather than assumed**: of the 1,206 SVGs under `/usr/share/icons` on a
+// Fedora desktop, **235 have a figure that is not fully opaque** -- Adwaita draws two-tone icons as
+// a solid outline over a fill at 0.35 or 0.75 -- so an exact reader refuses a fifth of a desktop's
+// icons. Dropping the faint layer keeps the part that carries the shape, which is the right trade
+// for an icon that is going to be tinted with one ink anyway; keeping it solid would turn a
+// two-tone icon into a blob, and that is the trade this does not make.
+//
+// `least` is a cut rather than a blend: at 1.0 only the fully opaque figures survive, at 0.5 the
+// 0.75 layers come too and arrive solid. Anything a *caller* wants to shade properly is in
+// `Drawing.figures` with its own opacity, which is the only way to get it right.
+pub fn solid_path(d: Drawing, least: float) -> Result<shape.Path, string> {
+    val kept = mutable_array_new<Figure>()
+    for f in d.figures {
+        if f.opacity >= least {
+            push(kept, with f { opacity: 1.0 })
+        }
+    }
+    return filled_path(with d { figures: snapshot(kept) })
+}
+
+fn painted(f: Fill) -> bool {
+    return switch f {
+        Color(_) { true }
+        Current { true }
+        Nothing { false }
+    }
+}
+
+fn same_winding(a: shape.Winding, b: shape.Winding) -> bool {
+    return switch a {
+        NonZero {
+            switch b {
+                NonZero { true }
+                EvenOdd { false }
+            }
+        }
+        EvenOdd {
+            switch b {
+                NonZero { false }
+                EvenOdd { true }
+            }
+        }
+    }
+}
+
+// **A file on disk as an icon**: parse it, merge what it paints, and scale that into the unit box
+// `widget.IconSource.Drawn` wants. The three steps are separately available for a caller who wants
+// the figures or the document's own coordinates.
+pub fn icon(text: string) -> Result<shape.Path, string> {
+    val d = try parse(text)
+    return ok(in_unit_box(try filled_path(d), d.view))
+}
+
+pub fn icon(data: [byte]) -> Result<shape.Path, string> {
+    val d = try parse(data)
+    return ok(in_unit_box(try filled_path(d), d.view))
 }

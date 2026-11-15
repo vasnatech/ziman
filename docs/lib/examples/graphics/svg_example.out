@@ -4,4 +4,13 @@ true
 -0.00,-5.00 10.00x5.00
 0.14,0.23 0.73x0.56
 0.00,0.25 1.00x0.50
+2 figures in 0.00,0.00 24.00x24.00
+  1.00,1.00 22.00x22.00 unpainted
+  4.41,5.59 17.59x13.41 currentColor
+merged: -0.01,-0.01 24.01x24.01
+icon: -0.00,-0.00 1.00x1.00
 svg: expected a number at 6, found 'X'
+svg: <text> is not something this reader can draw -- it reads paths, rects, circles, ellipses, lines, polylines, polygons and the groups around them
+svg: fill="url(#g)" is a gradient or a pattern, and a path can only carry a colour -- read the document with xml and build the paint yourself
+svg: figure 1 is at 0.3 opacity, which one path cannot express -- paint Drawing.figures yourself
+solid: 2.00,2.00 4.00x4.00

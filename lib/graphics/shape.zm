@@ -200,31 +200,48 @@ pub fn circle_path(centre: Point, radius: float) -> Path {
 // refused, because that is what every other drawing API does with it and the alternative is an
 // error for something with an obvious meaning.
 pub fn round_rect_path(r: Rect, radius: float) -> Path {
+    return round_rect_path(r, radius, radius)
+}
+
+// **Corners that are elliptical rather than circular**, which is the general form and the one a
+// file on disk writes: SVG's `<rect>` has an `rx` and an `ry`, and a drawing tool that scaled a
+// rounded rectangle non-uniformly writes two radii that differ -- sometimes by 30%, often by a
+// rounding error (`rx="3.9631047" ry="3.9649484"` is one from an icon theme). A reader with only
+// the circular form has to refuse those or quietly pick one.
+//
+// Each radius is clamped to half of **its own** axis, as the specification says: `rx` to half the
+// width and `ry` to half the height. A zero in either axis means square corners, because a corner
+// with no height is not a corner.
+pub fn round_rect_path(r: Rect, rx: float, ry: float) -> Path {
     val n = normalized(r)
-    val limit = if n.width < n.height { n.width / 2.0 } else { n.height / 2.0 }
-    var rad = radius
-    if rad > limit {
-        rad = limit
+    var hx = rx
+    var hy = ry
+    if hx > n.width / 2.0 {
+        hx = n.width / 2.0
     }
-    if rad <= 0.0 {
+    if hy > n.height / 2.0 {
+        hy = n.height / 2.0
+    }
+    if hx <= 0.0 || hy <= 0.0 {
         return rect_path(n)
     }
-    val o = rad * kappa
+    val ox = hx * kappa
+    val oy = hy * kappa
     val b = path_builder()
-    move_to(b, point_of(n.x + rad, n.y))
-    line_to(b, point_of(right(n) - rad, n.y))
-    cubic_to(b, point_of(right(n) - rad + o, n.y), point_of(right(n), n.y + rad - o), point_of(right(n), n.y + rad))
-    line_to(b, point_of(right(n), bottom(n) - rad))
+    move_to(b, point_of(n.x + hx, n.y))
+    line_to(b, point_of(right(n) - hx, n.y))
+    cubic_to(b, point_of(right(n) - hx + ox, n.y), point_of(right(n), n.y + hy - oy), point_of(right(n), n.y + hy))
+    line_to(b, point_of(right(n), bottom(n) - hy))
     cubic_to(
         b,
-        point_of(right(n), bottom(n) - rad + o),
-        point_of(right(n) - rad + o, bottom(n)),
-        point_of(right(n) - rad, bottom(n))
+        point_of(right(n), bottom(n) - hy + oy),
+        point_of(right(n) - hx + ox, bottom(n)),
+        point_of(right(n) - hx, bottom(n))
     )
-    line_to(b, point_of(n.x + rad, bottom(n)))
-    cubic_to(b, point_of(n.x + rad - o, bottom(n)), point_of(n.x, bottom(n) - rad + o), point_of(n.x, bottom(n) - rad))
-    line_to(b, point_of(n.x, n.y + rad))
-    cubic_to(b, point_of(n.x, n.y + rad - o), point_of(n.x + rad - o, n.y), point_of(n.x + rad, n.y))
+    line_to(b, point_of(n.x + hx, bottom(n)))
+    cubic_to(b, point_of(n.x + hx - ox, bottom(n)), point_of(n.x, bottom(n) - hy + oy), point_of(n.x, bottom(n) - hy))
+    line_to(b, point_of(n.x, n.y + hy))
+    cubic_to(b, point_of(n.x, n.y + hy - oy), point_of(n.x + hx - ox, n.y), point_of(n.x + hx, n.y))
     close_path(b)
     return built(b, Winding.NonZero)
 }

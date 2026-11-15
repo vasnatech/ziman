@@ -252,6 +252,20 @@ A rectangle with rounded corners. A radius past half the shorter side is clamped
 refused, because that is what every other drawing API does with it and the alternative is an
 error for something with an obvious meaning.
 
+```
+pub fn round_rect_path(r: Rect, rx: float, ry: float) -> Path
+```
+
+**Corners that are elliptical rather than circular**, which is the general form and the one a
+file on disk writes: SVG's `<rect>` has an `rx` and an `ry`, and a drawing tool that scaled a
+rounded rectangle non-uniformly writes two radii that differ -- sometimes by 30%, often by a
+rounding error (`rx="3.9631047" ry="3.9649484"` is one from an icon theme). A reader with only
+the circular form has to refuse those or quietly pick one.
+
+Each radius is clamped to half of **its own** axis, as the specification says: `rx` to half the
+width and `ry` to half the height. A zero in either axis means square corners, because a corner
+with no height is not a corner.
+
 ## Transforming and measuring
 
 ### `transform_path`
