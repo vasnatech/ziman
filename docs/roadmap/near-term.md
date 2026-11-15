@@ -1297,8 +1297,27 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
       *text* font already works and is what the tree's marks are.
     * **A picture icon** is blocked on decoders: `image` has `decode_png` and, for JPEG, only
       `jpeg_dimensions` -- there is no JPEG decoder and no SVG parser at all.
-    * **`Button.icon`** -- the control field, which is what makes an icon reachable from a design
-      file. Unblocked, and the question the dialect cannot dodge.
+    * ~~**`Button.icon`**~~ -- **built 2026-11-14.** `widget.Icon` is a source, a name and a side;
+      `IconSource` is an enum of one (`Drawn(shape.Path)`) so that adding a blocked source later
+      breaks every switch that must handle it. `controls.Button.icon` is an `Option<widget.Icon>`,
+      `Style.icon_gap` is the space beside the label, and the icon is an **em square at
+      `text_size`** -- so one unit-box drawing serves a 12-point button and a 24-point one, which
+      is the whole reason an icon has no size of its own.
+
+      **The accessibility rule fell out of two that already existed** rather than needing a third:
+      `a11y` prefers a declared label over the text it can gather, and a `Drawing` has no text to
+      gather. So `button_widget` declares the icon's name only when the button has no words, and a
+      labelled button's icon is silent without anything being told to be.
+
+      Measured, 200-point box, `text_size` 12: leading icon at x=76.6 and label at 94.6, a gap of
+      exactly `icon_gap`; the pair centred together rather than each alone; icon-only at 94.0 with
+      one child and no gap. Five tests in `controls_test.zm`, one mutation-checked (making the
+      naming rule return nothing fails exactly one of them).
+
+      **One thing it broke, which is the lesson**: `as_button(c: CheckBox)` was a field-by-field
+      `Button { .. }` literal and stopped compiling. It is `with button_of(..) { .. }` now -- a
+      literal names every field and breaks on every addition, while `with` over the constructor
+      says only what differs.
     * **Themed and layered sources**, which both want the ones above first.
 
   `widget.Widget` has nine variants and the only one that draws is `Text`. `controls.Button` is

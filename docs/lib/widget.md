@@ -213,6 +213,94 @@ One colour, because this is a *mark* rather than a picture. A mark tints with th
 state -- disabled, pressed -- and a picture does not; conflating them is how a disabled button
 ends up with a bright icon on a grey label.
 
+## Icons
+
+### `IconSource`
+
+```
+pub enum IconSource {
+    // A path in a **unit box**, from (0,0) to (1,1), scaled into whatever square the control
+    // gives it. `shape` has everything needed to write one and `scene.fill` draws it, so this
+    // source costs no new native code and no registry: see `Drawn`.
+    Drawn(shape.Path)
+}
+```
+
+Where an icon's shape comes from.
+
+**An enum of one, which is the point.** The other four sources are designed and blocked on
+things larger than icons -- a glyph from an *icon font* needs `widget` to name a second face
+(`scene.text_of` is passed font index `0` here), the desktop's theme needs an SVG reader, a
+decoded picture needs a JPEG decoder, and a layered icon wants the others first. Adding a
+variant breaks every switch that must handle it, which is how `Drawing` forced its eight sites
+to be considered rather than silently defaulted.
+
+### `IconSide`
+
+```
+pub enum IconSide {
+    Leading
+    Trailing
+}
+```
+
+Which side of the label an icon sits on.
+
+**Not a general alignment**, deliberately: a search glass leads and a clear `x` trails, and
+those are the two an interface actually wants. A control that needs an icon somewhere else is
+asking for a layout, which is what `Widget` is for.
+
+### `Icon`
+
+```
+pub struct Icon {
+    source: IconSource
+    name: string
+    side: IconSide
+}
+```
+
+An icon on a control: `Button.icon`, and in time a label's.
+
+**An icon is a field on a control and an image is a `Widget`**, which is the decision this type
+exists to carry (2026-11-14). Four things follow differently from it: an icon has **no size of
+its own** -- the control derives one from the text it sits beside -- it is **monochrome and
+tinted by the control's state**, it is **silent to a reader** when the control has a label, and
+it *becomes* the control's name when the control has none. An image has its own size, its own
+colours, and needs a description.
+
+`name` is for that last rule. A button with a label does not say it; a button with only an icon
+is announced by it, so `"delete"` is what a reader will read out and it is not optional for an
+icon-only control.
+
+### `icon_of`
+
+```
+pub fn icon_of(path: shape.Path, name: string) -> Icon
+```
+
+A drawn icon, before the label.
+
+### `trailing_icon`
+
+```
+pub fn trailing_icon(path: shape.Path, name: string) -> Icon
+```
+
+The same, after the label -- a disclosure chevron, a clear `x`.
+
+### `icon_widget`
+
+```
+pub fn icon_widget(icon: Icon, size: float, colour: Color) -> Widget
+```
+
+The icon as a widget of its own, square at `size` points and inked in `colour`.
+
+**The control calls this; nothing else should need to.** It is the one place an icon becomes a
+`Widget`, so the rules an icon has -- a square from the text's measure, one colour from the
+control's state, no accessibility text of its own -- are applied once rather than per control.
+
 ### `drawn_of`
 
 ```

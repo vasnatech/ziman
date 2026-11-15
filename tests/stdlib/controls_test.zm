@@ -2773,3 +2773,152 @@ fn a_check_box_keeps_a_radius_that_fits() {
     val ops = widget.paint_ops(laid, metrics())
     test.assert_eq(first_fill_radius(ops, face_box(laid).x), 2.0)
 }
+
+// ---- an icon on a button
+
+// A tick in the unit box `widget.Icon` wants: the shape is a caller's, the box is the contract.
+fn tick() -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(0.1, 0.5))
+    shape.line_to(b, geom.point_of(0.4, 0.8))
+    shape.line_to(b, geom.point_of(0.9, 0.2))
+    return shape.built(b, shape.Winding.NonZero)
+}
+
+fn laid_button(b: controls.Button, within: geom.Rect) -> widget.Laid {
+    return widget.layout(controls.button_widget(b, controls.default_style()), within, metrics())
+}
+
+// **An icon has no size of its own: it is an em square from the control's text.** That is the rule
+// the whole type rests on -- one unit-box drawing serves a 12-point button and a 40-point one --
+// and it is the first thing to break if someone gives `Icon` a width.
+#[test]
+fn an_icon_is_a_square_the_size_of_the_text() {
+    val style = controls.default_style()
+    val wide = geom.rect_of(0.0, 0.0, 200.0, 40.0)
+    val row = laid_button(controls.icon_button_of("save", "Save", widget.icon_of(tick(), "save")), wide).children[0]
+    test.assert_len(2, row.children)
+    val mark = row.children[0]
+    test.assert_eq(mark.bounds.width, style.text_size)
+    test.assert_eq(mark.bounds.height, style.text_size)
+    // And it grows with the text rather than with the padding.
+    val bigger = with style { text_size: 24.0 }
+    val big = widget.layout(
+        controls.button_widget(controls.icon_button_of("save", "Save", widget.icon_of(tick(), "save")), bigger),
+        wide,
+        metrics()
+    ).children[0]
+    test.assert_eq(big.children[0].bounds.width, 24.0)
+}
+
+// **The gap is `Style.icon_gap` and comes from the stack's spacing**, not from a widget between
+// the two: an empty label would measure zero and still be a child a reader walks into.
+#[test]
+fn the_icon_sits_beside_the_label_on_the_side_it_names() {
+    val style = controls.default_style()
+    val wide = geom.rect_of(0.0, 0.0, 200.0, 40.0)
+
+    val leading = laid_button(
+        controls.icon_button_of("save", "Save", widget.icon_of(tick(), "save")),
+        wide
+    ).children[0]
+    val mark = leading.children[0]
+    val label = leading.children[1]
+    test.assert(mark.bounds.x < label.bounds.x)
+    test.assert_eq(label.bounds.x - (mark.bounds.x + mark.bounds.width), style.icon_gap)
+
+    val trailing = laid_button(
+        with controls.button_of("more", "More") {
+            icon: Option<widget.Icon>.Some(widget.trailing_icon(tick(), "more"))
+        },
+        wide
+    ).children[0]
+    val words = trailing.children[0]
+    val after = trailing.children[1]
+    test.assert(words.bounds.x < after.bounds.x)
+    test.assert_eq(after.bounds.x - (words.bounds.x + words.bounds.width), style.icon_gap)
+
+    // Both are centred in the room the button was given, together rather than each on its own.
+    val content = (label.bounds.x + label.bounds.width) - mark.bounds.x
+    test.assert_eq(mark.bounds.x, (200.0 - content) / 2.0)
+}
+
+// A button with no words is the icon and nothing else: no gap, and no empty child.
+#[test]
+fn an_icon_only_button_is_just_the_icon() {
+    val row = laid_button(
+        controls.icon_button_of("delete", "", widget.icon_of(tick(), "delete")),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0)
+    ).children[0]
+    test.assert_len(1, row.children)
+    test.assert_eq(row.children[0].bounds.width, controls.default_style().text_size)
+}
+
+// **The accessibility half of the icon decision**, and it falls out of two rules rather than a
+// third: `a11y` prefers a declared label over gathered text, and a `Drawing` has no text to
+// gather. So a button with words says its words and the icon is silent; a button with only a mark
+// would be nameless and says the icon's name instead.
+#[test]
+fn an_icon_is_silent_beside_a_label_and_speaks_without_one() {
+    val wide = geom.rect_of(0.0, 0.0, 200.0, 40.0)
+    val with_words = laid_button(
+        controls.icon_button_of("save", "Save", widget.icon_of(tick(), "save")),
+        wide
+    )
+    test.assert_eq(named(a11y.tree_of(with_words, "demo", ""), "save"), "Save")
+
+    val wordless = laid_button(
+        controls.icon_button_of("delete", "", widget.icon_of(tick(), "delete")),
+        wide
+    )
+    test.assert_eq(named(a11y.tree_of(wordless, "demo", ""), "delete"), "delete")
+
+    // And an icon-less button is unchanged by any of this.
+    val plain = laid_button(controls.button_of("plain", "Plain"), wide)
+    test.assert_eq(named(a11y.tree_of(plain, "demo", ""), "plain"), "Plain")
+}
+
+fn named(tree: a11y.Tree, key: string) -> string {
+    for node in tree.nodes {
+        if node.key == key {
+            return node.name
+        }
+    }
+    return "<no such node>"
+}
+
+// The icon is inked with the label, so a disabled button's mark greys with its words rather than
+// staying bright beside them.
+#[test]
+fn an_icon_takes_the_controls_own_ink() {
+    val style = controls.default_style()
+    val wide = geom.rect_of(0.0, 0.0, 200.0, 40.0)
+    val off = with controls.icon_button_of("save", "Save", widget.icon_of(tick(), "save")) {
+        disabled: true
+    }
+    val ops = widget.paint(laid_button(off, wide), metrics()).ops
+    var marks = 0
+    for op in ops {
+        switch op {
+            Fill(f) {
+                switch f.fill {
+                    Solid(colour) {
+                        if colour.red == style.disabled_ink.red && colour.green == style.disabled_ink.green {
+                            marks = marks + 1
+                        }
+                    }
+                    LinearGradient(_) {}
+                    RadialGradient(_) {}
+                    Pattern(_) {}
+                }
+            }
+            StrokePath(_) {}
+            Text(_) {}
+            DrawImage(_) {}
+            Nested(_) {}
+        }
+    }
+    // The tick is drawn as a fill in the disabled ink; a bright icon beside grey words would be
+    // zero here.
+    test.assert(marks > 0)
+}

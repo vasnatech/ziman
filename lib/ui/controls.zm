@@ -179,12 +179,34 @@ pub fn target(l: Laid, input: Input, focused: string) -> string {
 pub struct Button {
     name: string
     label: string
+    // What the button shows beside its label, if anything.
+    //
+    // **A field rather than a widget in the label slot**, which is the decision recorded in
+    // `widget.Icon`: it is what lets a design file name an icon without the dialect reaching
+    // inside a control, and it is why the icon has no size of its own -- `button_widget` derives
+    // one from `Style.text_size` below.
+    //
+    // **A button with no label is announced by its icon's name**, which is the one case where an
+    // icon is not decoration. A button with both says only its label.
+    icon: Option<widget.Icon>
     disabled: bool
     held: bool
 }
 
 pub fn button_of(name: string, label: string) -> Button {
-    return Button { name: name, label: label, disabled: false, held: false }
+    return Button {
+        name: name,
+        label: label,
+        icon: Option<widget.Icon>.None,
+        disabled: false,
+        held: false
+    }
+}
+
+// A button with an icon before its label: `with button_of(..) { icon: .. }` says the same thing,
+// and this is here because an icon button is common enough to deserve one call.
+pub fn icon_button_of(name: string, label: string, icon: widget.Icon) -> Button {
+    return with button_of(name, label) { icon: Option<widget.Icon>.Some(icon) }
 }
 
 pub struct ButtonStep {
@@ -249,12 +271,54 @@ fn still(b: Button) -> ButtonStep {
 // The role and the label are declared here, which is what F275 is for -- a reader announces
 // "button, Save" from this one call, and nothing downstream has to guess that a group of rectangles
 // was a button.
+// The icon's name, for a button that has no words of its own -- and nothing otherwise, so a
+// labelled button is read by its label and its icon stays silent.
+fn icon_name_if_wordless(b: Button) -> string {
+    if b.label != "" {
+        return ""
+    }
+    return switch b.icon {
+        Some(icon) { icon.name }
+        None { "" }
+    }
+}
+
 pub fn button_widget(b: Button, style: Style) -> widget.Widget {
     val ink = if b.disabled { style.disabled_ink } else { style.ink }
     val face = if b.held { style.pressed_face } else { style.face }
+    // **The icon is inked with the label and sized from the text**, which is what makes it part of
+    // the control rather than a picture beside it: a disabled button's icon greys with its words,
+    // and a theme that sets a larger `text_size` gets a larger icon without saying so.
+    val content = mutable_array_new<widget.Widget>()
+    val label = widget.label_of(b.label, style.text_size, ink)
+    switch b.icon {
+        Some(icon) {
+            val mark = widget.icon_widget(icon, style.text_size, ink)
+            // A label-less button is just the icon: no gap, and nothing to put one between.
+            if b.label == "" {
+                push(content, mark)
+            } else {
+                switch icon.side {
+                    Leading {
+                        push(content, mark)
+                        push(content, label)
+                    }
+                    Trailing {
+                        push(content, label)
+                        push(content, mark)
+                    }
+                }
+            }
+        }
+        None { push(content, label) }
+    }
+    // **The gap is the stack's own spacing, not a widget between the two.** An empty label would
+    // measure zero and still read as a child to a reader; `Stack.spacing` is what exists for the
+    // space between children, and it is zero when there is only one of them.
+    val gap = if prelude.len(content) > 1 { style.icon_gap } else { 0.0 }
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
-        spacing: 0.0,
+        spacing: gap,
         padding: style.padding,
         surface: face_of(style, face),
         // **Centred, which it could not be until `widget` had an alignment rule.** A button given
@@ -263,13 +327,18 @@ pub fn button_widget(b: Button, style: Style) -> widget.Widget {
         // seen because `curly gui` puts `widget.expand` on the field beside its buttons, so they
         // take exactly the width of their text and the spare room that shows the bug is zero.
         align: widget.centred(),
-        children: [widget.label_of(b.label, style.text_size, ink)],
+        children: prelude.snapshot(content),
         name: ""
     })
     return widget.Widget.Control(widget.Focusable {
         name: b.name,
         role: widget.Role.Button,
-        label: "",
+        // **An icon-only button is announced by its icon**, which is the accessibility half of the
+        // icon decision and falls out of two rules already here: `a11y` prefers a declared label
+        // over the text it can gather, and a `Drawing` contributes no text to gather. So a button
+        // with words says its words and needs nothing declared; a button with only a mark would
+        // otherwise be nameless, and says the icon's name instead.
+        label: icon_name_if_wordless(b),
         description: "",
         value: "",
         state: with widget.no_state() { disabled: b.disabled },
@@ -312,8 +381,17 @@ pub fn check_box_input(c: CheckBox, input: Input, bounds: Rect) -> CheckStep {
     return CheckStep { check_box: with moved { checked: next(c.checked) }, toggled: true }
 }
 
+// A check box as a button, for the input rules the two share -- press, drag off, Space, Enter.
+//
+// **Built with `button_of` and `with` rather than a field-by-field literal**, which is what it was
+// until `Button` gained `icon` and this stopped compiling. A literal names every field, so it
+// breaks on every addition; `with` over the constructor takes the new field's default and says
+// only what differs, which is all this adapter has to say.
 fn as_button(c: CheckBox) -> Button {
-    return Button { name: c.name, label: c.label, disabled: c.disabled, held: c.held }
+    return with button_of(c.name, c.label) {
+        disabled: c.disabled,
+        held: c.held
+    }
 }
 
 fn next(t: Toggle) -> Toggle {
@@ -2629,6 +2707,13 @@ pub struct Style {
     // same rule `tab_width` and `bar_thickness` follow. A theme with four-point buttons and
     // square selection is not a theme, it is two.
     corner_radius: float
+    // The space between an icon and the label it sits beside.
+    //
+    // **One number, like `corner_radius` above and for the same reason**: a theme with a wide gap
+    // on buttons and a tight one everywhere else is not a theme, it is two. It is spacing rather
+    // than the icon's size, which comes from `text_size` -- an icon is an em square, the rule an
+    // icon font follows, so it grows with the text instead of with the padding.
+    icon_gap: float
 }
 
 // A plain light style. **Not a theme and not a design** -- F277 says in as many words that pixel
@@ -2648,7 +2733,11 @@ pub fn default_style() -> Style {
         expanded_mark: "▾",
         scrim: paint.rgba(0.0, 0.0, 0.0, 0.35),
         face_border: Option<widget.Border>.None,
-        corner_radius: 0.0
+        corner_radius: 0.0,
+        // Half the text size: at 12 points that is 6, which reads as a space between two things
+        // rather than as a gap. Scaling with the text keeps it right at any size, the way the
+        // icon's own square does.
+        icon_gap: 6.0
     }
 }
 

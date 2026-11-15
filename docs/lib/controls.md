@@ -336,6 +336,16 @@ Found by painting a scroll bar: the indicator sat still while the window said it
 pub struct Button {
     name: string
     label: string
+    // What the button shows beside its label, if anything.
+    //
+    // **A field rather than a widget in the label slot**, which is the decision recorded in
+    // `widget.Icon`: it is what lets a design file name an icon without the dialect reaching
+    // inside a control, and it is why the icon has no size of its own -- `button_widget` derives
+    // one from `Style.text_size` below.
+    //
+    // **A button with no label is announced by its icon's name**, which is the one case where an
+    // icon is not decoration. A button with both says only its label.
+    icon: Option<widget.Icon>
     disabled: bool
     held: bool
 }
@@ -352,6 +362,15 @@ something that happened once and that the application acts on rather than stores
 ```
 pub fn button_of(name: string, label: string) -> Button
 ```
+
+### `icon_button_of`
+
+```
+pub fn icon_button_of(name: string, label: string, icon: widget.Icon) -> Button
+```
+
+A button with an icon before its label: `with button_of(..) { icon: .. }` says the same thing,
+and this is here because an icon button is common enough to deserve one call.
 
 ### `ButtonStep`
 
@@ -386,12 +405,6 @@ platforms' own and is deliberate here.
 ```
 pub fn button_widget(b: Button, style: Style) -> widget.Widget
 ```
-
-The button as a widget: a control declaring its role, around a background and its label.
-
-The role and the label are declared here, which is what F275 is for -- a reader announces
-"button, Save" from this one call, and nothing downstream has to guess that a group of rectangles
-was a button.
 
 ## The check box
 
@@ -1362,6 +1375,13 @@ pub struct Style {
     // same rule `tab_width` and `bar_thickness` follow. A theme with four-point buttons and
     // square selection is not a theme, it is two.
     corner_radius: float
+    // The space between an icon and the label it sits beside.
+    //
+    // **One number, like `corner_radius` above and for the same reason**: a theme with a wide gap
+    // on buttons and a tight one everywhere else is not a theme, it is two. It is spacing rather
+    // than the icon's size, which comes from `text_size` -- an icon is an em square, the rule an
+    // icon font follows, so it grows with the text instead of with the padding.
+    icon_gap: float
 }
 ```
 
