@@ -46,6 +46,19 @@ lib-map-check:
 	@python3 tools/gen_lib_map.py $(shell mktemp -t ziman-lib-map-XXXXXX.html) >/dev/null
 	@echo "ok   gen_lib_map.py runs"
 
+# Fails when a page shows a program that is not the program it names. `tools/gen_highlight.py`
+# fills every `<pre data-ziman="...">` on ziman.dev and the one fenced block in README.md from the
+# fixture each declares, and this says whether doing so would change anything.
+#
+# **The README has claimed since it was written that its example is `tests/lang/readme_example.zm`,
+# "run by the test suite, so it stays true".** It was true by hand until 2026-11-15, which is to
+# say it was true until someone edited one of the two -- and the site's copy had already drifted: a
+# line the page wrapped to fit its column was not the line in the file. Now both are generated from
+# it, and the claim is enforced rather than repeated.
+highlight-check:
+	@python3 tools/gen_highlight.py --check websites/ziman.dev/index.html
+	@python3 tools/gen_highlight.py --check README.md
+
 # Fails when the editor grammar stops giving a token the scope it is meant to. The grammar had no
 # test of any kind until 2026-10-12 -- nothing loaded it, nothing asserted a scope -- and three real
 # gaps sat in it unnoticed (`internal` matched nothing, `#![...]` was not an attribute, `val`/`var`
@@ -157,4 +170,4 @@ design-status-check:
 template-example-check:
 	python3 tools/check_template_examples.py
 
-docs-check: lint-check lib-manual-check corelib-reference-check charsets-check not-yet-check experimental-check doc-module-check syntax-check design-index-check design-status-check vscode-grammar-check showcase-check lib-map-check template-example-check
+docs-check: lint-check lib-manual-check corelib-reference-check charsets-check not-yet-check experimental-check doc-module-check syntax-check design-index-check design-status-check vscode-grammar-check showcase-check lib-map-check highlight-check template-example-check

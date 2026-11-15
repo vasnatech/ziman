@@ -15,6 +15,7 @@ a from-scratch design. It is v0: complete enough to run a real backend (see
 
 ## A taste
 
+<!-- ziman: tests/lang/readme_example.zm -->
 ```
 use json
 
@@ -39,7 +40,10 @@ fn summarize(text: string) -> Result<string, string> {
 }
 
 fn main() {
-    val items = [Item { name: "pen", qty: 3 }, Item { name: "ink", qty: 4 }]
+    val items = [
+        Item { name: "pen", qty: 3 },
+        Item { name: "ink", qty: 4 }
+    ]
     printf("total units: {}\n", total(items))
     print(summarize("{\"name\":\"cup\",\"qty\":2}"))
     print(summarize("{\"name\":1}"))

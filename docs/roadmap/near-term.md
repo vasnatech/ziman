@@ -737,12 +737,20 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   change no source -- it only picks the grammar GitHub renders with -- and is parked with this
   entry rather than ruled out forever.
 
-  **What to build is a tokenizer of our own**: `tools/gen_highlight.py`, emitting `<span>` classes
-  from Ziman's own 25 keywords, strings, text blocks, numbers, comments, attributes, type names
-  and builtins, run at publish time the way `gen_lib_map.py` already is. That colours ziman.dev
-  honestly, with no JavaScript and no CDN, and replaces the hand-written `<b>` tags on the one
-  example the page shows today -- which do not scale to the 30 examples and can drift from the
-  syntax.
+  ~~**What to build is a tokenizer of our own**~~ -- **built 2026-11-15, `tools/gen_highlight.py`.**
+  It reads the keyword table out of `src/lexer.c` rather than keeping a copy, splits it the way the
+  editor's grammar splits it (`int` and `Map` are `support.type` there, so they are plain here
+  rather than bold), and marks keywords, literals, comments and attributes with the three span
+  classes the page already had plus one for comments. No JavaScript, no CDN, no build step: it
+  rewrites `<pre data-ziman="path">` blocks in place and `make highlight-check` says whether a page
+  still shows the program it names.
+  **What that caught on the first run is the argument for it**: the site's hand-coloured example had
+  already drifted from `tests/lang/readme_example.zm` -- a line wrapped to fit the column was not
+  the line in the file -- while the caption under it said the program "is run by the test suite on
+  every change, so it stays true". Both the page and the README's fence are generated from the
+  fixture now, and the claim is enforced rather than repeated. Types and identifiers are left plain
+  on purpose: telling one from the other needs the compiler, and a tokenizer that guessed would be
+  wrong in a way a reader cannot see.
 
   **Linguist itself is the real fix and is out of reach**: it wants the grammar (we have one) plus
   the language in use across hundreds of repositories (we have one). Revisit if that changes.

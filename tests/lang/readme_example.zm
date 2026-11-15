@@ -21,7 +21,10 @@ fn summarize(text: string) -> Result<string, string> {
 }
 
 fn main() {
-    val items = [Item { name: "pen", qty: 3 }, Item { name: "ink", qty: 4 }]
+    val items = [
+        Item { name: "pen", qty: 3 },
+        Item { name: "ink", qty: 4 }
+    ]
     printf("total units: {}\n", total(items))
     print(summarize("{\"name\":\"cup\",\"qty\":2}"))
     print(summarize("{\"name\":1}"))

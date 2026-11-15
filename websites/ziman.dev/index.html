@@ -126,6 +126,7 @@ pre {
 }
 pre b { color: var(--accent); font-weight: 700 }
 pre .dim { color: var(--code-dim) }
+pre .cmt { color: var(--code-dim); font-style: italic }
 pre .grn { color: var(--structure) }
 code { font-family: var(--mono); font-size: .92em }
 p code, li code, td code { background: var(--panel); padding: .1em .35em; border-radius: 3px }
@@ -229,7 +230,7 @@ footer a { color: var(--ink) }
     <p class="eyebrow">A taste</p>
     <div class="two">
       <div class="stack">
-<pre><b>use</b> json
+<pre data-ziman="tests/lang/readme_example.zm"><b>use</b> json
 
 <span class="dim">#[derive(Json)]</span>
 <b>struct</b> Item {
@@ -238,7 +239,7 @@ footer a { color: var(--ink) }
 }
 
 <b>fn</b> total(items: [Item]) -&gt; int {
-    <b>var</b> sum = 0
+    <b>var</b> sum = <span class="grn">0</span>
     <b>for</b> item <b>in</b> items {
         sum = sum + item.qty
     }
@@ -252,15 +253,17 @@ footer a { color: var(--ink) }
 }
 
 <b>fn</b> main() {
-    <b>val</b> items = [Item { name: <span class="grn">"pen"</span>, qty: 3 },
-                 Item { name: <span class="grn">"ink"</span>, qty: 4 }]
+    <b>val</b> items = [
+        Item { name: <span class="grn">"pen"</span>, qty: <span class="grn">3</span> },
+        Item { name: <span class="grn">"ink"</span>, qty: <span class="grn">4</span> }
+    ]
     printf(<span class="grn">"total units: {}\n"</span>, total(items))
     print(summarize(<span class="grn">"{\"name\":\"cup\",\"qty\":2}"</span>))
     print(summarize(<span class="grn">"{\"name\":1}"</span>))
 }</pre>
       </div>
       <div class="stack">
-<pre>total units: 7
+<pre data-ziman-out="tests/lang/readme_example.out">total units: 7
 Ok(cup x2)
 Err(name: expected a string)</pre>
         <p class="caption">
