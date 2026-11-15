@@ -187,6 +187,7 @@ Value ziman_len(Value *args, int argc, int line, int col);
  * to be named in. */
 Value ziman_map_get_or(Value *args, int argc, int line, int col);
 Value ziman_mutable_map_get_or(Value *args, int argc, int line, int col);
+Value ziman_mutable_map_set(Value *args, int argc, int line, int col);
 Value ziman_starts_with(Value *args, int argc, int line, int col);
 Value ziman_ends_with(Value *args, int argc, int line, int col);
 /* `contains`, `snapshot` and `clear` over every type each accepts -- one implementation per

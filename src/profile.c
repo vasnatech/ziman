@@ -61,6 +61,13 @@ static const char **g_samples = NULL;
 static volatile sig_atomic_t g_sample_count = 0;
 static volatile sig_atomic_t g_dropped = 0;
 static int g_started = 0;
+
+/* **Read by the interpreter's frameless-native path, and the reason it exists.** Those natives skip
+ * `ziman_push_frame`, which is also what `--profile` attributes a sample to -- so without this flag
+ * a profiled run reports their time against whatever called them. `len` has been frameless since
+ * the builtin ids landed and has been invisible in every profile since, which is a blind spot over
+ * the hottest function in the language. One global load on the call path buys it back. */
+int ziman_profiling = 0;
 /* The process's own CPU time when sampling started, so the report can compare how much CPU the run
  * actually used against how much the samples account for. They diverge whenever the kernel
  * coalesces SIGPROF -- several threads burning CPU expire the timer again before the pending signal
@@ -126,6 +133,7 @@ static void on_sigprof(int sig) {
 }
 
 void ziman_profile_start(void) {
+    ziman_profiling = 1;
     g_samples = ziman_xcalloc(SAMPLE_CAPACITY, sizeof(*g_samples));
     if (g_samples == NULL) {
         fprintf(stderr, "ziman: --profile: cannot allocate the sample buffer\n");

@@ -2,6 +2,7 @@
 #include "interpreter.h"
 #include "iter.h"
 #include "prelude.h"
+#include "profile.h"
 #include "native_thread.h"
 #include "stack.h"
 
@@ -450,6 +451,12 @@ static void run_defers(Module *module, Env *env) {
  * path since the builtin ids landed and reaches the same check; this is the existing bargain, now
  * written down rather than assumed.
  *
+ * **A profiled run keeps the frame** (`ziman_profiling`, profile.h): a sample is attributed to the
+ * innermost frame, so a frameless native is time charged to its caller. `len` has been frameless
+ * since the builtin ids landed and has been missing from every profile since -- over the hottest
+ * function in the language. One global load on this path buys that back, and it is the same load
+ * whether or not anything is being profiled.
+ *
  * Every entry was read before it was added. `ziman_len` answers a count on every path,
  * `ziman_contains` a bool, the two `get_or`s the found value or the default, and the two string
  * tests a `memcmp`. None of them allocates, so none can even reach a collection.
@@ -464,7 +471,8 @@ static void run_defers(Module *module, Env *env) {
 static int is_frameless_native(NativeFn native) {
     return native == ziman_len || native == ziman_contains ||
            native == ziman_map_get_or || native == ziman_mutable_map_get_or ||
-           native == ziman_starts_with || native == ziman_ends_with;
+           native == ziman_starts_with || native == ziman_ends_with ||
+           native == ziman_mutable_map_set;
 }
 
 /* A native's one-element form: the receiver and the single element, answering what the variadic
@@ -515,7 +523,8 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
      * One relaxed load and one test for every other call, which is what `native_impl` and
      * `native_tail_one` already cost beside it. On a declaration's first call the flag is
      * unresolved and this falls through, once. */
-    if (fn->is_native && __atomic_load_n(&fn->native_frameless, __ATOMIC_RELAXED) > 0) {
+    if (fn->is_native && !ziman_profiling &&
+        __atomic_load_n(&fn->native_frameless, __ATOMIC_RELAXED) > 0) {
         int argc;
         Value *args = collapse_variadic_args(fn, raw_args, raw_argc, tail_is_array_spread, &argc);
         return ((NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED))(args, argc, call_line, call_col);

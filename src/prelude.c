@@ -2342,7 +2342,7 @@ static Value native_mutable_set_new(Value *args, int argc, int line, int col) {
     return mutable_map_new_value("MutableSet");
 }
 
-static Value native_mutable_map_set(Value *args, int argc, int line, int col) {
+Value ziman_mutable_map_set(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     maptable_set(&buf->t, args[1], args[2]);
@@ -4097,7 +4097,7 @@ void prelude_register(void) {
     native_register("permute", native_permute);
     native_register("sort_positions", native_sort_positions);
     native_register("mutable_map_new", native_mutable_map_new);
-    native_register("mutable_map_set", native_mutable_map_set);
+    native_register("mutable_map_set", ziman_mutable_map_set);
     native_register("mutable_map_get", native_mutable_map_get);
     native_register("mutable_map_get_or", ziman_mutable_map_get_or);
     native_register("mutable_map_remove", ziman_mutable_map_remove);

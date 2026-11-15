@@ -26,6 +26,16 @@
 
 /* Installs the SIGPROF handler and starts the interval timer. Call once, immediately before running
  * the program. */
+/* Non-zero once `--profile` has started sampling. The interpreter reads it to keep a frame on the
+ * natives that would otherwise skip one, so a profile names them instead of their callers.
+ *
+ * **A plain `int`, read on the hottest path in the interpreter and written exactly once.**
+ * `ziman_profile_start` runs while the process is still single-threaded -- before any `spawn`, and
+ * before the program itself -- so every later read sees the final value and no atomic is needed.
+ * The relaxed loads beside it (`native_impl`, `native_frameless`) are atomic because those are
+ * filled lazily *during* the run, which is the difference. */
+extern int ziman_profiling;
+
 void ziman_profile_start(void);
 
 /* Stops the timer and prints the profile to stderr, hottest first. stderr rather than stdout so a
