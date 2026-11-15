@@ -91,6 +91,7 @@
 #include "test_source.h"
 #include "geom_source.h"
 #include "shape_source.h"
+#include "svg_source.h"
 #include "paint_source.h"
 #include "scene_source.h"
 #include "pdfobj_source.h"
@@ -201,6 +202,7 @@ static const CoreModule CORE_MODULES[] = {
     {"test", TEST_SOURCE, TEST_SOURCE_PATH},
     {"geom", GEOM_SOURCE, GEOM_SOURCE_PATH},
     {"shape", SHAPE_SOURCE, SHAPE_SOURCE_PATH},
+    {"svg", SVG_SOURCE, SVG_SOURCE_PATH},
     {"paint", PAINT_SOURCE, PAINT_SOURCE_PATH},
     {"scene", SCENE_SOURCE, SCENE_SOURCE_PATH},
     {"pdfobj", PDFOBJ_SOURCE, PDFOBJ_SOURCE_PATH},

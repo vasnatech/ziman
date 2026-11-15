@@ -1,0 +1,50 @@
+use geom
+use shape
+use svg
+
+// An SVG path's `d` attribute as a `shape.Path`: what importing an icon is, once `shape` already
+// has the segments an SVG path is written in. Not a graphics stack -- no styling, no document, no
+// text: an icon set ships one outline per file and this reads that outline.
+// A box in one line, rounded: an arc lowered to cubics lands a rounding error away from a whole
+// number, and `0.00` is what a reader wants to see rather than `-3.4e-16`.
+fn box_text(r: geom.Rect) -> string {
+    return format("{:.2},{:.2} {:.2}x{:.2}", r.x, r.y, r.width, r.height)
+}
+
+fn demo() -> Result<unit, string> {
+    // Absolute and relative spell the same square.
+    val absolute = try svg.path_data("M 0 0 H 10 V 10 H 0 Z")
+    val relative = try svg.path_data("m 0 0 h 10 v 10 h -10 z")
+    print(shape.path_bounds(absolute) == shape.path_bounds(relative))
+
+    // The number grammar is the part that surprises: `10-5` is two numbers, because a minus sign
+    // begins one, and `20.5.5` is two more.
+    print(box_text(shape.path_bounds(try svg.path_data("M0 0L10-5L20.5.5Z"))))
+
+    // An arc becomes cubics, since neither `shape` nor PDF has an arc primitive. A half circle of
+    // radius 5 is ten across and five tall, however it is written.
+    print(box_text(shape.path_bounds(try svg.path_data("M 0 0 A 5 5 0 0 1 10 0"))))
+    // A radius too small to reach its endpoint is scaled up rather than refused -- which is what
+    // an exported file looks like after its numbers were rounded.
+    print(box_text(shape.path_bounds(try svg.path_data("M 0 0 A 1 1 0 0 1 10 0"))))
+
+    // **And the step that makes a path an icon**: an icon set draws in a 24-unit grid and
+    // `widget.IconSource.Drawn` wants a unit box. Aspect is kept and the drawing is centred, so a
+    // wide icon floats rather than stretching.
+    val tick = "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"
+    print(box_text(shape.path_bounds(try svg.icon_path(tick, geom.rect_of(0.0, 0.0, 24.0, 24.0)))))
+    print(box_text(shape.path_bounds(try svg.icon_path("M 0 0 H 24 V 12 H 0 Z", geom.rect_of(0.0, 0.0, 24.0, 12.0)))))
+
+    // What it will not read, it refuses: a path that quietly skipped a command it did not know
+    // would draw something nobody drew.
+    if Err(why) = svg.path_data("M 0 0 X 5 5") {
+        print(why)
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("svg example failed: {}\n", e)
+    }
+}

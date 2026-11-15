@@ -1,0 +1,540 @@
+// svg.zm -- an SVG path's `d` attribute as a `shape.Path`.
+//
+// **A reader for one attribute, not a graphics stack**, which is the scope the icon work settled
+// on: `shape` already has the segment vocabulary an SVG path is written in -- `move_to`,
+// `line_to`, `quad_to`, `cubic_to`, `close_path` -- so importing an icon is a parser for the
+// string in `d=` and nothing more. Styling, gradients, text, clipping and the document around it
+// are all somebody else's problem, and most of them are problems an *icon* does not have: an icon
+// set ships one outline per file.
+//
+// **Why this exists at all**: `widget.IconSource.Drawn` takes a path in a unit box, and before
+// this the only way to get one was to write it by hand with the builder. An icon set on disk was
+// unreachable, which is what made the drawn source a developer's tool rather than a designer's.
+//
+// What is here: every path command (`M L H V C S Q T A Z`, absolute and relative), implicit
+// repetition, the number grammar as SVG actually writes it (`.5`, `-.5`, `1e-3`, and `10-5` as
+// two numbers), and **arcs lowered to cubics**, because `shape` has no arc primitive and neither
+// does PDF -- `ellipse_path` makes the same choice with the same constant.
+use geom
+use geom.Point
+use geom.point_of
+use math.abs
+use math.acos
+use math.cos
+use math.sin
+use math.sqrt
+use shape
+
+// A quarter-circle's worth of cubic control-point offset. The same constant `shape.ellipse_path`
+// uses, for the same reason: an arc has to become curves, and this is the standard approximation.
+val kappa: float = 0.5522847498307933
+
+// Where the reader is: the point it has reached, the point a `Z` would return to, and the control
+// point a smooth command reflects.
+//
+// **A struct rather than four `var`s**, because every command needs most of it and a parser that
+// threads its state through arguments is one that cannot forget to update it.
+struct Pen {
+    at: Point
+    started: Point
+    // The second control point of the last cubic, or the control of the last quad, in absolute
+    // terms -- what `S` and `T` reflect. `None` after anything else, which is what makes a smooth
+    // command following a line use its own start point.
+    last_control: Option<Point>
+    // Whether the last command was a cubic family (C/S) or a quadratic one (Q/T): a smooth cubic
+    // only reflects a cubic's control, and a smooth quad only a quad's.
+    last_was_cubic: bool
+}
+
+// `d` as a path, or an `Err` naming what it could not read and where.
+//
+// **Refuses rather than guessing**, which for a file format read off disk is the only defensible
+// answer: a path that silently drops a command it did not understand draws something that is not
+// the icon anybody drew, and nobody can tell from the result.
+pub fn path_data(d: string) -> Result<shape.Path, string> {
+    val b = shape.path_builder()
+    val cs = chars(d)
+    var at = 0
+    var pen = Pen {
+        at: point_of(0.0, 0.0),
+        started: point_of(0.0, 0.0),
+        last_control: Option<Point>.None,
+        last_was_cubic: false
+    }
+    var command = ""
+    var any = false
+    while true {
+        at = skipped(cs, at)
+        if at >= len(cs) {
+            break
+        }
+        val c = cs[at]
+        if is_command(c) {
+            command = c
+            at = at + 1
+            if command == "Z" || command == "z" {
+                shape.close_path(b)
+                pen = with pen { at: pen.started, last_control: Option<Point>.None }
+                any = true
+                continue
+            }
+        } else if command == "" {
+            return err(format("svg: a path must begin with a command, found '{}' at {}", c, str(at)))
+        } else if command == "M" || command == "m" {
+            // **An implicit repetition of a moveto is a lineto**, which is in the grammar and is
+            // the one case where repeating a command does not repeat it.
+            command = if command == "M" { "L" } else { "l" }
+        }
+        val step = try one_command(b, cs, at, command, pen)
+        at = step.at
+        pen = step.pen
+        any = true
+    }
+    if !any {
+        // An empty `d` is a path that draws nothing, which is legal and is what a hidden icon is.
+        return ok(shape.empty_path())
+    }
+    return ok(shape.built(b, shape.Winding.NonZero))
+}
+
+// What one command consumed and where it left the pen.
+struct Step {
+    at: int
+    pen: Pen
+}
+
+fn one_command(b: shape.PathBuilder, cs: [string], from: int, command: string, pen: Pen) -> Result<Step, string> {
+    val relative = is_lower(command)
+    val c = upper(command)
+    if c == "M" {
+        val p = try read_point(cs, from, relative, pen.at)
+        shape.move_to(b, p.value)
+        return ok(Step {
+            at: p.at,
+            pen: with pen { at: p.value, started: p.value, last_control: Option<Point>.None }
+        })
+    }
+    if c == "L" {
+        val p = try read_point(cs, from, relative, pen.at)
+        shape.line_to(b, p.value)
+        return ok(Step { at: p.at, pen: with pen { at: p.value, last_control: Option<Point>.None } })
+    }
+    if c == "H" {
+        val n = try read_number(cs, from)
+        val x = if relative { pen.at.x + n.value } else { n.value }
+        val p = point_of(x, pen.at.y)
+        shape.line_to(b, p)
+        return ok(Step { at: n.at, pen: with pen { at: p, last_control: Option<Point>.None } })
+    }
+    if c == "V" {
+        val n = try read_number(cs, from)
+        val y = if relative { pen.at.y + n.value } else { n.value }
+        val p = point_of(pen.at.x, y)
+        shape.line_to(b, p)
+        return ok(Step { at: n.at, pen: with pen { at: p, last_control: Option<Point>.None } })
+    }
+    if c == "C" {
+        val c1 = try read_point(cs, from, relative, pen.at)
+        val c2 = try read_point(cs, c1.at, relative, pen.at)
+        val end = try read_point(cs, c2.at, relative, pen.at)
+        shape.cubic_to(b, c1.value, c2.value, end.value)
+        return ok(Step {
+            at: end.at,
+            pen: with pen {
+                at: end.value,
+                last_control: Option<Point>.Some(c2.value),
+                last_was_cubic: true
+            }
+        })
+    }
+    if c == "S" {
+        val c2 = try read_point(cs, from, relative, pen.at)
+        val end = try read_point(cs, c2.at, relative, pen.at)
+        shape.cubic_to(b, reflected(pen, true), c2.value, end.value)
+        return ok(Step {
+            at: end.at,
+            pen: with pen {
+                at: end.value,
+                last_control: Option<Point>.Some(c2.value),
+                last_was_cubic: true
+            }
+        })
+    }
+    if c == "Q" {
+        val control = try read_point(cs, from, relative, pen.at)
+        val end = try read_point(cs, control.at, relative, pen.at)
+        shape.quad_to(b, control.value, end.value)
+        return ok(Step {
+            at: end.at,
+            pen: with pen {
+                at: end.value,
+                last_control: Option<Point>.Some(control.value),
+                last_was_cubic: false
+            }
+        })
+    }
+    if c == "T" {
+        val end = try read_point(cs, from, relative, pen.at)
+        val control = reflected(pen, false)
+        shape.quad_to(b, control, end.value)
+        return ok(Step {
+            at: end.at,
+            pen: with pen {
+                at: end.value,
+                last_control: Option<Point>.Some(control),
+                last_was_cubic: false
+            }
+        })
+    }
+    if c == "A" {
+        return arc(b, cs, from, relative, pen)
+    }
+    return err(format("svg: '{}' is not a path command", command))
+}
+
+// The control point a smooth command reflects: the previous one mirrored through the current
+// point, or the current point itself when the previous command was not of the same family.
+//
+// **The family check is not pedantry.** `S` after a line must use the current point, and a reader
+// that reflected whatever control it last saw would curve where the file says straight -- which
+// looks like a wrong icon rather than like a bug.
+fn reflected(pen: Pen, cubic: bool) -> Point {
+    if cubic != pen.last_was_cubic {
+        return pen.at
+    }
+    return switch pen.last_control {
+        Some(p) { point_of(2.0 * pen.at.x - p.x, 2.0 * pen.at.y - p.y) }
+        None { pen.at }
+    }
+}
+
+// ---- the number grammar, which is the part that surprises
+
+// A number and where it ended.
+struct Read {
+    value: float
+    at: int
+}
+
+struct ReadPoint {
+    value: Point
+    at: int
+}
+
+// **SVG's separators are "whitespace, commas, or nothing at all"**, which is the rule a reader
+// written from the shapes rather than the grammar gets wrong: `10-5` is two numbers, `.5.5` is
+// two numbers, and `1e-3` is one. A minus sign *begins* a number, so it separates; a decimal
+// point separates when the number already has one.
+fn skipped(cs: [string], from: int) -> int {
+    var at = from
+    while at < len(cs) && is_separator(cs[at]) {
+        at = at + 1
+    }
+    return at
+}
+
+fn is_separator(c: string) -> bool {
+    return c == " " || c == "," || c == "\t" || c == "\n" || c == "\r"
+}
+
+fn is_digit(c: string) -> bool {
+    return c >= "0" && c <= "9"
+}
+
+fn read_number(cs: [string], from: int) -> Result<Read, string> {
+    var at = skipped(cs, from)
+    val start = at
+    if at < len(cs) && (cs[at] == "-" || cs[at] == "+") {
+        at = at + 1
+    }
+    var digits = 0
+    while at < len(cs) && is_digit(cs[at]) {
+        at = at + 1
+        digits = digits + 1
+    }
+    if at < len(cs) && cs[at] == "." {
+        at = at + 1
+        while at < len(cs) && is_digit(cs[at]) {
+            at = at + 1
+            digits = digits + 1
+        }
+    }
+    if digits == 0 {
+        val found = if start < len(cs) { cs[start] } else { "the end of the path" }
+        return err(format("svg: expected a number at {}, found '{}'", str(start), found))
+    }
+    // An exponent, which an exported file uses for small numbers rather than writing zeros.
+    if at < len(cs) && (cs[at] == "e" || cs[at] == "E") {
+        var after = at + 1
+        if after < len(cs) && (cs[after] == "-" || cs[after] == "+") {
+            after = after + 1
+        }
+        var exponent_digits = 0
+        while after < len(cs) && is_digit(cs[after]) {
+            after = after + 1
+            exponent_digits = exponent_digits + 1
+        }
+        // Only an exponent with digits is part of the number: `1e` is a 1 followed by a letter,
+        // which is a command and not an error.
+        if exponent_digits > 0 {
+            at = after
+        }
+    }
+    // **A leading `+` is dropped rather than passed on**: SVG's grammar allows a signed number
+    // and `parse_float` does not take the plus, so `M +0,+0` -- which an exporter writes -- came
+    // back as "'+0' is not a number" until a test asked for it.
+    val raw = joined(cs, start, at)
+    val text = if starts_with(raw, "+") { substring(raw, 1, len(raw)) } else { raw }
+    return switch parse_float(text) {
+        Ok(v) { ok(Read { value: v, at: at }) }
+        Err(_) { err(format("svg: '{}' is not a number", raw)) }
+    }
+}
+
+fn read_point(cs: [string], from: int, relative: bool, origin: Point) -> Result<ReadPoint, string> {
+    val x = try read_number(cs, from)
+    val y = try read_number(cs, x.at)
+    val p = if relative {
+        point_of(origin.x + x.value, origin.y + y.value)
+    } else {
+        point_of(x.value, y.value)
+    }
+    return ok(ReadPoint { value: p, at: y.at })
+}
+
+// A flag is one character, `0` or `1`, and may be written with no separator after it -- which is
+// why it is read here rather than with `read_number`: `1 0 0` and `100` are the same three flags
+// in the arc grammar, and a number reader would swallow all three.
+fn read_flag(cs: [string], from: int) -> Result<Read, string> {
+    val at = skipped(cs, from)
+    if at >= len(cs) {
+        return err(format("svg: expected a 0 or 1 flag at {}", str(at)))
+    }
+    if cs[at] == "0" {
+        return ok(Read { value: 0.0, at: at + 1 })
+    }
+    if cs[at] == "1" {
+        return ok(Read { value: 1.0, at: at + 1 })
+    }
+    return err(format("svg: expected a 0 or 1 flag at {}, found '{}'", str(at), cs[at]))
+}
+
+fn joined(cs: [string], from: int, to: int) -> string {
+    val out = mutable_string_new()
+    var at = from
+    while at < to {
+        append(out, cs[at])
+        at = at + 1
+    }
+    return prelude.snapshot(out)
+}
+
+fn is_command(c: string) -> bool {
+    return contains("MmLlHhVvCcSsQqTtAaZz", c)
+}
+
+fn is_lower(c: string) -> bool {
+    return c >= "a" && c <= "z"
+}
+
+// **Folded by hand rather than with `to_upper`**, which is locale-aware and needs a `Locale` this
+// module would otherwise import for one character -- and in a Turkish locale would map `i` to a
+// dotted capital, which is not a path command. The commands are ASCII by definition.
+fn upper(c: string) -> string {
+    if c >= "a" && c <= "z" {
+        val letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        val lower = "abcdefghijklmnopqrstuvwxyz"
+        val at = index_of(lower, c, 0)
+        if at >= 0 {
+            return substring(letters, at, at + 1)
+        }
+    }
+    return c
+}
+
+// ---- arcs, lowered to cubics
+
+// `A rx ry rotation large-arc sweep x y`, as up to four cubic segments.
+//
+// **`shape` has no arc primitive and neither does PDF**, which `ellipse_path` says in as many
+// words: an arc has to become curves somewhere, and doing it once here means both backends draw
+// the same curve. The maths is the specification's own endpoint-to-centre parameterisation
+// (SVG 1.1, F.6.5), which is the part worth not inventing.
+//
+// The three cases the specification calls out, all of which an exported file produces: a zero
+// radius is a straight line, a radius too small for the endpoints is **scaled up** rather than
+// refused, and coincident endpoints draw nothing at all.
+fn arc(b: shape.PathBuilder, cs: [string], from: int, relative: bool, pen: Pen) -> Result<Step, string> {
+    val rx_read = try read_number(cs, from)
+    val ry_read = try read_number(cs, rx_read.at)
+    val rotation = try read_number(cs, ry_read.at)
+    val large = try read_flag(cs, rotation.at)
+    val sweep = try read_flag(cs, large.at)
+    val end_read = try read_point(cs, sweep.at, relative, pen.at)
+    val end = end_read.value
+    val start = pen.at
+
+    // Coincident endpoints: the specification says draw nothing, which is not the same as closing
+    // the subpath -- an arc back to where you are is a no-op and `Z` is not.
+    if start.x == end.x && start.y == end.y {
+        return ok(Step { at: end_read.at, pen: with pen { last_control: Option<Point>.None } })
+    }
+    var rx = abs(rx_read.value)
+    var ry = abs(ry_read.value)
+    if rx == 0.0 || ry == 0.0 {
+        shape.line_to(b, end)
+        return ok(Step { at: end_read.at, pen: with pen { at: end, last_control: Option<Point>.None } })
+    }
+
+    val phi = rotation.value * 3.14159265358979323846 / 180.0
+    val cos_phi = cos(phi)
+    val sin_phi = sin(phi)
+    // Into the ellipse's own frame, where the arc is circular.
+    val dx = (start.x - end.x) / 2.0
+    val dy = (start.y - end.y) / 2.0
+    val x1 = cos_phi * dx + sin_phi * dy
+    val y1 = 0.0 - sin_phi * dx + cos_phi * dy
+
+    // **A radius too small to reach is scaled up, not refused** (F.6.6): a file whose numbers were
+    // rounded on export is extremely common, and refusing it would make this reader useless on
+    // real icons.
+    val lambda = (x1 * x1) / (rx * rx) + (y1 * y1) / (ry * ry)
+    if lambda > 1.0 {
+        val scale = sqrt(lambda)
+        rx = rx * scale
+        ry = ry * scale
+    }
+
+    val sign = if large.value == sweep.value { 0.0 - 1.0 } else { 1.0 }
+    val numerator = rx * rx * ry * ry - rx * rx * y1 * y1 - ry * ry * x1 * x1
+    val denominator = rx * rx * y1 * y1 + ry * ry * x1 * x1
+    val factor = if numerator <= 0.0 || denominator == 0.0 {
+        0.0
+    } else {
+        sign * sqrt(numerator / denominator)
+    }
+    val cx1 = factor * rx * y1 / ry
+    val cy1 = 0.0 - factor * ry * x1 / rx
+    // The centre, back in the caller's frame.
+    val mx = (start.x + end.x) / 2.0
+    val my = (start.y + end.y) / 2.0
+    val cx = cos_phi * cx1 - sin_phi * cy1 + mx
+    val cy = sin_phi * cx1 + cos_phi * cy1 + my
+
+    val theta = angle_of((x1 - cx1) / rx, (y1 - cy1) / ry)
+    var sweep_angle = angle_between(
+        (x1 - cx1) / rx,
+        (y1 - cy1) / ry,
+        (0.0 - x1 - cx1) / rx,
+        (0.0 - y1 - cy1) / ry
+    )
+    if sweep.value == 0.0 && sweep_angle > 0.0 {
+        sweep_angle = sweep_angle - 2.0 * 3.14159265358979323846
+    }
+    if sweep.value == 1.0 && sweep_angle < 0.0 {
+        sweep_angle = sweep_angle + 2.0 * 3.14159265358979323846
+    }
+
+    // **At most a quarter turn per cubic**, which is where `kappa` is exact enough to be invisible
+    // -- the same bound `ellipse_path` uses by writing four of them.
+    val quarter = 3.14159265358979323846 / 2.0
+    var pieces = 1
+    while abs(sweep_angle) / (pieces as float) > quarter && pieces < 8 {
+        pieces = pieces + 1
+    }
+    val each = sweep_angle / (pieces as float)
+    // The control-point distance for an arc of `each` radians, which is `kappa` at a quarter turn.
+    val alpha = kappa * (abs(each) / quarter)
+    var i = 0
+    var from_angle = theta
+    while i < pieces {
+        val to_angle = from_angle + each
+        val p0 = on_ellipse(cx, cy, rx, ry, cos_phi, sin_phi, from_angle)
+        val p1 = on_ellipse(cx, cy, rx, ry, cos_phi, sin_phi, to_angle)
+        val d0 = tangent_of(rx, ry, cos_phi, sin_phi, from_angle)
+        val d1 = tangent_of(rx, ry, cos_phi, sin_phi, to_angle)
+        val forward = if each > 0.0 { alpha } else { 0.0 - alpha }
+        shape.cubic_to(
+            b,
+            point_of(p0.x + forward * d0.x, p0.y + forward * d0.y),
+            point_of(p1.x - forward * d1.x, p1.y - forward * d1.y),
+            p1
+        )
+        from_angle = to_angle
+        i = i + 1
+    }
+    return ok(Step { at: end_read.at, pen: with pen { at: end, last_control: Option<Point>.None } })
+}
+
+fn on_ellipse(cx: float, cy: float, rx: float, ry: float, cos_phi: float, sin_phi: float, t: float) -> Point {
+    val x = rx * cos(t)
+    val y = ry * sin(t)
+    return point_of(cx + cos_phi * x - sin_phi * y, cy + sin_phi * x + cos_phi * y)
+}
+
+// The derivative at `t`, which is the direction a control point leaves along.
+fn tangent_of(rx: float, ry: float, cos_phi: float, sin_phi: float, t: float) -> Point {
+    val dx = 0.0 - rx * sin(t)
+    val dy = ry * cos(t)
+    return point_of(cos_phi * dx - sin_phi * dy, sin_phi * dx + cos_phi * dy)
+}
+
+fn angle_of(x: float, y: float) -> float {
+    val a = acos(x / sqrt(x * x + y * y))
+    return if y < 0.0 { 0.0 - a } else { a }
+}
+
+fn angle_between(ux: float, uy: float, vx: float, vy: float) -> float {
+    val dot = ux * vx + uy * vy
+    val len_u = sqrt(ux * ux + uy * uy)
+    val len_v = sqrt(vx * vx + vy * vy)
+    if len_u == 0.0 || len_v == 0.0 {
+        return 0.0
+    }
+    var cosine = dot / (len_u * len_v)
+    // Rounding can push this just outside the domain of `acos`, which would answer a NaN that
+    // then travels into every coordinate.
+    if cosine > 1.0 {
+        cosine = 1.0
+    }
+    if cosine < 0.0 - 1.0 {
+        cosine = 0.0 - 1.0
+    }
+    val a = acos(cosine)
+    return if ux * vy - uy * vx < 0.0 { 0.0 - a } else { a }
+}
+
+// ---- a path as an icon
+
+// A path scaled into the **unit box** `widget.IconSource.Drawn` wants, from the box the drawing
+// was authored in.
+//
+// **This is the step that makes an imported path usable as an icon**, and it is here rather than
+// in `widget` because it is geometry: an icon set draws in a 24-by-24 grid, or 16, or 512, and the
+// control it lands on knows none of those. `view` is the SVG `viewBox`.
+//
+// **Aspect is preserved and the drawing is centred**, which is what every icon set assumes: a
+// 24x18 drawing in a square box is stretched by nothing and floats in the middle, because an icon
+// squashed to fill its square is a wrong icon rather than a differently-sized one.
+pub fn in_unit_box(p: shape.Path, view: geom.Rect) -> shape.Path {
+    if view.width <= 0.0 || view.height <= 0.0 {
+        return p
+    }
+    val scale = if view.width > view.height { 1.0 / view.width } else { 1.0 / view.height }
+    // Centre whichever axis is the shorter one after scaling.
+    val spare_x = (1.0 - view.width * scale) / 2.0
+    val spare_y = (1.0 - view.height * scale) / 2.0
+    return shape.transform_path(
+        p,
+        geom.matrix_concat(
+            geom.translation(spare_x - view.x * scale, spare_y - view.y * scale),
+            geom.scaling(scale, scale)
+        )
+    )
+}
+
+// The same from a `d` attribute and a view box, which is the whole of importing an icon:
+// `svg.icon_path(d, geom.rect_of(0.0, 0.0, 24.0, 24.0))`.
+pub fn icon_path(d: string, view: geom.Rect) -> Result<shape.Path, string> {
+    return ok(in_unit_box(try path_data(d), view))
+}

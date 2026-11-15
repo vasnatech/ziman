@@ -1379,7 +1379,7 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   |---|---|
   | **a drawn path** | no new native code: `shape` has the builder and `transform_path`, `scene.fill` draws it. Tints and scales free. **First instalment.** |
   | **a glyph** | from the *text* font this already works -- the tree's marks are exactly this. From an **icon font** it is blocked: `widget.zm` passes font index `0` to `scene.text_of`, so a `Label` cannot name a second face. Multi-font support is its own change. |
-  | **the desktop's theme** | `"document-save"` from the freedesktop icon theme, which is how an application stops looking imported. Resolves to a *file*, usually SVG -- so it depends on the SVG reader, not the image decoder. |
+  | **the desktop's theme** | `"document-save"` from the freedesktop icon theme, which is how an application stops looking imported. Resolves to a *file*, usually SVG. **The `d`-attribute half of that exists now** (`lib/graphics/svg.zm`, 2026-11-14); what is left is the document side -- finding the `<path>` elements and the `viewBox` with `xml` -- and the theme lookup itself, which is a search path and an index file rather than a graphics problem. |
   | **a decoded image** | `image.decode_png` exists; **there is no JPEG decoder** (`jpeg_dimensions` reads the header and nothing more), and no SVG parser at all. Does not tint, so its state variants need separate artwork -- the type must allow that without making it the shape everything else pays for. |
   | **layered** | a base with a badge. Cheap once the others exist, and much easier designed in than retrofitted. |
 
@@ -1399,6 +1399,20 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   The path route is the one to argue against rather than for. Its real cost is that an icon has to
   *be* a path: no `.png` dropped in a folder, and importing an SVG means a parser (`shape` has the
   segment vocabulary, so it is a reader for one `d` attribute rather than a graphics stack).
+
+  **That parser was written on 2026-11-14 and the cost turned out to be the estimate**:
+  `lib/graphics/svg.zm`, every path command absolute and relative, implicit repetition, the number
+  grammar as files actually write it (`10-5` is two numbers, `20.5.5` is two more, `1e-1` is one),
+  arc flags with no separator, and **arcs lowered to cubics** because neither `shape` nor PDF has
+  an arc primitive -- `ellipse_path` makes the same choice with the same constant. Plus
+  `svg.icon_path(d, view)`, which scales a 24-unit drawing into the unit box `Drawn` wants, keeping
+  aspect and centring the short axis, because an icon squashed to fill its square is a wrong icon
+  rather than a differently-sized one.
+
+  The three arc cases the specification says to *fix* rather than refuse are all in, because real
+  files contain all three: a radius too small to span the endpoints is **scaled up** (F.6.6), a
+  zero radius is a straight line, and coincident endpoints draw nothing. Measured on Material's
+  own `check` icon, written without a single separator between its commands.
 
   **A second question follows either way, and the dialect cannot dodge it.** `button_of(name,
   label)` takes a string, so an icon-and-label button needs either an optional icon on `Button` or

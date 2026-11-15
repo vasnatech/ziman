@@ -81,6 +81,7 @@ flowchart LR
         scene["graphics.scene"]
         shape["graphics.shape"]
         stroker["graphics.stroker"]
+        svg["graphics.svg"]
         truetype["graphics.truetype"]
     end
     subgraph group_http["HTTP"]
@@ -335,6 +336,9 @@ flowchart LR
     stroker --> math
     stroker --> paint
     stroker --> shape
+    svg --> geom
+    svg --> math
+    svg --> shape
     template --> expr
     template --> json
     terminal --> charset
@@ -390,7 +394,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 0 | `bits`, `charset`, `clock`, `compress`, `edit`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
 | 1 | `derive_reflect`, `geom`, `io`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `validate`, `window` |
 | 2 | `encoding`, `fs`, `ibus`, `json`, `metrics`, `paint`, `shape`, `terminal`, `url`, `xml` |
-| 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
+| 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `svg`, `truetype`, `yaml`, `zone` |
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `template`, `time`, `uuid` |
 | 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml`, `widget` |
 | 6 | `a11y`, `codec`, `derive_repository`, `focus` |
@@ -433,7 +437,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `focus` | `geom`, `widget` | `controls` |
 | `font` | `charset`, `truetype` | `layout`, `pdf`, `raster`, `widget` |
 | `fs` | `charset`, `io`, `os` | `csv`, `http`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
-| `geom` | `math` | `a11y`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype`, `widget` |
+| `geom` | `math` | `a11y`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `svg`, `truetype`, `widget` |
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `ibus` | `window` | - |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
@@ -444,7 +448,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `locale` | - | `client`, `encoding`, `eql`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
-| `math` | - | `controls`, `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
+| `math` | - | `controls`, `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker`, `svg` |
 | `memdb` | `db`, `locale`, `sql` | - |
 | `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `metrics` | `os` | `rest`, `server` |
@@ -470,10 +474,11 @@ otherwise: everything on a layer depends only on lower layers.
 | `scene` | `geom`, `paint`, `shape` | `controls`, `desktop`, `layout`, `pdf`, `raster`, `widget` |
 | `schedule` | `clock`, `locale`, `time` | - |
 | `server` | `clock`, `codec`, `compress`, `fs`, `http`, `io`, `json`, `locale`, `metrics`, `mime`, `net`, `number`, `os`, `uuid` | `rest` |
-| `shape` | `geom`, `math` | `controls`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `truetype`, `widget` |
+| `shape` | `geom`, `math` | `controls`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `truetype`, `widget` |
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
+| `svg` | `geom`, `math`, `shape` | - |
 | `template` | `expr`, `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `terminal` | `charset`, `io` | - |
 | `test` | `regex` | - |

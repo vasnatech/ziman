@@ -150,6 +150,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 |---|---|
 | [`geom`](geom.md) | Points, rectangles and affine transforms. |
 | [`shape`](shape.md) | Paths, and the five segment types everything drawable reduces to. |
+| [`svg`](svg.md) | An SVG path's `d` attribute as a `shape.Path`. |
 | [`paint`](paint.md) | What fills a region, and how a line is drawn. |
 | [`scene`](scene.md) | The display list: drawing operations as values, and a scene as a tree of them. |
 | [`pdfobj`](pdfobj.md) | PDF's object layer: objects, dictionaries, streams, the cross-reference table. |

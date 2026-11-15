@@ -1,0 +1,229 @@
+// `svg`: an SVG path's `d` attribute as a `shape.Path`.
+//
+// **The cases here are the ones a parser written from the shapes rather than the grammar gets
+// wrong.** `10-5` is two numbers and `20.5.5` is two more; a smooth command reflects only a
+// control of its own family; an arc with a radius too small to reach its endpoint is *scaled up*
+// rather than refused, because that is what an exported file looks like after rounding.
+use geom
+use shape
+use svg
+use test
+
+fn path(d: string) -> shape.Path {
+    return switch svg.path_data(d) {
+        Ok(p) { p }
+        Err(why) {
+            test.fail(why)
+            shape.empty_path()
+        }
+    }
+}
+
+fn refused(d: string) -> bool {
+    return switch svg.path_data(d) {
+        Ok(_) { false }
+        Err(_) { true }
+    }
+}
+
+fn box_of(d: string) -> geom.Rect {
+    return shape.path_bounds(path(d))
+}
+
+fn same_box(a: geom.Rect, b: geom.Rect) -> bool {
+    return close(a.x, b.x) && close(a.y, b.y) && close(a.width, b.width) && close(a.height, b.height)
+}
+
+fn close(a: float, b: float) -> bool {
+    val d = a - b
+    return if d < 0.0 { 0.0 - d < 0.01 } else { d < 0.01 }
+}
+
+// ---- the commands
+
+#[test]
+fn the_same_square_three_ways() {
+    val absolute = box_of("M 0 0 H 10 V 10 H 0 Z")
+    test.assert(same_box(absolute, geom.rect_of(0.0, 0.0, 10.0, 10.0)))
+    // Relative, which is what an exported file uses.
+    test.assert(same_box(box_of("m 0 0 h 10 v 10 h -10 z"), absolute))
+    // **Implicit repetition**, where a moveto's repeats are *linetos* -- the one command whose
+    // repetition is not itself, and a rule a reader is likely to miss because it reads as an
+    // exception rather than as grammar.
+    test.assert(same_box(box_of("M 0 0 10 0 10 10 0 10 Z"), absolute))
+    test.assert_len(5, path("M 0 0 H 10 V 10 H 0 Z").segments)
+}
+
+#[test]
+fn curves_keep_their_control_points() {
+    // A cubic's hull is its points, so the bounds say the controls arrived.
+    test.assert(same_box(box_of("M 0 0 C 0 10 10 10 10 0"), geom.rect_of(0.0, 0.0, 10.0, 10.0)))
+    test.assert(same_box(box_of("M 0 0 Q 5 10 10 0"), geom.rect_of(0.0, 0.0, 10.0, 10.0)))
+    // Relative curves are the same curve.
+    test.assert(same_box(box_of("m 0 0 c 0 10 10 10 10 0"), box_of("M 0 0 C 0 10 10 10 10 0")))
+}
+
+// **A smooth command reflects the previous control through the current point**, and only for its
+// own family: `S` after a line has nothing to reflect and must use the current point, or the file
+// curves where it says straight.
+#[test]
+fn a_smooth_command_reflects_only_its_own_family() {
+    // Q (5,10) then T (20,0): the reflected control is (15,-10), so the box reaches y=-10.
+    val reflected = box_of("M 0 0 Q 5 10 10 0 T 20 0")
+    test.assert(same_box(reflected, geom.rect_of(0.0, 0.0 - 10.0, 20.0, 20.0)))
+    // T straight after a *line* has no quad to reflect: the control is the current point, so the
+    // curve stays inside the endpoints' box rather than bulging.
+    test.assert(same_box(box_of("M 0 0 L 10 0 T 20 0"), geom.rect_of(0.0, 0.0, 20.0, 0.0)))
+    // And S after a quad reflects nothing either, for the same reason the other way round.
+    test.assert(same_box(box_of("M 0 0 Q 5 10 10 0 S 15 0 20 0"), geom.rect_of(0.0, 0.0, 20.0, 10.0)))
+}
+
+// ---- the number grammar
+
+#[test]
+fn numbers_separate_without_separators() {
+    // `10-5` is two numbers: a minus sign begins one, so it separates.
+    test.assert(same_box(box_of("M0 0L10-5"), geom.rect_of(0.0, 0.0 - 5.0, 10.0, 5.0)))
+    // `20.5.5` is two numbers: a second decimal point begins one.
+    test.assert(same_box(box_of("M0 0L20.5.5"), geom.rect_of(0.0, 0.0, 20.5, 0.5)))
+    // Exponents, which an exporter writes for small numbers.
+    test.assert(same_box(box_of("M 1e1 1e-1 L 2e1 1"), geom.rect_of(10.0, 0.1, 10.0, 0.9)))
+    // A leading plus, and commas wherever whitespace could go.
+    test.assert(same_box(box_of("M +0,+0 L +10,+10"), geom.rect_of(0.0, 0.0, 10.0, 10.0)))
+}
+
+// ---- arcs
+
+// An arc has to become cubics because `shape` has no arc primitive -- `ellipse_path` says so and
+// makes the same choice. What matters is that the curve goes where the arc went.
+#[test]
+fn an_arc_becomes_curves_that_reach_the_same_places() {
+    // A half circle of radius 5 from (0,0) to (10,0), sweeping up: 10 across and 5 tall.
+    val half = box_of("M 0 0 A 5 5 0 0 1 10 0")
+    test.assert(close(half.width, 10.0))
+    test.assert(close(half.height, 5.0))
+    // The other sweep flag puts it below instead.
+    val down = box_of("M 0 0 A 5 5 0 0 0 10 0")
+    test.assert(close(down.width, 10.0))
+    test.assert(close(down.y, 0.0))
+    test.assert(close(half.y, 0.0 - 5.0))
+
+    // A circle, as two arcs, is as wide as it is tall -- and agrees with `shape`'s own circle.
+    val circle = box_of("M 0 0 A 5 5 0 1 1 10 0 A 5 5 0 1 1 0 0 Z")
+    test.assert(close(circle.width, 10.0))
+    test.assert(close(circle.height, 10.0))
+    // The centre is (5,0): both arcs run between (0,0) and (10,0), so the circle is centred on
+    // that chord's midpoint and reaches 5 above and below it. Reading the measured bounds is what
+    // settled that -- the first version of this line guessed (5,-5).
+    val theirs = shape.path_bounds(shape.circle_path(geom.point_of(5.0, 0.0), 5.0))
+    test.assert(same_box(circle, theirs))
+}
+
+// **The three cases the specification calls out, all of which real files contain.**
+#[test]
+fn an_arc_the_specification_says_to_fix_rather_than_refuse() {
+    // A radius too small to span the endpoints is scaled up (F.6.6), not refused: an exporter
+    // that rounded its numbers produces this constantly.
+    val tiny = box_of("M 0 0 A 1 1 0 0 1 10 0")
+    test.assert(close(tiny.width, 10.0))
+    test.assert(close(tiny.height, 5.0))
+    // A zero radius is a straight line.
+    val flat = box_of("M 0 0 A 0 0 0 0 1 10 0")
+    test.assert(close(flat.height, 0.0))
+    test.assert_len(2, path("M 0 0 A 0 0 0 0 1 10 0").segments)
+    // Coincident endpoints draw nothing at all -- which is not the same as closing the subpath.
+    test.assert_len(1, path("M 5 5 A 5 5 0 1 1 5 5").segments)
+    // A rotated ellipse still arrives at its endpoint.
+    val rotated = box_of("M 0 0 A 10 5 45 0 1 10 10")
+    test.assert(rotated.width >= 10.0)
+    test.assert(rotated.height >= 10.0)
+}
+
+// **Flags may be written with no separator**, because they are one character each: `110 0` is
+// large-arc 1, sweep 1, endpoint (0, 0). A number reader would swallow all of it.
+#[test]
+fn arc_flags_need_no_separator() {
+    val joined = path("M 0 0 A 5 5 0 1110 0")
+    val spaced = path("M 0 0 A 5 5 0 1 1 10 0")
+    test.assert_eq(prelude.len(joined.segments), prelude.len(spaced.segments))
+    test.assert(same_box(shape.path_bounds(joined), shape.path_bounds(spaced)))
+}
+
+// ---- what it will not read
+
+// **Refusing is the point.** A reader that skipped what it did not understand would draw a path
+// that is not the icon anybody drew, and nothing downstream could tell.
+#[test]
+fn what_it_cannot_read_it_refuses_and_says_where() {
+    test.assert(refused("M 0 0 X 5 5"))
+    test.assert(refused("M 0 0 L 5"))
+    test.assert(refused("5 5"))
+    test.assert(refused("M 0 0 A 5 5 0 2 1 10 0"))
+    switch svg.path_data("M 0 0 X 5 5") {
+        Ok(_) { test.fail("an unknown command was accepted") }
+        Err(why) {
+            test.assert(contains(why, "at 6"))
+            test.assert(contains(why, "X"))
+        }
+    }
+    // An empty path draws nothing, which is legal: a hidden icon is written that way.
+    test.assert_len(0, path("").segments)
+    test.assert_len(0, path("   ").segments)
+}
+
+// ---- the unit box an icon lives in
+
+// **The step that makes an imported path an icon.** An icon set draws in a 24-by-24 grid, or 16,
+// or 512; `widget.IconSource.Drawn` takes a unit box and the control it lands on knows none of
+// those numbers.
+#[test]
+fn a_view_box_is_scaled_into_the_unit_box() {
+    val square = switch svg.icon_path("M 0 0 H 24 V 24 H 0 Z", geom.rect_of(0.0, 0.0, 24.0, 24.0)) {
+        Ok(p) { shape.path_bounds(p) }
+        Err(why) {
+            test.fail(why)
+            geom.empty_rect()
+        }
+    }
+    test.assert(same_box(square, geom.rect_of(0.0, 0.0, 1.0, 1.0)))
+
+    // A view box that does not start at the origin, which an exported icon often has.
+    val offset = switch svg.icon_path("M 10 10 H 34 V 34 H 10 Z", geom.rect_of(10.0, 10.0, 24.0, 24.0)) {
+        Ok(p) { shape.path_bounds(p) }
+        Err(why) {
+            test.fail(why)
+            geom.empty_rect()
+        }
+    }
+    test.assert(same_box(offset, geom.rect_of(0.0, 0.0, 1.0, 1.0)))
+}
+
+// **Aspect is preserved and the drawing is centred**, because an icon squashed to fill its square
+// is a wrong icon rather than a differently-sized one.
+#[test]
+fn a_drawing_that_is_not_square_is_centred_rather_than_stretched() {
+    // 24 wide by 12 tall: full width, half height, and floating in the middle.
+    val wide = switch svg.icon_path("M 0 0 H 24 V 12 H 0 Z", geom.rect_of(0.0, 0.0, 24.0, 12.0)) {
+        Ok(p) { shape.path_bounds(p) }
+        Err(why) {
+            test.fail(why)
+            geom.empty_rect()
+        }
+    }
+    test.assert(close(wide.width, 1.0))
+    test.assert(close(wide.height, 0.5))
+    test.assert(close(wide.y, 0.25))
+    test.assert(close(wide.x, 0.0))
+
+    // And the other way round: tall and narrow, centred across.
+    val tall = switch svg.icon_path("M 0 0 H 12 V 24 H 0 Z", geom.rect_of(0.0, 0.0, 12.0, 24.0)) {
+        Ok(p) { shape.path_bounds(p) }
+        Err(why) {
+            test.fail(why)
+            geom.empty_rect()
+        }
+    }
+    test.assert(close(tall.height, 1.0))
+    test.assert(close(tall.width, 0.5))
+    test.assert(close(tall.x, 0.25))
+}
