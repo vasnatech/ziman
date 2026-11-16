@@ -1854,6 +1854,19 @@ pub struct Style {
     ink: Color
     face: Color
     pressed_face: Color
+    // The surface a control is drawn **on**, as against `face`, which is what a control is drawn
+    // **as**.
+    //
+    // **Added because there was no such distinction and a dialog proved it.** A dialog's panel was
+    // `style.face`, and so is every button's face -- so the buttons in the first dialog anyone
+    // looked at were invisible: the text was there, floating, with no edge or fill to say it could
+    // be pressed. The same shape had already cost a split pane's divider, drawn in `face` beside
+    // a control in `face`. Two colours for two things is what every other widget set has, and one
+    // colour for both is a default that hides controls.
+    //
+    // **So `default_style` does not keep its pixels here**, where F286 deliberately did: a look
+    // that cannot show a button on a panel is not a look to preserve.
+    panel: Color
     disabled_ink: Color
     // Under the text being composed through an input method, and under the run of it the method
     // is converting right now. **Two, because they mean different things to the person typing**:

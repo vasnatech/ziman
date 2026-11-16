@@ -3218,6 +3218,48 @@ fn a_wordless_glyph_button_says_its_name_and_not_its_character() {
     test.assert_eq(named(a11y.tree_of(laid, "demo", ""), "close"), "close")
 }
 
+// **A dialog's panel is not the colour of a control on it.** It was, and so the buttons in the
+// first dialog anyone opened were invisible -- text floating on a panel, with no fill or edge to
+// say it could be pressed. Nothing in the layout or the accessibility tree could say so: the
+// buttons were there, in the right boxes, with the right roles, painted in a colour
+// indistinguishable from what they sat on. The third defect of this shape, after the divider.
+#[test]
+fn a_dialogs_panel_is_not_the_colour_of_a_control_on_it() {
+    val style = controls.default_style()
+    val layer = controls.dialog_layer(
+        "ask",
+        "Delete this?",
+        controls.button_widget(controls.button_of("yes", "Delete it"), style),
+        style
+    )
+    val laid = widget.layout(layer.content, geom.rect_of(0.0, 0.0, 400.0, 300.0), metrics())
+    // The panel is the first fill the dialog node paints; the button's face is the first fill the
+    // button paints. Two fills, and the whole test is that they are two colours.
+    test.assert(fill_red_at(laid, "ask") != fill_red_at(laid, "yes"))
+}
+
+// The red channel of the first solid fill the node called `name` paints, or a negative for no such
+// node. **The red channel alone**, because the question is only whether two colours differ and no
+// two greys in `default_style` share one.
+fn fill_red_at(l: widget.Laid, name: string) -> float {
+    switch widget.node_named(l, name) {
+        Some(node) {
+            for op in widget.paint_ops(node, metrics()) {
+                if Fill(f) = op {
+                    switch f.fill {
+                        Solid(c) { return c.red }
+                        LinearGradient(_) { return 0.0 - 1.0 }
+                        RadialGradient(_) { return 0.0 - 1.0 }
+                        Pattern(_) { return 0.0 - 1.0 }
+                    }
+                }
+            }
+            return 0.0 - 1.0
+        }
+        None { return 0.0 - 2.0 }
+    }
+}
+
 // ---------------------------------------------------- the split pane
 
 // Three hundred points of room, a divider six points wide, and panes that refuse to be squeezed
