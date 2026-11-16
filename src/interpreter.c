@@ -512,15 +512,20 @@ static Value push_tail_one(Value owner, Value element) {
 // The array was pacing the collector, not doing work. lib/prelude/map.zm's `remove` carries the
 // tables.
 //
-// `Set add` went back with it that day as a paired revert and is still out: it is variadic (it has
-// plural callers, where `remove` had none), so the shortcut is the only route open to it, and
-// re-measuring it across sizes is its own task rather than a rider on this one.
+// **`Set add` went back with it that day as a paired revert, and came back on 2026-11-15** -- this
+// table's newest entry. It stays variadic, having real plural callers where `remove` had none, so
+// the shortcut is the only route open to it. Re-measured the same way rather than assumed to follow
+// `remove`: the two are not the same shape, since `remove` shrinks a trie and `add` grows one. It
+// wins in both process shapes -- -27% at 16 entries, -25% at 4,096, -19% at 100,000, and -28% on
+// map_ops.zm's own row -- with two sizes at the noise floor and no size losing. `ziman_set_add_one`
+// (prelude.c) carries the table, and `MutableSet add` is the control that did not move.
 static TailOneFn tail_one_for(NativeFn native) {
     if (native == ziman_mutable_array_push) return push_tail_one;
     if (native == ziman_array_push_values) return ziman_array_push_one;
     if (native == ziman_mutable_string_append) return ziman_mutable_string_append_one;
     if (native == ziman_mutable_string_append_byte) return ziman_mutable_string_append_byte_one;
     if (native == ziman_mutable_set_add) return ziman_mutable_set_add_one;
+    if (native == ziman_set_add) return ziman_set_add_one;
     return NULL;
 }
 

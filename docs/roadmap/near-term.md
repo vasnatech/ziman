@@ -870,13 +870,27 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
 
      Note what changed around it: the frameless work (2026-11-14/15) took the interpreter *frame*
      out of these calls, so this probe is now the whole of the remainder rather than half of it.
-  3. **The persistent `Set add` shortcut, still out only because it was reverted in a pair.** It
-     went back on 2026-11-12 alongside `remove`'s, whose revert has since been shown wrong (see the
-     correction in the entry above). `add` keeps its variadic -- it has real plural callers, where
-     `remove` had none -- so the one-element shortcut is the only route open to it, and the 4% win
-     measured that day came off the same one-size, one-process harness that got `remove` wrong by
-     2.6x. **Re-measure it across the size axis and in a second process shape before deciding
-     either way.** `Set insert (persistent)` at 2,646 ns is the row.
+  3. ~~**The persistent `Set add` shortcut, still out only because it was reverted in a pair.**~~
+     ***Done 2026-11-15, and it wins.*** Re-measured across the size axis and in both process
+     shapes rather than assumed to follow `remove`, because the two are not the same shape -- one
+     shrinks a trie and the other grows one, and `remove`'s loss lived entirely above 65,536 entries
+     where the collector's heap sizing took over.
+
+     | entries | with the array | without | |
+     | --- | --- | --- | --- |
+     | 16 | 265-291 ns/op | 194-200 | **-27%** |
+     | 256 | 503-509 | 504-523 | +2% (at the floor) |
+     | 4,096 | 809-848 | 615-631 | **-25%** |
+     | 65,536 | 1,282 | 1,085 | **-15%** |
+     | 100,000 | 1,455-1,505 | 1,186-1,202 | **-19%** |
+     | 262,144 | 2,011-2,028 | 2,005-2,072 | +2% (at the floor) |
+
+     And on `map_ops.zm`'s own row -- the process shape that reversed `remove`'s verdict, reached
+     with a heap twenty other rows have grown -- `Set insert (persistent)` is **2,362-2,679 against
+     1,647-1,856, -28%, every run below every un-shortcut run**. `MutableSet add (present)` is the
+     control and does not move: its own shortcut was already in place. **No size loses**; the two
+     +2% rows are inside this machine's run-to-run band and are reported rather than smoothed over,
+     with no mechanism offered for them.
   4. **This benchmark cannot compare its own two persistent columns, and nothing in it says so.**
      `Map set (persistent)` overwrites a key that is already there -- path copy, no new leaf, no
      node growth -- while `Set insert (persistent)` adds a key that is not -- path copy *plus* a

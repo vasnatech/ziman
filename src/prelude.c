@@ -3801,7 +3801,42 @@ static Value native_mutable_set_is_subset(Value *args, int argc, int line, int c
  * to ask the checker which shape arrived. `collapse_variadic_args` runs before a native is
  * entered, so both shapes are already one array here and the question does not exist. The same
  * simplification `min`/`max` got on the same day. */
-static Value native_set_add(Value *args, int argc, int line, int col) {
+/* `add(s, x)` with one element, before the collapse allocates an array to carry it -- the immutable
+ * `Set`'s shortcut, the same one `ziman_mutable_set_add_one` is for its builder.
+ *
+ * **This is the half of a paired revert that came back (2026-11-15).** Both halves went out on
+ * 2026-11-12 because `Map remove`'s read 2.6x slower and a mechanism that cost 160% on one row and
+ * bought 4% on its twin was not understood well enough to keep either. The `remove` half turned out
+ * to have been measured at one map size in one process shape, and shipped instead as a signature
+ * change; this half was then re-measured the same way rather than assumed to follow, because the
+ * two operations are not the same shape -- `remove` shrinks a trie and `add` grows one, and
+ * `remove`'s loss lived entirely above 65,536 entries where the collector's heap sizing took over.
+ *
+ * **It wins in both process shapes and at every size that is not at the noise floor.** Isolated,
+ * one row per process, paired, three passes each, 1,000,000 inserts of a key that is not present:
+ *
+ *     entries      with the array    without
+ *          16        265-291 ns/op   194-200     -27%
+ *         256        503-509         504-523      +2%   (at the floor)
+ *       4,096        809-848         615-631     -25%
+ *      65,536          1,282           1,085     -15%
+ *     100,000      1,455-1,505     1,186-1,202   -19%
+ *     262,144      2,011-2,028     2,005-2,072    +2%   (at the floor)
+ *
+ * And in tests/bench/map_ops.zm, which reaches the row with a heap twenty other rows have grown --
+ * the process shape that reversed `remove`'s verdict -- `Set insert (persist)` is **2,362-2,679
+ * against 1,647-1,856, -28%, every run below every un-shortcut run**. `MutableSet add (present)` is
+ * the control and does not move (22-32 against 19-24): its own shortcut was already in place.
+ *
+ * The two +2% rows are reported rather than smoothed over. They are inside this machine's
+ * run-to-run band and no mechanism is offered for them, which is the honest state of them. */
+Value ziman_set_add_one(Value owner, Value element) {
+    return value_map(owner.type, mapobj_set(owner.as.map, element, value_int(0)));
+}
+
+/* `add` over an immutable Set, variadic. **Not `static`** because `tail_one_for` (interpreter.c)
+ * compares against the resolved pointer, which is how a declaration finds its one-element form. */
+Value ziman_set_add(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -4166,7 +4201,7 @@ void prelude_register(void) {
     native_register("mutable_set_intersect", native_mutable_set_intersect);
     native_register("mutable_set_difference", native_mutable_set_difference);
     native_register("mutable_set_is_subset", native_mutable_set_is_subset);
-    native_register("set_add", native_set_add);
+    native_register("set_add", ziman_set_add);
     native_register("string_concat", ziman_string_concat);
     native_register("array_concat", ziman_array_concat);
     native_register("mutable_array_concat", ziman_mutable_array_concat);
