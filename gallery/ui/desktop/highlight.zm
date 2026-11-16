@@ -1,0 +1,170 @@
+// Colouring Ziman as Ziman, for the gallery's Code tab.
+//
+// **The partition is `tools/gen_highlight.py`'s and the colours are ziman.dev's**, which is the
+// whole point of not inventing either here. The website marks keywords, literals, comments and
+// attributes and leaves types and identifiers plain -- a signature whose every type is bold is a
+// signature nobody reads, and telling a *type* from an identifier needs the compiler rather than a
+// tokenizer. The editor's TextMate grammar splits the same words the same way. Three surfaces,
+// one story.
+//
+// **The keywords are a copy, and `tools/check_gallery_keywords.py` is why that is safe.** The
+// compiler's table lives in `src/lexer.c` and a program cannot read it at runtime, so this list is
+// written out -- and a gate compares the two, exactly as the website's highlighter is compared.
+// A language that adds a keyword and forgets its colourer has a colourer that quietly stops being
+// right, and the only way to notice is to ask the compiler.
+//
+// **One deviation, and it is forced.** ziman.dev draws a keyword in **bold**, because HTML has
+// bold for free; this layer has one face per window, and `controls.Ink` carries a colour and not a
+// face. So a keyword is drawn in the palette's accent instead. Giving `Ink` a face index is the
+// change that would close the gap, on the day a window loads a bold face.
+use controls
+use paint
+use paint.Color
+
+// ---------------------------------------------------------------- the palette
+//
+// ziman.dev's own values, light theme. A gallery that picked its own greens would be a fourth
+// story about one language.
+
+// `--accent`, the ochre the site uses for links, standing in for the website's bold.
+fn keyword_ink() -> Color {
+    return paint.rgb8(168, 112, 26)
+}
+
+// `--structure`, the green of the Z in the logo, which the site already uses for literals.
+fn literal_ink() -> Color {
+    return paint.rgb8(46, 107, 79)
+}
+
+// `--code-dim`, for comments and attributes alike -- the site italicises the first, which a single
+// face cannot do either.
+fn dim_ink() -> Color {
+    return paint.rgb8(143, 160, 150)
+}
+
+// ---------------------------------------------------------------- the words
+
+// The compiler's keyword table less the types and the two literals, which is `gen_highlight.py`'s
+// split. Kept in the compiler's own order so a diff against `src/lexer.c` reads straight.
+pub fn keywords() -> [string] {
+    return [
+        "as", "break", "builtin", "continue", "defer", "else", "enum", "fn", "for", "if", "in",
+        "native", "pub", "return", "spawn", "struct", "switch", "try", "use", "val", "var",
+        "variadic", "while", "with"
+    ]
+}
+
+// **Left plain on purpose.** The editor's grammar scopes these as `support.type` rather than as
+// keywords; they are here so the gate can account for every word the compiler knows, not so that
+// anything colours them.
+pub fn types() -> [string] {
+    return ["int", "float", "bool", "string", "bigint", "decimal", "byte", "Result", "Channel", "Map", "Set"]
+}
+
+pub fn literals() -> [string] {
+    return ["true", "false"]
+}
+
+// ---------------------------------------------------------------- the scan
+
+fn is_digit(c: string) -> bool {
+    return c >= "0" && c <= "9"
+}
+
+fn is_word(c: string) -> bool {
+    return is_digit(c) || (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c == "_"
+}
+
+// Every run of the source that is not drawn in the ordinary ink.
+//
+// **One pass, left to right, longest thing first.** A `//` inside a string is not a comment and a
+// `"` inside a comment does not open one, which is the only thing a colourer has to get right to
+// stop being actively misleading -- and the only way to get it right is to walk the text once
+// rather than search it for each kind in turn.
+pub fn inks_of(source: string) -> [controls.Ink] {
+    val cs = chars(source)
+    val out = mutable_array_new<controls.Ink>()
+    val n = len(cs)
+    var i = 0
+    while i < n {
+        val c = cs[i]
+        // A comment runs to the end of its line.
+        if c == "/" && i + 1 < n && cs[i + 1] == "/" {
+            var j = i
+            while j < n && cs[j] != "\n" {
+                j = j + 1
+            }
+            push(out, controls.Ink { from: i, to: j, colour: dim_ink() })
+            i = j
+        } else {
+            // A text block first, because `"""` starts with `"` and the shorter rule would eat it.
+            if c == "\"" && i + 2 < n && cs[i + 1] == "\"" && cs[i + 2] == "\"" {
+                var j = i + 3
+                while j + 2 < n && !(cs[j] == "\"" && cs[j + 1] == "\"" && cs[j + 2] == "\"") {
+                    j = j + 1
+                }
+                val stop = if j + 2 < n { j + 3 } else { n }
+                push(out, controls.Ink { from: i, to: stop, colour: literal_ink() })
+                i = stop
+            } else {
+                if c == "\"" {
+                    var j = i + 1
+                    var closed = false
+                    while j < n && !closed {
+                        if cs[j] == "\\" {
+                            j = j + 2
+                        } else {
+                            if cs[j] == "\"" {
+                                closed = true
+                                j = j + 1
+                            } else {
+                                j = j + 1
+                            }
+                        }
+                    }
+                    push(out, controls.Ink { from: i, to: if j > n { n } else { j }, colour: literal_ink() })
+                    i = if j > n { n } else { j }
+                } else {
+                    // An attribute: `#[...]` or `#![...]`, to the first `]`. Nested brackets do
+                    // not occur in an attribute, which is why the first one is enough.
+                    if c == "#" {
+                        var j = i
+                        while j < n && cs[j] != "]" {
+                            j = j + 1
+                        }
+                        val stop = if j < n { j + 1 } else { n }
+                        push(out, controls.Ink { from: i, to: stop, colour: dim_ink() })
+                        i = stop
+                    } else {
+                        if is_digit(c) {
+                            var j = i
+                            while j < n && (is_word(cs[j]) || cs[j] == ".") {
+                                j = j + 1
+                            }
+                            push(out, controls.Ink { from: i, to: j, colour: literal_ink() })
+                            i = j
+                        } else {
+                            if is_word(c) {
+                                var j = i
+                                while j < n && is_word(cs[j]) {
+                                    j = j + 1
+                                }
+                                val word = substring(source, i, j)
+                                if contains(keywords(), word) {
+                                    push(out, controls.Ink { from: i, to: j, colour: keyword_ink() })
+                                }
+                                if contains(literals(), word) {
+                                    push(out, controls.Ink { from: i, to: j, colour: literal_ink() })
+                                }
+                                i = j
+                            } else {
+                                i = i + 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return snapshot(out)
+}

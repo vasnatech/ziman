@@ -41,7 +41,7 @@ fn main() {
 // **A window needs a face and `lib/graphics` has no notion of a system font**: there is no library
 // to resolve a name against, so a caller hands it bytes. `ZIMAN_GALLERY_FONT` is the explicit
 // choice; the rest is what the common distributions ship.
-fn font_candidates() -> [string] {
+fn text_candidates() -> [string] {
     val out = mutable_array_new<string>()
     if Some(explicit) = os.get_env("ZIMAN_GALLERY_FONT") {
         push(out, explicit)
@@ -55,15 +55,47 @@ fn font_candidates() -> [string] {
     return snapshot(out)
 }
 
-fn load_font() -> Result<font.FontRef, string> {
-    val tried = mutable_array_new<string>()
-    for path in font_candidates() {
-        push(tried, path)
+// The faces a window draws in, in the order `raster.Options.fonts` holds them: the text face,
+// then the one the Code tab reads in.
+//
+// **Always two, even when there is only one face on the machine.** `Style.text_font` names a face
+// by index, and `widget` lays a tree out against face 0 whatever index it is given -- but the
+// *renderer* refuses a run naming a face the options do not hold. So a code pane set to face 1
+// would lay out correctly and then fail to paint, which is the worst of the three outcomes.
+// Repeating the text face keeps the index real and costs the code pane nothing but its
+// proportions.
+fn load_fonts() -> Result<[font.FontRef], string> {
+    val text = try load_one(text_candidates(), "text")
+    val mono = switch first_of(mono_candidates()) {
+        Some(f) { f }
+        None { text }
+    }
+    return ok([text, mono])
+}
+
+// A monospaced face for code. **Not an error when there is none**: a proportional code pane is
+// harder to read and still a code pane, where a window that refuses to open is not.
+fn mono_candidates() -> [string] {
+    val out = mutable_array_new<string>()
+    if Some(explicit) = os.get_env("ZIMAN_GALLERY_MONO") {
+        push(out, explicit)
+    }
+    push(out, "/usr/share/fonts/liberation-mono-fonts/LiberationMono-Regular.ttf")
+    push(out, "/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf")
+    push(out, "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
+    push(out, "/usr/share/fonts/adwaita-mono-fonts/AdwaitaMono-Regular.ttf")
+    push(out, "/usr/share/fonts/gnu-free-mono-fonts/FreeMono.ttf")
+    push(out, "/usr/share/fonts/TTF/DejaVuSansMono.ttf")
+    return snapshot(out)
+}
+
+fn first_of(paths: [string]) -> Option<font.FontRef> {
+    for path in paths {
         if fs.exists(path) {
             switch fs.read_bytes(path) {
                 Ok(data) {
                     switch font.load(data) {
-                        Ok(f) { return ok(f) }
+                        Ok(f) { return Option<font.FontRef>.Some(f) }
                         Err(_) { unit }
                     }
                 }
@@ -71,10 +103,21 @@ fn load_font() -> Result<font.FontRef, string> {
             }
         }
     }
-    return err(concat(
-        "no usable font. Set ZIMAN_GALLERY_FONT to a TrueType file. Tried: ",
-        join(separator: ", ", pieces: snapshot(tried))
-    ))
+    return Option<font.FontRef>.None
+}
+
+fn load_one(paths: [string], what: string) -> Result<font.FontRef, string> {
+    switch first_of(paths) {
+        Some(f) { return ok(f) }
+        None {
+            return err(concat(
+                "no usable ",
+                what,
+                " font. Set ZIMAN_GALLERY_FONT to a TrueType file. Tried: ",
+                join(separator: ", ", pieces: paths)
+            ))
+        }
+    }
 }
 
 // How many device pixels a point is: the user's own setting, what the display reports, or 1.0.
@@ -146,8 +189,8 @@ fn resized_to(e: window.Event) -> Option<window.Size> {
 }
 
 fn run() -> Result<unit, string> {
-    val f = try load_font()
-    val m = try widget.metrics_for(f)
+    val faces = try load_fonts()
+    val m = try widget.metrics_for_faces(faces)
     // The tree's marks have to be characters the face actually has: `lib/ui` defaults to
     // triangles, which is right for a toolkit and wrong for whatever font a machine happens to
     // have. A face without U+25B8 would draw `.notdef` and every branch would look alike.
@@ -155,7 +198,7 @@ fn run() -> Result<unit, string> {
     val density = chosen_density().density
     val scale = density.px_per_pt
     val options = with raster.options() {
-        fonts: [f],
+        fonts: faces,
         samples: 1,
         background: Option<paint.Color>.Some(paint.rgb(0.98, 0.98, 0.99)),
         max_pixels: ((8000000 as float) * scale * scale) as int,

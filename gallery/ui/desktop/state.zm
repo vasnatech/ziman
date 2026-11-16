@@ -16,12 +16,21 @@ use gallery_ui.file_tab_width
 use gallery_ui.frame_width
 use gallery_ui.tab_width
 use geom
+use highlight
 use source
 use widget
 
 // The demo tab and the code tab, by index into `tabs`.
 val demo_tab = 0
 val code_tab = 1
+
+// The face the Code tab reads in: index 1 of whatever the window loaded, which `gallery.zm`
+// guarantees is a real face even on a machine with no monospaced font.
+//
+// **Code is read in a monospaced face because code is written in one.** A proportional face turns
+// an aligned comment into a ragged one and makes two spaces look like one, which in a pane whose
+// whole job is to show indentation is not a small thing.
+val code_face = 1
 
 pub struct State {
     split: controls.SplitPane
@@ -95,7 +104,14 @@ fn tree_rows(demos: [all.Demo]) -> [controls.TreeRow] {
 // the code can be read with the keyboard and by a screen reader, which is the whole reason it is
 // a field.
 fn code_entry(text: string) -> controls.Entry {
-    return with controls.text_area_of("source", "Source", text, 24) { readonly: true }
+    return with controls.text_area_of("source", "Source", text, 24) {
+        readonly: true,
+        // **Tokenised once, when the file is loaded**, and not in `view`: `view` runs on every
+        // frame that changes anything, and colouring a 200-line file sixty times a second to get
+        // the same answer is the shape `dirty` exists to avoid. The spans are a property of the
+        // text, so they are computed where the text is.
+        inks: highlight.inks_of(text)
+    }
 }
 
 // Moves to a demo: its files name the sub-tabs, and the first of them is loaded.
@@ -131,7 +147,7 @@ pub fn view(s: State, style: controls.Style, m: widget.Metrics) -> widget.Widget
     // **Which tab is showing is a conditional, and a conditional is not design.** The design file
     // takes a slot; this is what fills it.
     val body = if s.tabs.selected == code_tab {
-        gallery_ui.code_pane(s.files, s.source, style, m)
+        gallery_ui.code_pane(s.files, s.source, with style { text_font: code_face }, m)
     } else {
         gallery_ui.demo_box(all.view_of(s.demos[s.at], style, m))
     }

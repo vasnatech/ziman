@@ -56,6 +56,8 @@ test-mysql: $(BIN)
 gallery-check: $(BIN)
 	ZIMAN_MODULE_PATH=gallery/ui/desktop ./$(BIN) --check gallery/ui/desktop/gallery.zm
 	ZIMAN_MODULE_PATH=gallery/ui/desktop ./$(BIN) --lint --check gallery/ui/desktop/gallery.zm
+	ZIMAN_MODULE_PATH=gallery/ui/desktop ./$(BIN) test gallery/ui/desktop/highlight_test.zm
+	@python3 tools/check_gallery_keywords.py
 
 fmt-check: $(BIN)
 	./$(BIN) --fmt --check $$(find lib gallery docs/lib/examples docs/reviews/benchmark/reference tests/integration/pg tests/integration/mysql tests/integration/tls tests/integration/shutdown tests/bench -name '*.zm')

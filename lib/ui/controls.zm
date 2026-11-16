@@ -301,7 +301,7 @@ pub fn button_widget(b: Button, style: Style) -> widget.Widget {
     // the control rather than a picture beside it: a disabled button's icon greys with its words,
     // and a theme that sets a larger `text_size` gets a larger icon without saying so.
     val content = mutable_array_new<widget.Widget>()
-    val label = widget.label_of(b.label, style.text_size, ink)
+    val label = widget.label_in_face(b.label, style.text_size, ink, style.text_font)
     switch b.icon {
         Some(icon) {
             val mark = widget.icon_widget(icon, style.text_size, ink, style.icon_font)
@@ -442,7 +442,7 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
         // Centred both ways inside the square -- which is the thing F287 existed to make possible
         // and the reason this could not be fixed before it.
         align: widget.centred(),
-        children: [widget.label_of(mark(c.checked), style.text_size, ink)],
+        children: [widget.label_in_face(mark(c.checked), style.text_size, ink, style.text_font)],
         name: ""
     }))
     val inside = widget.Widget.Group(widget.Stack {
@@ -455,7 +455,7 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
         // as tall as the row -- a stack cannot be given a square child, it can only be told not to
         // stretch it. It also centres the mark against the label, which is where it belongs.
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
-        children: [box, widget.label_of(c.label, style.text_size, ink)],
+        children: [box, widget.label_in_face(c.label, style.text_size, ink, style.text_font)],
         name: ""
     })
     return widget.Widget.Control(widget.Focusable {
@@ -492,6 +492,24 @@ fn mark(t: Toggle) -> string {
 // The editing itself is `lib/ui/edit`: this holds an `Editor` and a `History` and decides which
 // input means which edit. Keeping the two apart is what let the grapheme and word rules be tested
 // against 32 cases with no widget, no layout and no font in sight.
+// A run of a field's text drawn in a colour of its own.
+//
+// **Presentation, not model.** `edit` owns the text and knows nothing about this; a field with no
+// inks draws exactly as it always did, byte for byte, which is why `inked_run` answers a single
+// label when the list is empty. What it buys is the one thing a text pane could not do -- show
+// code as code -- without a second text stack beside `Entry`, which would have cost the caret, the
+// keyboard and the accessibility that made the response pane a field in the first place.
+//
+// `from` and `to` are character indices into the field's text, the same units `edit` counts in.
+// The spans must be **in order and must not overlap**: a colourer walks the text once and that is
+// what walking it once produces, so sorting here would be paying every frame for a mistake nobody
+// makes.
+pub struct Ink {
+    from: int
+    to: int
+    colour: Color
+}
+
 pub struct Entry {
     name: string
     // What a reader calls the field. **Declared, not taken from the text inside**, because the text
@@ -539,6 +557,13 @@ pub struct Entry {
     // the three things that differ are what is drawn, what `Role` it declares, and that it will
     // not put its contents on the clipboard.
     masked: bool
+    // Runs of the text drawn in their own colour -- syntax colouring, and anything else that
+    // paints a span rather than changing it. Empty for every ordinary field. See `Ink`.
+    //
+    // **Ignored by a masked field.** The indices count characters of the text, and a masked field
+    // draws bullets instead -- so a span would colour the wrong ones, and there is nothing in a
+    // password worth colouring.
+    inks: [Ink]
 }
 
 pub fn entry_of(name: string, label: string, text: string) -> Entry {
@@ -554,7 +579,8 @@ pub fn entry_of(name: string, label: string, text: string) -> Entry {
         rows: 1,
         scroll: 0.0,
         masked: false,
-        preedit: Option<edit.Preedit>.None
+        preedit: Option<edit.Preedit>.None,
+        inks: []
     }
 }
 
@@ -940,6 +966,47 @@ pub fn caret_at_x(text: string, size: float, m: widget.Metrics, x: float, face: 
 
 // The three runs a field without a composition draws: before the selection, the selection, after
 // it -- with the caret standing in for the selection when there is none.
+// One run of a field's text, split wherever an `Ink` covers part of it.
+//
+// **Every piece of text a field draws goes through here**, which is the point: the selection, the
+// caret's two halves and a whole line are each a range of the text, and colouring is a property of
+// the text rather than of why it was cut. A run with no ink in it is a single label and not a
+// group of one, so a field that uses no colour lays out exactly as it did before this existed.
+fn inked_run(e: Entry, text: string, from_at: int, to_at: int, ink: Color, style: Style) -> widget.Widget {
+    if len(e.inks) == 0 || e.masked || to_at <= from_at {
+        return widget.label_in_face(substring(text, from_at, to_at), style.text_size, ink, style.text_font)
+    }
+    val parts = mutable_array_new<widget.Widget>()
+    var at = from_at
+    var i = 0
+    while i < len(e.inks) {
+        val span = e.inks[i]
+        val lo = if span.from < at { at } else { span.from }
+        val hi = if span.to > to_at { to_at } else { span.to }
+        if hi > lo && lo >= at {
+            if lo > at {
+                push(parts, widget.label_in_face(substring(text, at, lo), style.text_size, ink, style.text_font))
+            }
+            push(parts, widget.label_in_face(substring(text, lo, hi), style.text_size, span.colour, style.text_font))
+            at = hi
+        }
+        i = i + 1
+    }
+    if at < to_at {
+        push(parts, widget.label_in_face(substring(text, at, to_at), style.text_size, ink, style.text_font))
+    }
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        // Zero, as the row above it is: any spacing here would put a gap inside a word.
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        children: snapshot(parts),
+        name: ""
+    })
+}
+
 fn selected_runs(e: Entry, text: string, ink: Color, style: Style, line: float) -> [widget.Widget] {
     val from = edit.selection_start(e.editor)
     val to = edit.selection_end(e.editor)
@@ -949,9 +1016,9 @@ fn selected_runs(e: Entry, text: string, ink: Color, style: Style, line: float) 
         caret_box(ink, line)
     }
     return [
-        widget.label_of(substring(text, 0, from), style.text_size, ink),
+        inked_run(e, text, 0, from, ink, style),
         middle,
-        widget.label_of(substring(text, to, len(text)), style.text_size, ink)
+        inked_run(e, text, to, len(text), ink, style)
     ]
 }
 
@@ -1016,7 +1083,7 @@ fn run_between(
     if from >= starts[0] && to <= starts[1] {
         return tinted(piece, style.composing_face, ink, style, "composing")
     }
-    return widget.label_of(piece, style.text_size, ink)
+    return widget.label_in_face(piece, style.text_size, ink, style.text_font)
 }
 
 fn tinted(piece: string, face: Color, ink: Color, style: Style, name: string) -> widget.Widget {
@@ -1026,7 +1093,7 @@ fn tinted(piece: string, face: Color, ink: Color, style: Style, name: string) ->
         padding: widget.no_insets(),
         surface: widget.filled(face),
         align: widget.stretched(),
-        children: [widget.label_of(piece, style.text_size, ink)],
+        children: [widget.label_in_face(piece, style.text_size, ink, style.text_font)],
         name: name
     })
 }
@@ -1097,21 +1164,21 @@ fn entry_line(
     val hi = if sel_to < from_at { from_at } else { if sel_to > to_at { to_at } else { sel_to } }
     val pieces = mutable_array_new<widget.Widget>()
     if selected && hi > lo {
-        push(pieces, widget.label_of(substring(text, from_at, lo), style.text_size, ink))
+        push(pieces, inked_run(e, text, from_at, lo, ink, style))
         push(pieces, widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: 0.0,
             padding: widget.no_insets(),
             surface: widget.filled(style.pressed_face),
             align: widget.stretched(),
-            children: [widget.label_of(substring(text, lo, hi), style.text_size, ink)],
+            children: [inked_run(e, text, lo, hi, ink, style)],
             name: "selection"
         }))
-        push(pieces, widget.label_of(substring(text, hi, to_at), style.text_size, ink))
+        push(pieces, inked_run(e, text, hi, to_at, ink, style))
     } else {
         if !selected && on_this_line {
             val caret = e.editor.caret
-            push(pieces, widget.label_of(substring(text, from_at, caret), style.text_size, ink))
+            push(pieces, inked_run(e, text, from_at, caret, ink, style))
             push(pieces, widget.fixed_of(1.0, line, widget.Widget.Group(widget.Stack {
                 direction: widget.Direction.Row,
                 spacing: 0.0,
@@ -1121,9 +1188,9 @@ fn entry_line(
                 children: [],
                 name: caret_name
             })))
-            push(pieces, widget.label_of(substring(text, caret, to_at), style.text_size, ink))
+            push(pieces, inked_run(e, text, caret, to_at, ink, style))
         } else {
-            push(pieces, widget.label_of(substring(text, from_at, to_at), style.text_size, ink))
+            push(pieces, inked_run(e, text, from_at, to_at, ink, style))
         }
     }
     return widget.fixed_of(0.0, line, widget.Widget.Group(widget.Stack {
@@ -1418,7 +1485,7 @@ pub fn list_widget(l: List, style: Style) -> widget.Widget {
             padding: widget.insets_of(4.0, 2.0, 4.0, 2.0),
             surface: highlight_of(style, face),
             align: widget.stretched(),
-            children: [widget.label_of(l.items[i], style.text_size, ink)],
+            children: [widget.label_in_face(l.items[i], style.text_size, ink, style.text_font)],
             name: ""
         })
         push(rows, widget.fixed_of(
@@ -1581,7 +1648,7 @@ pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget {
             padding: style.padding,
             surface: face_of(style, face),
             align: widget.stretched(),
-            children: [widget.label_of(t.items[i], style.text_size, ink)],
+            children: [widget.label_in_face(t.items[i], style.text_size, ink, style.text_font)],
             name: ""
         })
         push(cells, widget.fixed_of(
@@ -2043,8 +2110,8 @@ fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style) -> widget.Widge
         align: widget.stretched(),
         children: [
             widget.fixed_of((row.depth as float) * t.indent, 0.0, widget.flex()),
-            widget.fixed_of(t.indent, 0.0, widget.label_of(mark, style.text_size, ink)),
-            widget.label_of(row.label, style.text_size, ink)
+            widget.fixed_of(t.indent, 0.0, widget.label_in_face(mark, style.text_size, ink, style.text_font)),
+            widget.label_in_face(row.label, style.text_size, ink, style.text_font)
         ],
         name: ""
     }))
@@ -2485,7 +2552,7 @@ pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget {
         padding: style.padding,
         surface: face_of(style, style.face),
         align: widget.stretched(),
-        children: [widget.label_of(combo_box_text(c), style.text_size, ink)],
+        children: [widget.label_in_face(combo_box_text(c), style.text_size, ink, style.text_font)],
         name: ""
     })
     return widget.Widget.Control(widget.Focusable {
@@ -2814,7 +2881,7 @@ pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
         padding: style.padding,
         surface: face_of(style, face),
         align: widget.stretched(),
-        children: [widget.label_of(collapsed_text(m), style.text_size, ink)],
+        children: [widget.label_in_face(collapsed_text(m), style.text_size, ink, style.text_font)],
         name: ""
     })
     return widget.Widget.Control(widget.Focusable {
@@ -2892,7 +2959,7 @@ pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: 
         // button is a dialog whose buttons cannot be seen.
         surface: face_of(style, style.panel),
         align: widget.stretched(),
-        children: [widget.label_of(title, style.text_size, style.ink), content],
+        children: [widget.label_in_face(title, style.text_size, style.ink, style.text_font), content],
         name: ""
     })
     val titled = widget.Widget.Control(widget.Focusable {
@@ -3740,7 +3807,7 @@ fn cell_widget(t: Table, style: Style, column: int, text: string, ink: Color) ->
         padding: widget.insets_of(6.0, 2.0, 6.0, 2.0),
         surface: widget.no_surface(),
         align: widget.Alignment { across: widget.Across.Centre, along: t.columns[column].align },
-        children: [widget.label_of(text, style.text_size, ink)],
+        children: [widget.label_in_face(text, style.text_size, ink, style.text_font)],
         name: ""
     }))
 }
@@ -3929,6 +3996,14 @@ pub struct Style {
     // indices because the renderer does; meaning belongs at this layer, where a theme can say "the
     // text is face 1 and the icons are face 2" once and every control follows. Both default to 0,
     // which is the single-face window every application starts as.
+    //
+    // **Drawn in, as well as measured in**, which it was not: every control drew its text with
+    // `widget.label_of`, which names face 0, while `entry_input` placed its caret using
+    // `style.text_font`. So a theme that set this got a field whose caret was positioned by one
+    // face's metrics and whose glyphs came from another -- drifting further apart with every
+    // character, and only on a window that had loaded a second face, which is why nothing had
+    // met it. `widget.label_in_face` existed the whole time and `controls` called it zero times.
+    // Found by the gallery wanting a monospaced code pane: the first caller ever to set this.
     text_font: int
     icon_font: int
     // The space between an icon and the label it sits beside.

@@ -1,0 +1,103 @@
+// `highlight`: what the Code tab colours, and the four cases a colourer gets wrong.
+//
+// **These are the cases a screenshot cannot show.** A `//` inside a string and a `"` inside a
+// comment both draw *something* either way -- the wrong something, in a colour that looks
+// deliberate. They are only visible in the spans.
+use controls
+use highlight
+use paint
+use test
+
+// A span as "from-to", so an assertion reads as the run it describes rather than as two numbers.
+fn spans_of(source: string) -> [string] {
+    val out = mutable_array_new<string>()
+    for ink in highlight.inks_of(source) {
+        push(out, concat(substring(source, ink.from, ink.to), "=", kind_of(ink.colour)))
+    }
+    return snapshot(out)
+}
+
+// Which of the three colours a span carries, by name.
+fn kind_of(c: paint.Color) -> string {
+    if c.red > 0.6 {
+        return "keyword"
+    }
+    if c.red > 0.5 {
+        return "dim"
+    }
+    return "literal"
+}
+
+#[test]
+fn a_keyword_is_coloured_and_a_type_is_not() {
+    test.assert_eq(spans_of("val x: int = 1"), ["val=keyword", "1=literal"])
+    // `pub fn` is two keywords and the name between them is plain.
+    test.assert_eq(spans_of("pub fn go()"), ["pub=keyword", "fn=keyword"])
+}
+
+#[test]
+fn true_and_false_are_literals_rather_than_keywords() {
+    test.assert_eq(spans_of("val ok = true"), ["val=keyword", "true=literal"])
+}
+
+// **A comment runs to the end of its line and no further**, which is the half of the rule that a
+// one-line test cannot see.
+#[test]
+fn a_comment_stops_at_its_line() {
+    test.assert_eq(
+        spans_of("// note\nval x = 1"),
+        ["// note=dim", "val=keyword", "1=literal"]
+    )
+}
+
+// **The two that matter.** A `//` inside a string is not a comment, and a `"` inside a comment
+// does not open a string -- and a colourer that searched for each kind in turn rather than walking
+// the text once would get both wrong, in a way that looks intentional on screen.
+#[test]
+fn a_slash_slash_inside_a_string_is_not_a_comment() {
+    test.assert_eq(
+        spans_of("val url = \"http://x\" val y = 2"),
+        ["val=keyword", "\"http://x\"=literal", "val=keyword", "2=literal"]
+    )
+}
+
+#[test]
+fn a_quote_inside_a_comment_does_not_open_a_string() {
+    test.assert_eq(
+        spans_of("// say \"hello\nval x = 1"),
+        ["// say \"hello=dim", "val=keyword", "1=literal"]
+    )
+}
+
+// An escaped quote does not end the string it is in.
+#[test]
+fn an_escaped_quote_stays_inside_its_string() {
+    test.assert_eq(spans_of("val q = \"a\\\"b\""), ["val=keyword", "\"a\\\"b\"=literal"])
+}
+
+// An attribute is dim, to the first `]`, and the declaration after it is coloured normally.
+#[test]
+fn an_attribute_is_one_dim_span() {
+    test.assert_eq(spans_of("#[test]\nfn go()"), ["#[test]=dim", "fn=keyword"])
+}
+
+// **An unterminated string ends at the end of the text rather than running off it.** A file is
+// read while it is being edited, and half a string is what half a keystroke looks like.
+#[test]
+fn an_unterminated_string_ends_with_the_text() {
+    test.assert_eq(spans_of("val s = \"oops"), ["val=keyword", "\"oops=literal"])
+}
+
+// The spans come back in order and do not overlap, which is what `controls.Ink` requires of
+// whoever builds them: `inked_run` walks them once and trusts both.
+#[test]
+fn the_spans_are_in_order_and_do_not_overlap() {
+    val inks = highlight.inks_of("// a\nval x = \"s\" // b\nfn go() { return 1 }")
+    var i = 1
+    while i < len(inks) {
+        test.assert(inks[i].from >= inks[i - 1].to)
+        test.assert(inks[i].to > inks[i].from)
+        i = i + 1
+    }
+    test.assert(len(inks) > 4)
+}

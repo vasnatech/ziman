@@ -459,6 +459,34 @@ The check box as a widget: the mark, then the label, and the state declared so t
 
 ## The entry
 
+### `Ink`
+
+```
+pub struct Ink {
+    from: int
+    to: int
+    colour: Color
+}
+```
+
+A single-line text field.
+
+The editing itself is `lib/ui/edit`: this holds an `Editor` and a `History` and decides which
+input means which edit. Keeping the two apart is what let the grapheme and word rules be tested
+against 32 cases with no widget, no layout and no font in sight.
+A run of a field's text drawn in a colour of its own.
+
+**Presentation, not model.** `edit` owns the text and knows nothing about this; a field with no
+inks draws exactly as it always did, byte for byte, which is why `inked_run` answers a single
+label when the list is empty. What it buys is the one thing a text pane could not do -- show
+code as code -- without a second text stack beside `Entry`, which would have cost the caret, the
+keyboard and the accessibility that made the response pane a field in the first place.
+
+`from` and `to` are character indices into the field's text, the same units `edit` counts in.
+The spans must be **in order and must not overlap**: a colourer walks the text once and that is
+what walking it once produces, so sorting here would be paying every frame for a mistake nobody
+makes.
+
 ### `Entry`
 
 ```
@@ -509,14 +537,15 @@ pub struct Entry {
     // the three things that differ are what is drawn, what `Role` it declares, and that it will
     // not put its contents on the clipboard.
     masked: bool
+    // Runs of the text drawn in their own colour -- syntax colouring, and anything else that
+    // paints a span rather than changing it. Empty for every ordinary field. See `Ink`.
+    //
+    // **Ignored by a masked field.** The indices count characters of the text, and a masked field
+    // draws bullets instead -- so a span would colour the wrong ones, and there is nothing in a
+    // password worth colouring.
+    inks: [Ink]
 }
 ```
-
-A single-line text field.
-
-The editing itself is `lib/ui/edit`: this holds an `Editor` and a `History` and decides which
-input means which edit. Keeping the two apart is what let the grapheme and word rules be tested
-against 32 cases with no widget, no layout and no font in sight.
 
 ### `entry_of`
 
@@ -1917,6 +1946,14 @@ pub struct Style {
     // indices because the renderer does; meaning belongs at this layer, where a theme can say "the
     // text is face 1 and the icons are face 2" once and every control follows. Both default to 0,
     // which is the single-face window every application starts as.
+    //
+    // **Drawn in, as well as measured in**, which it was not: every control drew its text with
+    // `widget.label_of`, which names face 0, while `entry_input` placed its caret using
+    // `style.text_font`. So a theme that set this got a field whose caret was positioned by one
+    // face's metrics and whose glyphs came from another -- drifting further apart with every
+    // character, and only on a window that had loaded a second face, which is why nothing had
+    // met it. `widget.label_in_face` existed the whole time and `controls` called it zero times.
+    // Found by the gallery wanting a monospaced code pane: the first caller ever to set this.
     text_font: int
     icon_font: int
     // The space between an icon and the label it sits beside.

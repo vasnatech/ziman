@@ -3260,6 +3260,123 @@ fn fill_red_at(l: widget.Laid, name: string) -> float {
     }
 }
 
+// ---------------------------------------------------- coloured runs
+
+val ink_box = geom.rect_of(0.0, 0.0, 400.0, 60.0)
+
+// "val x = 1" with `val` in one colour and `1` in another: two spans, in order, not touching.
+fn inked_field() -> controls.Entry {
+    return with controls.entry_of("code", "Code", "val x = 1") {
+        inks: [
+            controls.Ink { from: 0, to: 3, colour: paint.rgb(0.1, 0.2, 0.9) },
+            controls.Ink { from: 8, to: 9, colour: paint.rgb(0.2, 0.6, 0.3) }
+        ]
+    }
+}
+
+// Every string the field drew, with the red channel of the colour it was drawn in.
+fn runs_of(e: controls.Entry) -> [string] {
+    val laid = widget.layout(
+        controls.entry_widget(e, controls.default_style(), metrics()),
+        ink_box,
+        metrics()
+    )
+    val out = mutable_array_new<string>()
+    for op in widget.paint_ops(laid, metrics()) {
+        if Text(t) = op {
+            // **Empty runs are dropped**, because a field always has one: the text either side of
+            // the caret is two runs and one of them is "" wherever the caret sits. They draw
+            // nothing, and counting them would make every assertion here about the caret.
+            if len(t.text) > 0 {
+                switch t.fill {
+                    Solid(c) { push(out, concat(t.text, "@", str(c.red))) }
+                    LinearGradient(_) { push(out, "?") }
+                    RadialGradient(_) { push(out, "?") }
+                    Pattern(_) { push(out, "?") }
+                }
+            }
+        }
+    }
+    return snapshot(out)
+}
+
+// **A field with no inks draws exactly what it always drew**, which is the claim that lets this
+// be added to `Entry` at all rather than beside it: one run of text in one colour, not a group of
+// one. Everything else in this file depends on it being true.
+#[test]
+fn a_field_with_no_inks_draws_one_run() {
+    test.assert_len(1, runs_of(controls.entry_of("plain", "Plain", "val x = 1")))
+    test.assert_eq(runs_of(controls.entry_of("plain", "Plain", "val x = 1"))[0], "val x = 1@0.1")
+}
+
+// Four runs: the keyword, the gap, the literal, and nothing after it -- so the text comes back in
+// order and only the spans are recoloured.
+#[test]
+fn an_inked_field_draws_a_run_per_span() {
+    val runs = runs_of(inked_field())
+    test.assert_len(3, runs)
+    test.assert_eq(runs[0], "val@0.1")
+    test.assert_eq(runs[1], " x = @0.1")
+    test.assert_eq(runs[2], "1@0.2")
+}
+
+// **A masked field ignores its inks**, because the indices count characters of the text and a
+// masked field draws bullets: a span would colour the wrong ones, and there is nothing in a
+// password worth colouring.
+#[test]
+fn a_masked_field_ignores_its_inks() {
+    val secret = with controls.password_of("pw", "Password", "val x = 1") {
+        inks: [controls.Ink { from: 0, to: 3, colour: paint.rgb(0.1, 0.2, 0.9) }]
+    }
+    test.assert_len(1, runs_of(secret))
+}
+
+// A span reaching past the end of the text is clipped rather than refused: a colourer that ran on
+// text the field has since had typed into it should draw something sensible, not raise.
+#[test]
+fn a_span_past_the_end_is_clipped() {
+    val over = with controls.entry_of("code", "Code", "val") {
+        inks: [controls.Ink { from: 0, to: 99, colour: paint.rgb(0.1, 0.2, 0.9) }]
+    }
+    test.assert_len(1, runs_of(over))
+    test.assert_eq(runs_of(over)[0], "val@0.1")
+}
+
+// **A control drawn in a named face draws its text in that face**, which it did not: every label
+// went out through `widget.label_of`, which names face 0, while `entry_input` placed the caret
+// using `style.text_font`. A theme that set the field got a caret positioned by one face's
+// metrics over glyphs from another, drifting further apart along the line -- and only on a window
+// that had loaded a second face, which is why nothing had met it. The gallery's monospaced code
+// pane was the first caller ever to set it.
+#[test]
+fn a_control_draws_its_text_in_the_face_its_style_names() {
+    val style = with controls.default_style() { text_font: 1 }
+    val laid = widget.layout(
+        controls.button_widget(controls.button_of("go", "Send"), style),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    var faces = 0
+    for op in widget.paint_ops(laid, metrics()) {
+        if Text(t) = op {
+            test.assert_eq(t.font, 1)
+            faces = faces + 1
+        }
+    }
+    test.assert_eq(faces, 1)
+    // And face 0 is still what an untouched style draws in.
+    val plain = widget.layout(
+        controls.button_widget(controls.button_of("go", "Send"), controls.default_style()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    for op in widget.paint_ops(plain, metrics()) {
+        if Text(t) = op {
+            test.assert_eq(t.font, 0)
+        }
+    }
+}
+
 // ---------------------------------------------------- the split pane
 
 // Three hundred points of room, a divider six points wide, and panes that refuse to be squeezed
