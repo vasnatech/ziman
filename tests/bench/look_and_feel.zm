@@ -9,6 +9,11 @@
 // Interleaved, flat then edged, three passes, for the reason every F270 and F284 measurement
 // repeats: this machine's absolutes have moved about 2x between batches an hour apart with no code
 // change. Read the pair within a pass, never a number here against a number elsewhere.
+//
+// **The answer, as of 2026-11-15: no, it is not noise -- an edged look is 4-4.5x a flat one, and
+// that holds through a damage region as well as over the whole window.** The reason is one number,
+// and it is at `rasterised_region` below: widening a rounded border costs 0.65 ms per box against a
+// square border's 0.12. Everything else in this file is the context that made that number findable.
 use clock
 use controls
 use font
@@ -110,6 +115,77 @@ fn rasterised(
     return ok(clock.monotonic_millis() - t0)
 }
 
+// The same pixels through a **damage region**, which is the number F286 asked for and did not take:
+// "the honest next number, if a second look and feel is actually written, is what an edged look
+// costs *through* a damage region rather than over the whole window".
+//
+// That matters because the full-window figure is not what an application pays. F270's regional
+// repaint exists so a frame redraws what changed, and `curly gui` builds a frame only when
+// something changed it -- so the question is not "what does an edged look add to 1,660 rows of
+// pixels" but "what does it add to the forty-odd pixels tall strip under a pointer".
+//
+// **Measured 2026-11-15, and the answer is neither of the two things it could have been.** The
+// premium is not the pixels and not the walk: it is **per visible stroked box**, about 0.65 ms
+// each, and nothing about a damage region makes it smaller.
+//
+//     region                     flat          edged
+//     60x24   (one control)      0.4-0.5 ms    4.0-4.7 ms
+//     900x24  (one row)          1.0-1.1       4.3-4.6
+//     whole window 900x1660      24-33         118-137
+//
+// A 15x larger region costs the same, so it is not the pixels. The scene size barely moves it
+// either -- 2.8 ms at one row, 3.8 at five, 4.4 at forty, 6.1 at a hundred -- so `draw_into_region`
+// *is* pruning the walk (`draw_ops` tests each stroke's grown bounds against the target before
+// widening it, raster.zm). The surface size does not move it at all: 900x200 through 900x1660 are
+// all 3.8-4.0 ms.
+//
+// **What is left is the stroker, and `raster.draw_ops`'s own comment already named it** -- "the
+// most expensive single thing in this module". Timed directly on one 60x24 face: **649 us to widen
+// a rounded border against 123 us for a square one**, 5.3x. A one-row form has three faces, which
+// is the 2.35 ms the one-row scene shows, and a frame's whole edged premium is that number times
+// the boxes a damage region happens to contain.
+//
+// So the lever is **not** regional repaint, which already works: it is that a rounded rectangle's
+// stroke goes through the general polygon offsetter -- flatten four cubics into a long polyline,
+// offset it, miter every join -- where the outline is analytically two concentric rounded rects.
+// Filed as the next step rather than done here.
+fn rasterised_region(
+    rows: int,
+    style: controls.Style,
+    m: widget.Metrics,
+    width: float,
+    height: float,
+    region: geom.Rect,
+    rounds: int
+) -> Result<int, string> {
+    val laid = widget.layout(form(rows, style, m), geom.rect_of(0.0, 0.0, width, height), m)
+    val s = widget.paint(laid, m)
+    val data = switch fs.read_bytes("vendor/fonts/Caladea-Regular.ttf") {
+        Ok(d) { d }
+        Err(why) { return err(format("font: {}", why)) }
+    }
+    val face = switch font.load(data) {
+        Ok(x) { x }
+        Err(why) { return err(format("load: {}", why)) }
+    }
+    val o = with raster.options() {
+        fonts: [face],
+        samples: 4,
+        background: Option<paint.Color>.Some(paint.white()),
+        max_pixels: 4000000
+    }
+    val surface = try raster.surface_of(width, height, 1.0)
+    // A full frame first, as a real window has: the region draw repaints part of an existing
+    // surface, and measuring it against a blank one would measure a different thing.
+    try raster.draw_into(surface, s, o)
+    try raster.draw_into_region(surface, s, o, region)
+    val t0 = clock.monotonic_millis()
+    for _ in 0..rounds {
+        try raster.draw_into_region(surface, s, o, region)
+    }
+    return ok(clock.monotonic_millis() - t0)
+}
+
 fn main() {
     val m = metrics()
     val flat = controls.default_style()
@@ -197,6 +273,50 @@ fn main() {
                 }
             }
             Err(message) { print(concat("  raster failed: ", message)) }
+        }
+    }
+
+    // And the same pixels through a damage region, which is what an application actually repaints.
+    //
+    // Two regions, because an edged look adds a stroked path **per box** and so its cost should
+    // track how many boxes the region covers rather than how many pixels: one control (a button
+    // that took the pointer) and one row of the form (a field and its label redrawn together).
+    // Both at the top of the form, where the first row is -- position does not change the walk.
+    val one_control = geom.rect_of(0.0, 0.0, 60.0, 24.0)
+    val one_row = geom.rect_of(0.0, 0.0, width, 24.0)
+    print("--- rasterised through a damage region, 40 rows, 900x1660 ---")
+    for pass in 0..3 {
+        switch rasterised_region(40, flat, m, width, height, one_control, 20) {
+            Ok(flat_ms) {
+                switch rasterised_region(40, fancy, m, width, height, one_control, 20) {
+                    Ok(fancy_ms) {
+                        print(format(
+                            "  pass {}: one control 60x24   flat {} ms / edged {} ms (x20)",
+                            str(pass),
+                            str(flat_ms),
+                            str(fancy_ms)
+                        ))
+                    }
+                    Err(message) { print(concat("  region failed: ", message)) }
+                }
+            }
+            Err(message) { print(concat("  region failed: ", message)) }
+        }
+        switch rasterised_region(40, flat, m, width, height, one_row, 20) {
+            Ok(flat_ms) {
+                switch rasterised_region(40, fancy, m, width, height, one_row, 20) {
+                    Ok(fancy_ms) {
+                        print(format(
+                            "  pass {}: one row     900x24  flat {} ms / edged {} ms (x20)",
+                            str(pass),
+                            str(flat_ms),
+                            str(fancy_ms)
+                        ))
+                    }
+                    Err(message) { print(concat("  region failed: ", message)) }
+                }
+            }
+            Err(message) { print(concat("  region failed: ", message)) }
         }
     }
 }
