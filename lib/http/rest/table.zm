@@ -47,12 +47,12 @@ fn routes_with<C>(endpoints: [Endpoint<C>], meter: bool) -> Routes<C> {
         set(
             methods,
             key,
-            push(get_or(get(methods, key), none), i)
+            push(get_or(methods, key, none), i)
         )
         set(
             lengths,
             len(p.parts),
-            push(get_or(get(lengths, len(p.parts)), none), i)
+            push(get_or(lengths, len(p.parts), none), i)
         )
         i = i + 1
     }

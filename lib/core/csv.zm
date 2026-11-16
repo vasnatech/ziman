@@ -694,7 +694,7 @@ pub fn format(rows: Json, sep: string) -> Result<string, string> {
                 append(out, sep)
             }
             first = false
-            append(out, get_or(get(cells, name), ""))
+            append(out, get_or(cells, name, ""))
         }
         append(out, "\n")
     }

@@ -199,7 +199,7 @@ fn wrong_shape(a: meta.Attr, f: meta.Field, shape: string) -> Result<unit, strin
         }
         val words = mutable_array_new<string>()
         for k in kinds {
-            push(words, get_or(get(shape_words, k), k))
+            push(words, get_or(shape_words, k, k))
         }
         return err(prelude.format(
             "'#[{}]' needs {} and '{}' is {}",
