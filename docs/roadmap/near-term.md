@@ -650,16 +650,31 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   1,171-1,191 pinned to one core: the figure moves further with the machine than the month moved
   it, and this entry's own rule is that a ratio belongs to its own sitting.
 
-  **And one thing was tried and reverted, which is the useful half.** The persistent `remove` and
-  `add` are variadic, so each builds the one-element array that `push`/`append`/`add` got a
-  shortcut for on 2026-11-14 -- the obvious extension of a family that had just paid off. It made
-  `Map remove` **2.6x slower**: 1,926-1,940 ns/op against 4,952-4,955, one row per process, paired,
-  repeated, semantics identical. `GC_PRINT_STATS` says the same million removals ran **54
-  collections against 32, at a 76 ms average pause against 26** -- removing an allocation made the
-  collector run more often and work harder, which is the opposite of the mechanism the shortcut is
-  built on. **The reason is unexplained**, which is why the change went back rather than shipping
-  on a story, and the measurement is recorded in `tail_one_for` (src/interpreter.c) so the next
-  person to see that gap does not spend the day finding it again.
+  **And one thing was tried and reverted -- and the revert was wrong, which is the useful half
+  (corrected 2026-11-15, same day).** The persistent `remove` and `add` are variadic, so each builds
+  the one-element array that `push`/`append`/`add` got a shortcut for on 2026-11-14. Skipping it read
+  as making `Map remove` **2.6x slower** -- 1,926-1,940 ns/op against 4,952-4,955, paired, repeated,
+  semantics identical -- so it went back rather than shipping on a story, with the reason recorded as
+  unexplained.
+
+  **Two things about that measurement were load-bearing and neither was visible in it: it was one
+  map size, and one process shape.** Swept instead (isolated, paired, 1M removals): **-40% at 256
+  entries, -8% at 4,096, -13% at 65,536**, a loss only above that (+24% at 100,000, +196% at
+  262,144). And at that *same* 100,000, inside this benchmark -- which reaches the row after twenty
+  others have grown the heap -- it is a **24% win over five pairs, every run below every un-split
+  one**. Same operation, same size, opposite sign.
+
+  `GC_PRINT_STATS` then explains what was called unexplained: the same 35-36 collections and the
+  same ~56 MB per cycle on both sides, with the heap grown to **232 MB without the allocation
+  against 96 MB with it** and each collection costing **24.7 ms against 9.1**. `--gc-heap-floor-mb`
+  inverts the sign by itself (at 1024: 56 us/op without, 62 with), which an inherent cost cannot do.
+  The array was pacing the collector, not doing work.
+
+  **So it shipped, in a stronger form than the shortcut.** `remove` stopped being variadic at all
+  (`remove_all` took the plural) -- which drops the array *and* the interpreter frame, since
+  `is_frameless_native` refuses a variadic native at resolution -- and `discard` went with it. See
+  lib/prelude/map.zm's `remove` for both tables and the count that justified the signature change.
+  **`add`'s half is still out and is item 3 of the entry below.**
 
   **Checked whether the int keys were flattering CPython, 2026-10-15: they are, and it does not
   matter.** `hash(i) == i` for a small int and the slot is `hash & mask`, so keys 0..n-1 land one
@@ -758,6 +773,95 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   for. Do not start with (3) or a flat open-addressing table for the builder: twice in one day the
   structurally obvious change measured worse than doing nothing (the `Type` union, and three separate
   attempts at (2)), so measure each step.
+
+- **Close what is left of the `Map`/`Set` gap -- four levers, each already measured to a mechanism
+  -- not started.** The entry above is the history; this is what remains of it. Re-measured
+  2026-11-15 after the `remove`/`remove_all` split, median of three alternating runs, 100,000
+  entries, 5,000,000 ops, loop overhead subtracted:
+
+  | operation | ziman, int keys | ziman, string keys | CPython | |
+  | --- | --- | --- | --- | --- |
+  | `MutableMap` contains | 37 | -- | 6 (`in`) | |
+  | `MutableMap` get_or | 45 | 68 | 21 / 32 | 2.1x |
+  | `MutableMap` set | 46 | 68 | 16 / 24 | 2.8x |
+  | `MutableMap` remove+set | 110 | -- | 39 | 2.8x |
+  | `MutableMap` len | 37 | -- | 14 | |
+  | `MutableSet` add (present) | 29 | -- | 15 | 1.9x |
+  | `MutableSet` len | 56 | -- | 16 | |
+  | `MutableSet` remove+add | 155 | -- | 41 | 3.8x |
+  | `Map` contains | 79 | 101 | 6 / 21 | |
+  | `Map` get_or | 80 | 108 | 21 / 32 | 3.4x |
+  | `Map` len | 17 | -- | 14 | |
+  | `Map` remove (persistent) | 953 | -- | -- | |
+  | `Map` set (persistent) | 1,195 | -- | -- | |
+  | `Set` insert (persistent) | 2,646 | -- | -- | |
+  | **`MutableMap` get** | **400** | -- | 17 | **24x** |
+  | **`Map` get** | **437** | -- | -- | |
+
+  **Everything but `get` is now within 2-4x CPython, and the composite read-modify-write is 172
+  ns/op.** For scale, this benchmark's own loop turn is ~80 ns: `contains` at 37 and `set` at 46
+  cost less than one turn of the loop calling them, so those natives are no longer what a program
+  waits for. The four levers, ranked by what the table points at:
+
+  1. **`get`'s `Option` is the only row left above 5x -- 400-437 ns against `get_or`'s 45-80.** The
+     mechanism is settled and is not the lookup: the allocation is priced by the live set (191 ns at
+     100 entries alive, 236 at 10,000, 378 at 100,000, same code path), and the `Option` *type* was
+     already made a shared constant. Two routes. **(a)** Unbox single-payload variants -- read
+     docs/MEMORY.md first, which analysed it and recommended against on its own measurements.
+     **(b) Fuse the dominant idiom**, which is the one nobody has tried: `if Some(v) = get(m, k)`
+     destructures immediately and the `Option` never escapes, so the match could be answered without
+     materialising an `EnumObj` at all. Contained to the `if Some(..) =` path plus the
+     Option-returning natives, and it needs no type-system change.
+
+     **Counted 2026-11-15, before writing any of it -- 42 of the 58 `get(m, key)` call sites in
+     lib/ and the sample backend (72%) consume the `Option` where it is made** and could never
+     observe it:
+
+     | how the `Option` is consumed | sites |
+     | --- | --- |
+     | `if Some(x) = get(..)` | 17 |
+     | `get_or(get(..), d)` | 10 |
+     | `switch get(..)` | 7 |
+     | `unwrap[_Some](get(..))` | 6 |
+     | `is_Some`/`is_None(get(..))` | 2 |
+     | bound to a `val`/`var`, returned, or other | 16 |
+
+     So (b) is worth about three quarters of the call sites, and the shape to fuse is wider than
+     one `if` -- `switch`, `unwrap` and `get_or` are the same "made and consumed in one expression"
+     pattern.
+
+     **And ten of those sites need no interpreter work at all: `get_or(get(m, k), d)` is
+     `get_or(m, k, d)` with an `Option` allocated for nothing**, which is 437 ns against 80 on
+     today's table. The map's own three-argument `get_or` has existed all along. In lib/:
+     `core/csv.zm:697`, `core/derive_validate.zm:202`, `http/rest/table.zm:50` and `:55`; in the
+     sample backend: `service/integration_sync.zm:266`, `service/oura.zm:582`, `:583`, `:600` (two
+     on that line) and `service/export/export_xml.zm:184`. **Do this first** -- it is a free win and
+     it shrinks the case for the interpreter change by exactly the amount it is worth.
+  2. **The builder's per-call handle validation, which is item 4 above and still never done.**
+     `MutableMap len` 37 ns and `MutableSet len` 56 against `Map len`'s 17, for the same field read
+     -- `handleset_has` is a hash probe paid on literally every builder call, and on `len` it is the
+     entire cost. Note what changed around it: the frameless work (2026-11-14/15) took the
+     interpreter *frame* out of these calls, so the handle probe is now the whole of the remainder
+     rather than half of it.
+  3. **The persistent `Set add` shortcut, still out only because it was reverted in a pair.** It
+     went back on 2026-11-12 alongside `remove`'s, whose revert has since been shown wrong (see the
+     correction in the entry above). `add` keeps its variadic -- it has real plural callers, where
+     `remove` had none -- so the one-element shortcut is the only route open to it, and the 4% win
+     measured that day came off the same one-size, one-process harness that got `remove` wrong by
+     2.6x. **Re-measure it across the size axis and in a second process shape before deciding
+     either way.** `Set insert (persistent)` at 2,646 ns is the row.
+  4. **This benchmark cannot compare its own two persistent columns, and nothing in it says so.**
+     `Map set (persistent)` overwrites a key that is already there -- path copy, no new leaf, no
+     node growth -- while `Set insert (persistent)` adds a key that is not -- path copy *plus* a
+     leaf *plus* node growth. So 1,195 against 2,646 is not a 2.2x gap between two identical tries,
+     and reading one off that pair is a trap the file currently sets. Add the missing rows
+     (persistent insert-of-a-new-key for `Map`, persistent overwrite for `Set`) so the four
+     persistent figures are two comparable pairs.
+
+  **What is deliberately not on this list.** The persistent `Map`/`Set` rows are not a defect to be
+  closed: a value whose `set` must leave the old map intact copies a trie path, and CPython has no
+  immutable `dict` to be 2x slower than. The remaining read gap is also not a hashing artifact --
+  measured both ways in the entry above, the read ratios sit at 2-3x on int *and* string keys.
 
 - **Colour Ziman as Ziman, outside the editor.** The TextMate grammar
   (`editors/vscode/syntaxes/ziman.tmLanguage.json`, 15 patterns over 14 scope groups) serves VS
