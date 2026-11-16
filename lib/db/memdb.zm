@@ -401,28 +401,49 @@ fn nested_in(inner: Ctx, outer: Ctx) -> Ctx {
 }
 
 // Where `ref` lives in this row: an index, or -1 for no such column and -2 for an ambiguous one.
+//
+// **This built a `MutableSet<string>` per call until 2026-11-15, to answer one yes/no question.**
+// It was 7.1% of tests/bench/memdb_ops.zm in `mutable_set_new` alone, plus a share of `add`'s 3.6%
+// and of the collector's 13.8% -- and in the common case, a column that resolves to exactly one
+// place, the set was allocated, added to once, and dropped without ever being read, because
+// `count > 1` gates the only question it answers.
+//
+// **"More than one distinct source" needs no set: it is "something differs from the first".** One
+// remembered string and a flag say exactly that, allocate nothing, and are equivalent rather than
+// approximately so -- a set of size >= 2 contains an element unequal to its first, and conversely.
+// `found < 0` is what marks "no match yet", not an empty `first_source`, so a genuinely empty
+// table name (an unqualified source) is handled like any other.
+//
+// **Two columns of one source are not ambiguous in SQLite**, which takes the first: a derived
+// table may answer `SELECT n, n FROM t` and `x.n` then means its first column. Across two
+// sources it is ambiguous in both engines -- that is the join case. PostgreSQL calls the
+// one-source case ambiguous too, so the strict reading does as well. That is one of the eleven
+// divergences this module's header lists, and it had **no test** until the set was removed;
+// `memdb_test.zm` now holds three, because an equivalence argument about an untested rule is an
+// assertion rather than an argument.
 fn resolve_column(cx: Ctx, ref: sql.ColRef) -> int {
     val want = sql.fold_name(ref.name)
     val qualifier = sql.fold_name(ref.table)
     var found = 0 - 1
     var count = 0
-    val sources = mutable_set_new<string>()
+    var first_source = ""
+    var many_sources = false
     for i in 0..prelude.len(cx.names.folded) {
         if cx.names.folded[i] == want {
             if ref.table == "" || cx.names.folded_tables[i] == qualifier {
                 if found < 0 {
                     found = i
+                    first_source = cx.names.folded_tables[i]
+                } else {
+                    if cx.names.folded_tables[i] != first_source {
+                        many_sources = true
+                    }
                 }
                 count = count + 1
-                add(sources, cx.names.folded_tables[i])
             }
         }
     }
-    // **Two columns of one source are not ambiguous in SQLite**, which takes the first: a derived
-    // table may answer `SELECT n, n FROM t` and `x.n` then means its first column. Across two
-    // sources it is ambiguous in both engines -- that is the join case. PostgreSQL calls the
-    // one-source case ambiguous too, so the strict reading does as well.
-    if count > 1 && (prelude.len(sources) > 1 || cx.strict) {
+    if count > 1 && (many_sources || cx.strict) {
         return 0 - 2
     }
     return found

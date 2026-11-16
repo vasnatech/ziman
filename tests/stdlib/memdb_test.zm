@@ -222,6 +222,65 @@ fn the_strict_reading_refuses_what_sqlite_allows() {
     test.assert_err(datasource.query(strict, "SELECT id FROM t WHERE name = 1"))
 }
 
+// **Column ambiguity, which is one of the eleven divergences and had no test until 2026-11-15.**
+// The header lists "whether two columns of one derived table may share a name" among the two
+// readings' differences, and the whole of it is one expression in `resolve_column`:
+// `count > 1 && (more than one source || strict)`. Three behaviours hang off it and none was
+// defended, which came to light when that function's per-call `MutableSet` was replaced -- the set
+// existed only to answer "more than one source?", and an equivalence argument about an untested
+// rule is an assertion, not an argument.
+//
+// **Two columns of ONE source are not ambiguous to SQLite**, which takes the first: a derived table
+// may answer `SELECT n, n FROM t` and `x.n` then means its first column. PostgreSQL and the
+// standard call that ambiguous too.
+#[test]
+fn two_columns_of_one_derived_table_are_ambiguous_only_to_the_strict_reading() {
+    val lax = opened("memdb:")
+    val strict = opened("memdb-ansi:")
+    for c in [lax, strict] {
+        exec(c, "CREATE TABLE t (n INTEGER)")
+        exec(c, "INSERT INTO t (n) VALUES (7)")
+    }
+    test.assert_eq(7, one_int(lax, "SELECT n FROM (SELECT n, n FROM t) AS x"))
+    test.assert_err(datasource.query(strict, "SELECT n FROM (SELECT n, n FROM t) AS x"))
+}
+
+// **Across two sources it is ambiguous in both readings** -- the join case, and the one the module
+// header calls out: an unqualified `id` over two joined tables is an error "rather than silently
+// the left one". This is the half of the rule that does *not* depend on which reading is in force,
+// so it is what tells a broken source count from a broken strict flag.
+#[test]
+fn one_name_across_two_joined_tables_is_ambiguous_to_both_readings() {
+    val lax = opened("memdb:")
+    val strict = opened("memdb-ansi:")
+    for c in [lax, strict] {
+        exec(c, "CREATE TABLE a (id INTEGER)")
+        exec(c, "CREATE TABLE b (id INTEGER)")
+        exec(c, "INSERT INTO a (id) VALUES (1)")
+        exec(c, "INSERT INTO b (id) VALUES (1)")
+        test.assert_err(datasource.query(c, "SELECT id FROM a JOIN b ON b.id = a.id"))
+        // and qualifying it resolves, which is what makes the error about ambiguity and not about
+        // the join: the same query with `a.id` answers in both readings.
+        test.assert_eq(1, one_int(c, "SELECT a.id FROM a JOIN b ON b.id = a.id"))
+    }
+}
+
+// One name in one table is never ambiguous however many times it is asked for, which is the
+// `count == 1` path -- the common one, and the one the deleted set was allocated for and never
+// consulted on.
+#[test]
+fn an_unambiguous_column_stays_unambiguous_in_both_readings() {
+    val lax = opened("memdb:")
+    val strict = opened("memdb-ansi:")
+    for c in [lax, strict] {
+        exec(c, "CREATE TABLE t (id INTEGER, name TEXT)")
+        exec(c, "INSERT INTO t (id, name) VALUES (4, 'Ada')")
+        test.assert_eq(4, one_int(c, "SELECT id FROM t"))
+        test.assert_eq(4, one_int(c, "SELECT id FROM t WHERE id = 4"))
+        test.assert_eq(4, one_int(c, "SELECT t.id FROM t"))
+    }
+}
+
 #[test]
 fn the_strict_reading_runs_what_sqlite_refuses() {
     val lax = opened("memdb:")
