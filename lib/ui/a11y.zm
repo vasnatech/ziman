@@ -442,6 +442,11 @@ fn role_word(r: Role) -> string {
         MenuItem { "menu item" }
         ComboBox { "combo box" }
         ScrollBar { "scroll bar" }
+        Table { "table" }
+        TableRow { "row" }
+        ColumnHeader { "column header" }
+        SplitPane { "split pane" }
+        Separator { "separator" }
         Dialog { "dialog" }
         Group { "group" }
         Window { "window" }

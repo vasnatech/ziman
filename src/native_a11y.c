@@ -232,6 +232,11 @@ static AtkRole role_for(int64_t code) {
         case 20: return ATK_ROLE_TREE;
         case 21: return ATK_ROLE_TREE_ITEM;
         case 22: return ATK_ROLE_IMAGE;
+        case 23: return ATK_ROLE_SPLIT_PANE;
+        case 24: return ATK_ROLE_SEPARATOR;
+        case 25: return ATK_ROLE_TABLE;
+        case 26: return ATK_ROLE_TABLE_ROW;
+        case 27: return ATK_ROLE_COLUMN_HEADER;
         default: return ATK_ROLE_UNKNOWN;
     }
 }

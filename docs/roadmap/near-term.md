@@ -1678,3 +1678,72 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
 
   Until this is settled, `*_ui.zm` files can describe any layout and no imagery, and a builder's
   palette has nothing pictorial in it.
+
+- **The widget set has nine controls, and a desktop application needs about thirty** -- *research
+  done 2026-11-16; **SplitPane and Table built the same day** (F288, F289, 34 unit tests, 14
+  mutations, 5 new roles). Everything else below is not started.*
+  Asked for "more controls, split pane, table, etc.", and the two reference points chosen were
+  **Swing's standard component set** and **[JIDE Software](https://www.jidesoft.com/products/)**,
+  whose fifteen products exist precisely because Swing's floor was not enough for the applications
+  people actually ship. Reading what a commercial suite sells on top of a mature toolkit is a
+  cheaper way to find the gaps than waiting for `curly gui` to hit each one.
+
+  **What exists** (`lib/ui/controls.zm`, 3,079 lines): Button and icon button, CheckBox, Entry with
+  its text-area and password forms, List, Tabs, Tree, ScrollBar, Menu and ComboBox -- nine, plus
+  the `widget` primitives they are built from (Label, Icon, Border, Surface, Stack, Fixed,
+  Expanded, Viewport, Layer) and the `dialog_layer`/`dialog_keys` pair that is a tenth in all but
+  name.
+
+  **Three roles are declared with no control behind them**, which is the sharpest single finding
+  and is a gap nothing would have reported -- and all three are still open after F288/F289:
+  `widget.Role` has `RadioButton`, `Slider` and `Link`,
+  `a11y.role_word` spells all three for a reader and `atspi.zm` maps all three to a platform
+  number. The vocabulary is complete and the controls were never written, so every layer below the
+  widget set is already waiting for them. That is a half-day each, not a design pass.
+
+  | missing | Swing | JIDE | where the cost is |
+  | --- | --- | --- | --- |
+  | ~~SplitPane~~ **DONE** | `JSplitPane` | `TableSplitPane`, DocumentPane's split view | a divider that drags, and the first control that *owns* a layout rather than filling one. See [F288](../reviews/tasks/f288-f289.md) |
+  | ~~Table~~ **DONE** | `JTable` | the whole *Grids* product | header, columns, column widths. Sorting, filtering, cell selection and editing deferred, as JIDE layers them. See [F289](../reviews/tasks/f288-f289.md) |
+  | RadioButton + group | `JRadioButton`, `ButtonGroup` | -- | role exists; the group is the new idea (one of N, by name) |
+  | Slider | `JSlider` | `RangeSlider` | role exists; shares the thumb arithmetic with `ScrollBar` |
+  | Link | -- | -- | role exists; a Button that looks like text and reports a URL |
+  | ProgressBar | `JProgressBar` | inside `StatusBar` | new role; determinate and indeterminate are different controls wearing one name |
+  | Spinner | `JSpinner` | -- | new role; it is an `Entry` with two buttons and a value model |
+  | ToggleButton | `JToggleButton` | -- | `Button` plus `State.checked` |
+  | Separator, ToolBar, StatusBar | `JSeparator`, `JToolBar` | `StatusBar` | mostly layout over `Role.Group` |
+  | CollapsiblePane | -- | `CollapsiblePane(s)`, the Task Pane | `State.expanded` exists; the animation does not and need not |
+  | DatePicker | -- | `DateComboBox`, `DateChooserPanel` | a calendar is a `Table` of a particular shape -- do it after Table, not before |
+  | ColorPicker | `JColorChooser` | `ColorComboBox`, `ColorChooserPanel` | `paint` already has the colour vocabulary |
+  | BreadcrumbBar | -- | `BreadcrumbBar` | |
+  | PropertyGrid | -- | `PropertyGrid` | a two-column Table with an editor per row |
+  | TreeTable / HierarchicalTable | -- | `TreeTable`, `HierarchicalTable` | `Tree` and `Table` already share the row model; this is the join |
+  | Sorting, filtering, quick-filter fields | `RowSorter` | `SortableTable`, `FilterableTableModel`, `QuickTableFilterField` | JIDE layers these *over* the table; so should we |
+  | Docking, DocumentPane | `JDesktopPane` | Docking Framework, `DocumentPane` | the largest item here and the one most clearly its own design pass |
+  | Wizard, option dialog | `JOptionPane` | JIDE Dialogs | `Role.Dialog` and `dialog_layer` exist; this is content, not machinery |
+
+  **Charts are the part with no floor at all.** JIDE sells four products in this area -- Charts,
+  Gantt Chart, Pivot Grid and Dashboard -- and Swing ships none of them, which is the clearest
+  statement in the whole catalogue that charting is where a widget set stops and an application
+  starts. `grep -rn chart lib/` finds one hit and it is the colour `chartreuse`. **But the drawing
+  half is already built**: `lib/graphics` has the 2D model, `shape` has the segment vocabulary,
+  `scene` composes, `paint` has colour and `font`/`truetype` measure text, so a chart is not a
+  rendering problem here. It is three things we do not have -- a **scale** (data range to pixels,
+  linear first, then log and category), an **axis** (ticks at round numbers, which is its own small
+  algorithm, plus labels that do not collide), and a **plot** per kind (line, bar, scatter, pie).
+  Those belong in `lib/graphics` beside `layout.zm`, *not* in `lib/ui`: a chart must render to PDF
+  as readily as to a window, and the moment it is a control it cannot. `lib/ui` then gets a thin
+  `Chart` control that is a `Drawn` over whatever `lib/graphics` produced, which is the same
+  division `Icon` already uses. The Gantt chart and the pivot grid are Table problems wearing a
+  chart's clothes and should wait for Table rather than for the scales.
+
+  **What a control costs here, measured from the last nine.** The shape is fixed -- `x_of(...)` to
+  build, `x_widget(x, style)` to lay out and declare to the accessibility tree, and
+  `x_input(x, input, bounds) -> XStep` returning a new state and what happened, because
+  [a control cannot act, only answer](../design/journal/part-01.md). A new role is **four** edits --
+  `widget.Role`, `a11y.role_word`, `atspi.code_of` and `src/native_a11y.c`'s number-to-`ATK_ROLE_*`
+  table, the last two being a pair that has to move together -- and nothing else. (This said three
+  until F288 counted them.) Then unit tests,
+  mutations, `make corelib-reference` **committed** before `make check`, and -- the part that is
+  not optional -- **a `curly gui` screen that actually uses it**: the two defects fixed on
+  2026-11-16 were both invisible to every test and visible in the first minute of using the app.

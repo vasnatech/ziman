@@ -930,6 +930,24 @@ pub enum Role {
     // built from the same popup here and announce differently on purpose.
     ComboBox
     ScrollBar
+    // A grid of cells with a header over it. **Its rows are nodes and its cells are not**, which is
+    // where this stops short of AT-SPI's table interface: that interface answers questions by
+    // coordinate ("what is in row 3, column 2"), which needs a C object implementing `AtkTable`
+    // rather than a role on a widget. A row whose label is its cells read in order gets a reader
+    // through a table usefully today; the coordinate interface is the next instalment, not a
+    // different design.
+    Table
+    // One row of a table, announced with its cells in order.
+    TableRow
+    // The heading over a column, which is a control: it is what a column is sorted and resized by.
+    ColumnHeader
+    // Two panes and the divider between them. **The divider is a `Separator` inside this**, which
+    // is how both ATK and GTK have it: the pane is what contains the two halves and publishes
+    // where the split sits, and the handle is the thin thing you take hold of.
+    SplitPane
+    // A thin line that divides, with nothing either side of it. A split pane's divider and a
+    // toolbar's rule are the same object to a reader, which is why this is one role and not two.
+    Separator
     Dialog
     // A container that groups its children for a reader without being anything itself -- a toolbar,
     // a form section. Worth a node where a plain layout box is not, because a reader navigates by

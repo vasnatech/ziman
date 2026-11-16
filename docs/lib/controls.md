@@ -1418,6 +1418,415 @@ what is inside. `widget.modal_layer` is where both of those are explained.
 The content is the caller's: a dialog is a frame and a pair of keys, not a thing that knows what
 it is asking.
 
+## The split pane
+
+### `divider_thickness`
+
+```
+pub val divider_thickness = 6.0
+```
+
+How thick a divider is drawn, and how wide a target it is to grab.
+
+**One number, shared by the widget, the hit test and the arithmetic that places the panes** --
+`bar_thickness`'s rule for `bar_thickness`'s reason: a divider you can see in one place and take
+hold of in another is the failure this module keeps designing against.
+
+### `divider_step`
+
+```
+pub val divider_step = 10.0
+```
+
+What one arrow key moves the divider by.
+
+**A module val rather than a field, unlike `ScrollBar.step`.** A scroll bar's step is a row of
+something this module cannot see, so it has to be given one; a divider moves in points, and a
+point is a point whatever is either side of it.
+
+### `SplitPane`
+
+```
+pub struct SplitPane {
+    name: string
+    label: string
+    // Which way the panes sit: `Row` is two panes side by side with an upright divider, `Column`
+    // one above the other. **The direction of the stack, not of the divider**, which is the
+    // confusion `JSplitPane.HORIZONTAL_SPLIT` is famous for -- a "horizontal split" there is a
+    // *vertical* divider. This field is the stack's direction and nothing else, so there is
+    // nothing to get backwards.
+    direction: widget.Direction
+    // Where the divider starts, in points from the box's start along `direction`. Read it through
+    // `split_at`, never directly: this is what the user asked for and that is what they can have.
+    position: float
+    // The least either pane may be squeezed to, in points. Zero lets a pane be dragged away
+    // entirely, which is what a plain pane does everywhere and is why it is the default.
+    first_min: float
+    second_min: float
+    // Where in the divider the pointer took hold, measured from the divider's start, or `None`
+    // when nothing is being dragged. `ScrollBar.grabbed` carries the same thing for the same
+    // reason: a divider that jumped so its start met the pointer would move the moment it was
+    // touched, before anything was dragged.
+    grabbed: Option<float>
+    disabled: bool
+}
+```
+
+Two panes with a divider between them, which the user can drag.
+
+**The first control here that owns a layout rather than filling one**, and it is still not a
+layout container: `split_pane_widget` takes the two panes as widgets and returns a widget, so
+`widget` keeps every placement rule and this keeps the state and the gestures. A `Stack` whose
+children's sizes came from a control's state would have put a control inside the box model.
+
+**The position is points from the start, not a fraction of the box.** A fraction would need no
+extent at all -- two `Expanded` weights say it, and the first draft was written that way -- and
+it is the wrong model: it makes a sidebar grow when the window grows, where every file browser
+ever written keeps the sidebar's width and gives the new room to the document. Points cost this
+control the one thing a fraction had for free, which is that a number in points has to be
+clamped against an extent the state does not know, and that is what `split_at` is for.
+
+**`position` is written only by a gesture, and read through `split_at`.** So a window squeezed
+narrow enough to push the divider does not overwrite what the user chose: the clamp happens on
+the way out, the stored number survives, and widening the window again puts the divider back
+where they left it. Storing the clamped value instead -- which is what writing it on every
+layout would do -- loses that, and it is the complaint `JSplitPane` keeps a `lastDividerLocation`
+to answer.
+
+### `split_pane_of`
+
+```
+pub fn split_pane_of(name: string, label: string, direction: widget.Direction, position: float) -> SplitPane
+```
+
+### `divider_name`
+
+```
+pub fn divider_name(s: SplitPane) -> string
+```
+
+The divider's own name, which focus and accessibility address it by.
+
+**The divider takes the focus, not the pane.** A pane that was a tab stop would be a stop in
+front of whatever is inside it, so Tab would reach the split before reaching the tree in its
+first half; and the thing a keyboard user wants to move is the divider. Same construction as
+`row_name`: the control's name and a suffix, because a part has no name of its own.
+
+### `split_at`
+
+```
+pub fn split_at(s: SplitPane, extent: float) -> float
+```
+
+Where the divider starts, in points from the start of a box `extent` long.
+
+**One function, read by the widget and by every gesture** -- `thumb_of`'s rule. A divider drawn
+at one number and dragged by another is a divider that jumps out from under the pointer on the
+first press.
+
+### `divider_rect`
+
+```
+pub fn divider_rect(s: SplitPane, bounds: Rect) -> Rect
+```
+
+The box the divider occupies, which is what a press is tested against.
+
+### `SplitStep`
+
+```
+pub struct SplitStep {
+    split: SplitPane
+    // Whether the divider ended up somewhere else. **Where it ended up is on `split`**, unlike
+    // `ScrollBarStep.offset`: a scroll bar reports an offset whose owner is the control being
+    // scrolled, where a split pane owns its own divider and has nobody to hand the number to.
+    moved: bool
+}
+```
+
+### `split_pane_input`
+
+```
+pub fn split_pane_input(s: SplitPane, input: Input, bounds: Rect) -> SplitStep
+```
+
+What an input does to a split pane, given the box the whole pane occupies.
+
+A press on the divider takes hold of it, a move while held drags it, a release lets go. A press
+anywhere else does nothing -- **the panes' own contents are not this control's business**, and
+`target` has already decided that an input landing inside a pane belongs to whatever is in
+there. The arrows move the divider by `divider_step`, Home and End push it as far as the
+minimums allow.
+
+**The arrows that move it are the ones that lie along the stack**: Left and Right for a `Row`,
+Up and Down for a `Column`. The other pair is left alone rather than treated as the same thing,
+because a divider that moved sideways when you pressed Down would be reporting that this control
+does not know which way it is facing.
+
+### `split_pane_widget`
+
+```
+pub fn split_pane_widget(
+    s: SplitPane,
+    style: Style,
+    extent: float,
+    first: widget.Widget,
+    second: widget.Widget
+) -> widget.Widget
+```
+
+The pane as a widget: the first pane at its size, the divider, and the second pane taking what
+is left.
+
+**`extent` is given rather than measured**, which is the one thing this control asks of its
+application that no other control here does. The box model places a tree it is handed; a
+position in points cannot be turned into a layout without knowing how much room there is, and
+the application already holds that number because it is the `bounds` it passes to
+`split_pane_input`. Passing last frame's extent is exactly right: it is the extent the user was
+looking at when they dragged.
+
+**The second pane is `expand`ed rather than sized.** The first pane and the divider are fixed,
+so whatever rounding is left over goes to the second pane and there is no seam -- where two
+fixed sizes that did not add up to the box would leave a line of background showing between
+them, on some window widths and not others.
+
+## The table
+
+### `min_column`
+
+```
+pub val min_column = 24.0
+```
+
+The least a column may be dragged down to. Below this there is no room for even an ellipsis, and
+a column with nothing in it is a column a user cannot find again to drag back.
+
+### `column_grip`
+
+```
+pub val column_grip = 4.0
+```
+
+How close to a column's trailing edge a press has to be to take hold of it.
+
+**Both sides of the edge, so the grip is twice this wide.** A one-point target is a target
+nobody hits; the number is the one every table uses and it is the reason the cursor changes
+shape there.
+
+### `Column`
+
+```
+pub struct Column {
+    title: string
+    width: float
+    // Where this column's cells sit in it: text reads from the start, a number from the end.
+    //
+    // **On the column, not on the cell**, which is what Swing's renderer-per-column and JIDE's
+    // `CellStyleTable` both say in their own way. A column of numbers with one of them centred is
+    // a mistake every time, so the model does not let it be said.
+    align: widget.Along
+}
+```
+
+One column of a table.
+
+### `column_of`
+
+```
+pub fn column_of(title: string, width: float) -> Column
+```
+
+### `numeric_column_of`
+
+```
+pub fn numeric_column_of(title: string, width: float) -> Column
+```
+
+A column of numbers, which read from the right so their digits line up. The reason this is worth
+a second constructor rather than a field to set: a table of measurements has one of these per
+column and spelling out a struct literal each time is how a right-aligned column gets forgotten.
+
+### `Table`
+
+```
+pub struct Table {
+    name: string
+    label: string
+    columns: [Column]
+    // The cells, a row at a time.
+    //
+    // **A row shorter than `columns` is not an error**: `cell_at` answers "" past its end. A table
+    // built from a query has a missing value in it sooner or later, and the alternative is every
+    // caller padding its rows or this control raising on data it could simply draw.
+    rows: [[string]]
+    // The selected row, or -1 for none -- a real state, as `List.selected` explains at length.
+    selected: int
+    row_height: float
+    // How tall the header is, and **zero for no header at all**: a grid of values inside a dialog
+    // has nothing to put in one, and that is a table with its header height set to zero rather
+    // than a second control.
+    header_height: float
+    // How far the rows have scrolled down.
+    offset: float
+    // How far the columns have scrolled sideways. **One number, read by the header and by the
+    // body**, which is what locks the two together: a header scrolling on its own offset is a
+    // header that drifts from its columns, and it drifts by exactly the bug you cannot see in a
+    // screenshot.
+    offset_x: float
+    // Which column's trailing edge is being dragged, or -1.
+    resizing: int
+    // How far the pointer was from that edge when it took hold, so a resize does not snap the edge
+    // to the pointer on the first press. `ScrollBar.grabbed` and `SplitPane.grabbed` carry the same
+    // thing for the same reason.
+    grabbed: Option<float>
+    bar: ScrollBar
+    disabled: bool
+}
+```
+
+A grid of cells, a header over it, one row selected.
+
+**What this is, by JIDE's own division of its product line**: `JideTable` -- a table with a
+header, selection, scrolling in both directions and columns the user can resize. Sorting,
+filtering, cell spanning, a tree in the first column and a nested table in a row are all things
+JIDE layers *over* that base, and they are deferred here in the same order and for the same
+reason: each is a model on top of the rows, and a base that cannot show rows well makes none of
+them better.
+
+**The header is outside the scrolled view, vertically, and inside it horizontally.** That is the
+whole of what makes a table a table rather than a list of rows -- the titles stay while the rows
+go by -- and it is the one thing that complicates the arithmetic, because the view the rows
+scroll in is *not* the control's box. Everything that needs that box goes through `table_body`
+rather than working it out again, which is `thumb_of`'s rule: five copies of
+`bounds.height - header_height` is five chances to forget one.
+
+### `table_of`
+
+```
+pub fn table_of(name: string, label: string, columns: [Column], rows: [[string]]) -> Table
+```
+
+### `cell_at`
+
+```
+pub fn cell_at(t: Table, row: int, column: int) -> string
+```
+
+What is in a cell, or "" for a cell that is not there. See `Table.rows`.
+
+### `row_label`
+
+```
+pub fn row_label(t: Table, row: int) -> string
+```
+
+A row as a reader hears it: its cells in order, comma separated.
+
+**The columns' order, not the row's length**, so a short row is read as the empty cells it has
+rather than stopping early -- a reader that said "Aspirin, 100mg" where the screen shows an
+empty dose column has told the user the wrong thing about the data.
+
+### `column_x`
+
+```
+pub fn column_x(t: Table, index: int) -> float
+```
+
+Where a column starts, measured from the start of the first one and before any sideways scroll.
+
+**Defined up to and including `len(columns)`**, where it answers the width of them all -- so the
+trailing edge of column `i` is `column_x(t, i + 1)` and the hit test, the header and the rows
+are reading one function rather than three loops that must agree.
+
+### `columns_width`
+
+```
+pub fn columns_width(t: Table) -> float
+```
+
+### `table_body`
+
+```
+pub fn table_body(t: Table, bounds: Rect) -> Rect
+```
+
+The box the rows are in: the control's box without the header.
+
+**Every calculation about rows goes through here** -- the press that picks a row, the page a
+PageDown moves, the reveal that brings a selection into view, the scroll bar's track and
+whether a press landed on it. The header is the only thing between them and `bounds`, and it is
+the kind of subtraction that gets written four times and forgotten once.
+
+### `edge_at`
+
+```
+pub fn edge_at(t: Table, bounds: Rect, p: Point) -> int
+```
+
+Which column's trailing edge is under this point, or -1 for none.
+
+**Only in the header**, which is where a resize grip belongs: a drag starting over the rows is a
+selection in every table ever written, and treating a press four points from a column boundary
+in the middle of the data as a resize would make selecting a row a gamble.
+
+**The last column's edge is not a grip.** There is nothing to its right to give or take the
+points, so dragging it would either do nothing or resize a different column -- and a grip that
+does nothing is worse than no grip, because the pointer changed shape and promised otherwise.
+
+### `table_row_name`
+
+```
+pub fn table_row_name(t: Table, row: int) -> string
+```
+
+### `column_header_name`
+
+```
+pub fn column_header_name(t: Table, column: int) -> string
+```
+
+### `TableStep`
+
+```
+pub struct TableStep {
+    table: Table
+    // The selection changed.
+    moved: bool
+    // A row was chosen -- Enter or Space on the selection. Separate from `moved` for `ListStep`'s
+    // reason: arrowing to a row and opening it are different intentions.
+    activated: bool
+    // A column's width changed. **A third output rather than folded into `moved`**, because an
+    // application that saves its column widths wants to know about this and does not want to write
+    // a file every time the user arrows down a row.
+    resized: bool
+}
+```
+
+### `table_input`
+
+```
+pub fn table_input(t: Table, input: Input, bounds: Rect) -> TableStep
+```
+
+What an input does to a table.
+
+**Three gestures in order of who owns the pointer**, the opening `list_input` has for the same
+reason: a resize in progress keeps it, then the scroll bar, then the rows. A press that is none
+of those -- on a header, on empty space below the last row -- does nothing at all.
+
+### `table_widget`
+
+```
+pub fn table_widget(t: Table, style: Style) -> widget.Widget
+```
+
+The table as a widget: a header over a viewport of rows.
+
+**One control and one tab stop**, as a list is: Tab reaches the table and the arrows move within
+it. The rows are `part_of` -- something a click and a reader reach and Tab does not -- and so are
+the column headers, which is what will make a header sortable without a second tab stop per
+column.
+
 ## The style
 
 ### `Style`

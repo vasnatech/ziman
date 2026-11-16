@@ -347,6 +347,8 @@ fn only_a_key_or_text_could_change_a_field() {
 // --- the text entry
 
 use controls.bar_thickness
+use controls.divider_thickness
+use controls.min_column
 use controls.min_thumb
 use controls.thumb_name
 use edit
@@ -1139,7 +1141,6 @@ fn a_combo_box_with_nothing_chosen_shows_its_label() {
     test.assert_eq("Environment", controls.combo_box_text(past_the_end))
     test.assert_eq("", controls.combo_box_value(past_the_end))
 }
-
 
 // **Choosing moves the collapsed text with it**, which is the point of reading the value from the
 // list's selection rather than storing it: there is no second place to update and so no way for the
@@ -3214,4 +3215,522 @@ fn a_wordless_glyph_button_says_its_name_and_not_its_character() {
     val b = controls.icon_button_of("close", "", widget.glyph_icon("x", "close"))
     val laid = widget.layout(controls.button_widget(b, style), geom.rect_of(0.0, 0.0, 400.0, 60.0), m)
     test.assert_eq(named(a11y.tree_of(laid, "demo", ""), "close"), "close")
+}
+
+// ---------------------------------------------------- the split pane
+
+// Three hundred points of room, a divider six points wide, and panes that refuse to be squeezed
+// below forty and fifty. So the divider may sit anywhere in [40, 244] and starts at 100.
+val pane_box = geom.rect_of(0.0, 0.0, 300.0, 100.0)
+val pane_extent = 300.0
+
+fn pane() -> controls.SplitPane {
+    return with controls.split_pane_of("sidebar", "", widget.Direction.Row, 100.0) {
+        first_min: 40.0,
+        second_min: 50.0
+    }
+}
+
+fn to_pane(s: controls.SplitPane, input: controls.Input) -> controls.SplitStep {
+    return controls.split_pane_input(s, input, pane_box)
+}
+
+// A pane with a name a layout probe can find, and nothing in it.
+fn blank_pane(name: string) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        children: [],
+        name: name
+    })
+}
+
+fn laid_pane(s: controls.SplitPane, extent: float) -> widget.Laid {
+    return widget.layout(
+        controls.split_pane_widget(s, controls.default_style(), extent, blank_pane("left"), blank_pane("right")),
+        geom.rect_of(0.0, 0.0, extent, 100.0),
+        metrics()
+    )
+}
+
+#[test]
+fn a_divider_stays_inside_both_minimums() {
+    test.assert_eq(controls.split_at(pane(), pane_extent), 100.0)
+    test.assert_eq(controls.split_at(with pane() { position: 5.0 }, pane_extent), 40.0)
+    test.assert_eq(controls.split_at(with pane() { position: 290.0 }, pane_extent), 244.0)
+}
+
+// **The case where the minimums contradict the box**, which is the one a wide window never shows.
+// Sixty points cannot give forty to one pane and fifty to the other, so neither gets what it asked
+// for and the room is shared in the ratio -- and, the part that matters, the divider is still
+// inside the box rather than hanging out of the end of it.
+#[test]
+fn minimums_that_cannot_both_be_met_share_the_room() {
+    val at = controls.split_at(pane(), 60.0)
+    test.assert_eq(at, 24.0)
+    test.assert(at + divider_thickness <= 60.0)
+}
+
+// **A squeezed window does not cost the user the position they chose.** The clamp is on the way
+// out, so the stored number survives a window too narrow to honour it and comes back when the
+// window does. A control that clamped on the way in would have forgotten 100 the moment the
+// window passed through 60 points, which is `JSplitPane`'s `lastDividerLocation` complaint.
+#[test]
+fn a_narrow_window_does_not_overwrite_the_chosen_position() {
+    val s = pane()
+    test.assert_eq(controls.split_at(s, 60.0), 24.0)
+    test.assert_eq(s.position, 100.0)
+    test.assert_eq(controls.split_at(s, pane_extent), 100.0)
+}
+
+// The one-function rule, as the scroll bar's thumb has it: the divider the layout draws is the
+// divider the press reads.
+#[test]
+fn the_drawn_divider_is_where_the_hit_test_looks_for_it() {
+    val drawn = box_named(laid_pane(pane(), pane_extent), controls.divider_name(pane()))
+    test.assert_eq(drawn.x, controls.split_at(pane(), pane_extent))
+    test.assert_eq(drawn.width, divider_thickness)
+    test.assert_eq(drawn.height, 100.0)
+    test.assert(widget.contains(controls.divider_rect(pane(), pane_box), geom.point_of(drawn.x + 1.0, 50.0)))
+}
+
+// **A press takes hold of the divider where it was pressed, and a drag moves it by how far the
+// pointer went.** Without the grab offset the divider jumps so its start meets the pointer, which
+// moves it the moment it is touched -- three points here, and three points is enough to see.
+#[test]
+fn a_drag_moves_the_divider_by_the_pointers_own_travel() {
+    val held = to_pane(pane(), controls.Input.Press(geom.point_of(103.0, 50.0)))
+    test.assert(Option.is_Some(held.split.grabbed))
+    test.assert_false(held.moved)
+    val dragged = to_pane(held.split, controls.Input.Move(geom.point_of(153.0, 50.0)))
+    test.assert(dragged.moved)
+    test.assert_eq(controls.split_at(dragged.split, pane_extent), 150.0)
+}
+
+// A drag that keeps going stops at the minimum rather than past it, and a drag that is already
+// there reports nothing moved.
+#[test]
+fn a_drag_stops_at_the_minimum() {
+    val held = to_pane(pane(), controls.Input.Press(geom.point_of(103.0, 50.0)))
+    val far = to_pane(held.split, controls.Input.Move(geom.point_of(0.0 - 500.0, 50.0)))
+    test.assert_eq(controls.split_at(far.split, pane_extent), 40.0)
+    test.assert_false(to_pane(far.split, controls.Input.Move(geom.point_of(0.0 - 900.0, 50.0))).moved)
+}
+
+// **A drag stores what the user achieved, not what they asked for**, which is the other half of
+// the clamp rule and the half no other test here can see: every assertion above reads through
+// `split_at`, so storing the raw pointer position looks identical until the window changes size.
+// Drag hard against the end at three hundred points and the divider stops at 244; widen the window
+// to six hundred and it must still be at 244, not out at the 997 the pointer was asking for.
+// Found by mutation -- storing `want` instead of the clamped number passed all fourteen.
+#[test]
+fn a_drag_stores_where_the_divider_stopped_and_not_where_the_pointer_went() {
+    val held = to_pane(pane(), controls.Input.Press(geom.point_of(103.0, 50.0)))
+    val shoved = to_pane(held.split, controls.Input.Move(geom.point_of(1000.0, 50.0)))
+    test.assert_eq(shoved.split.position, 244.0)
+    test.assert_eq(controls.split_at(shoved.split, 600.0), 244.0)
+}
+
+#[test]
+fn a_release_lets_go_wherever_it_happens() {
+    val held = to_pane(pane(), controls.Input.Press(geom.point_of(103.0, 50.0)))
+    val gone = to_pane(held.split, controls.Input.Release(geom.point_of(900.0, 900.0)))
+    test.assert(Option.is_None(gone.split.grabbed))
+}
+
+// A press inside a pane is not this control's business: `target` has already decided it belongs to
+// whatever is in there, and a split pane that grabbed it would resize when a user clicked a row.
+#[test]
+fn a_press_off_the_divider_does_nothing() {
+    val miss = to_pane(pane(), controls.Input.Press(geom.point_of(50.0, 50.0)))
+    test.assert(Option.is_None(miss.split.grabbed))
+    test.assert_false(miss.moved)
+    test.assert_false(to_pane(pane(), controls.Input.Wheel(controls.Wheel {
+        at: geom.point_of(103.0, 50.0),
+        vertical: 0 - 1,
+        horizontal: 0
+    })).moved)
+}
+
+// **The arrows that move it are the ones along the stack.** The other pair is left alone: a
+// divider that moved sideways on Down would be saying this control does not know which way it is
+// facing, and it is the mistake `JSplitPane.HORIZONTAL_SPLIT` invites.
+#[test]
+fn the_arrows_along_the_stack_move_the_divider_and_the_others_do_not() {
+    test.assert_eq(
+        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Right))).split, pane_extent),
+        110.0
+    )
+    test.assert_eq(
+        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Left))).split, pane_extent),
+        90.0
+    )
+    test.assert_false(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Down))).moved)
+    test.assert_false(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Up))).moved)
+}
+
+// Home and End ask for 0 and for the whole box and let the clamp answer, so neither needs to know
+// what the minimums are.
+#[test]
+fn home_and_end_go_as_far_as_the_minimums_allow() {
+    test.assert_eq(
+        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Home))).split, pane_extent),
+        40.0
+    )
+    test.assert_eq(
+        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.End))).split, pane_extent),
+        244.0
+    )
+}
+
+// A column pane stacks its panes vertically, so its divider is a wide thin bar and its keys are Up
+// and Down. **Both halves of the direction in one test**, because getting one right and the other
+// backwards is the failure mode here.
+#[test]
+fn a_column_pane_divides_the_other_way() {
+    val s = with controls.split_pane_of("rows", "", widget.Direction.Column, 30.0) { second_min: 20.0 }
+    val d = controls.divider_rect(s, geom.rect_of(0.0, 0.0, 300.0, 100.0))
+    test.assert_eq(d.y, 30.0)
+    test.assert_eq(d.x, 0.0)
+    test.assert_eq(d.width, 300.0)
+    test.assert_eq(d.height, divider_thickness)
+    val down = controls.split_pane_input(
+        s,
+        controls.Input.KeyDown(key(controls.Key.Down)),
+        geom.rect_of(0.0, 0.0, 300.0, 100.0)
+    )
+    test.assert_eq(controls.split_at(down.split, 100.0), 40.0)
+    test.assert_false(controls.split_pane_input(
+        s,
+        controls.Input.KeyDown(key(controls.Key.Right)),
+        geom.rect_of(0.0, 0.0, 300.0, 100.0)
+    ).moved)
+}
+
+// **The second pane takes what is left, so there is no seam.** Two fixed sizes that did not add up
+// to the box would leave a line of background showing between the panes on some window widths and
+// not others -- the kind of defect that is invisible until someone resizes.
+#[test]
+fn the_panes_and_the_divider_fill_the_box_exactly() {
+    val l = laid_pane(pane(), pane_extent)
+    val left = box_named(l, "left")
+    val right = box_named(l, "right")
+    test.assert_eq(left.x, 0.0)
+    test.assert_eq(left.width, 100.0)
+    test.assert_eq(right.x, 106.0)
+    test.assert_eq(left.width + divider_thickness + right.width, pane_extent)
+}
+
+// **Only the divider is a tab stop.** A pane that was one would be a stop in front of whatever is
+// inside it, so Tab would reach the split before reaching the tree in its first half -- and the
+// thing a keyboard user wants to move is the divider.
+#[test]
+fn the_divider_takes_the_focus_and_the_pane_does_not() {
+    val l = laid_pane(pane(), pane_extent)
+    test.assert_len(1, focus.controls(l))
+    test.assert_eq(focus.controls(l)[0].name, controls.divider_name(pane()))
+    val tree = a11y.tree_of(l, "Records", "")
+    test.assert_eq(said_of_tree(tree, "sidebar"), "split pane")
+}
+
+#[test]
+fn a_disabled_pane_ignores_everything() {
+    val off = with pane() { disabled: true }
+    test.assert_false(to_pane(off, controls.Input.Press(geom.point_of(103.0, 50.0))).moved)
+    test.assert(Option.is_None(to_pane(off, controls.Input.Press(geom.point_of(103.0, 50.0))).split.grabbed))
+    test.assert_false(to_pane(off, controls.Input.KeyDown(key(controls.Key.Right))).moved)
+}
+
+// -------------------------------------------------------- the table
+
+// Three columns 100, 60 and 80 wide -- 240 in all -- and six rows of twenty points, in a box two
+// hundred wide and a hundred tall with a twenty-two point header. **So the body is 78 points
+// tall, not 100, and the columns are 40 points wider than the box**: every number below that
+// differs from the naive one differs because of one of those two facts.
+val table_box = geom.rect_of(0.0, 0.0, 200.0, 100.0)
+
+fn table_columns() -> [controls.Column] {
+    return [
+        controls.column_of("Medicine", 100.0),
+        controls.numeric_column_of("Dose", 60.0),
+        controls.column_of("When", 80.0)
+    ]
+}
+
+fn table() -> controls.Table {
+    return controls.table_of("meds", "", table_columns(), [
+        ["Aspirin", "100mg", "daily"],
+        ["Ibuprofen", "400mg", "as needed"],
+        ["Metformin", "500mg", "twice daily"],
+        ["Ramipril", "5mg", "daily"],
+        ["Simvastatin", "20mg", "at night"],
+        // **A short row**, which a table built from a query gets sooner or later.
+        ["Vitamin D"]
+    ])
+}
+
+fn to_table(t: controls.Table, input: controls.Input) -> controls.TableStep {
+    return controls.table_input(t, input, table_box)
+}
+
+fn laid_table(t: controls.Table) -> widget.Laid {
+    return widget.layout(controls.table_widget(t, controls.default_style()), table_box, metrics())
+}
+
+// The sideways offset a named viewport is scrolled by, or -1 for no such viewport.
+fn offset_x_named(l: widget.Laid, name: string) -> float {
+    if Scroll(v) = l.widget {
+        if v.name == name {
+            return v.offset_x
+        }
+    }
+    for child in l.children {
+        val found = offset_x_named(child, name)
+        if found >= 0.0 {
+            return found
+        }
+    }
+    return 0.0 - 1.0
+}
+
+#[test]
+fn a_cell_past_the_end_of_its_row_is_empty_rather_than_an_error() {
+    test.assert_eq(controls.cell_at(table(), 0, 0), "Aspirin")
+    test.assert_eq(controls.cell_at(table(), 5, 0), "Vitamin D")
+    test.assert_eq(controls.cell_at(table(), 5, 2), "")
+    test.assert_eq(controls.cell_at(table(), 99, 0), "")
+    test.assert_eq(controls.cell_at(table(), 0, 99), "")
+}
+
+// **A reader hears the columns, not the row's length.** A short row read as "Vitamin D" and
+// stopped there would tell the user there are no more columns, where the screen shows two empty
+// cells.
+#[test]
+fn a_row_is_read_as_its_columns_in_order() {
+    test.assert_eq(controls.row_label(table(), 0), "Aspirin, 100mg, daily")
+    test.assert_eq(controls.row_label(table(), 5), "Vitamin D, , ")
+}
+
+#[test]
+fn a_columns_start_is_the_widths_before_it() {
+    test.assert_eq(controls.column_x(table(), 0), 0.0)
+    test.assert_eq(controls.column_x(table(), 1), 100.0)
+    test.assert_eq(controls.column_x(table(), 2), 160.0)
+    // Defined one past the end, where it is the width of them all -- which is what makes
+    // `column_x(t, i + 1)` the trailing edge of column i.
+    test.assert_eq(controls.column_x(table(), 3), 240.0)
+    test.assert_eq(controls.columns_width(table()), 240.0)
+}
+
+// **The header is not part of the view the rows scroll in**, and this is the number that proves
+// it: a hundred-point box with a twenty-two point header holds three whole rows, not five.
+#[test]
+fn the_body_is_the_box_without_the_header() {
+    val body = controls.table_body(table(), table_box)
+    test.assert_eq(body.y, 22.0)
+    test.assert_eq(body.height, 78.0)
+    // A table with no header is all body, which is the grid-in-a-dialog case.
+    val bare = with table() { header_height: 0.0 }
+    test.assert_eq(controls.table_body(bare, table_box).height, 100.0)
+    test.assert_eq(controls.table_body(bare, table_box).y, 0.0)
+}
+
+// **A press picks the row under the pointer, measured from the body.** At y=30 the pointer is
+// eight points into the first row; a table that measured from its own box would select the
+// second, and the error is exactly one header tall -- invisible on a tall row and wrong on
+// every one.
+#[test]
+fn a_press_picks_the_row_under_it_and_not_one_header_lower() {
+    test.assert_eq(to_table(table(), controls.Input.Press(geom.point_of(20.0, 30.0))).table.selected, 0)
+    test.assert_eq(to_table(table(), controls.Input.Press(geom.point_of(20.0, 45.0))).table.selected, 1)
+    // Scrolled down by a row, the same point is the row after.
+    val down = with table() { offset: 20.0 }
+    test.assert_eq(to_table(down, controls.Input.Press(geom.point_of(20.0, 30.0))).table.selected, 1)
+}
+
+// A press on the header selects nothing: there is no row there. (It is where a sort will go, which
+// is why the headers are already nodes of their own.)
+#[test]
+fn a_press_on_the_header_selects_nothing() {
+    val hit = to_table(with table() { selected: 2 }, controls.Input.Press(geom.point_of(20.0, 10.0)))
+    test.assert_eq(hit.table.selected, 2)
+    test.assert_false(hit.moved)
+    // **And a press in the header where the scroll bar's strip is, is not a bar drag.** This one
+    // holds for two reasons and so survives a mutation of either -- `table_for_the_bar` checks the
+    // press is in the body, and `scroll_bar_input` bounds-checks it again. It is here as the
+    // statement of what must be true, not as cover for one line.
+    val strip = to_table(table(), controls.Input.Press(geom.point_of(196.0, 10.0)))
+    test.assert(Option.is_None(strip.table.bar.grabbed))
+    test.assert_eq(strip.table.offset, 0.0)
+    // And a press below the last row leaves the selection alone rather than clearing it.
+    val short = controls.table_of("meds", "", table_columns(), [["one", "1", "now"]])
+    test.assert_eq(to_table(short, controls.Input.Press(geom.point_of(20.0, 90.0))).table.selected, 0)
+}
+
+// A column is dragged by its trailing edge in the header, and **the width follows where the edge
+// would land rather than how far the pointer moved**, so a drag that leaves the window and comes
+// back has nothing to accumulate.
+#[test]
+fn a_column_is_resized_by_dragging_its_edge() {
+    // **Pressed two points to the right of the edge, on purpose.** Pressing exactly on it would
+    // make the grab offset zero and leave the whole point of `grabbed` untested -- a column that
+    // jumped two points wider the instant it was touched would pass.
+    val held = to_table(table(), controls.Input.Press(geom.point_of(102.0, 10.0)))
+    test.assert_eq(held.table.resizing, 0)
+    test.assert(Option.is_Some(held.table.grabbed))
+    val wider = to_table(held.table, controls.Input.Move(geom.point_of(140.0, 10.0)))
+    test.assert(wider.resized)
+    test.assert_eq(wider.table.columns[0].width, 138.0)
+    // The other columns are untouched: a resize moves one boundary, not every one after it.
+    test.assert_eq(wider.table.columns[1].width, 60.0)
+    val gone = to_table(wider.table, controls.Input.Release(geom.point_of(900.0, 900.0)))
+    test.assert(Option.is_None(gone.table.grabbed))
+    test.assert_eq(gone.table.resizing, 0 - 1)
+}
+
+// **A column cannot be dragged away to nothing.** A zero-wide column is one a user cannot find
+// again to drag back, so the floor is the one thing that keeps a resize reversible.
+#[test]
+fn a_column_stops_at_its_minimum_width() {
+    val held = to_table(table(), controls.Input.Press(geom.point_of(100.0, 10.0)))
+    val squashed = to_table(held.table, controls.Input.Move(geom.point_of(0.0 - 50.0, 10.0)))
+    test.assert_eq(squashed.table.columns[0].width, min_column)
+}
+
+// **The grip is in the header and nowhere else.** Four points from a column boundary in the middle
+// of the data is a selection in every table ever written, and a resize there would make clicking a
+// row a gamble. The last column's edge is not a grip either -- there is nothing to its right to
+// give the points to.
+#[test]
+fn the_resize_grip_is_only_on_a_header_and_never_on_the_last_column() {
+    test.assert_eq(controls.edge_at(table(), table_box, geom.point_of(100.0, 10.0)), 0)
+    test.assert_eq(controls.edge_at(table(), table_box, geom.point_of(160.0, 10.0)), 1)
+    test.assert_eq(controls.edge_at(table(), table_box, geom.point_of(240.0, 10.0)), 0 - 1)
+    test.assert_eq(controls.edge_at(table(), table_box, geom.point_of(100.0, 40.0)), 0 - 1)
+    test.assert_eq(controls.edge_at(table(), table_box, geom.point_of(130.0, 10.0)), 0 - 1)
+    // So a press two points from a boundary in the body is a row selection.
+    val hit = to_table(table(), controls.Input.Press(geom.point_of(99.0, 45.0)))
+    test.assert_eq(hit.table.selected, 1)
+    test.assert_eq(hit.table.resizing, 0 - 1)
+    // And a header with no header height has no grips at all.
+    test.assert_eq(controls.edge_at(with table() { header_height: 0.0 }, table_box, geom.point_of(100.0, 2.0)), 0 - 1)
+}
+
+// **A grip moves with its column once the table is scrolled sideways.** The edge is drawn at
+// `column_x` minus the sideways offset, and a hit test that forgot the offset would put the grip
+// forty points from the line it belongs to -- which is the bug a screenshot cannot show because
+// the line is drawn in the right place.
+#[test]
+fn a_grip_follows_its_column_sideways() {
+    val across = with table() { offset_x: 40.0 }
+    test.assert_eq(controls.edge_at(across, table_box, geom.point_of(60.0, 10.0)), 0)
+    test.assert_eq(controls.edge_at(across, table_box, geom.point_of(100.0, 10.0)), 0 - 1)
+}
+
+// Paging and revealing use the body's height, so PageDown moves three rows here and not five.
+#[test]
+fn a_page_is_what_fits_in_the_body() {
+    val paged = to_table(table(), controls.Input.KeyDown(key(controls.Key.PageDown)))
+    test.assert_eq(paged.table.selected, 3)
+    test.assert_eq(to_table(table(), controls.Input.KeyDown(key(controls.Key.End))).table.selected, 5)
+    test.assert_eq(
+        to_table(with table() { selected: 5 }, controls.Input.KeyDown(key(controls.Key.Home))).table.selected,
+        0
+    )
+    // Arrowing to the last row scrolls it into view by the least that works: six rows of twenty is
+    // 120 points of content in a 78-point body, so the end of it sits at 42.
+    test.assert_eq(to_table(table(), controls.Input.KeyDown(key(controls.Key.End))).table.offset, 42.0)
+}
+
+// **The columns scroll sideways and the rows do not come with them.** The sideways offset is
+// clamped against the columns' own width, so a table narrower than its columns can reach the last
+// one and no further: 240 of columns in a 200-point body stops at 40.
+#[test]
+fn the_columns_scroll_sideways_within_their_own_width() {
+    val right = to_table(table(), controls.Input.KeyDown(key(controls.Key.Right)))
+    test.assert_eq(right.table.offset_x, 20.0)
+    test.assert_eq(right.table.offset, 0.0)
+    test.assert_eq(
+        to_table(with table() { offset_x: 30.0 }, controls.Input.KeyDown(key(controls.Key.Right))).table.offset_x,
+        40.0
+    )
+    test.assert_eq(to_table(table(), controls.Input.KeyDown(key(controls.Key.Left))).table.offset_x, 0.0)
+    // A sideways wheel does the same, and is answered before the vertical component of the same
+    // event -- a trackpad sends both on a diagonal flick.
+    val flicked = to_table(table(), controls.Input.Wheel(controls.Wheel {
+        at: geom.point_of(20.0, 50.0),
+        vertical: 0 - 1,
+        horizontal: 1
+    }))
+    test.assert_eq(flicked.table.offset_x, 20.0)
+    test.assert_eq(flicked.table.offset, 0.0)
+}
+
+// **Sideways still works on a table with no rows**, which is why the arrows are answered before
+// the empty check: a table waiting for a query still has columns, and a user should be able to
+// look at them.
+#[test]
+fn an_empty_table_still_scrolls_sideways() {
+    val empty = controls.table_of("meds", "", table_columns(), [])
+    test.assert_eq(empty.selected, 0 - 1)
+    test.assert_eq(to_table(empty, controls.Input.KeyDown(key(controls.Key.Right))).table.offset_x, 20.0)
+    test.assert_false(to_table(empty, controls.Input.KeyDown(key(controls.Key.Down))).moved)
+}
+
+// The wheel scrolls and never moves the selection, for `list_input`'s reason: a user looking
+// further down the table has not asked to select what they are looking at.
+#[test]
+fn the_wheel_scrolls_the_rows_and_leaves_the_selection() {
+    val rolled = to_table(table(), controls.Input.Wheel(controls.Wheel {
+        at: geom.point_of(20.0, 50.0),
+        vertical: 0 - 1,
+        horizontal: 0
+    }))
+    test.assert_eq(rolled.table.offset, 20.0)
+    test.assert_eq(rolled.table.selected, 0)
+    test.assert_false(rolled.moved)
+}
+
+#[test]
+fn enter_activates_the_selected_row() {
+    test.assert(to_table(table(), controls.Input.KeyDown(key(enter))).activated)
+    test.assert_false(to_table(table(), controls.Input.KeyDown(key(enter))).moved)
+    val none = with table() { selected: 0 - 1 }
+    test.assert_false(to_table(none, controls.Input.KeyDown(key(enter))).activated)
+}
+
+// **The header and the body are scrolled by one number.** Two offsets would be a header that
+// drifts from its columns, and it drifts only after a sideways scroll -- so a screenshot of a
+// freshly opened table shows nothing wrong.
+#[test]
+fn the_header_scrolls_sideways_with_the_body_and_not_down_with_it() {
+    val l = laid_table(with table() { offset_x: 40.0, offset: 20.0 })
+    test.assert_eq(offset_x_named(l, "meds/header"), 40.0)
+    test.assert_eq(offset_x_named(l, "meds/body"), 40.0)
+    // The header's box stays at the top whatever the rows do.
+    test.assert_eq(box_named(l, "meds/column/0").y, 0.0)
+}
+
+// One tab stop for the whole table, as a list has one: the rows and the headers are parts, which
+// a click and a reader reach and Tab does not.
+#[test]
+fn a_table_is_one_tab_stop_and_its_rows_are_parts() {
+    val l = laid_table(table())
+    test.assert_len(1, focus.controls(l))
+    test.assert_eq(focus.controls(l)[0].name, "meds")
+    val tree = a11y.tree_of(l, "Records", "")
+    test.assert_eq(said_of_tree(tree, "meds"), "table")
+    test.assert_eq(named(tree, controls.table_row_name(table(), 0)), "Aspirin, 100mg, daily")
+    test.assert_eq(named(tree, controls.column_header_name(table(), 1)), "Dose")
+}
+
+#[test]
+fn a_disabled_table_ignores_everything() {
+    val off = with table() { disabled: true, selected: 2 }
+    test.assert_eq(to_table(off, controls.Input.Press(geom.point_of(20.0, 45.0))).table.selected, 2)
+    test.assert_false(to_table(off, controls.Input.KeyDown(key(controls.Key.Down))).moved)
+    test.assert_eq(to_table(off, controls.Input.Press(geom.point_of(100.0, 10.0))).table.resizing, 0 - 1)
 }

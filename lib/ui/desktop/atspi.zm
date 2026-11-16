@@ -58,6 +58,11 @@ fn code_of(r: Role) -> int {
         MenuItem { 12 }
         ComboBox { 13 }
         ScrollBar { 14 }
+        Table { 25 }
+        TableRow { 26 }
+        ColumnHeader { 27 }
+        SplitPane { 23 }
+        Separator { 24 }
         Dialog { 15 }
         Group { 16 }
         Label { 17 }
