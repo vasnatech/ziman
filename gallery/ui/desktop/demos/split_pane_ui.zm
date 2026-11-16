@@ -1,0 +1,33 @@
+// The Split pane demo, as design.
+use controls
+use widget
+
+val gap = 8.0
+val pane_height = 200.0
+val said_height = 20.0
+val small_size = 11.0
+
+pub struct Screen {
+    pane: widget.Widget
+    said: string
+}
+
+// A pane's contents: a word in a box, so the two halves can be told apart while they resize.
+pub fn half(title: string, style: controls.Style) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.insets_of(gap, gap, gap, gap),
+        surface: widget.filled(style.face),
+        align: widget.stretched(),
+        children: [widget.label_of(title, small_size, style.ink)],
+        name: ""
+    })
+}
+
+pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.fixed_of(0.0, pane_height, it.pane),
+        widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
+    ])
+}

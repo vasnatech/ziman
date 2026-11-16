@@ -1,0 +1,67 @@
+// A split pane: drag the divider, or focus it with Tab and use the arrows.
+//
+// **The position is points from the start, not a fraction of the box**, so a sidebar keeps its
+// width when the window grows. The clamp is on the way out, which is why dragging the divider
+// into a wall and then widening the window puts it back where you left it.
+use boxes
+use controls
+use controls.divider_thickness
+use demos/split_pane_ui
+use math.floor
+use widget
+
+// What the demo's own box is, along the split. The control is asked for its extent rather than
+// measuring it, and this is a demo of a fixed size, so the number is here.
+val extent = 460.0
+
+pub struct Demo {
+    split: controls.SplitPane
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        split: with controls.split_pane_of("split-demo", "The divider", widget.Direction.Row, 200.0) {
+            first_min: 80.0,
+            second_min: 120.0
+        }
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return split_pane_ui.screen(split_pane_ui.Screen {
+        pane: controls.split_pane_widget(
+            d.split,
+            style,
+            extent,
+            split_pane_ui.half("Leading", style),
+            split_pane_ui.half("Trailing", style)
+        ),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    return concat(
+        "The divider is ",
+        str(floor(controls.split_at(d.split, extent))),
+        " points along, and will not go past ",
+        str(floor(d.split.first_min)),
+        " or ",
+        str(floor(extent - divider_thickness - d.split.second_min)),
+        "."
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "split-demo/divider" {
+        return with d { split: controls.split_pane_input(d.split, input, boxes.bounds_of(laid, "split-demo")).split }
+    }
+    return d
+}

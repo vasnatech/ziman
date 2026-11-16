@@ -1,0 +1,61 @@
+// A text area: Enter inserts a newline, Up and Down move by line, and the whole body is drawn a
+// line at a time.
+//
+// **The same control as a one-line field**, with `rows` greater than one. A REST client where a
+// JSON body had to be typed on one line is what made `text_area_of` exist.
+use boxes
+use controls
+use demos/text_area_ui
+use edit
+use widget
+
+pub struct Demo {
+    body: controls.Entry
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        body: controls.text_area_of("area-body", "Body", starting_text(), 8)
+    }
+}
+
+fn starting_text() -> string {
+    return join(separator: "\n", pieces: [
+        "{",
+        "  \"name\": \"Ada\",",
+        "  \"born\": 1815,",
+        "  \"wrote\": [\"the first algorithm\"]",
+        "}",
+        "",
+        "Type into it: Enter makes a line, Up and Down move by one."
+    ])
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return text_area_ui.screen(text_area_ui.Screen {
+        area: controls.entry_widget(d.body, style, m),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    return concat(
+        "The caret is on line ",
+        str(edit.line_index(d.body.editor.text, d.body.editor.caret) + 1),
+        "."
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "area-body" {
+        return with d { body: controls.entry_input(d.body, input, boxes.bounds_of(laid, name), style, m).entry }
+    }
+    return d
+}

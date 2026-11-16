@@ -1,40 +1,82 @@
 // Every demo the gallery knows, and the one place that switches over them.
 //
-// **One enum and four switches, in one file, on purpose.** Ziman has no dynamic dispatch and a
-// lambda cannot capture a `var`, so twenty demos cannot be twenty closures: it is either a
-// variant per demo or a field per demo, and either way something has to switch. Keeping all of it
-// here means adding a demo is one edit to one file plus two new files, and a missing arm is a
-// compile error rather than a demo that silently never draws.
+// **One enum and six switches, in one file, on purpose.** Ziman has no dynamic dispatch and a
+// lambda cannot capture a `var`, so thirteen demos cannot be thirteen closures: it is a variant
+// per demo, and something has to switch. Keeping all of it here means adding a demo is one edit
+// to one file plus two new files, and a missing arm is a compile error rather than a demo that
+// silently never draws. **This file is the gallery's whole cost of growing**, and it is worth
+// watching: at thirteen it is a page of arms, at fifty it would be an argument for something else.
 //
 // **A demo is exactly two files**, the logic and the design, and `files_of` derives both from the
 // stem rather than listing them -- so a demo cannot be added with its design file forgotten.
 use controls
 use demos/button
 use demos/check_box
+use demos/combo_box
+use demos/dialog
+use demos/list
+use demos/menu
+use demos/scroll_bar
+use demos/split_pane
 use demos/table
+use demos/tabs
+use demos/text_area
+use demos/text_field
+use demos/tree
+use geom
 use widget
 
 pub enum Demo {
     Button(button.Demo)
     CheckBox(check_box.Demo)
+    TextField(text_field.Demo)
+    TextArea(text_area.Demo)
+    List(list.Demo)
+    Tabs(tabs.Demo)
+    Tree(tree.Demo)
     Table(table.Demo)
+    ScrollBar(scroll_bar.Demo)
+    SplitPane(split_pane.Demo)
+    ComboBox(combo_box.Demo)
+    Menu(menu.Demo)
+    Dialog(dialog.Demo)
 }
 
-// The catalogue, in the order the tree shows it.
+// The catalogue, in the order the tree shows it: the plain controls, then the ones that hold
+// other controls, then the ones that open something over the window.
 pub fn all() -> [Demo] {
     return [
         Demo.Button(button.demo()),
         Demo.CheckBox(check_box.demo()),
-        Demo.Table(table.demo())
+        Demo.TextField(text_field.demo()),
+        Demo.TextArea(text_area.demo()),
+        Demo.List(list.demo()),
+        Demo.Tabs(tabs.demo()),
+        Demo.Tree(tree.demo()),
+        Demo.Table(table.demo()),
+        Demo.ScrollBar(scroll_bar.demo()),
+        Demo.SplitPane(split_pane.demo()),
+        Demo.ComboBox(combo_box.demo()),
+        Demo.Menu(menu.demo()),
+        Demo.Dialog(dialog.demo())
     ]
 }
 
-// What the tree calls it.
 pub fn title_of(d: Demo) -> string {
     return switch d {
         Button(_) { "Button" }
         CheckBox(_) { "Check box" }
+        TextField(_) { "Text field" }
+        TextArea(_) { "Text area" }
+        List(_) { "List" }
+        Tabs(_) { "Tabs" }
+        Tree(_) { "Tree" }
         Table(_) { "Table" }
+        ScrollBar(_) { "Scroll bar" }
+        SplitPane(_) { "Split pane" }
+        ComboBox(_) { "Combo box" }
+        Menu(_) { "Menu" }
+        Dialog(_) { "Dialog" }
     }
 }
 
@@ -43,7 +85,17 @@ pub fn stem_of(d: Demo) -> string {
     return switch d {
         Button(_) { "button" }
         CheckBox(_) { "check_box" }
+        TextField(_) { "text_field" }
+        TextArea(_) { "text_area" }
+        List(_) { "list" }
+        Tabs(_) { "tabs" }
+        Tree(_) { "tree" }
         Table(_) { "table" }
+        ScrollBar(_) { "scroll_bar" }
+        SplitPane(_) { "split_pane" }
+        ComboBox(_) { "combo_box" }
+        Menu(_) { "menu" }
+        Dialog(_) { "dialog" }
     }
 }
 
@@ -57,14 +109,105 @@ pub fn view_of(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widg
     return switch d {
         Button(it) { button.view(it, style, m) }
         CheckBox(it) { check_box.view(it, style, m) }
+        TextField(it) { text_field.view(it, style, m) }
+        TextArea(it) { text_area.view(it, style, m) }
+        List(it) { list.view(it, style, m) }
+        Tabs(it) { tabs.view(it, style, m) }
+        Tree(it) { tree.view(it, style, m) }
         Table(it) { table.view(it, style, m) }
+        ScrollBar(it) { scroll_bar.view(it, style, m) }
+        SplitPane(it) { split_pane.view(it, style, m) }
+        ComboBox(it) { combo_box.view(it, style, m) }
+        Menu(it) { menu.view(it, style, m) }
+        Dialog(it) { dialog.view(it, style, m) }
     }
 }
 
-pub fn input_to(d: Demo, name: string, input: controls.Input, laid: widget.Laid) -> Demo {
+pub fn input_to(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
     return switch d {
-        Button(it) { Demo.Button(button.input(it, name, input, laid)) }
-        CheckBox(it) { Demo.CheckBox(check_box.input(it, name, input, laid)) }
-        Table(it) { Demo.Table(table.input(it, name, input, laid)) }
+        Button(it) { Demo.Button(button.input(it, name, input, laid, style, m)) }
+        CheckBox(it) { Demo.CheckBox(check_box.input(it, name, input, laid, style, m)) }
+        TextField(it) { Demo.TextField(text_field.input(it, name, input, laid, style, m)) }
+        TextArea(it) { Demo.TextArea(text_area.input(it, name, input, laid, style, m)) }
+        List(it) { Demo.List(list.input(it, name, input, laid, style, m)) }
+        Tabs(it) { Demo.Tabs(tabs.input(it, name, input, laid, style, m)) }
+        Tree(it) { Demo.Tree(tree.input(it, name, input, laid, style, m)) }
+        Table(it) { Demo.Table(table.input(it, name, input, laid, style, m)) }
+        ScrollBar(it) { Demo.ScrollBar(scroll_bar.input(it, name, input, laid, style, m)) }
+        SplitPane(it) { Demo.SplitPane(split_pane.input(it, name, input, laid, style, m)) }
+        ComboBox(it) { Demo.ComboBox(combo_box.input(it, name, input, laid, style, m)) }
+        Menu(it) { Demo.Menu(menu.input(it, name, input, laid, style, m)) }
+        Dialog(it) { Demo.Dialog(dialog.input(it, name, input, laid, style, m)) }
+    }
+}
+
+// ---- the demos that open something over the window
+
+// The control a popup hangs under, or "" for a demo with nothing open.
+//
+// **A popup belongs under the control that opened it, and where that is cannot be known until the
+// tree has been laid out** -- so the window is laid out twice when one is open, and only then.
+// Computing the position from the layout arithmetic instead would be a second copy of the layout,
+// in a comment, drifting.
+pub fn anchor_of(d: Demo) -> string {
+    return switch d {
+        ComboBox(it) { combo_box.anchor(it) }
+        Menu(it) { menu.anchor(it) }
+        Button(_) { "" }
+        CheckBox(_) { "" }
+        TextField(_) { "" }
+        TextArea(_) { "" }
+        List(_) { "" }
+        Tabs(_) { "" }
+        Tree(_) { "" }
+        Table(_) { "" }
+        ScrollBar(_) { "" }
+        SplitPane(_) { "" }
+        Dialog(_) { "" }
+    }
+}
+
+// The layer this demo wants over the window, if any. `at` is the box of whatever `anchor_of`
+// named, which a modal dialog ignores: `dialog_layer` centres itself.
+pub fn layer_of(d: Demo, style: controls.Style, m: widget.Metrics, at: geom.Rect) -> Option<widget.Layer> {
+    return switch d {
+        ComboBox(it) {
+            if combo_box.anchor(it) == "" {
+                Option<widget.Layer>.None
+            } else {
+                Option<widget.Layer>.Some(combo_box.layer(it, style, at))
+            }
+        }
+        Menu(it) {
+            if menu.anchor(it) == "" {
+                Option<widget.Layer>.None
+            } else {
+                Option<widget.Layer>.Some(menu.layer(it, style, at))
+            }
+        }
+        Dialog(it) {
+            if dialog.showing(it) {
+                Option<widget.Layer>.Some(dialog.layer(it, style, m))
+            } else {
+                Option<widget.Layer>.None
+            }
+        }
+        Button(_) { Option<widget.Layer>.None }
+        CheckBox(_) { Option<widget.Layer>.None }
+        TextField(_) { Option<widget.Layer>.None }
+        TextArea(_) { Option<widget.Layer>.None }
+        List(_) { Option<widget.Layer>.None }
+        Tabs(_) { Option<widget.Layer>.None }
+        Tree(_) { Option<widget.Layer>.None }
+        Table(_) { Option<widget.Layer>.None }
+        ScrollBar(_) { Option<widget.Layer>.None }
+        SplitPane(_) { Option<widget.Layer>.None }
     }
 }

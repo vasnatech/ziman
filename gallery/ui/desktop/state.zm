@@ -145,6 +145,21 @@ pub fn view(s: State, style: controls.Style, m: widget.Metrics) -> widget.Widget
     }, style, m)
 }
 
+// The layer the demo on show wants over the window, if any -- a combo box's list, a menu's
+// popup, a modal dialog.
+//
+// **Asked after the first layout and only when the demo is showing.** A popup hangs under the
+// control that opened it, and where that is is a fact about the laid tree; and a popup over the
+// Code tab would hang under a control that is not drawn, which is a box of zero at the corner of
+// the window.
+pub fn layer_of(s: State, style: controls.Style, m: widget.Metrics, laid: widget.Laid) -> Option<widget.Layer> {
+    if s.tabs.selected != demo_tab {
+        return Option<widget.Layer>.None
+    }
+    val d = s.demos[s.at]
+    return all.layer_of(d, style, m, boxes.bounds_of(laid, all.anchor_of(d)))
+}
+
 pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.Style, m: widget.Metrics) -> State {
     // Tab moves the focus and reaches no control, which is why it is taken before `target`.
     if is_tab(input) {
@@ -199,7 +214,9 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.
         ).entry }
     }
     // Anything else belongs to the demo on show, which routes it by name itself.
-    return with here { demos: demo_set(here.demos, here.at, all.input_to(here.demos[here.at], name, input, laid)) }
+    return with here {
+        demos: demo_set(here.demos, here.at, all.input_to(here.demos[here.at], name, input, laid, style, m))
+    }
 }
 
 fn demo_set(demos: [all.Demo], at: int, one: all.Demo) -> [all.Demo] {

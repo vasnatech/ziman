@@ -44,7 +44,14 @@ fn word_of(t: Toggle) -> string {
     }
 }
 
-pub fn input(d: Demo, name: string, input: controls.Input, laid: widget.Laid) -> Demo {
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
     if name == "check-notify" {
         return with d { notify: controls.check_box_input(d.notify, input, boxes.bounds_of(laid, name)).check_box }
     }

@@ -1,0 +1,111 @@
+// A modal dialog: a layer over the window, with a scrim behind it.
+//
+// **Modal means it takes the keys**, so Tab cannot walk out of the dialog into the window behind
+// it. `widget.keyboard_children` holds that rule once for both the focus order and the
+// accessibility tree, so a reader is told about the dialog's controls and not about the window it
+// covers. The scrim is translucent rather than opaque, because a dialog should say "this is
+// waiting for you" and not "the window is gone".
+use boxes
+use controls
+use demos/dialog_ui
+use geom
+use widget
+
+pub struct Demo {
+    open: controls.Button
+    confirm: controls.Button
+    cancel: controls.Button
+    showing: bool
+    said: string
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        open: controls.button_of("dialog-open", "Open the dialog"),
+        confirm: controls.button_of("dialog-confirm", "Delete it"),
+        cancel: controls.button_of("dialog-cancel", "Keep it"),
+        showing: false,
+        said: "The dialog is closed."
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return dialog_ui.screen(dialog_ui.Screen {
+        open: controls.button_widget(d.open, style),
+        said: d.said
+    }, style, m)
+}
+
+// A dialog is centred by `dialog_layer` itself, so it anchors to nothing.
+pub fn anchor(d: Demo) -> string {
+    return ""
+}
+
+pub fn showing(d: Demo) -> bool {
+    return d.showing
+}
+
+pub fn layer(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Layer {
+    return controls.dialog_layer(
+        "dialog-demo",
+        "Delete this request?",
+        dialog_ui.body(
+            "This cannot be undone.",
+            controls.button_widget(d.confirm, style),
+            controls.button_widget(d.cancel, style),
+            style
+        ),
+        style
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if d.showing {
+        // **The keys first, and the buttons after.** Escape cancels and Enter confirms wherever
+        // the focus is inside a dialog, which is what `dialog_keys` answers -- a dialog that only
+        // listened to its buttons would trap a keyboard user who tabbed past them.
+        val answered = switch controls.dialog_keys(input) {
+            Confirm { closed(d, "Deleted.") }
+            Cancel { closed(d, "Kept.") }
+            Nothing { d }
+        }
+        if !answered.showing {
+            return answered
+        }
+        if name == "dialog-confirm" {
+            val taken = controls.button_input(d.confirm, input, boxes.bounds_of(laid, name))
+            if taken.activated {
+                return closed(with d { confirm: taken.button }, "Deleted.")
+            }
+            return with d { confirm: taken.button }
+        }
+        if name == "dialog-cancel" {
+            val taken = controls.button_input(d.cancel, input, boxes.bounds_of(laid, name))
+            if taken.activated {
+                return closed(with d { cancel: taken.button }, "Kept.")
+            }
+            return with d { cancel: taken.button }
+        }
+        return d
+    }
+    if name == "dialog-open" {
+        val taken = controls.button_input(d.open, input, boxes.bounds_of(laid, name))
+        return with d {
+            open: taken.button,
+            showing: taken.activated,
+            said: if taken.activated { "The dialog has the keyboard." } else { d.said }
+        }
+    }
+    return d
+}
+
+fn closed(d: Demo, said: string) -> Demo {
+    return with d { showing: false, said: said }
+}

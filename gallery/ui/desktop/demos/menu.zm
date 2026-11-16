@@ -1,0 +1,105 @@
+// A menu: a title on a bar and the items that drop from it.
+//
+// **A menu offers commands where a combo box offers values**, which is the whole difference and
+// the reason they are two controls built from one popup. A `MenuStep` reports `chosen` and
+// `dismissed` separately, because closing a menu without picking anything is a thing an
+// application wants to know about.
+use boxes
+use controls
+use demos/menu_ui
+use geom
+use widget
+
+pub struct Demo {
+    file: controls.Menu
+    edit: controls.Menu
+    said: string
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        file: controls.menu_of("menu-file", "File", ["New", "Open...", "Save", "Save As...", "Close"]),
+        edit: controls.menu_of("menu-edit", "Edit", ["Undo", "Redo", "Cut", "Copy", "Paste"]),
+        said: "Nothing chosen yet."
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return menu_ui.screen(menu_ui.Screen {
+        file: controls.menu_title_widget(d.file, style),
+        edit: controls.menu_title_widget(d.edit, style),
+        said: d.said
+    }, style, m)
+}
+
+// Whichever is open, if either. **Only one can be**, because opening one closes the other: a
+// press anywhere else dismisses an open popup, and the gallery routes it like any other press.
+fn open_menu(d: Demo) -> Option<controls.Menu> {
+    if d.file.open {
+        return Option<controls.Menu>.Some(d.file)
+    }
+    if d.edit.open {
+        return Option<controls.Menu>.Some(d.edit)
+    }
+    return Option<controls.Menu>.None
+}
+
+pub fn anchor(d: Demo) -> string {
+    switch open_menu(d) {
+        Some(one) { return one.name }
+        None { return "" }
+    }
+}
+
+pub fn layer(d: Demo, style: controls.Style, at: geom.Rect) -> widget.Layer {
+    switch open_menu(d) {
+        Some(one) {
+            return controls.menu_popup_layer(one, style, geom.rect_of(
+                at.x,
+                at.y + at.height,
+                at.width,
+                (len(one.items.items) as float) * one.items.row_height
+            ))
+        }
+        None { return widget.layer_at(geom.rect_of(0.0, 0.0, 0.0, 0.0), false, widget.Widget.Nothing) }
+    }
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "menu-file" || name == "menu-file/items" {
+        val taken = controls.menu_input(
+            d.file,
+            input,
+            boxes.bounds_of(laid, "menu-file"),
+            boxes.bounds_of(laid, "menu-file/items")
+        )
+        return with d { file: taken.menu, said: word_of(taken, d) }
+    }
+    if name == "menu-edit" || name == "menu-edit/items" {
+        val taken = controls.menu_input(
+            d.edit,
+            input,
+            boxes.bounds_of(laid, "menu-edit"),
+            boxes.bounds_of(laid, "menu-edit/items")
+        )
+        return with d { edit: taken.menu, said: word_of(taken, d) }
+    }
+    return d
+}
+
+fn word_of(taken: controls.MenuStep, d: Demo) -> string {
+    if taken.chosen >= 0 {
+        return concat("Chosen: ", taken.menu.items.items[taken.chosen])
+    }
+    if taken.dismissed {
+        return "Dismissed without choosing."
+    }
+    return d.said
+}

@@ -33,6 +33,10 @@ val demo_tabs = 2.0
 val demo_strip_width = tab_width * demo_tabs
 // A file name is wider than "Demo", and the strip is as wide as the files it names.
 pub val file_tab_width = 170.0
+// **Two, because a demo is two files** -- the logic and the design -- which `files_of` makes true
+// by construction rather than by convention. Arithmetic over constants, which is where the
+// dialect allows it: the lint caught this as a `*` inside `code_pane`, where it is not.
+val file_strip_width = file_tab_width * 2.0
 
 pub fn label(text: string, size: float, style: controls.Style) -> widget.Widget {
     return widget.label_of(text, size, style.ink)
@@ -111,7 +115,7 @@ pub fn code_pane(
     m: widget.Metrics
 ) -> widget.Widget {
     return widget.column_of(gap, [
-        strip(files, file_tab_width * 2.0, style),
+        strip(files, file_strip_width, style),
         widget.expand(controls.entry_widget(source, style, m))
     ])
 }

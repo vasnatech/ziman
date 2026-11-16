@@ -65,7 +65,14 @@ fn said(d: Demo) -> string {
     return concat("Selected: ", controls.row_label(d.table, d.table.selected))
 }
 
-pub fn input(d: Demo, name: string, input: controls.Input, laid: widget.Laid) -> Demo {
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
     if name == "table-demo" {
         return with d { table: controls.table_input(d.table, input, boxes.bounds_of(laid, name)).table }
     }

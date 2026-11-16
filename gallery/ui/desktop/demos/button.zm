@@ -45,7 +45,14 @@ fn said(d: Demo) -> string {
     return concat("Pressed ", str(d.count), " times.")
 }
 
-pub fn input(d: Demo, name: string, input: controls.Input, laid: widget.Laid) -> Demo {
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
     if name == "button-press" {
         val taken = controls.button_input(d.press, input, boxes.bounds_of(laid, name))
         return with d {

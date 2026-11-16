@@ -1,0 +1,80 @@
+// A combo box: a value picker, which is not a menu.
+//
+// **The giveaway is the closed keyboard.** A menu does nothing but open; a combo box changes its
+// value with the arrows without opening at all, jumps with Home and End, and has type-ahead. The
+// two are built from the same popup and announce differently on purpose -- "File, menu" invites
+// you to look for an action, "Environment, combo box, staging" tells you what is chosen.
+use boxes
+use controls
+use demos/combo_box_ui
+use geom
+use widget
+
+pub struct Demo {
+    picker: controls.ComboBox
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        picker: controls.combo_box_of(
+            "combo-demo",
+            "Environment",
+            ["(global)", "local", "staging", "production"],
+            1
+        )
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return combo_box_ui.screen(combo_box_ui.Screen {
+        picker: controls.combo_box_widget(d.picker, style),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    return concat(
+        "The value is \"",
+        controls.combo_box_value(d.picker),
+        "\". With it closed and focused, Up and Down change it."
+    )
+}
+
+// The popup is a layer of its own, so the gallery lays the window out twice when it is open: the
+// first pass finds the collapsed box and the second puts the list under it.
+pub fn anchor(d: Demo) -> string {
+    if d.picker.open {
+        return "combo-demo"
+    }
+    return ""
+}
+
+pub fn layer(d: Demo, style: controls.Style, at: geom.Rect) -> widget.Layer {
+    return controls.combo_box_popup_layer(d.picker, style, geom.rect_of(
+        at.x,
+        at.y + at.height,
+        at.width,
+        (len(d.picker.items.items) as float) * d.picker.items.row_height
+    ))
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "combo-demo" || name == "combo-demo/items" {
+        return with d {
+            picker: controls.combo_box_input(
+                d.picker,
+                input,
+                boxes.bounds_of(laid, "combo-demo"),
+                boxes.bounds_of(laid, "combo-demo/items")
+            ).combo
+        }
+    }
+    return d
+}

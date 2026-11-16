@@ -1,0 +1,59 @@
+// A scroll bar on its own, which is not how one is usually met.
+//
+// **A list and a tree carry their own**, drawn over the content down the right edge by
+// `paint_scroll_bars` -- a gutter reserved in a control's box would have to be reserved by the
+// control, measured by the painter and subtracted by the hit test, and three places is three
+// chances to disagree about one number. This demo shows the control the others hold.
+use boxes
+use controls
+use demos/scroll_bar_ui
+use geom
+use math.floor
+use widget
+
+// A thousand points of content in a 180-point view, which is a thumb a fifth of the track.
+val content = 1000.0
+val view_extent = 180.0
+val bar_width = 12.0
+
+pub struct Demo {
+    bar: controls.ScrollBar
+    offset: float
+}
+
+pub fn demo() -> Demo {
+    return Demo { bar: controls.scroll_bar_of("bar-demo", 20.0), offset: 0.0 }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return scroll_bar_ui.screen(scroll_bar_ui.Screen {
+        bar: controls.scroll_bar_widget(d.bar, style, bar_width, view_extent, content, view_extent, d.offset),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    return concat(
+        "Scrolled ",
+        str(floor(d.offset)),
+        " of ",
+        str(floor(content - view_extent)),
+        " points. Press the track to page; drag the thumb to scroll."
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "bar-demo" {
+        val at = boxes.bounds_of(laid, name)
+        val taken = controls.scroll_bar_input(d.bar, input, at, content, view_extent, d.offset)
+        return with d { bar: taken.bar, offset: taken.offset }
+    }
+    return d
+}

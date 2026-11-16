@@ -1,0 +1,74 @@
+// A tree: rows at a depth, branches that open and close.
+//
+// **A row is a label and a depth, not a node with children.** A flat list with a depth per row is
+// what the control draws from and what `visible_rows` filters -- which means an application that
+// already has its own tree shape does not have to build a second one to show it.
+use boxes
+use controls
+use demos/tree_ui
+use widget
+
+pub struct Demo {
+    tree: controls.Tree
+}
+
+pub fn demo() -> Demo {
+    return Demo { tree: controls.tree_of("tree-demo", "A library", rows()) }
+}
+
+fn rows() -> [controls.TreeRow] {
+    return [
+        controls.tree_branch("lib", 0, true),
+        controls.tree_branch("core", 1, true),
+        controls.tree_row("charset.zm", 2),
+        controls.tree_row("json.zm", 2),
+        controls.tree_row("validate.zm", 2),
+        controls.tree_branch("graphics", 1, false),
+        controls.tree_row("paint.zm", 2),
+        controls.tree_row("shape.zm", 2),
+        controls.tree_branch("ui", 1, true),
+        controls.tree_row("controls.zm", 2),
+        controls.tree_row("widget.zm", 2),
+        controls.tree_branch("desktop", 2, false),
+        controls.tree_row("window.zm", 3),
+        controls.tree_row("atspi.zm", 3)
+    ]
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return tree_ui.screen(tree_ui.Screen {
+        tree: controls.tree_widget(d.tree, style),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    if d.tree.selected < 0 {
+        return "Nothing selected."
+    }
+    return concat(
+        "Selected: ",
+        d.tree.rows[d.tree.selected].label,
+        ", at depth ",
+        str(d.tree.rows[d.tree.selected].depth),
+        ". ",
+        str(len(controls.visible_rows(d.tree))),
+        " of ",
+        str(len(d.tree.rows)),
+        " rows are showing."
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "tree-demo" {
+        return with d { tree: controls.tree_input(d.tree, input, boxes.bounds_of(laid, name)).tree }
+    }
+    return d
+}

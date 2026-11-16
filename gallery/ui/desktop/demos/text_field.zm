@@ -1,0 +1,56 @@
+// A one-line field, and the same field masked.
+//
+// **A password is a role, not a flag.** Every layer below has to treat it differently: a reader
+// announces it so a user knows not to say what they type aloud, and the platform bridge uses the
+// role to decide that this node's text is not for speaking.
+use boxes
+use controls
+use demos/text_field_ui
+use widget
+
+pub struct Demo {
+    name: controls.Entry
+    secret: controls.Entry
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        name: controls.entry_of("entry-name", "Your name", "Ada Lovelace"),
+        secret: controls.password_of("entry-secret", "Password", "hunter2")
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return text_field_ui.screen(text_field_ui.Screen {
+        plain: controls.entry_widget(d.name, style, m),
+        secret: controls.entry_widget(d.secret, style, m),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    return concat(
+        "The field holds ",
+        str(len(d.name.editor.text)),
+        " characters; the masked one holds ",
+        str(len(d.secret.editor.text)),
+        " and shows none of them."
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "entry-name" {
+        return with d { name: controls.entry_input(d.name, input, boxes.bounds_of(laid, name), style, m).entry }
+    }
+    if name == "entry-secret" {
+        return with d { secret: controls.entry_input(d.secret, input, boxes.bounds_of(laid, name), style, m).entry }
+    }
+    return d
+}

@@ -1,0 +1,24 @@
+// The Tree demo, as design.
+use controls
+use widget
+
+val gap = 8.0
+val tree_height = 200.0
+val tree_width = 260.0
+val said_height = 20.0
+val small_size = 11.0
+
+pub struct Screen {
+    tree: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.fixed_of(0.0, tree_height, widget.row_of(gap, [
+            widget.fixed_of(tree_width, 0.0, it.tree),
+            widget.expand(widget.flex())
+        ])),
+        widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
+    ])
+}

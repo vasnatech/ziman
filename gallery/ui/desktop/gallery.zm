@@ -202,11 +202,19 @@ fn run() -> Result<unit, string> {
                     // Laid out once per pass and used for both halves -- the scene to draw and the
                     // geometry an input is routed by. Two layouts could disagree, and a press would
                     // land on where a control used to be.
-                    laid = widget.layout(
-                        state.view(st, style, m),
-                        geom.rect_of(0.0, 0.0, width_pt, height_pt),
-                        m
-                    )
+                    //
+                    // **Laid out twice when a demo has something open, and only then.** A popup
+                    // belongs under the control that opened it, and where that is cannot be known
+                    // until the tree has been laid out: the first pass finds it and the second
+                    // puts the popup there. A modal dialog needs the second pass too, though it
+                    // centres itself -- it is a layer either way.
+                    val whole = geom.rect_of(0.0, 0.0, width_pt, height_pt)
+                    val base = state.view(st, style, m)
+                    val first = widget.layout(base, whole, m)
+                    laid = switch state.layer_of(st, style, m, first) {
+                        Some(over) { widget.layout(widget.layered_of([widget.base_layer(base), over]), whole, m) }
+                        None { first }
+                    }
                     // The focus is drawn: Tab moves it and every control takes its keys, so a
                     // window that looked identical either way would make the focus invisible.
                     val with_focus = widget.paint_focused(laid, m, st.focused, paint.rgb(0.15, 0.4, 0.85), 2.0)

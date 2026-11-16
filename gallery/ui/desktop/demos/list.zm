@@ -1,0 +1,53 @@
+// A list: one row selected, arrows to move, a wheel to scroll.
+//
+// **The wheel scrolls and never moves the selection.** A user looking further down a list has not
+// asked to select what they are looking at, and a list that moved the selection under them would
+// lose the row they were about to act on.
+use boxes
+use controls
+use demos/list_ui
+use widget
+
+pub struct Demo {
+    list: controls.List
+}
+
+pub fn demo() -> Demo {
+    return Demo { list: controls.list_of("list-demo", "Languages", items()) }
+}
+
+fn items() -> [string] {
+    return [
+        "Ada", "ALGOL", "APL", "BCPL", "C", "COBOL", "Eiffel", "Erlang", "Forth",
+        "Fortran", "Haskell", "Lisp", "Mesa", "ML", "Modula-2", "Oberon", "Pascal",
+        "Prolog", "Scheme", "Simula", "Smalltalk", "Ziman"
+    ]
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return list_ui.screen(list_ui.Screen {
+        list: controls.list_widget(d.list, style),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    if d.list.selected < 0 {
+        return "Nothing selected."
+    }
+    return concat("Selected: ", d.list.items[d.list.selected])
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "list-demo" {
+        return with d { list: controls.list_input(d.list, input, boxes.bounds_of(laid, name)).list }
+    }
+    return d
+}

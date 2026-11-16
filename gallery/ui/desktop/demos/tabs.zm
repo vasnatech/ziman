@@ -1,0 +1,50 @@
+// A tab strip: one stop for the keyboard, and the arrows move along it.
+//
+// **Selection follows the focus**, with no second keystroke to confirm -- the automatic-activation
+// model, which is the one to use unless revealing a panel is expensive. So a `TabStep` reports
+// only that the selection moved, and there is no `activated` beside it.
+use boxes
+use controls
+use demos/tabs_ui
+use widget
+
+pub struct Demo {
+    tabs: controls.Tabs
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        tabs: with controls.tabs_of("tabs-demo", "Sections", ["Overview", "Details", "History", "About"]) {
+            tab_width: 100.0
+        }
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return tabs_ui.screen(tabs_ui.Screen {
+        strip: controls.tabs_widget(d.tabs, style),
+        panel: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    return concat(
+        "Showing: ",
+        d.tabs.items[d.tabs.selected],
+        ". Tab reaches the strip once; Left and Right move along it."
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "tabs-demo" {
+        return with d { tabs: controls.tabs_input(d.tabs, input, boxes.bounds_of(laid, name)).tabs }
+    }
+    return d
+}

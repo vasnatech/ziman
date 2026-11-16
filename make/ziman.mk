@@ -120,6 +120,12 @@ overload-sets-check: $(BIN)
 	@./tools/overload_sets.sh $(BIN)
 	@python3 tools/check_set_adjacency.py
 
+# The gallery's design files, against the dialect curly's tools define. Skips when curly is not
+# checked out beside this repository, which is the `northstar-if-available` pattern and the same
+# argument: a gate that depends on another checkout should say so and step aside, not fail.
+design-if-available: $(BIN)
+	@./tests/run_design_check.sh $(BIN)
+
 northstar-if-available: $(BIN)
 	@./tests/run_northstar.sh $(BIN)
 
