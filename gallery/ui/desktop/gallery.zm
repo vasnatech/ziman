@@ -210,7 +210,7 @@ fn run() -> Result<unit, string> {
         ((start_height as float) * scale) as int,
         fn(w: window.Window) -> Result<unit, string> {
             var painter = try desktop.painter_of(start_width as float, start_height as float, scale)
-            var st = with state.opening_state() { window_width: start_width as float }
+            var st = with state.opening_state(style) { window_width: start_width as float }
             // The accessibility bridge is optional and its absence is not an error: said once and
             // then left alone, which is what curly's window does with the same two calls.
             var readable = switch atspi.publish(a11y.tree_of(

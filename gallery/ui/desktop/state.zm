@@ -59,7 +59,11 @@ pub struct State {
     focused: string
 }
 
-pub fn opening_state() -> State {
+// **Takes the style, because the Code tab's colours are computed against it.** A colourer that
+// picked fixed hexes would be unreadable the moment a theme changed the surface under them, which
+// is exactly what the first version of this did: ziman.dev's light-theme values on a light
+// control face, at 2.2:1. See `highlight.legible`.
+pub fn opening_state(style: controls.Style) -> State {
     val demos = all.all()
     val begin = State {
         split: with controls.split_pane_of(
@@ -78,13 +82,13 @@ pub fn opening_state() -> State {
             tab_width: tab_width
         },
         files: with controls.tabs_of("files", "Files", []) { tab_width: file_tab_width },
-        source: code_entry(""),
+        source: code_entry("", style),
         demos: demos,
         at: 0,
         status: "",
         focused: "catalogue"
     }
-    return showing(begin, 0)
+    return showing(begin, 0, style)
 }
 
 // A branch per group, with its demos under it.
@@ -144,19 +148,19 @@ fn any_in(demos: [all.Demo], group: string) -> bool {
 // **`readonly` and not `disabled`**: the caret still moves and the text can still be selected, so
 // the code can be read with the keyboard and by a screen reader, which is the whole reason it is
 // a field.
-fn code_entry(text: string) -> controls.Entry {
+fn code_entry(text: string, style: controls.Style) -> controls.Entry {
     return with controls.text_area_of("source", "Source", text, 24) {
         readonly: true,
         // **Tokenised once, when the file is loaded**, and not in `view`: `view` runs on every
         // frame that changes anything, and colouring a 200-line file sixty times a second to get
         // the same answer is the shape `dirty` exists to avoid. The spans are a property of the
         // text, so they are computed where the text is.
-        inks: highlight.inks_of(text)
+        inks: highlight.inks_of(text, style)
     }
 }
 
 // Moves to a demo: its files name the sub-tabs, and the first of them is loaded.
-fn showing(s: State, at: int) -> State {
+fn showing(s: State, at: int, style: controls.Style) -> State {
     if at < 0 || at >= len(s.demos) {
         return s
     }
@@ -168,11 +172,11 @@ fn showing(s: State, at: int) -> State {
             tab_width: file_tab_width
         },
         status: all.title_of(d)
-    }, 0)
+    }, 0, style)
 }
 
 // Loads one of the chosen demo's files into the code pane.
-fn loaded(s: State, file: int) -> State {
+fn loaded(s: State, file: int, style: controls.Style) -> State {
     val d = s.demos[s.at]
     val names = all.files_of(d)
     if file < 0 || file >= len(names) {
@@ -180,7 +184,7 @@ fn loaded(s: State, file: int) -> State {
     }
     return with s {
         files: with s.files { selected: file },
-        source: code_entry(source.read_demo(all.stem_of(d), names[file]))
+        source: code_entry(source.read_demo(all.stem_of(d), names[file]), style)
     }
 }
 
@@ -251,7 +255,7 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.
         // "whatever was last in the group" would change the pane for a gesture that was about
         // the tree.
         if taken.moved {
-            return showing(moved, demo_at(moved, moved.tree.selected))
+            return showing(moved, demo_at(moved, moved.tree.selected), style)
         }
         return moved
     }
@@ -261,7 +265,7 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.
     if name == "files" {
         val taken = controls.tabs_input(here.files, input, boxes.bounds_of(laid, "files"))
         if taken.moved {
-            return loaded(with here { files: taken.tabs }, taken.tabs.selected)
+            return loaded(with here { files: taken.tabs }, taken.tabs.selected, style)
         }
         return with here { files: taken.tabs }
     }

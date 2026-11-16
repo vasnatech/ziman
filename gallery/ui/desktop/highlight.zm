@@ -13,33 +13,123 @@
 // A language that adds a keyword and forgets its colourer has a colourer that quietly stops being
 // right, and the only way to notice is to ask the compiler.
 //
-// **One deviation, and it is forced.** ziman.dev draws a keyword in **bold**, because HTML has
-// bold for free; this layer has one face per window, and `controls.Ink` carries a colour and not a
-// face. So a keyword is drawn in the palette's accent instead. Giving `Ink` a face index is the
-// change that would close the gap, on the day a window loads a bold face.
+// **What is lost without weight, stated accurately.** ziman.dev draws a keyword in `--accent`
+// *and* bold, so dropping the weight loses nothing a colour was carrying -- the keyword keeps its
+// hue. What does collapse is the other pair: the site separates a comment from an attribute by
+// *italic* alone, both being `--code-dim`, and a layer with one face per window cannot italicise.
+// So the two are given **different colours** here rather than being drawn alike, which is the
+// honest trade: a distinction the site makes with a face, made with a hue instead.
+//
+// **The hues are ziman.dev's and the values are not, which is the correction that matters.** The
+// site's light-theme hexes were tuned against its code block, which is dark in both themes
+// (`--code-bg: #15201b`) -- so copying them onto a light control face put comments at 2.20:1 and
+// keywords at 3.37:1, both under WCAG AA's 4.5:1 and the first under the 3:1 large-text floor.
+// The partition travelled correctly and the palette did not. So a colour here is **computed**:
+// the hue is the site's, and it is mixed toward `Style.ink` until it is legible on the surface it
+// will actually be drawn on. That makes it right for a dark theme too, by construction rather
+// than by a second table -- `ink` is legible on `face` or the theme is already broken.
 use controls
+use math
 use paint
 use paint.Color
 
 // ---------------------------------------------------------------- the palette
-//
-// ziman.dev's own values, light theme. A gallery that picked its own greens would be a fourth
-// story about one language.
 
-// `--accent`, the ochre the site uses for links, standing in for the website's bold.
-fn keyword_ink() -> Color {
+// What WCAG AA asks of body text, and the Code pane is body text: it is drawn at the style's own
+// size, so the 3:1 large-text allowance does not apply to it.
+val least_contrast = 4.5
+
+// ziman.dev's hues, before they are made legible on the surface they will be drawn on.
+//
+// `--accent` is the ochre the site uses for links and for keywords; `--structure` is the green of
+// the Z in the logo, which the site uses for literals; `--code-dim` is its comment grey.
+fn keyword_hue() -> Color {
     return paint.rgb8(168, 112, 26)
 }
 
-// `--structure`, the green of the Z in the logo, which the site already uses for literals.
-fn literal_ink() -> Color {
+fn literal_hue() -> Color {
     return paint.rgb8(46, 107, 79)
 }
 
-// `--code-dim`, for comments and attributes alike -- the site italicises the first, which a single
-// face cannot do either.
-fn dim_ink() -> Color {
+fn comment_hue() -> Color {
     return paint.rgb8(143, 160, 150)
+}
+
+// **An attribute is not a comment**, and the site says so with italic, which this layer has no
+// second face for. A cooler grey says it with hue instead. Both still recede; they recede
+// differently.
+fn attribute_hue() -> Color {
+    return paint.rgb8(132, 148, 170)
+}
+
+// One channel of sRGB, linearised -- the first half of WCAG's relative luminance.
+fn linear(c: float) -> float {
+    if c <= 0.03928 {
+        return c / 12.92
+    }
+    return math.pow((c + 0.055) / 1.055, 2.4)
+}
+
+pub fn luminance(c: Color) -> float {
+    return 0.2126 * linear(c.red) + 0.7152 * linear(c.green) + 0.0722 * linear(c.blue)
+}
+
+// WCAG's contrast ratio, which is symmetric: the lighter of the two over the darker.
+pub fn contrast(a: Color, b: Color) -> float {
+    val la = luminance(a)
+    val lb = luminance(b)
+    if la > lb {
+        return (la + 0.05) / (lb + 0.05)
+    }
+    return (lb + 0.05) / (la + 0.05)
+}
+
+fn mixed(a: Color, b: Color, t: float) -> Color {
+    return paint.rgba(
+        a.red + (b.red - a.red) * t,
+        a.green + (b.green - a.green) * t,
+        a.blue + (b.blue - a.blue) * t,
+        1.0
+    )
+}
+
+// `hue`, moved toward the style's own ink until it is legible on `on`.
+//
+// **Toward `ink` rather than toward black or white**, which is what makes this work in either
+// theme without a second table: `Style.ink` is by definition the colour that reads on this
+// theme's surfaces, so mixing toward it can only improve the ratio -- on a dark theme it lightens
+// and on a light theme it darkens, and neither case is special-cased here. It walks in twentieths
+// rather than solving for `t` because luminance is not linear in the mix and the search is over
+// twenty steps of arithmetic, once per file loaded.
+pub fn legible(hue: Color, on: Color, ink: Color) -> Color {
+    var t = 0.0
+    while t < 1.0 {
+        val tried = mixed(hue, ink, t)
+        if contrast(tried, on) >= least_contrast {
+            return tried
+        }
+        t = t + 0.05
+    }
+    // Nothing between the hue and the ink was enough, so the ink itself is the answer: a colour
+    // that cannot be told from the body text is better than one that cannot be read.
+    return ink
+}
+
+// The three colours, resolved against the surface the Code pane is actually drawn on.
+pub fn keyword_ink(style: controls.Style) -> Color {
+    return legible(keyword_hue(), style.face, style.ink)
+}
+
+pub fn literal_ink(style: controls.Style) -> Color {
+    return legible(literal_hue(), style.face, style.ink)
+}
+
+pub fn comment_ink(style: controls.Style) -> Color {
+    return legible(comment_hue(), style.face, style.ink)
+}
+
+pub fn attribute_ink(style: controls.Style) -> Color {
+    return legible(attribute_hue(), style.face, style.ink)
 }
 
 // ---------------------------------------------------------------- the words
@@ -81,8 +171,12 @@ fn is_word(c: string) -> bool {
 // `"` inside a comment does not open one, which is the only thing a colourer has to get right to
 // stop being actively misleading -- and the only way to get it right is to walk the text once
 // rather than search it for each kind in turn.
-pub fn inks_of(source: string) -> [controls.Ink] {
+pub fn inks_of(source: string, style: controls.Style) -> [controls.Ink] {
     val cs = chars(source)
+    val comment = comment_ink(style)
+    val attribute = attribute_ink(style)
+    val literal = literal_ink(style)
+    val keyword = keyword_ink(style)
     val out = mutable_array_new<controls.Ink>()
     val n = len(cs)
     var i = 0
@@ -94,7 +188,7 @@ pub fn inks_of(source: string) -> [controls.Ink] {
             while j < n && cs[j] != "\n" {
                 j = j + 1
             }
-            push(out, controls.Ink { from: i, to: j, colour: dim_ink() })
+            push(out, controls.Ink { from: i, to: j, colour: comment })
             i = j
         } else {
             // A text block first, because `"""` starts with `"` and the shorter rule would eat it.
@@ -104,7 +198,7 @@ pub fn inks_of(source: string) -> [controls.Ink] {
                     j = j + 1
                 }
                 val stop = if j + 2 < n { j + 3 } else { n }
-                push(out, controls.Ink { from: i, to: stop, colour: literal_ink() })
+                push(out, controls.Ink { from: i, to: stop, colour: literal })
                 i = stop
             } else {
                 if c == "\"" {
@@ -122,7 +216,7 @@ pub fn inks_of(source: string) -> [controls.Ink] {
                             }
                         }
                     }
-                    push(out, controls.Ink { from: i, to: if j > n { n } else { j }, colour: literal_ink() })
+                    push(out, controls.Ink { from: i, to: if j > n { n } else { j }, colour: literal })
                     i = if j > n { n } else { j }
                 } else {
                     // An attribute: `#[...]` or `#![...]`, to the first `]`. Nested brackets do
@@ -133,15 +227,19 @@ pub fn inks_of(source: string) -> [controls.Ink] {
                             j = j + 1
                         }
                         val stop = if j < n { j + 1 } else { n }
-                        push(out, controls.Ink { from: i, to: stop, colour: dim_ink() })
+                        push(out, controls.Ink { from: i, to: stop, colour: attribute })
                         i = stop
                     } else {
                         if is_digit(c) {
                             var j = i
-                            while j < n && (is_word(cs[j]) || cs[j] == ".") {
+                            // **A `.` is part of a number unless a second one follows it**, which
+                            // is what makes `0..3` two numbers and a range rather than one
+                            // malformed literal. ziman.dev's colourer gets this right and the
+                            // first version here did not.
+                            while j < n && (is_word(cs[j]) || (cs[j] == "." && !(j + 1 < n && cs[j + 1] == "."))) {
                                 j = j + 1
                             }
-                            push(out, controls.Ink { from: i, to: j, colour: literal_ink() })
+                            push(out, controls.Ink { from: i, to: j, colour: literal })
                             i = j
                         } else {
                             if is_word(c) {
@@ -151,10 +249,10 @@ pub fn inks_of(source: string) -> [controls.Ink] {
                                 }
                                 val word = substring(source, i, j)
                                 if contains(keywords(), word) {
-                                    push(out, controls.Ink { from: i, to: j, colour: keyword_ink() })
+                                    push(out, controls.Ink { from: i, to: j, colour: keyword })
                                 }
                                 if contains(literals(), word) {
-                                    push(out, controls.Ink { from: i, to: j, colour: literal_ink() })
+                                    push(out, controls.Ink { from: i, to: j, colour: literal })
                                 }
                                 i = j
                             } else {

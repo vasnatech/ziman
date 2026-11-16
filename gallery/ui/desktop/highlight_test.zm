@@ -11,21 +11,34 @@ use test
 // A span as "from-to", so an assertion reads as the run it describes rather than as two numbers.
 fn spans_of(source: string) -> [string] {
     val out = mutable_array_new<string>()
-    for ink in highlight.inks_of(source) {
+    for ink in highlight.inks_of(source, controls.default_style()) {
         push(out, concat(substring(source, ink.from, ink.to), "=", kind_of(ink.colour)))
     }
     return snapshot(out)
 }
 
-// Which of the three colours a span carries, by name.
+// Which colour a span carries, by name. **Compared against the colourer's own answers** rather
+// than against a hex: they are computed from the style now, so a literal here is whatever
+// `literal_ink` says a literal is.
 fn kind_of(c: paint.Color) -> string {
-    if c.red > 0.6 {
+    val style = controls.default_style()
+    if same(c, highlight.keyword_ink(style)) {
         return "keyword"
     }
-    if c.red > 0.5 {
-        return "dim"
+    if same(c, highlight.literal_ink(style)) {
+        return "literal"
     }
-    return "literal"
+    if same(c, highlight.comment_ink(style)) {
+        return "comment"
+    }
+    if same(c, highlight.attribute_ink(style)) {
+        return "attribute"
+    }
+    return "?"
+}
+
+fn same(a: paint.Color, b: paint.Color) -> bool {
+    return a.red == b.red && a.green == b.green && a.blue == b.blue
 }
 
 #[test]
@@ -46,7 +59,7 @@ fn true_and_false_are_literals_rather_than_keywords() {
 fn a_comment_stops_at_its_line() {
     test.assert_eq(
         spans_of("// note\nval x = 1"),
-        ["// note=dim", "val=keyword", "1=literal"]
+        ["// note=comment", "val=keyword", "1=literal"]
     )
 }
 
@@ -65,7 +78,7 @@ fn a_slash_slash_inside_a_string_is_not_a_comment() {
 fn a_quote_inside_a_comment_does_not_open_a_string() {
     test.assert_eq(
         spans_of("// say \"hello\nval x = 1"),
-        ["// say \"hello=dim", "val=keyword", "1=literal"]
+        ["// say \"hello=comment", "val=keyword", "1=literal"]
     )
 }
 
@@ -75,10 +88,10 @@ fn an_escaped_quote_stays_inside_its_string() {
     test.assert_eq(spans_of("val q = \"a\\\"b\""), ["val=keyword", "\"a\\\"b\"=literal"])
 }
 
-// An attribute is dim, to the first `]`, and the declaration after it is coloured normally.
+// An attribute runs to the first `]`, and the declaration after it is coloured normally.
 #[test]
 fn an_attribute_is_one_dim_span() {
-    test.assert_eq(spans_of("#[test]\nfn go()"), ["#[test]=dim", "fn=keyword"])
+    test.assert_eq(spans_of("#[test]\nfn go()"), ["#[test]=attribute", "fn=keyword"])
 }
 
 // **An unterminated string ends at the end of the text rather than running off it.** A file is
@@ -92,7 +105,7 @@ fn an_unterminated_string_ends_with_the_text() {
 // whoever builds them: `inked_run` walks them once and trusts both.
 #[test]
 fn the_spans_are_in_order_and_do_not_overlap() {
-    val inks = highlight.inks_of("// a\nval x = \"s\" // b\nfn go() { return 1 }")
+    val inks = highlight.inks_of("// a\nval x = \"s\" // b\nfn go() { return 1 }", controls.default_style())
     var i = 1
     while i < len(inks) {
         test.assert(inks[i].from >= inks[i - 1].to)
@@ -100,4 +113,64 @@ fn the_spans_are_in_order_and_do_not_overlap() {
         i = i + 1
     }
     test.assert(len(inks) > 4)
+}
+
+// ---------------------------------------------------------------- legibility
+
+// **Every colour the Code pane draws is readable on the surface it is drawn on.** The first
+// version of this file took ziman.dev's light-theme hexes, which were tuned against a code block
+// that is dark in both themes, and put comments on a light control face at 2.20:1 -- under WCAG
+// AA's 4.5:1 and under the 3:1 large-text floor as well. Found by a review that measured it; this
+// is the measurement, kept.
+#[test]
+fn every_colour_is_legible_on_the_face_it_is_drawn_on() {
+    val style = controls.default_style()
+    for ink in [
+        highlight.keyword_ink(style),
+        highlight.literal_ink(style),
+        highlight.comment_ink(style),
+        highlight.attribute_ink(style)
+    ] {
+        test.assert(highlight.contrast(ink, style.face) >= 4.5)
+        // And on the two other surfaces a pane can sit on, which are lighter still.
+        test.assert(highlight.contrast(ink, style.panel) >= 4.5)
+    }
+}
+
+// **The same holds for a dark theme, by construction rather than by a second table.** A colour is
+// mixed toward `Style.ink`, which is by definition what reads on that theme's surfaces -- so a
+// style with light ink on a dark face lightens its hues instead of darkening them, and nothing
+// here is special-cased for it.
+#[test]
+fn a_dark_theme_gets_legible_colours_without_a_second_palette() {
+    val dark = with controls.default_style() {
+        ink: paint.rgb(0.93, 0.94, 0.93),
+        face: paint.rgb(0.16, 0.18, 0.17),
+        panel: paint.rgb(0.12, 0.14, 0.13)
+    }
+    for ink in [
+        highlight.keyword_ink(dark),
+        highlight.literal_ink(dark),
+        highlight.comment_ink(dark),
+        highlight.attribute_ink(dark)
+    ] {
+        test.assert(highlight.contrast(ink, dark.face) >= 4.5)
+    }
+}
+
+// A comment and an attribute are two categories, and without a second face to italicise with they
+// have to be two colours. The site separates them by weight; this separates them by hue.
+#[test]
+fn an_attribute_does_not_look_like_a_comment() {
+    val style = controls.default_style()
+    test.assert_false(same(highlight.comment_ink(style), highlight.attribute_ink(style)))
+}
+
+// **A range is two numbers, not one.** `0..3` was a single literal span, because the scan ate any
+// `.` -- which ziman.dev's colourer gets right and this did not.
+#[test]
+fn a_range_is_two_numbers_and_not_one_literal() {
+    test.assert_eq(spans_of("for i in 0..3 {"), ["for=keyword", "in=keyword", "0=literal", "3=literal"])
+    // A decimal is still one number.
+    test.assert_eq(spans_of("val x = 1.5"), ["val=keyword", "1.5=literal"])
 }
