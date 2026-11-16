@@ -208,6 +208,7 @@ Value ziman_mutable_string_append_byte_one(Value owner, Value b);
 Value ziman_mutable_string_append_one(Value owner, Value piece);
 Value ziman_mutable_set_add(Value *args, int argc, int line, int col);
 Value ziman_mutable_map_remove(Value *args, int argc, int line, int col);
+Value ziman_mutable_map_remove_all(Value *args, int argc, int line, int col);
 /* `remove(m, k)`'s one-key path, shared by the map and the set -- one C symbol, as the two
  * registrations already are. */
 Value ziman_mutable_map_remove_one(Value owner, Value key);

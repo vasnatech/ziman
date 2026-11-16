@@ -2427,22 +2427,11 @@ Value ziman_mutable_map_get_or(Value *args, int argc, int line, int col) {
     return args[2];
 }
 
-/* A map's remove answers what was there, as `Option<V>`: the entry is otherwise gone and
- * recovering it would need a `get` first. A set's answers whether it was there at all, since its
- * values are unused -- which is why these can no longer share one native as they did when both
- * returned nothing. */
-
-/* `remove` without the `Option`. Same lookup, same tombstone; the only difference is that it does
- * not have to box what it removed, which on a large map is most of the cost -- see map.zm's own
- * comment for the figures, and docs/roadmap/'s Map/Set entry for why an allocation's price is set by
- * the live set rather than by its own size. */
-static Value native_mutable_map_discard(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
-    return value_bool(maptable_remove(&buf->t, args[1], NULL));
-}
+/* **`mutable_map_discard` was here and is gone (2026-11-15).** It was this file's copy of
+ * `ziman_mutable_map_remove_one` under a name that answered nothing, kept alive by `remove` being
+ * variadic: the one-element array the collapse built was measured at 29-38 ms per 100,000 removals
+ * and this dodged it. `remove` takes one key again, so the two were the same function; see
+ * lib/prelude/map.zm's `remove` for the count and the sweep that split it. */
 
 
 
@@ -3822,8 +3811,8 @@ static Value native_set_add(Value *args, int argc, int line, int col) {
     return value_map(args[0].type, m);
 }
 
-/* `remove` over a collection, variadic since 2026-10-22 -- **two implementations for four
- * symbols**, which is what the merge with `remove_all` left behind.
+/* `remove_all` over a collection -- **two implementations for four symbols**, the pairing the
+ * 2026-10-22 merge found and the 2026-11-15 split kept.
  *
  * There were five functions here: `map_remove` and `set_remove` were byte-identical
  * `mapobj_remove` calls, `mutable_map_remove` and `mutable_set_remove` differed only in that one
@@ -3836,7 +3825,21 @@ static Value native_set_add(Value *args, int argc, int line, int col) {
  *
  * `args[1]` is one array however the call was written -- `collapse_variadic_args` runs first --
  * and `#[at_least_one]` is what makes `remove(m)` a compile error. */
+/* `remove(m, k)` and `remove(s, x)`: one key, no array, no frame. **The whole point of the
+ * 2026-11-15 split**, and the measurement is at lib/prelude/map.zm's `remove` -- 43% at sixteen
+ * entries down to 9% at 65,536, against a loss above that which `GC_PRINT_STATS` places in the
+ * collector's heap sizing rather than in this function.
+ *
+ * Not in `is_frameless_native`: `mapobj_remove` allocates the new trie path, and every entry in
+ * that list answers without allocating. The builder member below has no such path and is in it. */
 static Value native_map_remove(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return value_map(args[0].type, mapobj_remove(args[0].as.map, args[1]));
+}
+
+static Value native_map_remove_all(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -3857,20 +3860,30 @@ static Value native_map_remove(Value *args, int argc, int line, int col) {
  *
  * The buffer pointer is held across the loop, as `ziman_mutable_set_combine` does: `maptable_remove`
  * works on the table's own storage, not the struct that owns it. */
-/* `remove(m, k)` with one key, before the collapse allocates an array for it. The same shortcut
- * and the same measurement as `ziman_mutable_set_add_one`: `remove` is the variadic member on all
- * four of its worlds, so a single-key removal -- which is how it is almost always written -- was
- * paying for a one-element array and the collection pressure that allocation carries.
+/* `remove(m, k)` and `remove(s, x)` on a builder: one key, no array, **and no frame** -- this is
+ * in `is_frameless_native` (interpreter.c), which a variadic native is refused at resolution. It
+ * removes from the table's own storage and answers a bool, so it cannot allocate and cannot raise
+ * beyond the invalid-handle check every frameless entry can.
  *
  * One function for both, as the registration already is: `mutable_set_remove` and
  * `mutable_map_remove` are the same C symbol over the same table, a set being a map whose values
- * are unused. */
+ * are unused.
+ *
+ * The `(Value, Value)` form stays beside it: `tail_one_for` no longer wants it -- nothing variadic
+ * reaches it now -- but `remove_keys`'s builder half loops over this exact shape. */
 Value ziman_mutable_map_remove_one(Value owner, Value key) {
     MutableMapBuf *buf = mutable_map_get_buf(owner);
     return value_bool(maptable_remove(&buf->t, key, NULL) ? 1 : 0);
 }
 
 Value ziman_mutable_map_remove(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return ziman_mutable_map_remove_one(args[0], args[1]);
+}
+
+Value ziman_mutable_map_remove_all(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -4101,10 +4114,11 @@ void prelude_register(void) {
     native_register("mutable_map_get", native_mutable_map_get);
     native_register("mutable_map_get_or", ziman_mutable_map_get_or);
     native_register("mutable_map_remove", ziman_mutable_map_remove);
-    native_register("mutable_map_discard", native_mutable_map_discard);
+    native_register("mutable_map_remove_all", ziman_mutable_map_remove_all);
     native_register("mutable_set_new", native_mutable_set_new);
     native_register("mutable_set_add", ziman_mutable_set_add);
     native_register("mutable_set_remove", ziman_mutable_map_remove);
+    native_register("mutable_set_remove_all", ziman_mutable_map_remove_all);
     native_register("guard_new", native_guard_new);
     /* **`bytes_index_of`, not `array_index_of`** (2026-10-24). `index_of`'s three members are a
      * `[byte]`, a `string` and a `MutableString` -- there is no generic `[T]` member -- so this
@@ -4130,7 +4144,9 @@ void prelude_register(void) {
     native_register("array_set", native_array_set);
     native_register("array_remove", native_array_remove);
     native_register("map_remove", native_map_remove);
+    native_register("map_remove_all", native_map_remove_all);
     native_register("set_remove", native_map_remove);
+    native_register("set_remove_all", native_map_remove_all);
     native_register("map_filter", native_map_filter);
     native_register("set_filter", native_set_filter);
     native_register("array_flat_map", native_array_flat_map);

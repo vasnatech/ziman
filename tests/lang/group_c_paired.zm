@@ -16,11 +16,12 @@
 // was wanted **nowhere** -- the only two readers were `remove_all` and `remove_keys`, each using
 // it as a presence test with the binding discarded.
 //
-// That leaves `discard` with nothing to avoid. The two calls at the bottom of this file --
-// `remove(mm, "a")` discarded and `discard(mm, "b")` -- are now the same operation at the same
-// cost, which is the clearest place in the tree to see that the pair has collapsed into one. Left
-// standing rather than deleted in the same breath, because keeping or dropping `discard` is its
-// own decision.
+// That left `discard` with nothing to avoid, and this file said so while leaving it standing --
+// "keeping or dropping `discard` is its own decision". **That decision was taken on 2026-11-15:
+// `remove` is singular again, `remove_all` holds the variadic, and `discard` is deleted.** The two
+// calls at the bottom were `remove(mm, "a")` discarded and `discard(mm, "b")`, the same operation
+// written twice; one of them is gone and the survivor is the one that was always the ordinary
+// call. See lib/prelude/map.zm's `remove` for the count and the size sweep.
 fn main() {
     val m = Map<string, int> { "a": 1, "b": 2 }
 
@@ -43,6 +44,6 @@ fn main() {
     // one that does is the ordinary call rather than a mistake
     print(remove(mm, "z"))
     remove(mm, "a")
-    discard(mm, "b")
+    remove(mm, "b")
     print(snapshot(mm))
 }

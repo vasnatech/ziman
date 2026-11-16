@@ -6,6 +6,11 @@
 //
 // Six members over two worlds: the immutable three answer a new collection without the thing
 // removed, the builder three write in place and answer what they took out.
+//
+// **The parameter names are the 2026-11-15 split's**: the Map and Set members take one `key` or
+// `item` where they took `keys`/`items: variadic` between 2026-10-22 and then, and the plural
+// names are `remove_all`'s. The array member is untouched by all of it -- it takes an `index`, so
+// a plural form would be a different operation rather than the same one over more arguments.
 fn main() {
     // the immutable three: a new collection, the argument untouched
     val a = [1, 2, 3]
@@ -26,8 +31,10 @@ fn main() {
     // on the Set member while nothing could yet have been calling it: a builtin has no declaration
     // to name a parameter of, so the rename was free.
     print(remove(items: [1, 2, 3], index: 0))
-    print(remove(m: Map<string, int> { "a": 1, "b": 2 }, keys: "b"))
-    print(remove(s: Set<int> { 1, 2 }, items: 1))
+    print(remove(m: Map<string, int> { "a": 1, "b": 2 }, key: "b"))
+    print(remove(s: Set<int> { 1, 2 }, item: 1))
+    print(remove_all(m: Map<string, int> { "a": 1, "b": 2 }, keys: "b"))
+    print(remove_all(s: Set<int> { 1, 2 }, items: 1))
     // and a type argument, for the same reason
     print(remove<int>([7, 8], 0))
 

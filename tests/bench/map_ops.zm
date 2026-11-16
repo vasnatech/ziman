@@ -259,9 +259,12 @@ fn main() {
     // rather than assume it. `Set` keeps the persistent trie for the same reason `Map` does: it is
     // a value, and `add(s, x)` must leave the old set intact.
     //
-    // There is no `discard` row and no need for one: `remove` already answers with a
-    // `bool`, where `remove` answered with an `Option<V>` -- which is exactly the cost
-    // `discard` was added to avoid.
+    // There is no `discard` row and there is no `discard`: it was deleted on 2026-11-15, when
+    // `remove` stopped being variadic and became the cheaper of the two. **This file is why that
+    // took three weeks** -- it holds one map size, 100,000 entries, and 100,000 is the only size in
+    // the range where dropping the variadic's one-element array loses. lib/prelude/map.zm's
+    // `remove` carries the sweep; the lesson for this file is that a row here measures one point
+    // of a size-dependent thing and should be read as one.
     val setb = mutable_set_new<int>()
     for i in 0..size {
         add<int>(setb, i)

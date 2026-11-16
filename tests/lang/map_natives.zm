@@ -21,10 +21,12 @@ fn main() {
     print(set(m, "e", 5))
     print(len(keys(Map<string, int> {})))
 
-    // `remove` is variadic, so the keys arrive written out or as one array to spread
-    print(remove(m, "a", "c"))
+    // `remove` takes one key and `remove_all` is the variadic one (2026-11-15), so the plural
+    // keys arrive written out or as one array to spread -- under the plural name.
+    print(remove(m, "a"))
+    print(remove_all(m, "a", "c"))
     val ks: [string] = ["a", "b"]
-    print(remove(m, ks))
+    print(remove_all(m, ks))
 
     // **Named arguments, which a builtin id could never take.** `set` gains them too even though
     // its array member keeps its id: the name is declaration-checked now, so the arguments are
@@ -36,7 +38,8 @@ fn main() {
     print(merge(maps: [m, Map<string, int> { "x": 9 }]))
     print(set(m: m, key: "f", value: 6))
     print(set(items: [1, 2, 3], index: 1, x: 99))
-    print(remove(m: m, keys: "b"))
+    print(remove(m: m, key: "b"))
+    print(remove_all(m: m, keys: "b"))
     // and type arguments
     print(get<string, int>(m, "a"))
 

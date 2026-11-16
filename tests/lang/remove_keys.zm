@@ -41,11 +41,14 @@ fn main() {
     print(snapshot(mb))
 
     // and what the two names keep apart. `remove` reads the set as ONE key; `remove_keys`
-    // reads it as a set OF keys. One name could not have meant both.
+    // reads it as a set OF keys. One name could not have meant both -- and still could not after
+    // the 2026-11-15 split, singular `remove(m, key: K)` colliding with a `Set<K>` member on this
+    // very map type just as squarely as the variadic did.
     val nested = Map<Set<int>, string> { Set<int> { 1 }: "one", Set<int> { 2 }: "two" }
     print(keys(remove(nested, Set<int> { 1 })))
     print(keys(remove_keys(nested, Set<Set<int>> { Set<int> { 2 } })))
 
-    // the route that already worked, for a set in hand
-    print(remove(m, to_array(Set<string> { "a", "c" })))
+    // the route that already worked, for a set in hand -- under the plural name since the split,
+    // a lone array being a spread only where there is a variadic to spread into
+    print(remove_all(m, to_array(Set<string> { "a", "c" })))
 }

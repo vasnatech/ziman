@@ -1,36 +1,55 @@
-// `remove` taking `variadic` over a Map, a MutableMap, a Set and a MutableSet.
+// `remove` taking one key and `remove_all` taking `variadic`, over a Map, a MutableMap, a Set and
+// a MutableSet. Both names in all four worlds, which is what the 2026-11-15 split restored.
 //
 // **This was `remove_all_three_worlds` until 2026-10-22**, when `remove` went variadic and
 // absorbed that name -- F197/F198 had built it as a separate plural, item 6 and the last of
 // Group A. Four worlds now rather than three: `remove_all` never had an immutable `Set` form, so
-// "a set without these" took a fold or a `filter`, and the merge handed it over for free.
+// "a set without these" took a fold or a `filter`, and the merge handed it over for free; the
+// split kept all four.
 //
-// The Map half took `keys: [K]` when the row was first paired, which left one name with two call
-// shapes; F198 made it variadic too, and that is the shape `remove` inherited. Every world takes
-// an array, several values or one value -- and *not* none, `#[at_least_one]` being part of the
-// arity.
+// **The split is a count and a measurement**, both at map.zm's `remove`: no caller in this
+// repository or the two that depend on it ever passed `remove` more than one key, and the
+// one-element array the variadic collapse built cost 9-43% across every map size up to 65,536
+// entries. The singular is also frameless now, which a variadic native cannot be.
+//
+// Every plural world takes an array, several values or one value -- and *not* none,
+// `#[at_least_one]` being part of the arity. The singular takes exactly one, so `remove(m, ks)`
+// where `ks` is an array is now a *key* that is an array, not a spread: for a `Map<string, int>`
+// that is a type error, and `remove_all` is the name that spreads.
 //
 // The returns still differ, for the usual reason: the immutable halves answer a new Map or Set,
 // the builders answer whether anything was actually removed. The MutableMap builder answered the
 // removed `Option<V>` before the merge and answers `bool` with the others now; that is the one
-// capability it cost, and map.zm's declaration carries the account of it.
+// capability it cost, and it did not come back with the singular -- map.zm's declaration carries
+// the account.
 //
-// An array's `remove` is deliberately absent: it takes an *index*, so a variadic form would be a
-// different operation with shift semantics to define rather than the same one over more arguments.
+// An array's `remove` is deliberately absent from both: it takes an *index*, so a plural form
+// would be a different operation with shift semantics to define rather than the same one over
+// more arguments.
 fn main() {
     val m = Map<string, int> { "a": 1, "b": 2, "c": 3 }
-    print(remove(m, ["a", "b"]))
-    print(remove(m, "a", "b"))
+    print(remove_all(m, ["a", "b"]))
+    print(remove_all(m, "a", "b"))
+    print(remove_all(m, "a"))
     print(remove(m, "a"))
     print(len(m))
 
     val mm = mutable(m)
-    print(remove(mm, "a", "b"))
+    print(remove_all(mm, "a", "b"))
     print(snapshot(mm))
     print(remove(mm, "zz"))
+    // The answer dropped in statement position, which `#[effectful]` is what makes legal -- and
+    // which is the whole of what `discard` was (deleted 2026-11-15, same change).
+    remove(mm, "c")
+    print(snapshot(mm))
 
-    val ms = mutable(Set<int> { 1, 2, 3 })
-    print(remove(ms, [1, 2]))
+    val s = Set<int> { 1, 2, 3 }
+    print(remove_all(s, [1, 2]))
+    print(remove(s, 3))
+
+    val ms = mutable(s)
+    print(remove_all(ms, [1, 2]))
     print(snapshot(ms))
     print(remove(ms, 9))
+    print(remove(ms, 3))
 }

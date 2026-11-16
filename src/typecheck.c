@@ -1930,28 +1930,35 @@ static const char *renamed_builder_fn(const char *name) {
 }
 
 /* A different kind of retirement from `renamed_builder_fn`'s, and it earns its own table and its
- * own sentence rather than being filed with the prefix drops: **these names were absorbed by a
- * variadic parameter.** Nothing was renamed -- the plural form simply stopped being a separate
- * question once the singular could take many, so the answer is the same name with more arguments.
+ * own sentence rather than being filed with the prefix drops: **this name existed to dodge a cost
+ * that is gone, so the function it was a fast path for is now simply the answer.**
  *
- * `remove_all` went that way on 2026-10-22, in all three worlds it had (Map, MutableMap,
- * MutableSet), after `add` had been variadic in both set worlds since F199 and made `remove` the
- * asymmetric one. The merge cost one capability, recorded at the declaration: `remove` on a
- * MutableMap answered the value it took out, and a variadic form has no single value to answer.
+ * `discard(m, k)` went that way on 2026-11-15. It removed a key from a MutableMap and answered
+ * nothing, and it was never about the answer: `remove` was variadic, a variadic parameter builds a
+ * one-element array per call, and this dodged that array -- measured at 12-13 ms per 100,000
+ * removals against `remove`'s 41-51. `remove` takes one key again (lib/prelude/map.zm carries the
+ * count and the size sweep), so the two became the same function and the cheaper one is the one
+ * everybody already reaches for. A caller who wants no answer discards it: a `bool` dropped in
+ * statement position is what `#[effectful]` makes legal.
+ *
+ * **This table held `remove_all` -> `remove` until the same day, and that entry is gone because
+ * the name came back.** It was filed here as "absorbed by a variadic parameter" when `remove` took
+ * the plural on 2026-10-22; the split gave `remove_all` its declaration back in all four worlds,
+ * so the helpful error would now be wrong. A table of retirements has to lose a row when a
+ * retirement is undone, which is a thing to check when one is.
  *
  * **`update_all` is the name that looks like it belongs here and does not.** It takes
  * `fn(K, V) -> V` and applies it to *every* entry, where `update` targets one key -- "all" names
- * the extent of the walk, not a plural of the argument, so there is no variadic that could absorb
- * it. `remove_keys` is the other near-miss: it takes a `Set<K>`, which cannot be a declaration
- * beside `variadic K` at all (see map.zm's own note), so it outlived the name it was a sibling
- * of. */
-static const char *absorbed_by_variadic_fn(const char *name) {
+ * the extent of the walk, not a plural of the argument. `remove_keys` is the other near-miss: it
+ * takes a `Set<K>`, which cannot be a declaration beside either `remove` spelling (see map.zm's own
+ * note), so it has outlived every naming around it. */
+static const char *superseded_by_cheaper_fn(const char *name) {
     static const struct {
         const char *was;
         const char *now;
-    } ABSORBED[] = {{"remove_all", "remove"}, {NULL, NULL}};
-    for (size_t k = 0; ABSORBED[k].was != NULL; k++) {
-        if (strcmp(name, ABSORBED[k].was) == 0) return ABSORBED[k].now;
+    } SUPERSEDED[] = {{"discard", "remove"}, {NULL, NULL}};
+    for (size_t k = 0; SUPERSEDED[k].was != NULL; k++) {
+        if (strcmp(name, SUPERSEDED[k].was) == 0) return SUPERSEDED[k].now;
     }
     return NULL;
 }
@@ -4777,12 +4784,12 @@ ordinary_call:;
                         "argument holds -- '%s' is the pair of 'to_set'",
                         name, for_result_fn, for_result_fn);
         }
-        const char *absorbed_fn = absorbed_by_variadic_fn(name);
-        if (absorbed_fn != NULL) {
+        const char *superseded_fn = superseded_by_cheaper_fn(name);
+        if (superseded_fn != NULL) {
             ziman_error("type", e->line, e->col,
-                        "'%s' is now '%s': the singular takes a variadic parameter, so one name covers one "
-                        "argument or many -- '%s(x)' and '%s(x, y, z)' and '%s(xs)' are all it",
-                        name, absorbed_fn, absorbed_fn, absorbed_fn, absorbed_fn);
+                        "'%s' is now '%s': it existed only to dodge a cost '%s' no longer has, and the two "
+                        "do the same thing -- drop the answer where you do not want it",
+                        name, superseded_fn, superseded_fn);
         }
         const char *renamed_fn = renamed_builder_fn(name);
         if (renamed_fn != NULL) {

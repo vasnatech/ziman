@@ -22,8 +22,11 @@ fn main() {
     print(concat(no_arrays))
     print(concat(no_strings))
     print(push([1], no_ints))
-    print(len(remove(Map<string, int> { "a": 1 }, no_strings)))
-    print(len(remove(to_set([1]), no_ints)))
+    // `remove_all`, not `remove`: the plural is where the variadic went on 2026-11-15, and a lone
+    // array is a spread only where there is a variadic to spread into -- `remove(m, no_strings)` is
+    // now a `[string]` offered as one `string` key and is refused by the type checker.
+    print(len(remove_all(Map<string, int> { "a": 1 }, no_strings)))
+    print(len(remove_all(to_set([1]), no_ints)))
     print(len(add(to_set([1]), no_ints)))
     print(filter_present(no_options))
 
@@ -37,6 +40,7 @@ fn main() {
 
     val ms = mutable_set_new<int>()
     print(add(ms, no_ints))
+    print(remove_all(ms, no_ints))
 
     val sb = mutable_string_new()
     append(sb, no_strings)

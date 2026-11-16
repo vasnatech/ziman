@@ -151,27 +151,38 @@ pub native fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
 #[effectful]
 pub native fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 
-// **A new Set without any of `items`** -- `remove`'s Set member. An element that is absent is not
-// an error; the answer is a set equal to the argument. `native fn` since 2026-10-22, and the
-// parameter was `x` until that conversion made the rename free. array.zm's member carries the
-// account of it and the `#[when_unmatched]` line the whole set shares.
+// **A new Set without `item`** -- an element that is absent is not an error; the answer is a set
+// equal to the argument. `native fn` since 2026-10-22, and the parameter was `x` until that
+// conversion made the rename free. array.zm's member carries the account of it and the
+// `#[when_unmatched]` line the whole set shares.
 //
-// **Variadic since 2026-10-22, and this member gained rather than merged**: `remove_all` never had
-// an immutable Set form, so "a set without these" took a fold or a `filter` before. `add` beside it
-// has been variadic in both worlds since F199, which is the asymmetry this closed.
-#[at_least_one]
-pub native fn remove<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
+// **Singular since 2026-11-15, with `remove_all` beside it** -- the count and the measurement are
+// at map.zm's `remove`, and they are the same for all four worlds: of 66 `remove` calls in this
+// repository and the two that depend on it, none passed more than one argument. `add` stays
+// variadic, and the asymmetry is deliberate now rather than left over: `add` has real plural
+// callers and `remove` had none.
+pub native fn remove<T: Eq + Hash>(s: Set<T>, item: T) -> Set<T>
 
-// Drops each of `items`, answering whether any of them was there; nothing happens for one that is
-// absent. **`add`'s exact opposite in shape as well as in meaning since 2026-10-22**, when
-// `remove_all` was deleted and its variadic parameter moved here -- the two had been a plural name
-// against a singular one, which was the only thing keeping `add` and `remove` from reading alike.
+// **A new Set without any of `items`.** `remove`'s plural, which this world gained on 2026-10-22
+// and kept: `remove_all` never had an immutable Set form before then, so "a set without these" took
+// a fold or a `filter`.
+#[at_least_one]
+pub native fn remove_all<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
+
+// Drops `item`, answering whether it was there; nothing happens for one that is absent.
 //
 // `#[effectful]` for the reason `add` carries it: "did anything change?" is an answer
-// "make sure these are gone" has no use for.
+// "make sure this is gone" has no use for.
+#[effectful]
+pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
+
+// Drops each of `items`, answering whether any of them was there. **`add`'s exact opposite in
+// shape as well as in meaning**, which is what the 2026-10-22 pairing was after and what the
+// 2026-11-15 split kept: the plural forms pair name for name, and the singular `remove` pairs with
+// `add`'s one-element call rather than with a second name.
 #[at_least_one]
 #[effectful]
-pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
+pub native fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 
 // The elements `keep` answers true for, as a new Set, in their existing order. A Set is a MapObj
 // whose values are placeholders, so `keep` takes one argument where `filter`'s Map form takes two.

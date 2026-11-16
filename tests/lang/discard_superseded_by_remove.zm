@@ -1,0 +1,23 @@
+// `discard` was deleted on 2026-11-15 and the old name points at `remove`. A fourth kind of
+// retirement with its own table and its own sentence: nothing was renamed, nothing was absorbed by
+// a variadic parameter and nothing swapped meaning -- **this name existed only to dodge a cost,
+// and the cost is gone.**
+//
+// `discard(m, k)` removed a key and answered nothing. It was never about the answer: `remove` was
+// variadic, a variadic parameter builds a one-element array per call, and this dodged that array --
+// 12-13 ms per 100,000 removals against `remove`'s 41-51. `remove` takes one key again, and is
+// frameless on top of that, so the two are the same function and the survivor is the one every
+// caller already reaches for. **Its five call sites were all tests of itself**: nothing in lib/ or
+// examples/ ever used it, which makes the deletion a vocabulary saving and not a migration. A
+// caller that wants no answer drops the `bool`, which `#[effectful]` makes legal.
+//
+// **The table this replaced held `remove_all` -> `remove`**, filed as "absorbed by a variadic
+// parameter" on 2026-10-22. That row is gone because the name came back in all four worlds: a
+// retirement that is undone has to lose its row, or the help is a lie.
+//
+// `datasource.discard(conn, taken)` is a different function and is not retired -- it hands a pool
+// connection back as unusable. A module name is reached through its module, so the two never met.
+fn main() {
+    val m = mutable(Map<string, int> { "a": 1 })
+    discard(m, "a")
+}

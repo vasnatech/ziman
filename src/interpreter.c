@@ -458,11 +458,16 @@ static void run_defers(Module *module, Env *env) {
  * whether or not anything is being profiled.
  *
  * Every entry was read before it was added. `ziman_len` answers a count on every path,
- * `ziman_contains` a bool, the two `get_or`s the found value or the default, and the two string
- * tests a `memcmp`. None of them allocates, so none can even reach a collection.
+ * `ziman_contains` a bool, the two `get_or`s the found value or the default, the two string tests
+ * a `memcmp`, and `ziman_mutable_map_remove` a bool from `maptable_remove` over the table's own
+ * storage. None of them allocates, so none can even reach a collection.
  *
  * **A variadic native is refused at resolution** rather than trusted to stay fixed, because the
- * collapse is what builds its tail array and skipping that would hand it the wrong shape.
+ * collapse is what builds its tail array and skipping that would hand it the wrong shape. This is
+ * what `remove` had to stop being to get here (2026-11-15): a shortcut can skip the array, but
+ * only a fixed argument list can skip the frame as well. Its own `remove_all` is variadic and so
+ * is not on this path, and the persistent `Map` and `Set` members are not either -- they allocate
+ * the new trie path, and (per above) an entry here must not allocate at all.
  *
  * **`char_at` and `index_of` are deliberately absent**, and they are the reason this list is read
  * rather than guessed: both pass `line` and `col` into `utf8_byte_of_char`, which raises on a bad
@@ -472,7 +477,7 @@ static int is_frameless_native(NativeFn native) {
     return native == ziman_len || native == ziman_contains ||
            native == ziman_map_get_or || native == ziman_mutable_map_get_or ||
            native == ziman_starts_with || native == ziman_ends_with ||
-           native == ziman_mutable_map_set;
+           native == ziman_mutable_map_set || native == ziman_mutable_map_remove;
 }
 
 /* A native's one-element form: the receiver and the single element, answering what the variadic
@@ -488,26 +493,34 @@ static Value push_tail_one(Value owner, Value element) {
 /* **Which natives have one, in one table.** A new shortcut is a line here and a function beside
  * the native it shortens -- nothing in `call_function` changes, which is the point of resolving
  * this per declaration rather than testing candidates per call. */
-// **The persistent map and set are NOT in this table, and that is a measurement rather than an
-// oversight.** `remove(m, k)` on an immutable `Map` and `add(s, x)` on an immutable `Set` are
-// variadic too, so both build the one-element array this shortcut exists to skip -- and skipping
-// it made `Map remove` **2.6x slower**: 1,926-1,940 ns/op against 4,952-4,955, one row per
-// process, paired, repeated. `GC_PRINT_STATS` says what happened and not why: the same million
-// removals ran **54 collections against 32, at a 76 ms average pause against 26**. Removing an
-// allocation made the collector run more often and work harder each time, which is the opposite of
-// the mechanism this shortcut is built on, and the reason stayed unexplained after the
-// measurement -- so the change went back rather than shipping on a story.
+// **`remove` left this table on 2026-11-15 by ceasing to be variadic at all**, which is the
+// stronger form of the same fix: a one-key declaration builds no array *and* skips the frame
+// (`is_frameless_native`), where a shortcut only skips the array.
 //
-// The sibling row (`Set add`, 2,117-2,127 -> 2,020-2,028) was a 4% win and went back with it: a
-// mechanism that costs 160% on one row and buys 4% on its twin is not understood well enough to
-// keep either half.
+// It also settles what stood here as an unexplained regression. Adding the persistent `Map`
+// `remove` to this table was recorded on 2026-11-12 as **2.6x slower** -- 1,926 ns/op against
+// 4,955, with 54 collections against 32 -- and reverted on that one number, measured at the one
+// map size tests/bench/map_ops.zm holds, in a process that did nothing else. Both of those turned
+// out to matter. Across the size range, isolated and paired, dropping the array is **-40% at 256
+// entries, -8% at 4,096 and -13% at 65,536**, turning to a loss only above that (+24% at 100,000,
+// +196% at 262,144) -- and *inside map_ops.zm, at that same 100,000, it is a 24% win over five
+// pairs*, the heap by then grown by twenty earlier rows.
+//
+// `GC_PRINT_STATS` over the isolated row says where the loss lives: the same 35-36 collections and
+// the same ~56 MB per cycle on both sides, with the heap grown to 232 MB against 96 MB and each
+// collection costing 24.7 ms against 9.1. `--gc-heap-floor-mb=1024` inverts the sign by itself.
+// The array was pacing the collector, not doing work. lib/prelude/map.zm's `remove` carries the
+// tables.
+//
+// `Set add` went back with it that day as a paired revert and is still out: it is variadic (it has
+// plural callers, where `remove` had none), so the shortcut is the only route open to it, and
+// re-measuring it across sizes is its own task rather than a rider on this one.
 static TailOneFn tail_one_for(NativeFn native) {
     if (native == ziman_mutable_array_push) return push_tail_one;
     if (native == ziman_array_push_values) return ziman_array_push_one;
     if (native == ziman_mutable_string_append) return ziman_mutable_string_append_one;
     if (native == ziman_mutable_string_append_byte) return ziman_mutable_string_append_byte_one;
     if (native == ziman_mutable_set_add) return ziman_mutable_set_add_one;
-    if (native == ziman_mutable_map_remove) return ziman_mutable_map_remove_one;
     return NULL;
 }
 

@@ -1,0 +1,1 @@
+'discard' is now 'remove': it existed only to dodge a cost 'remove' no longer has, and the two do the same thing -- drop the answer where you do not want it
