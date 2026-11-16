@@ -3753,24 +3753,34 @@ fn header_widget(t: Table, style: Style, ink: Color) -> widget.Widget {
             widget.Role.ColumnHeader,
             t.columns[i].title,
             with widget.no_state() { disabled: t.disabled },
-            widget.Widget.Group(widget.Stack {
-                direction: widget.Direction.Row,
-                spacing: 0.0,
-                padding: widget.no_insets(),
-                surface: face_of(style, style.face),
-                align: widget.stretched(),
-                children: [cell_widget(t, style, i, t.columns[i].title, ink)],
-                name: ""
-            })
+            cell_widget(t, style, i, t.columns[i].title, ink)
         ))
         i = i + 1
     }
-    return widget.fixed_of(0.0, t.header_height, widget.named_scroll(
-        concat(t.name, "/header"),
-        t.offset_x,
-        0.0,
-        widget.row_of(0.0, snapshot(cells))
-    ))
+    // **The face is on the strip, not on the cells**, which is not a tidying: a viewport lays its
+    // child out at the child's natural size, so a header built only of cells is exactly as wide as
+    // the columns -- and a table narrower than its pane then draws a header band that stops in the
+    // middle of the window while the rows below it run to the edge. The band is the strip; the
+    // cells scroll inside it.
+    return widget.fixed_of(0.0, t.header_height, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: face_of(style, style.face),
+        align: widget.stretched(),
+        // **`expand`, because a viewport measures as nothing.** A `Scroll` is a window onto
+        // something larger and takes the box it is given rather than asking for one -- so as the
+        // plain child of a row it is laid out zero points wide and the whole header disappears,
+        // band and titles alike. It was the Fixed's job to give it a width before the band
+        // existed; now it has to ask for the leftover.
+        children: [widget.expand(widget.named_scroll(
+            concat(t.name, "/header"),
+            t.offset_x,
+            0.0,
+            widget.row_of(0.0, snapshot(cells))
+        ))],
+        name: ""
+    }))
 }
 
 // The table as a widget: a header over a viewport of rows.

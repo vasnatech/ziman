@@ -3750,6 +3750,36 @@ fn a_table_is_one_tab_stop_and_its_rows_are_parts() {
     test.assert_eq(named(tree, controls.column_header_name(table(), 1)), "Dose")
 }
 
+// **The header band is as wide as the table, not as wide as its columns.** A viewport lays its
+// child out at the child's natural size, so a header built only of cells measures exactly the
+// columns -- and a table narrower than its pane drew a grey band that stopped in the middle of the
+// window while the rows below it ran to the edge. Found by putting the table in a gallery and
+// looking at it; every assertion about boxes and roles passed throughout, because the band is a
+// surface and a surface is not a node.
+#[test]
+fn the_header_band_spans_the_table_and_not_just_its_columns() {
+    // 200 points of table and 240 of columns is the scrolled case; 400 of table is the case that
+    // was wrong, where there is more pane than there are columns.
+    val wide = geom.rect_of(0.0, 0.0, 400.0, 100.0)
+    val l = widget.layout(controls.table_widget(table(), controls.default_style()), wide, metrics())
+    var band = 0.0 - 1.0
+    for op in widget.paint_ops(l, metrics()) {
+        if Fill(f) = op {
+            val filled = shape.path_bounds(f.path)
+            if filled.y == 0.0 && filled.height == table().header_height {
+                band = filled.width
+            }
+        }
+    }
+    test.assert_eq(band, 400.0)
+    // **And the titles are still in it**, which the band alone does not say: a `Scroll` measures
+    // as nothing, so the first attempt at a full-width band laid the viewport out zero points
+    // wide and drew a perfect empty band with every column header inside it collapsed to a
+    // sliver. The band was right and the header was gone.
+    test.assert_eq(box_named(l, controls.column_header_name(table(), 0)).width, 100.0)
+    test.assert_eq(box_named(l, controls.column_header_name(table(), 2)).x, 160.0)
+}
+
 #[test]
 fn a_disabled_table_ignores_everything() {
     val off = with table() { disabled: true, selected: 2 }
