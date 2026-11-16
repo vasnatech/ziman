@@ -14,12 +14,14 @@ use demos/accessibility
 use demos/button
 use demos/check_box
 use demos/combo_box
+use demos/composing
 use demos/dialog
 use demos/layout
 use demos/link
 use demos/list
 use demos/look_and_feel
 use demos/menu
+use demos/picture
 use demos/radios
 use demos/scroll_bar
 use demos/slider
@@ -50,8 +52,10 @@ pub enum Demo {
     Link(link.Demo)
     Dialog(dialog.Demo)
     Layout(layout.Demo)
+    Picture(picture.Demo)
     LookAndFeel(look_and_feel.Demo)
     Accessibility(accessibility.Demo)
+    Composing(composing.Demo)
 }
 
 // The catalogue, in the order the tree shows it: the plain controls, then the ones that hold
@@ -75,8 +79,10 @@ pub fn all() -> [Demo] {
         Demo.Link(link.demo()),
         Demo.Dialog(dialog.demo()),
         Demo.Layout(layout.demo()),
+        Demo.Picture(picture.demo()),
         Demo.LookAndFeel(look_and_feel.demo()),
-        Demo.Accessibility(accessibility.demo())
+        Demo.Accessibility(accessibility.demo()),
+        Demo.Composing(composing.demo())
     ]
 }
 
@@ -99,8 +105,10 @@ pub fn title_of(d: Demo) -> string {
         Link(_) { "Link" }
         Dialog(_) { "Dialog" }
         Layout(_) { "Rows and columns" }
+        Picture(_) { "Pictures and paths" }
         LookAndFeel(_) { "Three looks" }
         Accessibility(_) { "What a reader says" }
+        Composing(_) { "An input method" }
     }
 }
 
@@ -124,8 +132,10 @@ pub fn stem_of(d: Demo) -> string {
         Link(_) { "link" }
         Dialog(_) { "dialog" }
         Layout(_) { "layout" }
+        Picture(_) { "picture" }
         LookAndFeel(_) { "look_and_feel" }
         Accessibility(_) { "accessibility" }
+        Composing(_) { "composing" }
     }
 }
 
@@ -154,8 +164,10 @@ pub fn view_of(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widg
         Link(it) { link.view(it, style, m) }
         Dialog(it) { dialog.view(it, style, m) }
         Layout(it) { layout.view(it, style, m) }
+        Picture(it) { picture.view(it, style, m) }
         LookAndFeel(it) { look_and_feel.view(it, style, m) }
         Accessibility(it) { accessibility.view(it, style, m) }
+        Composing(it) { composing.view(it, style, m) }
     }
 }
 
@@ -185,8 +197,10 @@ pub fn input_to(
         Link(it) { Demo.Link(link.input(it, name, input, laid, style, m)) }
         Dialog(it) { Demo.Dialog(dialog.input(it, name, input, laid, style, m)) }
         Layout(it) { Demo.Layout(layout.input(it, name, input, laid, style, m)) }
+        Picture(it) { Demo.Picture(picture.input(it, name, input, laid, style, m)) }
         LookAndFeel(it) { Demo.LookAndFeel(look_and_feel.input(it, name, input, laid, style, m)) }
         Accessibility(it) { Demo.Accessibility(accessibility.input(it, name, input, laid, style, m)) }
+        Composing(it) { Demo.Composing(composing.input(it, name, input, laid, style, m)) }
     }
 }
 
@@ -219,6 +233,8 @@ pub fn anchor_of(d: Demo) -> string {
         ScrollBar(_) { "" }
         SplitPane(_) { "" }
         Dialog(_) { "" }
+        Picture(_) { "" }
+        Composing(_) { "" }
     }
 }
 
@@ -281,6 +297,8 @@ pub fn layer_of(d: Demo, style: controls.Style, m: widget.Metrics, at: geom.Rect
         Table(_) { Option<widget.Layer>.None }
         ScrollBar(_) { Option<widget.Layer>.None }
         SplitPane(_) { Option<widget.Layer>.None }
+        Picture(_) { Option<widget.Layer>.None }
+        Composing(_) { Option<widget.Layer>.None }
     }
 }
 
@@ -293,8 +311,10 @@ pub fn layer_of(d: Demo, style: controls.Style, m: widget.Metrics, at: geom.Rect
 pub fn group_of(d: Demo) -> string {
     return switch d {
         Layout(_) { "Layout" }
+        Picture(_) { "Drawing" }
         LookAndFeel(_) { "Look and feel" }
         Accessibility(_) { "Accessibility" }
+        Composing(_) { "Accessibility" }
         Button(_) { "Controls" }
         CheckBox(_) { "Controls" }
         Radios(_) { "Controls" }
@@ -316,5 +336,5 @@ pub fn group_of(d: Demo) -> string {
 
 // The branches, in the order the tree shows them.
 pub fn groups() -> [string] {
-    return ["Controls", "Layout", "Look and feel", "Accessibility"]
+    return ["Controls", "Layout", "Drawing", "Look and feel", "Accessibility"]
 }

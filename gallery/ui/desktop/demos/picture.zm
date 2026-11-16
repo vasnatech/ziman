@@ -1,0 +1,88 @@
+// A picture and a drawing, which are not the same thing -- and a slider to prove it.
+//
+// **A picture is pixels and a drawing is a path.** The difference is what each one does when it
+// is scaled: drag the slider and the image, which is sixty-four pixels square, goes soft, while
+// the star stays exact at every size. That is why `lib/ui` has both `widget.Picture` and
+// `widget.Drawing` rather than one "image", and why an icon is a path -- an icon theme is scaled
+// to whatever the control it sits in needs.
+//
+// **Both are made rather than loaded**, so this demo says the same thing wherever it is run from.
+// See `pictures`.
+use boxes
+use controls
+use demos/picture_ui
+use math.floor
+use pictures.images
+use pictures.star
+use widget
+
+val track_width = 300.0
+
+pub struct Demo {
+    size: controls.Slider
+}
+
+// A one-field demo, kept as a struct because `all.Demo` wants a type per demo and a demo that
+// grew a second field later would otherwise change every arm that names it.
+pub fn demo() -> Demo {
+    return Demo {
+        size: with controls.slider_of("picture-size", "Drawn at", 32.0, 180.0, 64.0) { step: 4.0 }
+    }
+}
+
+// The image's index in the window's image table, which the loop fills from `pictures.images`.
+// **Zero because there is one**, and a demo that guessed higher would draw a renderer error.
+val first_image = 0
+
+fn picture(side: float) -> widget.Widget {
+    if len(images) == 0 {
+        return widget.Widget.Nothing
+    }
+    // **Fitted rather than shrunk**, which is what shows that pixels are pixels: a 64-pixel square
+    // asked for 180 points is drawn at 180 points and is visibly soft, where `picture_shrunk`
+    // would refuse to enlarge it and the demo would have nothing to say.
+    return widget.fixed_of(side, side, widget.picture_fitted(
+        first_image,
+        side,
+        side,
+        "a sixty-four pixel square, a green and blue ramp"
+    ))
+}
+
+fn drawing(side: float, style: controls.Style) -> widget.Widget {
+    switch star {
+        Some(path) { return widget.fixed_of(side, side, widget.drawn_of(path, style.ink)) }
+        None { return widget.Widget.Nothing }
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return picture_ui.screen(picture_ui.Screen {
+        size: controls.slider_widget(d.size, style, track_width),
+        size_said: concat(str(floor(d.size.value)), " points"),
+        picture: picture(d.size.value),
+        drawing: drawing(d.size.value, style),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    if len(images) == 0 {
+        return "This window could not make an image, so the picture is missing and the drawing is not."
+    }
+    return "The picture is 64 pixels square and softens as it grows; the star is a path and does not."
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "picture-size" {
+        return with d { size: controls.slider_input(d.size, input, boxes.bounds_of(laid, name)).slider }
+    }
+    return d
+}

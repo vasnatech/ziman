@@ -20,6 +20,7 @@ use fs
 use geom
 use os
 use paint
+use pictures.images
 use raster
 use scene
 use state
@@ -199,6 +200,8 @@ fn run() -> Result<unit, string> {
     val scale = density.px_per_pt
     val options = with raster.options() {
         fonts: faces,
+        // The demo's own picture, made rather than loaded. See `pictures`.
+        images: images,
         samples: 1,
         background: Option<paint.Color>.Some(paint.rgb(0.98, 0.98, 0.99)),
         max_pixels: ((8000000 as float) * scale * scale) as int,

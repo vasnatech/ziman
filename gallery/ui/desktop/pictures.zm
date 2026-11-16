@@ -1,0 +1,63 @@
+// The gallery's own imagery, made rather than loaded.
+//
+// **Nothing on disk, on purpose.** A gallery that read a logo off the filesystem would be a
+// gallery whose picture demo depends on where it was run from -- which the Code tab already has
+// to live with, and which a test should not. A sixty-four pixel square drawn here is a picture by
+// every definition `widget.Picture` has, and it makes the demo say something truer: a picture is
+// pixels and a drawing is a path, and the difference is what each one can do when it is scaled.
+use geom
+use image
+use paint
+use shape
+use svg
+
+pub val picture_side = 64
+
+// A small image, built a pixel at a time: a diagonal ramp with the Z's green through it.
+//
+// **A module-level val, so it is built once.** Initialisation here is depth-first on demand, so
+// this runs the first time anything asks for the images and never again -- where a function would
+// rebuild four thousand pixels on every frame that drew it.
+pub val images = built()
+
+fn built() -> [image.Image] {
+    switch image.canvas(picture_side, picture_side, image.Pixels.Rgb8) {
+        Ok(c) {
+            var y = 0
+            while y < picture_side {
+                var x = 0
+                while x < picture_side {
+                    val across = (x as float) / (picture_side as float)
+                    val down = (y as float) / (picture_side as float)
+                    switch image.set(c, x, y, paint.rgb(0.18 + 0.5 * across, 0.42 + 0.4 * down, 0.31 + 0.3 * across)) {
+                        Ok(_) { unit }
+                        Err(_) { unit }
+                    }
+                    x = x + 1
+                }
+                y = y + 1
+            }
+            return [image.snapshot_image(c)]
+        }
+        // A gallery that cannot make a picture shows none rather than refusing to open.
+        Err(_) { return [] }
+    }
+}
+
+// A star, as an SVG path in a 24-unit box -- the shape a `.svg` file's `d` attribute holds, which
+// is what `lib/graphics/svg` reads and what an icon theme is made of.
+val star_d = "M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"
+
+// The same path, scaled into the unit box `widget.Drawn` wants.
+pub val star = star_path()
+
+fn star_path() -> Option<shape.Path> {
+    switch svg.icon_path(star_d, geom_box()) {
+        Ok(p) { return Option<shape.Path>.Some(p) }
+        Err(_) { return Option<shape.Path>.None }
+    }
+}
+
+fn geom_box() -> geom.Rect {
+    return geom.rect_of(0.0, 0.0, 24.0, 24.0)
+}

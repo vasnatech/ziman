@@ -1,0 +1,243 @@
+// The gallery's own shell: the catalogue, the two tabs, and the file strip under them.
+//
+// **These are the cases the demos cannot cover.** Every demo tests the control it shows; nothing
+// tested the window that shows them -- the mapping from a tree row to a demo, what a branch row
+// does, which file the Code tab loads. The mapping in particular is the thing that breaks the day
+// someone adds a group, which is exactly what `row_demos` exists to stop and what nothing was
+// checking.
+use a11y
+use controls
+use demos/all
+use focus
+use geom
+use state
+use test
+use widget
+
+// Ten points a character and a line twice the size, so a box's arithmetic is readable in a
+// failure. The real metrics come from a font the gate has no reason to load.
+fn metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+}
+
+fn style() -> controls.Style {
+    return controls.default_style()
+}
+
+val window = geom.rect_of(0.0, 0.0, 1100.0, 720.0)
+
+fn opened() -> state.State {
+    return state.opening_state(style())
+}
+
+fn laid_of(s: state.State) -> widget.Laid {
+    return widget.layout(state.view(s, style(), metrics()), window, metrics())
+}
+
+fn acted(s: state.State, input: controls.Input) -> state.State {
+    return state.step(s, input, laid_of(s), style(), metrics())
+}
+
+// Presses the middle of the control called `name`.
+fn pressed(s: state.State, name: string) -> state.State {
+    val at = boxes_of(s, name)
+    return acted(s, controls.Input.Press(geom.point_of(at.x + at.width / 2.0, at.y + at.height / 2.0)))
+}
+
+fn boxes_of(s: state.State, name: string) -> geom.Rect {
+    return switch widget.node_named(laid_of(s), name) {
+        Some(node) { node.bounds }
+        None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
+    }
+}
+
+// ---------------------------------------------------------------- the catalogue
+
+// **A tree row is not a demo index.** With a branch between the groups it is not even that index
+// plus a constant, which is why the mapping is an array and not arithmetic -- and why this test
+// exists: the day someone adds a group, this is what says the catalogue still selects what it
+// points at.
+#[test]
+fn every_demo_is_reachable_from_the_tree_by_its_own_name() {
+    val s = opened()
+    val rows = s.tree.rows
+    var row = 0
+    var seen = 0
+    while row < len(rows) {
+        val at = state.demo_at(s, row)
+        if at >= 0 {
+            // The row's label is the demo's title: the catalogue points where it says it does.
+            test.assert_eq(rows[row].label, all.title_of(s.demos[at]))
+            seen = seen + 1
+        } else {
+            // A branch row, whose label is a group name and nothing else.
+            test.assert(contains(all.groups(), rows[row].label))
+        }
+        row = row + 1
+    }
+    test.assert_eq(seen, len(s.demos))
+}
+
+// **A branch shows nothing rather than the demo above it.** Opening and closing a group moves the
+// selection onto the branch, and a catalogue that answered that with "whatever was last in the
+// group" would change the pane for a gesture that was about the tree.
+#[test]
+fn selecting_a_branch_leaves_the_demo_alone() {
+    val s = opened()
+    test.assert_eq(state.demo_at(s, 0), 0 - 1)
+    val moved = with s { tree: with s.tree { selected: 0 } }
+    val after = state.showing_row(moved, 0, style())
+    test.assert_eq(after.at, s.at)
+}
+
+// Selecting a demo row moves the pane to it and renames the file strip after its two files.
+#[test]
+fn selecting_a_demo_loads_its_own_two_files() {
+    val s = opened()
+    val last = len(s.demos) - 1
+    val row = row_of(s, last)
+    val after = state.showing_row(s, row, style())
+    test.assert_eq(after.at, last)
+    test.assert_eq(after.files.items, all.files_of(s.demos[last]))
+    test.assert_eq(after.status, all.title_of(s.demos[last]))
+}
+
+fn row_of(s: state.State, demo: int) -> int {
+    var row = 0
+    while row < len(s.tree.rows) {
+        if state.demo_at(s, row) == demo {
+            return row
+        }
+        row = row + 1
+    }
+    return 0 - 1
+}
+
+// ---------------------------------------------------------------- the two tabs
+
+// The Code tab shows the demo's own first file, and the file strip switches to the second.
+#[test]
+fn the_code_tab_shows_the_demo_being_looked_at() {
+    val s = opened()
+    test.assert_len(2, s.files.items)
+    test.assert_eq(s.files.items[0], concat(all.stem_of(s.demos[0]), ".zm"))
+    test.assert_eq(s.files.items[1], concat(all.stem_of(s.demos[0]), "_ui.zm"))
+    // The source pane holds something: either the file or the message saying where it looked.
+    test.assert(len(s.source.editor.text) > 0)
+}
+
+// **Tab reaches the shell's own controls and the demo's**, which is the only check that a new
+// demo has been wired into the focus order rather than merely drawn.
+#[test]
+fn the_shells_controls_are_all_reachable() {
+    val names = mutable_array_new<string>()
+    for one in focus.controls(laid_of(opened())) {
+        push(names, one.name)
+    }
+    val reachable = snapshot(names)
+    for wanted in ["catalogue", "tabs", "layout/divider"] {
+        test.assert(contains(reachable, wanted))
+    }
+}
+
+// ---------------------------------------------------------------- every demo
+
+// **No two demos name a control the same thing.** Every name in this window is flat and routing
+// is by name, so a copy-pasted demo that kept its neighbour's name would send its input to the
+// wrong demo -- silently, and only when both are on screen, which they never are. Nineteen demos
+// is where that stops being hypothetical.
+#[test]
+fn no_two_demos_use_the_same_control_name() {
+    val seen = mutable_set_new<string>()
+    var i = 0
+    while i < len(all.all()) {
+        val d = all.all()[i]
+        val laid = widget.layout(all.view_of(d, style(), metrics()), window, metrics())
+        for one in focus.controls(laid) {
+            test.assert_false(contains(seen, one.name))
+            add(seen, one.name)
+        }
+        i = i + 1
+    }
+}
+
+// **Every demo lays out and describes itself**, which is the cheapest possible smoke test and
+// catches the thing a type check cannot: a demo whose view raises, or one that declares no
+// control at all and is therefore a picture of a control rather than one.
+#[test]
+fn every_demo_lays_out_and_declares_at_least_one_control() {
+    for d in all.all() {
+        val laid = widget.layout(all.view_of(d, style(), metrics()), window, metrics())
+        val tree = a11y.tree_of(laid, "gallery", "")
+        test.assert(len(tree.nodes) > 1)
+        // **Every demo but one has something Tab can reach, and the exception is deliberate.** A
+        // scroll bar is not a tab stop: the content it scrolls is what a keyboard user moves
+        // through, and a stop on the bar would be one they tab to and cannot use. It is the only
+        // control in the set that is reachable by a pointer and by a reader but not by Tab.
+        if all.stem_of(d) != "scroll_bar" {
+            test.assert(len(focus.controls(laid)) > 0)
+        }
+    }
+}
+
+// **Every kind of widget is shown somewhere.** `controls` is covered by a gate that asks the
+// library what it offers; `widget`'s own vocabulary was not covered by anything, so a gallery
+// could show thirteen controls and never a picture, a drawing or a layer. This walks what the
+// demos actually lay out and asks which variants never appear.
+#[test]
+fn every_kind_of_widget_appears_in_some_demo() {
+    val seen = mutable_set_new<string>()
+    for d in all.all() {
+        val laid = widget.layout(all.view_of(d, style(), metrics()), window, metrics())
+        gather_kinds(laid, seen)
+        // A demo's layer counts too: a popup and a modal dialog are the only `Layered` in the
+        // window, and only while they are open.
+        switch all.layer_of(d, style(), metrics(), geom.rect_of(0.0, 0.0, 100.0, 20.0)) {
+            Some(over) {
+                gather_kinds(
+                    widget.layout(
+                        widget.layered_of([widget.base_layer(widget.Widget.Nothing), over]),
+                        window,
+                        metrics()
+                    ),
+                    seen
+                )
+            }
+            None {}
+        }
+    }
+    val missing = mutable_array_new<string>()
+    for kind in ["Text", "Drawing", "Picture", "Group", "Sized", "Flex", "Expand", "Control", "Scroll", "Layered"] {
+        if !contains(seen, kind) {
+            push(missing, kind)
+        }
+    }
+    // Named rather than counted, so a failure says which kind of widget nothing shows.
+    test.assert_eq(join(separator: ", ", pieces: snapshot(missing)), "")
+}
+
+fn gather_kinds(l: widget.Laid, seen: MutableSet<string>) {
+    add(seen, kind_of(l.widget))
+    for child in l.children {
+        gather_kinds(child, seen)
+    }
+}
+
+fn kind_of(w: widget.Widget) -> string {
+    return switch w {
+        Nothing { "Nothing" }
+        Text(_) { "Text" }
+        Drawing(_) { "Drawing" }
+        Picture(_) { "Picture" }
+        Group(_) { "Group" }
+        Sized(_) { "Sized" }
+        Flex(_) { "Flex" }
+        Expand(_) { "Expand" }
+        Control(_) { "Control" }
+        Scroll(_) { "Scroll" }
+        Layered(_) { "Layered" }
+    }
+}

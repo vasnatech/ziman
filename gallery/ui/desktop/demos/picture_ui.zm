@@ -1,0 +1,49 @@
+// The Pictures and paths demo, as design.
+use controls
+use widget
+
+val gap = 8.0
+val row_height = 30.0
+val label_width = 90.0
+val band_height = 180.0
+val said_height = 20.0
+val small_size = 11.0
+
+pub struct Screen {
+    size: widget.Widget
+    size_said: string
+    picture: widget.Widget
+    drawing: widget.Widget
+    said: string
+}
+
+// The two side by side, **centred across rather than stretched**.
+//
+// A row stretches every child to its own height by default, so a `Fixed` asking for a square
+// comes out a square wide and a band tall -- which the picture survives, because
+// `picture_fitted` keeps its aspect inside whatever box it is given, and the drawing does not:
+// a path scaled into a 64-by-180 box is a stretched path. A stack cannot be given a child whose
+// shape it must keep; it can only be told not to stretch it.
+pub fn band(picture: widget.Widget, drawing: widget.Widget) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: gap,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+        children: [picture, drawing, widget.flex()],
+        name: ""
+    })
+}
+
+pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.fixed_of(0.0, row_height, widget.row_of(gap, [
+            widget.fixed_of(label_width, 0.0, widget.label_of("Drawn at", small_size, style.ink)),
+            widget.expand(it.size),
+            widget.fixed_of(label_width, 0.0, widget.label_of(it.size_said, small_size, style.ink))
+        ])),
+        widget.fixed_of(0.0, band_height, band(it.picture, it.drawing)),
+        widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
+    ])
+}

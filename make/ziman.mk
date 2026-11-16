@@ -56,7 +56,7 @@ test-mysql: $(BIN)
 gallery-check: $(BIN)
 	ZIMAN_MODULE_PATH=gallery/ui/desktop ./$(BIN) --check gallery/ui/desktop/gallery.zm
 	ZIMAN_MODULE_PATH=gallery/ui/desktop ./$(BIN) --lint --check gallery/ui/desktop/gallery.zm
-	ZIMAN_MODULE_PATH=gallery/ui/desktop ./$(BIN) test gallery/ui/desktop/highlight_test.zm
+	ZIMAN_MODULE_PATH=gallery/ui/desktop ./$(BIN) test gallery/ui/desktop/highlight_test.zm gallery/ui/desktop/state_test.zm
 	@python3 tools/check_gallery_keywords.py
 	@python3 tools/check_gallery_covers_controls.py ./$(BIN)
 

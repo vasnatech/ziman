@@ -238,12 +238,34 @@ set. Build output goes to `build/`, never beside a source.
 | `tests/stdlib/` | `#[test]` units for the bundled modules |
 | `tests/integration/` | suites needing a database, OpenSSL or a signal (`pg/`, `mysql/`, `tls/`, `shutdown/`, `lsp/`) |
 | `tests/bench/` | benchmarks |
+| `gallery/` | the UI gallery: every control `lib/ui` has, with the code that drew it |
 | `tools/` | the generators and the source-level checks, in Python and shell |
 | `make/` | `c.mk` builds and checks the C, `ziman.mk` runs Ziman, `docs.mk` generates and checks the docs |
 
 The worked examples in `docs/lib/examples/` look like stray test code and are not: the manual
 generator includes them in the page and the suite runs them, which is how the documentation stays
 true.
+
+### The UI gallery
+
+```sh
+make gallery
+```
+
+A window with every control in `lib/ui` down one side and a live demo of the chosen one on the
+other, with the code that drew it under a second tab -- coloured as Ziman, in the editor's own
+partition and the website's own hues.
+
+It is in `make check`, which is the point of it. A gallery is documentation that rots, so two
+gates hold it to the library: the program is type-checked and linted on every build, and
+`tools/check_gallery_covers_controls.py` asks `ziman --api controls` what the library offers and
+fails if any control has no demo. Adding a control to `lib/ui` therefore fails the build until
+someone shows it.
+
+It also earns its keep as a test. Seven defects in `lib/ui` were found by building it and looking
+at the result, none of which any assertion could have caught: a table header that stopped short of
+its own rows, a dialog whose buttons were the colour of the panel they sat on, a link that drew
+nothing at all. Each is now pinned by a test that asserts the ink rather than the boxes.
 
 ## Testing
 

@@ -1,0 +1,36 @@
+// The Input method demo, as design.
+use controls
+use widget
+
+val gap = 8.0
+val row_height = 30.0
+val label_width = 110.0
+val button_width = 120.0
+val said_height = 18.0
+val small_size = 11.0
+val heading_size = 12.0
+
+pub struct Screen {
+    field: widget.Widget
+    back: widget.Widget
+    on: widget.Widget
+    stage: string
+    said: string
+    note: string
+}
+
+pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.fixed_of(0.0, row_height, widget.row_of(gap, [
+            widget.fixed_of(label_width, 0.0, widget.label_of("Your name", small_size, style.ink)),
+            widget.expand(it.field)
+        ])),
+        widget.fixed_of(0.0, row_height, widget.row_of(gap, [
+            widget.fixed_of(button_width, 0.0, it.back),
+            widget.fixed_of(button_width, 0.0, it.on),
+            widget.expand(widget.label_of(it.stage, heading_size, style.ink))
+        ])),
+        widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink)),
+        widget.fixed_of(0.0, said_height, widget.label_of(it.note, small_size, style.ink))
+    ])
+}

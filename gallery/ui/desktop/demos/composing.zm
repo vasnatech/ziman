@@ -1,0 +1,139 @@
+// An input method composing text, stepped by hand.
+//
+// **The composition is a model, and this is the half of it a window can show.** Typing Japanese
+// goes through four states -- nothing, a reading being typed, a run of that reading being
+// converted, and the committed result -- and only the last one is text the application owns. The
+// other three live in `edit.Preedit`: `text` is what is on screen but not committed, `at` is where
+// it sits in the field, and `highlight_start`/`end` mark the run the next keystroke changes.
+//
+// **Driven by buttons rather than by ibus**, which is the point of having it here: the platform
+// half (`lib/ui/desktop/ibus.zm`) needs a daemon, a bus and a keyboard set up for the language,
+// where the *model* is what every field draws and what any application has to get right. Press
+// Forward to walk the states a real composition goes through.
+//
+// **A phonetic Cyrillic method rather than a Japanese one, for a reason worth knowing.** The model
+// is the same either way -- ibus itself was built against Japanese, and `edit.Preedit`'s marked
+// run is what "the segment being converted" means in both. What differs is whether the window can
+// *draw* the result: the faces a Linux desktop ships by default have Cyrillic and no kana, so a
+// Japanese demo renders as a row of `.notdef` boxes. That is F283 working exactly as designed --
+// a missing glyph is a box rather than a crash -- and it is not what this demo is trying to show.
+use boxes
+use controls
+use demos/composing_ui
+use widget
+
+// The four states, as an input method produces them: a reading, the reading with its first
+// segment being converted, the converted candidate, and the commit.
+fn stages() -> [string] {
+    return ["", "privet", "privet", "привет", "привет"]
+}
+
+// Which run of the pre-edit the method is converting at each stage, as [from, to) in characters.
+// **Characters and not bytes** -- ibus counts in characters and so does `edit.Preedit`, which is
+// the one thing about the protocol that needed no translation.
+fn marks() -> [[int]] {
+    return [[0, 0], [0, 0], [0, 6], [0, 6], [0, 0]]
+}
+
+fn names() -> [string] {
+    return [
+        "Nothing composing: the field is its own text and nothing else",
+        "A reading, typed but not committed -- the field owns none of it yet",
+        "The whole reading marked as the run being converted",
+        "The candidate, still uncommitted: a keystroke can still replace it",
+        "Committed -- now it is the field's own text, and there is no pre-edit at all"
+    ]
+}
+
+pub struct Demo {
+    field: controls.Entry
+    back: controls.Button
+    on: controls.Button
+    at: int
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        field: controls.entry_of("composing-field", "Your name", ""),
+        back: controls.button_of("composing-back", "Back"),
+        on: controls.button_of("composing-on", "Forward"),
+        at: 0
+    }
+}
+
+// The field as the method would have left it at stage `at`.
+//
+// **Rebuilt from stage zero every time rather than stepped.** A composition is not a sequence of
+// edits -- it is replaced wholesale on every keystroke, which is exactly what `entry_composing`
+// does -- so walking backwards is rebuilding, and a demo that tried to undo its way back would be
+// modelling something the protocol does not have.
+fn at_stage(at: int) -> controls.Entry {
+    val blank = controls.entry_of("composing-field", "Your name", "")
+    if at <= 0 {
+        return blank
+    }
+    if at >= len(stages()) - 1 {
+        return controls.entry_commit(blank, stages()[at]).entry
+    }
+    val mark = marks()[at]
+    return controls.entry_composing_marked(blank, stages()[at], len(stages()[at]), mark[0], mark[1]).entry
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return composing_ui.screen(composing_ui.Screen {
+        field: controls.entry_widget(d.field, style, m),
+        back: controls.button_widget(d.back, style),
+        on: controls.button_widget(d.on, style),
+        stage: concat("Stage ", str(d.at + 1), " of ", str(len(stages()))),
+        said: names()[d.at],
+        note: note_of(d)
+    }, style, m)
+}
+
+fn note_of(d: Demo) -> string {
+    switch d.field.preedit {
+        Some(p) {
+            return concat(
+                "Pre-edit \"",
+                p.text,
+                "\" at ",
+                str(p.at),
+                ", converting [",
+                str(p.highlight_start),
+                ", ",
+                str(p.highlight_end),
+                ")"
+            )
+        }
+        None {
+            return concat("No pre-edit. The field's own text is \"", d.field.editor.text, "\".")
+        }
+    }
+}
+
+fn moved(d: Demo, to: int) -> Demo {
+    val at = if to < 0 { 0 } else { if to >= len(stages()) { len(stages()) - 1 } else { to } }
+    return with d { at: at, field: at_stage(at) }
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "composing-on" {
+        val taken = controls.button_input(d.on, input, boxes.bounds_of(laid, name))
+        return with moved(d, if taken.activated { d.at + 1 } else { d.at }) { on: taken.button }
+    }
+    if name == "composing-back" {
+        val taken = controls.button_input(d.back, input, boxes.bounds_of(laid, name))
+        return with moved(d, if taken.activated { d.at - 1 } else { d.at }) { back: taken.button }
+    }
+    if name == "composing-field" {
+        return with d { field: controls.entry_input(d.field, input, boxes.bounds_of(laid, name), style, m).entry }
+    }
+    return d
+}
