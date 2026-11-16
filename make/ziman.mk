@@ -58,6 +58,14 @@ gallery-check: $(BIN)
 	ZIMAN_MODULE_PATH=gallery/ui/desktop ./$(BIN) --lint --check gallery/ui/desktop/gallery.zm
 	ZIMAN_MODULE_PATH=gallery/ui/desktop ./$(BIN) test gallery/ui/desktop/highlight_test.zm
 	@python3 tools/check_gallery_keywords.py
+	@python3 tools/check_gallery_covers_controls.py ./$(BIN)
+
+# Open the gallery. **A separate binary and a module path**, which is the whole reason this target
+# exists: `ziman-gui` is built by `make gui` and goes stale the moment `lib/ui` changes, and the
+# gallery reads its own source off the disk, so it has to be run from the repository root. Three
+# facts nobody should have to remember to look at a window.
+gallery: gui
+	ZIMAN_MODULE_PATH=gallery/ui/desktop ./ziman-gui gallery/ui/desktop/gallery.zm
 
 fmt-check: $(BIN)
 	./$(BIN) --fmt --check $$(find lib gallery docs/lib/examples docs/reviews/benchmark/reference tests/integration/pg tests/integration/mysql tests/integration/tls tests/integration/shutdown tests/bench -name '*.zm')
