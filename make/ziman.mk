@@ -48,9 +48,18 @@ test-mysql: $(BIN)
 # rather than happening to agree, and that the flag is exercised by something. The consequence worth
 # naming: `--canonical` settles brace placement, so this repo now requires K&R braces where plain
 # `--fmt` would also accept Allman.
+# **The gallery is in the gate because it is the only program that uses all of `lib/ui`.**
+# Type-checking it is what notices an API break the moment it is made, rather than the next
+# time someone opens a window -- and it costs a load, not a run. It cannot be *run* here: a
+# window needs `make gui`, which is a separate binary, and a headless gate has no display to
+# open one on.
+gallery-check: $(BIN)
+	ZIMAN_MODULE_PATH=gallery/ui/desktop ./$(BIN) --check gallery/ui/desktop/gallery.zm
+	ZIMAN_MODULE_PATH=gallery/ui/desktop ./$(BIN) --lint --check gallery/ui/desktop/gallery.zm
+
 fmt-check: $(BIN)
-	./$(BIN) --fmt --check $$(find lib docs/lib/examples docs/reviews/benchmark/reference tests/integration/pg tests/integration/mysql tests/integration/tls tests/integration/shutdown tests/bench -name '*.zm')
-	./$(BIN) --fmt --canonical --check $$(find lib docs/lib/examples docs/reviews/benchmark/reference tests/integration/pg tests/integration/mysql tests/integration/tls tests/integration/shutdown tests/bench -name '*.zm')
+	./$(BIN) --fmt --check $$(find lib gallery docs/lib/examples docs/reviews/benchmark/reference tests/integration/pg tests/integration/mysql tests/integration/tls tests/integration/shutdown tests/bench -name '*.zm')
+	./$(BIN) --fmt --canonical --check $$(find lib gallery docs/lib/examples docs/reviews/benchmark/reference tests/integration/pg tests/integration/mysql tests/integration/tls tests/integration/shutdown tests/bench -name '*.zm')
 fmt-check-backend: $(BIN)
 	@if [ -d "$(BACKEND_DIR)/src" ]; then \
 	    ./$(BIN) --fmt --check $$(find $(BACKEND_DIR)/src -name '*.zm') && \

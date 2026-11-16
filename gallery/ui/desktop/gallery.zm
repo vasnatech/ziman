@@ -1,0 +1,266 @@
+// The ziman UI gallery: every control the widget set has, with the code that drew it.
+//
+// **What it is for, beyond showing the controls.** It is the first program that uses *all* of
+// `lib/ui`, which makes it the thing that notices an API break, and the place a new control gets
+// looked at by someone rather than only asserted about. Both of today's controls were shipped with
+// a defect no test could see and only running them showed; a gallery is where that happens on
+// purpose instead of by luck.
+//
+// Run it:
+//
+//     make gui                                  # ziman-gui is a separate binary and goes stale
+//     ./ziman-gui gallery/ui/desktop/gallery.zm # from the repository root, so it can read its own source
+use a11y
+use atspi
+use clock
+use controls
+use desktop
+use font
+use fs
+use geom
+use os
+use paint
+use raster
+use scene
+use state
+use widget
+use window
+
+val start_width = 1100
+val start_height = 720
+
+fn main() {
+    switch run() {
+        Ok(_) { unit }
+        Err(why) { print(concat("gallery: ", why, "\n")) }
+    }
+}
+
+// ---- the font
+//
+// **A window needs a face and `lib/graphics` has no notion of a system font**: there is no library
+// to resolve a name against, so a caller hands it bytes. `ZIMAN_GALLERY_FONT` is the explicit
+// choice; the rest is what the common distributions ship.
+fn font_candidates() -> [string] {
+    val out = mutable_array_new<string>()
+    if Some(explicit) = os.get_env("ZIMAN_GALLERY_FONT") {
+        push(out, explicit)
+    }
+    push(out, "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf")
+    push(out, "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf")
+    push(out, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+    push(out, "/usr/share/fonts/TTF/DejaVuSans.ttf")
+    push(out, "/usr/share/fonts/google-noto-vf/NotoSans[wdth,wght].ttf")
+    push(out, "/Library/Fonts/Arial.ttf")
+    return snapshot(out)
+}
+
+fn load_font() -> Result<font.FontRef, string> {
+    val tried = mutable_array_new<string>()
+    for path in font_candidates() {
+        push(tried, path)
+        if fs.exists(path) {
+            switch fs.read_bytes(path) {
+                Ok(data) {
+                    switch font.load(data) {
+                        Ok(f) { return ok(f) }
+                        Err(_) { unit }
+                    }
+                }
+                Err(_) { unit }
+            }
+        }
+    }
+    return err(concat(
+        "no usable font. Set ZIMAN_GALLERY_FONT to a TrueType file. Tried: ",
+        join(separator: ", ", pieces: snapshot(tried))
+    ))
+}
+
+// How many device pixels a point is: the user's own setting, what the display reports, or 1.0.
+// A display's number is a guess about someone's eyes from the pixels on a panel -- right often
+// enough to be the default, wrong often enough that overriding it has to be possible.
+fn chosen_density() -> widget.Resolved {
+    return widget.resolve_density(asked_scale(), window.display_scale())
+}
+
+fn asked_scale() -> Option<float> {
+    if Some(text) = os.get_env("ZIMAN_GALLERY_SCALE") {
+        switch parse_float(trim(text)) {
+            Ok(v) { return Option<float>.Some(v) }
+            Err(_) { return Option<float>.None }
+        }
+    }
+    return Option<float>.None
+}
+
+fn is_close(e: window.Event) -> bool {
+    return switch e {
+        Close { true }
+        Exposed { false }
+        KeyDown(_) { false }
+        KeyUp(_) { false }
+        Char(_) { false }
+        PointerDown(_) { false }
+        PointerUp(_) { false }
+        PointerMove(_) { false }
+        Scroll(_) { false }
+        Resize(_) { false }
+        FocusIn { false }
+        FocusOut { false }
+    }
+}
+
+fn is_exposed(e: window.Event) -> bool {
+    return switch e {
+        Exposed { true }
+        Close { false }
+        KeyDown(_) { false }
+        KeyUp(_) { false }
+        Char(_) { false }
+        PointerDown(_) { false }
+        PointerUp(_) { false }
+        PointerMove(_) { false }
+        Scroll(_) { false }
+        Resize(_) { false }
+        FocusIn { false }
+        FocusOut { false }
+    }
+}
+
+fn resized_to(e: window.Event) -> Option<window.Size> {
+    return switch e {
+        Resize(size) { Option<window.Size>.Some(size) }
+        Exposed { Option<window.Size>.None }
+        Close { Option<window.Size>.None }
+        KeyDown(_) { Option<window.Size>.None }
+        KeyUp(_) { Option<window.Size>.None }
+        Char(_) { Option<window.Size>.None }
+        PointerDown(_) { Option<window.Size>.None }
+        PointerUp(_) { Option<window.Size>.None }
+        PointerMove(_) { Option<window.Size>.None }
+        Scroll(_) { Option<window.Size>.None }
+        FocusIn { Option<window.Size>.None }
+        FocusOut { Option<window.Size>.None }
+    }
+}
+
+fn run() -> Result<unit, string> {
+    val f = try load_font()
+    val m = try widget.metrics_for(f)
+    // The tree's marks have to be characters the face actually has: `lib/ui` defaults to
+    // triangles, which is right for a toolkit and wrong for whatever font a machine happens to
+    // have. A face without U+25B8 would draw `.notdef` and every branch would look alike.
+    val style = with controls.default_style() { collapsed_mark: ">", expanded_mark: "v" }
+    val density = chosen_density().density
+    val scale = density.px_per_pt
+    val options = with raster.options() {
+        fonts: [f],
+        samples: 1,
+        background: Option<paint.Color>.Some(paint.rgb(0.98, 0.98, 0.99)),
+        max_pixels: ((8000000 as float) * scale * scale) as int,
+        px_per_pt: scale
+    }
+    val outcome = window.with_window<unit>(
+        "ziman gallery",
+        ((start_width as float) * scale) as int,
+        ((start_height as float) * scale) as int,
+        fn(w: window.Window) -> Result<unit, string> {
+            var painter = try desktop.painter_of(start_width as float, start_height as float, scale)
+            var st = with state.opening_state() { window_width: start_width as float }
+            // The accessibility bridge is optional and its absence is not an error: said once and
+            // then left alone, which is what curly's window does with the same two calls.
+            var readable = switch atspi.publish(a11y.tree_of(
+                widget.layout(
+                    state.view(st, style, m),
+                    geom.rect_of(0.0, 0.0, start_width as float, start_height as float),
+                    m
+                ),
+                "ziman gallery",
+                st.focused
+            ), "ziman gallery") {
+                Ok(_) { true }
+                Err(_) { false }
+            }
+            var width_pt = start_width as float
+            var height_pt = start_height as float
+            var closing = false
+            // **The laid-out tree outlives the frame that made it**: it is both what is drawn and
+            // what an input is routed by, and an idle window needs the second long after it has
+            // stopped needing the first.
+            var laid = widget.layout(
+                state.view(st, style, m),
+                geom.rect_of(0.0, 0.0, width_pt, height_pt),
+                m
+            )
+            // Nothing is rebuilt until something changes it. An idle window costs a sleep and a
+            // poll; rebuilding, laying out, painting and diffing sixty times a second to discover
+            // that nothing moved is what this flag is for.
+            var dirty = true
+            while !closing {
+                if dirty {
+                    // Laid out once per pass and used for both halves -- the scene to draw and the
+                    // geometry an input is routed by. Two layouts could disagree, and a press would
+                    // land on where a control used to be.
+                    laid = widget.layout(
+                        state.view(st, style, m),
+                        geom.rect_of(0.0, 0.0, width_pt, height_pt),
+                        m
+                    )
+                    // The focus is drawn: Tab moves it and every control takes its keys, so a
+                    // window that looked identical either way would make the focus invisible.
+                    val with_focus = widget.paint_focused(laid, m, st.focused, paint.rgb(0.15, 0.4, 0.85), 2.0)
+                    // Painted after the layout, because only the layout knows how tall a viewport
+                    // turned out to be -- and a thumb's length is the view's share of the content.
+                    val painted = try desktop.repaint(
+                        painter,
+                        w,
+                        controls.paint_scroll_bars(laid, with_focus, style),
+                        options
+                    )
+                    painter = painted.next
+                    if readable {
+                        switch atspi.publish(a11y.tree_of(laid, "ziman gallery", st.focused), "ziman gallery") {
+                            Ok(_) { unit }
+                            Err(_) { readable = false }
+                        }
+                    }
+                    dirty = false
+                }
+                if readable {
+                    atspi.pump()
+                }
+                for e in try window.poll(w) {
+                    if is_close(e) {
+                        closing = true
+                    }
+                    // The contents are gone and the scene has not changed, so without this the
+                    // window would stay as the compositor left it.
+                    if is_exposed(e) {
+                        painter = desktop.forget(painter)
+                        dirty = true
+                    }
+                    if Some(size) = resized_to(e) {
+                        width_pt = (size.width as float) / scale
+                        height_pt = (size.height as float) / scale
+                        // The split pane's divider is at a position in points and `view` is handed
+                        // no bounds to clamp it against, so the state carries the width too.
+                        st = with st { window_width: width_pt }
+                        dirty = true
+                    }
+                    if Some(input) = desktop.input_of(e, density) {
+                        // Every input marks the frame dirty rather than each branch deciding: a
+                        // control that changed nothing is the cheap wrong answer, and one that
+                        // changed something and did not say so is a window that stops repainting.
+                        dirty = true
+                        st = state.step(st, input, laid, style, m)
+                    }
+                }
+                // A frame budget, not a frame rate.
+                clock.sleep_millis(16)
+            }
+            return ok(unit)
+        }
+    )
+    return outcome
+}

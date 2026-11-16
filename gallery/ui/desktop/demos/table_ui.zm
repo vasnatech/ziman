@@ -1,0 +1,20 @@
+// The Table demo, as design.
+use controls
+use widget
+
+val gap = 8.0
+val table_height = 180.0
+val said_height = 20.0
+val small_size = 11.0
+
+pub struct Screen {
+    table: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.fixed_of(0.0, table_height, it.table),
+        widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
+    ])
+}

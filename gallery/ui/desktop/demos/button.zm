@@ -1,0 +1,67 @@
+// A button: pressed, pressed with an icon, and one that cannot be pressed.
+//
+// **The three functions are what a control costs you**, and they are why the Code tab shows a
+// whole file rather than one of them: `demo` builds the state, `view` draws it, and `input` takes
+// an event and answers a new state. A control here cannot act -- a lambda in this language cannot
+// capture a `var` -- so there is no callback to show and the loop is the application's.
+use boxes
+use controls
+use demos/button_ui
+use widget
+
+pub struct Demo {
+    press: controls.Button
+    stamped: controls.Button
+    off: controls.Button
+    count: int
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        press: controls.button_of("button-press", "Press me"),
+        // An icon is a field on a button, not a widget beside it.
+        stamped: controls.icon_button_of("button-stamped", "With an icon", widget.glyph_icon("*", "star")),
+        off: with controls.button_of("button-off", "Disabled") { disabled: true },
+        count: 0
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return button_ui.screen(button_ui.Screen {
+        press: d.press,
+        stamped: d.stamped,
+        off: d.off,
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    if d.count == 0 {
+        return "Not pressed yet."
+    }
+    if d.count == 1 {
+        return "Pressed once."
+    }
+    return concat("Pressed ", str(d.count), " times.")
+}
+
+pub fn input(d: Demo, name: string, input: controls.Input, laid: widget.Laid) -> Demo {
+    if name == "button-press" {
+        val taken = controls.button_input(d.press, input, boxes.bounds_of(laid, name))
+        return with d {
+            press: taken.button,
+            count: if taken.activated { d.count + 1 } else { d.count }
+        }
+    }
+    if name == "button-stamped" {
+        val taken = controls.button_input(d.stamped, input, boxes.bounds_of(laid, name))
+        return with d {
+            stamped: taken.button,
+            count: if taken.activated { d.count + 1 } else { d.count }
+        }
+    }
+    if name == "button-off" {
+        return with d { off: controls.button_input(d.off, input, boxes.bounds_of(laid, name)).button }
+    }
+    return d
+}

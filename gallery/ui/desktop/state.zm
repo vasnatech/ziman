@@ -1,0 +1,227 @@
+// The gallery's state and what an input does to it.
+//
+// **Everything the window is, in one value.** A control here cannot act -- Ziman will not let a
+// lambda mutate what it captured -- so there is nowhere for a callback to put anything, and the
+// window's state has to be a value the program threads through. That is the architecture, not a
+// style choice, and twenty demos is where it is worth seeing whether it scales.
+use boxes
+use controls
+use demos/all
+use focus
+use gallery_ui
+use gallery_ui.catalogue_min
+use gallery_ui.catalogue_width
+use gallery_ui.demo_min
+use gallery_ui.file_tab_width
+use gallery_ui.frame_width
+use gallery_ui.tab_width
+use geom
+use source
+use widget
+
+// The demo tab and the code tab, by index into `tabs`.
+val demo_tab = 0
+val code_tab = 1
+
+pub struct State {
+    split: controls.SplitPane
+    // How wide the window is, in points: the divider's position is in points and `view` is handed
+    // no bounds to clamp it against, so the event loop writes it here on every resize.
+    window_width: float
+    tree: controls.Tree
+    tabs: controls.Tabs
+    // One tab per file of the chosen demo, named after the file.
+    files: controls.Tabs
+    // The file the strip chose, as a read-only text area.
+    //
+    // **A field rather than a column of labels**, which is the lesson curly's response pane
+    // learned: labels are not focusable, so Tab could not reach the code and the only way to
+    // scroll it was the wheel. A read-only `Entry` moves a caret through the text, scrolls to
+    // follow it, and publishes its contents so a reader can read the code out.
+    source: controls.Entry
+    // Every demo's state, kept while you are looking at another one: coming back to a demo and
+    // finding it as you left it is what makes a gallery feel like an application rather than a
+    // slideshow.
+    demos: [all.Demo]
+    at: int
+    status: string
+    focused: string
+}
+
+pub fn opening_state() -> State {
+    val demos = all.all()
+    val begin = State {
+        split: with controls.split_pane_of(
+            "layout",
+            "Catalogue",
+            widget.Direction.Row,
+            catalogue_width
+        ) {
+            first_min: catalogue_min,
+            second_min: demo_min
+        },
+        window_width: 1100.0,
+        tree: with controls.tree_of("catalogue", "Controls", tree_rows(demos)) { selected: 1 },
+        tabs: with controls.tabs_of("tabs", "Views", ["Demo", "Code"]) {
+            tab_width: tab_width
+        },
+        files: with controls.tabs_of("files", "Files", []) { tab_width: file_tab_width },
+        source: code_entry(""),
+        demos: demos,
+        at: 0,
+        status: "",
+        focused: "catalogue"
+    }
+    return showing(begin, 0)
+}
+
+// One group row with every demo under it.
+//
+// **A group even with one group in it**, because the second group is coming -- layout, look and
+// feel, accessibility -- and a tree that gains its first branch later is a tree whose row
+// arithmetic changes under every test at once.
+fn tree_rows(demos: [all.Demo]) -> [controls.TreeRow] {
+    val rows = mutable_array_new<controls.TreeRow>()
+    push(rows, controls.tree_branch("Controls", 0, true))
+    for d in demos {
+        push(rows, controls.tree_row(all.title_of(d), 1))
+    }
+    return snapshot(rows)
+}
+
+// A code pane: a text area nobody can type into, as many rows as the pane will show.
+//
+// **`readonly` and not `disabled`**: the caret still moves and the text can still be selected, so
+// the code can be read with the keyboard and by a screen reader, which is the whole reason it is
+// a field.
+fn code_entry(text: string) -> controls.Entry {
+    return with controls.text_area_of("source", "Source", text, 24) { readonly: true }
+}
+
+// Moves to a demo: its files name the sub-tabs, and the first of them is loaded.
+fn showing(s: State, at: int) -> State {
+    if at < 0 || at >= len(s.demos) {
+        return s
+    }
+    val d = s.demos[at]
+    val names = all.files_of(d)
+    return loaded(with s {
+        at: at,
+        files: with controls.tabs_of("files", "Files", names) {
+            tab_width: file_tab_width
+        },
+        status: all.title_of(d)
+    }, 0)
+}
+
+// Loads one of the chosen demo's files into the code pane.
+fn loaded(s: State, file: int) -> State {
+    val d = s.demos[s.at]
+    val names = all.files_of(d)
+    if file < 0 || file >= len(names) {
+        return s
+    }
+    return with s {
+        files: with s.files { selected: file },
+        source: code_entry(source.read_demo(all.stem_of(d), names[file]))
+    }
+}
+
+pub fn view(s: State, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    // **Which tab is showing is a conditional, and a conditional is not design.** The design file
+    // takes a slot; this is what fills it.
+    val body = if s.tabs.selected == code_tab {
+        gallery_ui.code_pane(s.files, s.source, style, m)
+    } else {
+        gallery_ui.demo_box(all.view_of(s.demos[s.at], style, m))
+    }
+    return gallery_ui.screen(gallery_ui.Screen {
+        split: s.split,
+        split_extent: s.window_width - frame_width,
+        tree: s.tree,
+        tabs: s.tabs,
+        body: body,
+        status: s.status
+    }, style, m)
+}
+
+pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.Style, m: widget.Metrics) -> State {
+    // Tab moves the focus and reaches no control, which is why it is taken before `target`.
+    if is_tab(input) {
+        val forward = !shift_held(input)
+        return with s {
+            focused: if forward { focus.next(laid, s.focused) } else { focus.previous(laid, s.focused) }
+        }
+    }
+    val focused_now = switch input {
+        Press(at) { focus.clicked(laid, at, s.focused) }
+        Wheel(_) { s.focused }
+        Release(_) { s.focused }
+        Move(_) { s.focused }
+        KeyDown(_) { s.focused }
+        KeyUp(_) { s.focused }
+        Text(_) { s.focused }
+        Paste(_) { s.focused }
+    }
+    val name = controls.target(laid, input, focused_now)
+    val here = with s { focused: focused_now }
+    if name == "layout/divider" {
+        return with here { split: controls.split_pane_input(here.split, input, boxes.bounds_of(laid, "layout")).split }
+    }
+    if name == "catalogue" {
+        val taken = controls.tree_input(here.tree, input, boxes.bounds_of(laid, "catalogue"))
+        val moved = with here { tree: taken.tree }
+        // **Selecting shows it; there is nothing to activate.** A tree whose rows had to be
+        // opened as well as reached would make the catalogue two gestures deep for no gain --
+        // the demo is already on screen beside it.
+        if taken.moved {
+            return showing(moved, moved.tree.selected - 1)
+        }
+        return moved
+    }
+    if name == "tabs" {
+        return with here { tabs: controls.tabs_input(here.tabs, input, boxes.bounds_of(laid, "tabs")).tabs }
+    }
+    if name == "files" {
+        val taken = controls.tabs_input(here.files, input, boxes.bounds_of(laid, "files"))
+        if taken.moved {
+            return loaded(with here { files: taken.tabs }, taken.tabs.selected)
+        }
+        return with here { files: taken.tabs }
+    }
+    if name == "source" {
+        return with here { source: controls.entry_input(
+            here.source,
+            input,
+            boxes.bounds_of(laid, "source"),
+            style,
+            m
+        ).entry }
+    }
+    // Anything else belongs to the demo on show, which routes it by name itself.
+    return with here { demos: demo_set(here.demos, here.at, all.input_to(here.demos[here.at], name, input, laid)) }
+}
+
+fn demo_set(demos: [all.Demo], at: int, one: all.Demo) -> [all.Demo] {
+    val out = mutable_array_new<all.Demo>()
+    var i = 0
+    while i < len(demos) {
+        push(out, if i == at { one } else { demos[i] })
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
+fn is_tab(input: controls.Input) -> bool {
+    if KeyDown(k) = input {
+        return controls.Key.is_Tab(k.key)
+    }
+    return false
+}
+
+fn shift_held(input: controls.Input) -> bool {
+    if KeyDown(k) = input {
+        return k.shift
+    }
+    return false
+}

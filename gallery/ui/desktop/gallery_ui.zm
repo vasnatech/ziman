@@ -1,0 +1,127 @@
+// The gallery's shell, as design: a catalogue on the leading side and the chosen demo on the
+// trailing one.
+//
+// **The dialect, which is the point of this file.** One expression per function; calls to
+// `widget.*`, `controls.*` and sibling design functions; literals; field paths off a parameter;
+// module-level constants that are literals or arithmetic over other constants. No `if`, no loops,
+// no function-local `val`. A subset that strict is a sublanguage a tool can read and write, which
+// is what lets a UI builder own the file while the type checker still refuses a binding that does
+// not exist. The convention is curly's, and this is the second application to follow it -- which
+// is the test of whether it was a convention or one program's habit.
+use controls
+use widget
+
+val gap = 8.0
+val heading_height = 18.0
+val heading_size = 12.0
+val small_size = 11.0
+val row_height = 30.0
+val status_height = 18.0
+// **The catalogue opens at this width and is not fixed to it**: the divider is draggable, so this
+// is the first frame and nothing after it.
+pub val catalogue_width = 240.0
+pub val catalogue_min = 140.0
+// The demo pane's floor is its own tab strip's width, so the strip is never squeezed into itself.
+pub val demo_min = 320.0
+// What the window's frame takes out of the row before the panes get any: the gap either side and
+// the two spacings between `screen`'s three children. The split pane is given its extent rather
+// than measuring it, and this is what turns a window width into that extent.
+pub val frame_width = gap * 4.0
+// One number, two tabs, for the strip and for the control alike.
+pub val tab_width = 110.0
+val demo_tabs = 2.0
+val demo_strip_width = tab_width * demo_tabs
+// A file name is wider than "Demo", and the strip is as wide as the files it names.
+pub val file_tab_width = 170.0
+
+pub fn label(text: string, size: float, style: controls.Style) -> widget.Widget {
+    return widget.label_of(text, size, style.ink)
+}
+
+// The leading pane: a heading and the tree of everything the gallery knows how to show.
+pub fn catalogue(tree: controls.Tree, style: controls.Style) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.fixed_of(0.0, gap, widget.flex()),
+        widget.fixed_of(0.0, heading_height, label("Controls", heading_size, style)),
+        widget.expand(controls.tree_widget(tree, style))
+    ])
+}
+
+// A tab strip that takes its own width and leaves the rest of the line alone.
+pub fn strip(tabs: controls.Tabs, width: float, style: controls.Style) -> widget.Widget {
+    return widget.fixed_of(0.0, row_height, widget.row_of(gap, [
+        widget.fixed_of(width, 0.0, controls.tabs_widget(tabs, style)),
+        widget.expand(widget.flex())
+    ]))
+}
+
+// Everything the screen draws itself from.
+//
+// **The design file declares its own data interface**, which is what lets it stay free of
+// application types: the logic file builds one of these and passes it in, so the dependency runs
+// outwards and no cycle can form.
+pub struct Screen {
+    // The divider between the catalogue and the demo.
+    split: controls.SplitPane
+    // How much room the split has along its row, which the window knows and this layer cannot
+    // measure. See `frame_width`.
+    split_extent: float
+    tree: controls.Tree
+    // Demo or Code.
+    tabs: controls.Tabs
+    // **The body is a slot**: which of the two tabs is showing, and which demo it is showing,
+    // are both conditionals, and a conditional is not design. The logic file picks; this places.
+    body: widget.Widget
+    status: string
+}
+
+pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return widget.row_of(gap, [
+        widget.fixed_of(gap, 0.0, widget.flex()),
+        widget.expand(controls.split_pane_widget(
+            it.split,
+            style,
+            it.split_extent,
+            catalogue(it.tree, style),
+            demo_pane(it, style, m)
+        )),
+        widget.fixed_of(gap, 0.0, widget.flex())
+    ])
+}
+
+// The trailing pane: the two tabs, whatever they chose, and a line saying what is selected.
+pub fn demo_pane(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.fixed_of(0.0, gap, widget.flex()),
+        strip(it.tabs, demo_strip_width, style),
+        widget.expand(it.body),
+        widget.fixed_of(0.0, status_height, label(it.status, small_size, style)),
+        widget.fixed_of(0.0, gap, widget.flex())
+    ])
+}
+
+// The Code tab: a strip of file names over the file the strip chose.
+//
+// **A sub-strip rather than one pane with a picker**, because a demo is more than one file and
+// which file you are reading is a navigation, not a setting. Each tab is a file name.
+pub fn code_pane(
+    files: controls.Tabs,
+    source: controls.Entry,
+    style: controls.Style,
+    m: widget.Metrics
+) -> widget.Widget {
+    return widget.column_of(gap, [
+        strip(files, file_tab_width * 2.0, style),
+        widget.expand(controls.entry_widget(source, style, m))
+    ])
+}
+
+// A demo's own box: whatever the demo drew, with room around it so a control is not against an
+// edge, and the rest of the pane left empty rather than stretched -- a button that filled the
+// window would be showing the window and not the button.
+pub fn demo_box(body: widget.Widget) -> widget.Widget {
+    return widget.padded_of(widget.insets_of(gap, gap, gap, gap), widget.column_of(gap, [
+        body,
+        widget.expand(widget.flex())
+    ]))
+}

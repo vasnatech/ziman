@@ -1,0 +1,19 @@
+// Where the layout put the node called `name`.
+//
+// **Its own module so that every demo and the shell can use it without a cycle.** A demo cannot
+// import the shell -- the shell is what switches over the demos -- and both need this one
+// function, so it lives below both.
+//
+// **`widget.node_named`, not `focus.node_of`.** The second walks tab stops only, so it answers
+// `None` for anything declared but not focusable -- a split pane's own node, a named group -- and
+// an empty rectangle is a hit test that misses in silence. curly's window had exactly that bug
+// and it took a split pane to find it; starting from the right lookup is free.
+use geom
+use widget
+
+pub fn bounds_of(laid: widget.Laid, name: string) -> geom.Rect {
+    return switch widget.node_named(laid, name) {
+        Some(node) { node.bounds }
+        None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
+    }
+}

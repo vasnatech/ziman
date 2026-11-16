@@ -1,0 +1,58 @@
+// A check box, including the third state a `bool` cannot carry.
+//
+// **`Toggle.Mixed` is why a check box is not a bool.** Every platform accessibility API has three
+// states, because a parent whose children disagree is something a user can see and so something a
+// reader has to be able to say.
+use boxes
+use controls
+use demos/check_box_ui
+use widget
+use widget.Toggle
+
+pub struct Demo {
+    notify: controls.CheckBox
+    some: controls.CheckBox
+    off: controls.CheckBox
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        notify: controls.check_box_of("check-notify", "Notify me", Toggle.On),
+        some: controls.check_box_of("check-some", "Some of these", Toggle.Mixed),
+        off: with controls.check_box_of("check-off", "Cannot be changed", Toggle.Off) { disabled: true }
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return check_box_ui.screen(check_box_ui.Screen {
+        on: controls.check_box_widget(d.notify, style, m),
+        mixed: controls.check_box_widget(d.some, style, m),
+        off: controls.check_box_widget(d.off, style, m),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    return concat("Notify me is ", word_of(d.notify.checked), "; some of these is ", word_of(d.some.checked), ".")
+}
+
+fn word_of(t: Toggle) -> string {
+    return switch t {
+        On { "checked" }
+        Off { "unchecked" }
+        Mixed { "partly checked" }
+    }
+}
+
+pub fn input(d: Demo, name: string, input: controls.Input, laid: widget.Laid) -> Demo {
+    if name == "check-notify" {
+        return with d { notify: controls.check_box_input(d.notify, input, boxes.bounds_of(laid, name)).check_box }
+    }
+    if name == "check-some" {
+        return with d { some: controls.check_box_input(d.some, input, boxes.bounds_of(laid, name)).check_box }
+    }
+    if name == "check-off" {
+        return with d { off: controls.check_box_input(d.off, input, boxes.bounds_of(laid, name)).check_box }
+    }
+    return d
+}

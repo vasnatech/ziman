@@ -1,0 +1,24 @@
+// The Check box demo, as design.
+use controls
+use widget
+
+val gap = 8.0
+val row_height = 26.0
+val said_height = 20.0
+val small_size = 11.0
+
+pub struct Screen {
+    on: widget.Widget
+    mixed: widget.Widget
+    off: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.fixed_of(0.0, row_height, it.on),
+        widget.fixed_of(0.0, row_height, it.mixed),
+        widget.fixed_of(0.0, row_height, it.off),
+        widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
+    ])
+}

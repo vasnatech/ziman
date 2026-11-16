@@ -1,0 +1,70 @@
+// Every demo the gallery knows, and the one place that switches over them.
+//
+// **One enum and four switches, in one file, on purpose.** Ziman has no dynamic dispatch and a
+// lambda cannot capture a `var`, so twenty demos cannot be twenty closures: it is either a
+// variant per demo or a field per demo, and either way something has to switch. Keeping all of it
+// here means adding a demo is one edit to one file plus two new files, and a missing arm is a
+// compile error rather than a demo that silently never draws.
+//
+// **A demo is exactly two files**, the logic and the design, and `files_of` derives both from the
+// stem rather than listing them -- so a demo cannot be added with its design file forgotten.
+use controls
+use demos/button
+use demos/check_box
+use demos/table
+use widget
+
+pub enum Demo {
+    Button(button.Demo)
+    CheckBox(check_box.Demo)
+    Table(table.Demo)
+}
+
+// The catalogue, in the order the tree shows it.
+pub fn all() -> [Demo] {
+    return [
+        Demo.Button(button.demo()),
+        Demo.CheckBox(check_box.demo()),
+        Demo.Table(table.demo())
+    ]
+}
+
+// What the tree calls it.
+pub fn title_of(d: Demo) -> string {
+    return switch d {
+        Button(_) { "Button" }
+        CheckBox(_) { "Check box" }
+        Table(_) { "Table" }
+    }
+}
+
+// The file stem both of its files are named after.
+pub fn stem_of(d: Demo) -> string {
+    return switch d {
+        Button(_) { "button" }
+        CheckBox(_) { "check_box" }
+        Table(_) { "table" }
+    }
+}
+
+// The two files the Code tab shows, in the order a reader wants them: what it does, then how it
+// is arranged.
+pub fn files_of(d: Demo) -> [string] {
+    return [concat(stem_of(d), ".zm"), concat(stem_of(d), "_ui.zm")]
+}
+
+pub fn view_of(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return switch d {
+        Button(it) { button.view(it, style, m) }
+        CheckBox(it) { check_box.view(it, style, m) }
+        Table(it) { table.view(it, style, m) }
+    }
+}
+
+pub fn input_to(d: Demo, name: string, input: controls.Input, laid: widget.Laid) -> Demo {
+    return switch d {
+        Button(it) { Demo.Button(button.input(it, name, input, laid)) }
+        CheckBox(it) { Demo.CheckBox(check_box.input(it, name, input, laid)) }
+        Table(it) { Demo.Table(table.input(it, name, input, laid)) }
+    }
+}

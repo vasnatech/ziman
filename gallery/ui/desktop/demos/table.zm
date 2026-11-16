@@ -1,0 +1,73 @@
+// A table: a header that stays, rows that scroll, columns you can drag by their edges.
+//
+// **Drag a column's trailing edge in the header** -- the grip is four points either side of it,
+// in the header and nowhere else, because four points from a boundary in the middle of the data
+// is a selection in every table ever written.
+use boxes
+use controls
+use demos/table_ui
+use widget
+
+pub struct Demo {
+    table: controls.Table
+    chosen: int
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        table: controls.table_of("table-demo", "Elements", columns(), rows()),
+        chosen: 0
+    }
+}
+
+// A number reads from the right, which is what `numeric_column_of` says and why it is a second
+// constructor rather than a field to remember to set.
+fn columns() -> [controls.Column] {
+    return [
+        controls.numeric_column_of("Z", 50.0),
+        controls.column_of("Element", 130.0),
+        controls.column_of("Symbol", 90.0),
+        controls.numeric_column_of("Mass", 90.0),
+        controls.column_of("Discovered", 140.0)
+    ]
+}
+
+fn rows() -> [[string]] {
+    return [
+        ["1", "Hydrogen", "H", "1.008", "1766"],
+        ["2", "Helium", "He", "4.0026", "1868"],
+        ["3", "Lithium", "Li", "6.94", "1817"],
+        ["6", "Carbon", "C", "12.011", "ancient"],
+        ["7", "Nitrogen", "N", "14.007", "1772"],
+        ["8", "Oxygen", "O", "15.999", "1771"],
+        ["11", "Sodium", "Na", "22.990", "1807"],
+        ["26", "Iron", "Fe", "55.845", "ancient"],
+        ["29", "Copper", "Cu", "63.546", "ancient"],
+        ["47", "Silver", "Ag", "107.87", "ancient"],
+        ["79", "Gold", "Au", "196.97", "ancient"],
+        // A short row, which a table built from a query gets sooner or later: the cells past its
+        // end are drawn empty rather than refused.
+        ["118", "Oganesson"]
+    ]
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return table_ui.screen(table_ui.Screen {
+        table: controls.table_widget(d.table, style),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    if d.table.selected < 0 {
+        return "Nothing selected."
+    }
+    return concat("Selected: ", controls.row_label(d.table, d.table.selected))
+}
+
+pub fn input(d: Demo, name: string, input: controls.Input, laid: widget.Laid) -> Demo {
+    if name == "table-demo" {
+        return with d { table: controls.table_input(d.table, input, boxes.bounds_of(laid, name)).table }
+    }
+    return d
+}

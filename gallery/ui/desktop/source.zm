@@ -1,0 +1,47 @@
+// A demo's own source, read off the disk so the Code tab cannot drift from what it is showing.
+//
+// **Read rather than embedded, and rather than written out as a string beside each demo.** A
+// string beside the demo drifts the first time anyone edits one; a generated module embedding
+// every file is a committed generated file, which is a gate that has to be kept green for a
+// feature nothing else depends on. The file on disk is the thing itself.
+//
+// What it costs is that the gallery has to be able to find its own source, which is why this
+// looks in three places and says all of them when it finds nothing: a demo whose code tab is
+// empty should say why rather than look broken.
+use fs
+use os
+
+val here = "gallery/ui/desktop"
+
+fn roots() -> [string] {
+    val out = mutable_array_new<string>()
+    if Some(explicit) = os.get_env("ZIMAN_GALLERY_ROOT") {
+        push(out, explicit)
+    }
+    // Run from the repository root, which is how `make gallery` runs it.
+    push(out, here)
+    // Run from inside the gallery's own directory.
+    push(out, ".")
+    return snapshot(out)
+}
+
+pub fn read_demo(stem: string, file: string) -> string {
+    val tried = mutable_array_new<string>()
+    for root in roots() {
+        val path = concat(root, "/demos/", file)
+        push(tried, path)
+        if fs.exists(path) {
+            switch fs.read_text(path) {
+                Ok(text) { return text }
+                Err(why) { return concat("(", path, " could not be read: ", fs.fs_error_message(why), ")") }
+            }
+        }
+    }
+    return concat(
+        "(the gallery cannot find its own source for ",
+        stem,
+        ". Set ZIMAN_GALLERY_ROOT, or run it from the repository root. Tried: ",
+        join(separator: ", ", pieces: snapshot(tried)),
+        ")"
+    )
+}
