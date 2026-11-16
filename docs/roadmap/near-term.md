@@ -830,13 +830,35 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
      one `if` -- `switch`, `unwrap` and `get_or` are the same "made and consumed in one expression"
      pattern.
 
-     **And ten of those sites need no interpreter work at all: `get_or(get(m, k), d)` is
-     `get_or(m, k, d)` with an `Option` allocated for nothing**, which is 437 ns against 80 on
-     today's table. The map's own three-argument `get_or` has existed all along. In lib/:
-     `core/csv.zm:697`, `core/derive_validate.zm:202`, `http/rest/table.zm:50` and `:55`; in the
-     sample backend: `service/integration_sync.zm:266`, `service/oura.zm:582`, `:583`, `:600` (two
-     on that line) and `service/export/export_xml.zm:184`. **Do this first** -- it is a free win and
-     it shrinks the case for the interpreter change by exactly the amount it is worth.
+     ***The ten free sites are done (2026-11-15).*** `get_or(get(m, k), d)` was `get_or(m, k, d)`
+     with an `Option` allocated for nothing -- 437 ns against 80. Four in lib/ and six in the sample
+     backend, all fixed.
+
+     ***And the interpreter half should NOT be built. Measured 2026-11-15, before writing any of
+     it.*** The premise of this lever was that `get` is the worst row on the table, and it is -- in
+     `map_ops.zm`, which measures exactly that operation. **It does not surface anywhere else.**
+     Profiled across seven benchmarks (`toml_scan`, `yaml_scan`, `xml_scan`, `sql_parse`,
+     `time_scan`, `ui_frame`, `string_scan`) plus `memdb_ops`:
+
+     * **`memdb_ops` has no `get` row at all** -- an in-memory SQL engine, the heaviest map workload
+       in the tree, and the densest cluster of map-`get` call sites in lib/ (6 of 37). Its profile is
+       `memdb::resolve_column` 17.5%, garbage collection 13.8%, `sql::fold_name` 12.0%,
+       `mutable_set_new` 7.1%, `memdb::eval_expr` 6.9%.
+     * **The two benchmarks that DO show a `get` row show the wrong `get`.** `xml_scan` 3.5% and
+       `sql_parse` 2.5% -- and those are the `Mutable<T>` cell getter, which answers `T` directly
+       and allocates nothing. Counted: **sql.zm has 0 map gets and 43 cell gets; xml.zm has 2 and
+       30.** So neither row is an `Option` at all.
+
+     **That is a trap worth keeping even if this lever is never taken: a profile row named `get` is
+     probably not the map's.** One declared name, three members, and the two that matter here have
+     opposite cost profiles -- the cell's is free and the map's allocates.
+
+     So the fusion would be a 350 ns win on a row no application reaches. docs/MEMORY.md's standing
+     argument against unboxing single-payload variants applies with more force than it did there:
+     it declined a **2.7% of wall-clock** win as too small to surface, and this one does not reach
+     a real workload's profile at all. The fusion is cheaper than unboxing -- local, no weakened
+     type invariant, no contagious rule -- but cheaper than a change that should not be made is not
+     a reason to make it.
   2. **The builder's per-call handle validation, which is item 4 above and still never done -- and
      it is worth four times what that item guessed.** It called the cost "small, but on literally
      every builder call". **Sized 2026-11-15 by stubbing the check out and measuring the ceiling**,
@@ -870,6 +892,15 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
 
      Note what changed around it: the frameless work (2026-11-14/15) took the interpreter *frame*
      out of these calls, so this probe is now the whole of the remainder rather than half of it.
+
+     **But the same question asked of lever 1 should be asked here, and it was: 2026-11-15, stubbed
+     against `memdb_ops` paired, this does not surface either.** scan 242-265 ms validated against
+     226-290 stubbed, order 234-242 against 232-234, group 93 against 88-104 -- no direction. The
+     honest reading is *inconclusive rather than disproved*: that benchmark's own scan row moves
+     242-290 ms between runs of the same binary, so it cannot resolve the ~2% this should be worth
+     at its builder-call count. **Whoever takes this lever should find a real workload that can
+     resolve 2% before building anything**, because the microbenchmark number is not in doubt and
+     the thing in doubt is whether it reaches an application.
   3. ~~**The persistent `Set add` shortcut, still out only because it was reverted in a pair.**~~
      ***Done 2026-11-15, and it wins.*** Re-measured across the size axis and in both process
      shapes rather than assumed to follow `remove`, because the two are not the same shape -- one
