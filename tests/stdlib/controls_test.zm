@@ -1113,70 +1113,50 @@ fn an_area_announces_itself_as_multiline() {
     }
 }
 
-// ---- a choice
+// ---- a menu's collapsed text, now that a picker is not one
 //
-// **A choice is a menu that announces itself as a value rather than a command**, and the cases that
-// matter are the ones where the two must differ. The popup, the keyboard and the dismissal are the
-// same code and are already covered by the menu tests above.
+// **The picker moved out on 2026-11-16** (`ComboBox`), so what is left here is the menu's half of
+// the pair: a menu shows its title and holds no value. The tests that were here for `choice_of`
+// are the combo box's own, further down, and they test more than these could -- a closed picker's
+// keyboard did not exist while it was a menu.
 
 #[test]
-fn a_choice_shows_what_is_chosen_and_a_menu_shows_its_title() {
-    val choice = controls.choice_of("env", "Environment", ["global", "staging"], 1)
-    test.assert_eq("staging", controls.collapsed_text(choice))
-    test.assert_eq("staging", controls.chosen_value(choice))
+fn a_menu_shows_its_title() {
     val menu = controls.menu_of("file", "File", ["Open", "Save"])
     test.assert_eq("File", controls.collapsed_text(menu))
-    // A menu holds no value, and saying it held its title would make a reader announce a command
-    // list as though something were selected in it.
-    test.assert_eq("", controls.chosen_value(menu))
 }
 
 // **Nothing chosen shows the label, not an empty box.** A picker that rendered blank looks broken
-// rather than unset, and -1 is what `choice_of` stores for an out-of-range index.
+// rather than unset, and -1 is what `combo_box_of` stores for an out-of-range index. The
+// accessibility node still publishes "" -- a reader must hear that nothing is chosen, where an eye
+// needs something in the box to read.
 #[test]
-fn a_choice_with_nothing_chosen_shows_its_label() {
-    val choice = controls.choice_of("env", "Environment", ["global"], 0 - 1)
-    test.assert_eq("Environment", controls.collapsed_text(choice))
-    test.assert_eq("", controls.chosen_value(choice))
-    val past_the_end = controls.choice_of("env", "Environment", ["global"], 7)
-    test.assert_eq("Environment", controls.collapsed_text(past_the_end))
+fn a_combo_box_with_nothing_chosen_shows_its_label() {
+    val empty = controls.combo_box_of("env", "Environment", ["global"], 0 - 1)
+    test.assert_eq("Environment", controls.combo_box_text(empty))
+    test.assert_eq("", controls.combo_box_value(empty))
+    val past_the_end = controls.combo_box_of("env", "Environment", ["global"], 7)
+    test.assert_eq("Environment", controls.combo_box_text(past_the_end))
+    test.assert_eq("", controls.combo_box_value(past_the_end))
 }
 
-#[test]
-fn a_choice_announces_itself_as_a_combo_box_holding_its_value() {
-    val choice = controls.choice_of("env", "Environment", ["global", "staging"], 1)
-    val laid = widget.layout(
-        controls.menu_title_widget(choice, controls.default_style()),
-        geom.rect_of(0.0, 0.0, 200.0, 40.0),
-        metrics()
-    )
-    val tree = a11y.tree_of(laid, "window", "env")
-    if Some(node) = a11y.node_of(tree, "env") {
-        // The label is the fixed name and the value is what is chosen: a control that introduced
-        // itself as its own current value would say "staging, combo box, staging".
-        test.assert_eq("Environment", node.name)
-        test.assert_eq("staging", node.value)
-        // Role first, then the name, then the value, then the state -- `a11y.announce`'s own order.
-        test.assert_eq("combo box, Environment, staging, collapsed", a11y.announce(node))
-    } else {
-        test.fail("the choice is not in the accessibility tree")
-    }
-}
 
 // **Choosing moves the collapsed text with it**, which is the point of reading the value from the
 // list's selection rather than storing it: there is no second place to update and so no way for the
 // two to disagree.
 #[test]
-fn choosing_from_a_choice_changes_what_it_shows() {
-    val choice = with controls.choice_of("env", "Environment", ["global", "staging"], 0) { open: true }
-    val moved = to_menu(choice, controls.Input.KeyDown(key(key_down)))
-    test.assert_eq(1, moved.menu.items.selected)
+fn choosing_from_a_combo_box_changes_what_it_shows() {
+    val open_box = with controls.combo_box_of("env", "Environment", ["global", "staging"], 0) {
+        open: true
+    }
+    val moved = combo_key(open_box, controls.Key.Down, false)
+    test.assert_eq(1, moved.combo.items.selected)
     // The collapsed text follows the selection even before the item is chosen, which is what a
     // dropdown does while you arrow through it.
-    test.assert_eq("staging", controls.collapsed_text(moved.menu))
-    val taken = to_menu(moved.menu, controls.Input.KeyDown(key(controls.Key.Enter)))
+    test.assert_eq("staging", controls.combo_box_text(moved.combo))
+    val taken = combo_key(moved.combo, controls.Key.Enter, false)
     test.assert_eq(1, taken.chosen)
-    test.assert_eq("staging", controls.chosen_value(taken.menu))
+    test.assert_eq("staging", controls.combo_box_value(taken.combo))
 }
 
 // **Choosing with the mouse**, which was keyboard-only until a real application tried it: a press
@@ -2595,6 +2575,126 @@ fn an_edged_style_reaches_every_control_that_has_a_face() {
         1
     )
     test.assert_eq(rings(painted(controls.menu_title_widget(controls.menu_of("m", "File", []), style))), 1)
+}
+
+// ------------------------------------------------- the combo box (2026-11-16)
+
+// **These are the tests a `Menu` with `Role.ComboBox` could not have passed**, which is why the
+// control was split out: a menu's closed half does nothing but open, and a combo box's closed half
+// is most of what it is for.
+
+fn combo() -> controls.ComboBox {
+    return controls.combo_box_of("method", "Method", ["GET", "POST", "PUT", "PATCH", "DELETE"], 0)
+}
+
+val combo_box_at = geom.rect_of(0.0, 0.0, 80.0, 24.0)
+val combo_popup_at = geom.rect_of(0.0, 24.0, 80.0, 100.0)
+
+fn combo_key(c: controls.ComboBox, k: controls.Key, alt: bool) -> controls.ComboBoxStep {
+    val stroke = controls.Keystroke { key: k, shift: false, control: false, alt: alt, meta: false }
+    return controls.combo_box_input(c, controls.Input.KeyDown(stroke), combo_box_at, combo_popup_at)
+}
+
+// **Down changes the value without opening the list**, which is the behaviour a menu does not have
+// and every platform's combo box does. The old `choice_of` opened on Down, so a keyboard user
+// could not step through the values at all.
+#[test]
+fn a_closed_combo_box_changes_its_value_with_the_arrows() {
+    val step = combo_key(combo(), controls.Key.Down, false)
+    test.assert_eq(controls.combo_box_value(step.combo), "POST")
+    test.assert_false(step.combo.open)
+    // and it reports the change, which is what an application stores
+    test.assert_eq(step.chosen, 1)
+}
+
+#[test]
+fn the_arrows_stop_at_the_ends_rather_than_wrapping() {
+    // Up from the first stays on the first and reports no change.
+    val at_top = combo_key(combo(), controls.Key.Up, false)
+    test.assert_eq(controls.combo_box_value(at_top.combo), "GET")
+    test.assert_eq(at_top.chosen, 0 - 1)
+    // Down from the last stays on the last.
+    val last = controls.combo_box_of("m", "M", ["GET", "POST"], 1)
+    val at_end = combo_key(last, controls.Key.Down, false)
+    test.assert_eq(controls.combo_box_value(at_end.combo), "POST")
+    test.assert_eq(at_end.chosen, 0 - 1)
+}
+
+#[test]
+fn home_and_end_jump_to_the_first_and_last_value() {
+    val ended = combo_key(combo(), controls.Key.End, false)
+    test.assert_eq(controls.combo_box_value(ended.combo), "DELETE")
+    val homed = combo_key(ended.combo, controls.Key.Home, false)
+    test.assert_eq(controls.combo_box_value(homed.combo), "GET")
+}
+
+// **Type-ahead walks the values that share a letter** rather than sticking on the first, which is
+// what makes a long list usable: P, P, P over POST, PUT and PATCH visits all three.
+#[test]
+fn typing_a_letter_walks_the_values_that_start_with_it() {
+    val first = combo_key(combo(), controls.Key.Char("p"), false)
+    test.assert_eq(controls.combo_box_value(first.combo), "POST")
+    val second = combo_key(first.combo, controls.Key.Char("p"), false)
+    test.assert_eq(controls.combo_box_value(second.combo), "PUT")
+    val third = combo_key(second.combo, controls.Key.Char("p"), false)
+    test.assert_eq(controls.combo_box_value(third.combo), "PATCH")
+    // and round again, because a list that stopped at the last match would strand the user
+    val again = combo_key(third.combo, controls.Key.Char("p"), false)
+    test.assert_eq(controls.combo_box_value(again.combo), "POST")
+}
+
+#[test]
+fn type_ahead_ignores_case_and_says_nothing_about_a_letter_no_value_starts_with() {
+    val upper = combo_key(combo(), controls.Key.Char("D"), false)
+    test.assert_eq(controls.combo_box_value(upper.combo), "DELETE")
+    val nothing = combo_key(combo(), controls.Key.Char("z"), false)
+    test.assert_eq(controls.combo_box_value(nothing.combo), "GET")
+    test.assert_eq(nothing.chosen, 0 - 1)
+}
+
+// **Alt+Down opens where a bare Down changes the value.** The two gestures are a modifier apart and
+// a control that confused them would either never open or never step.
+#[test]
+fn alt_down_opens_the_list_where_a_bare_down_does_not() {
+    val opened = combo_key(combo(), controls.Key.Down, true)
+    test.assert(opened.combo.open)
+    test.assert_eq(controls.combo_box_value(opened.combo), "GET")
+    val stepped = combo_key(combo(), controls.Key.Down, false)
+    test.assert_false(stepped.combo.open)
+}
+
+#[test]
+fn enter_opens_it_and_enter_again_chooses_the_highlight() {
+    val opened = combo_key(combo(), controls.Key.Enter, false)
+    test.assert(opened.combo.open)
+    val moved = combo_key(opened.combo, controls.Key.Down, false)
+    val chosen = combo_key(moved.combo, controls.Key.Enter, false)
+    test.assert_false(chosen.combo.open)
+    test.assert_eq(chosen.chosen, 1)
+    test.assert_eq(controls.combo_box_value(chosen.combo), "POST")
+}
+
+#[test]
+fn escape_closes_the_list_without_choosing() {
+    val opened = combo_key(combo(), controls.Key.Enter, false)
+    val away = combo_key(opened.combo, controls.Key.Escape, false)
+    test.assert_false(away.combo.open)
+    test.assert(away.dismissed)
+    test.assert_eq(away.chosen, 0 - 1)
+    test.assert_eq(controls.combo_box_value(away.combo), "GET")
+}
+
+// **It announces its value, not its label twice.** A combo box that published no value would say
+// "Method, combo box" and leave the user to open it to find out what it is set to.
+#[test]
+fn a_combo_box_announces_its_value() {
+    val said = said_of(controls.combo_box_widget(combo(), controls.default_style()), "method")
+    test.assert(contains(said, "Method"))
+    test.assert(contains(said, "GET"))
+    // and the value it says follows the selection rather than being fixed at build time
+    val moved = combo_key(combo(), controls.Key.End, false)
+    val after = said_of(controls.combo_box_widget(moved.combo, controls.default_style()), "method")
+    test.assert(contains(after, "DELETE"))
 }
 
 // ------------------------------------------- the caret belongs to the focused field (2026-11-15)

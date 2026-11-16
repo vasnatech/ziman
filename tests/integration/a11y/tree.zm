@@ -37,8 +37,8 @@ fn main() {
         // **A real choice, not a label claiming to be one.** `control_of` takes a node's name from
         // the text inside it and leaves the value empty, so a stand-in would assert the role and
         // nothing about the value -- which is the half this fixture exists to cover now.
-        controls.menu_title_widget(
-            controls.choice_of("env", "Environment", ["(global)", "staging"], 1),
+        controls.combo_box_widget(
+            controls.combo_box_of("env", "Environment", ["(global)", "staging"], 1),
             controls.default_style()
         ),
         // **A real text area, not a label claiming to be one.** A reader that thinks a multi-line

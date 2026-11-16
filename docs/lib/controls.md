@@ -1176,20 +1176,19 @@ trailing end of a line nobody reads.
 ```
 pub struct Menu {
     name: string
-    // What the collapsed control shows. For a menu it is the menu's name ("File"); for a choice it
-    // is **not used** -- `collapsed_text` reads the selection instead, so the two cannot disagree.
+    // What the collapsed control shows: the menu's name, "File".
     title: string
-    // What a reader calls it. The same as `title` for a menu, and a fixed name for a choice, whose
-    // title changes as the user picks: a control that introduced itself as its own current value
-    // would announce "staging, combo box, staging".
+    // What a reader calls it, which for a menu is the same thing.
+    //
+    // **Two fields for one string, which a combo box is why.** This struct held both menus and
+    // value pickers until 2026-11-16, and a picker's collapsed box shows its *value* while a reader
+    // must still hear a fixed name -- "staging, combo box" and not "staging, combo box, staging".
+    // The picker is `ComboBox` now and the two fields are the same here, kept because a menu whose
+    // accessible name differs from its title is a thing an application may yet want.
     label: string
     items: List
     open: bool
     disabled: bool
-    // `Menu` for a list of commands, `ComboBox` for a picker of values. One structure, because a
-    // dropdown *is* a popup list with a collapsed title and building a second one would have been a
-    // copy of the popup, the keyboard handling and the dismissal to change two role names.
-    role: widget.Role
 }
 ```
 
@@ -1205,21 +1204,6 @@ the only honest difference is what a reader calls it, which is why `List.role` i
 pub fn menu_of(name: string, title: string, items: [string]) -> Menu
 ```
 
-### `choice_of`
-
-```
-pub fn choice_of(name: string, label: string, items: [string], selected: int) -> Menu
-```
-
-A dropdown: pick one of `items`, showing the one picked.
-
-**The same control as a menu, announcing differently** -- a menu offers commands and this offers
-values, which a reader distinguishes and a user does too. `selected` is an index into `items`, or
--1 for nothing chosen yet, in which case the collapsed control shows `label`.
-
-The chosen value is **read from the list's selection rather than stored**, so there is no second
-place for it to be wrong: `menu_input` moves the selection and the collapsed text follows.
-
 ### `collapsed_text`
 
 ```
@@ -1228,13 +1212,117 @@ pub fn collapsed_text(m: Menu) -> string
 
 What the collapsed control shows: the chosen value for a choice, the title for a menu.
 
-### `chosen_value`
+## The combo box
+
+### `ComboBox`
 
 ```
-pub fn chosen_value(m: Menu) -> string
+pub struct ComboBox {
+    name: string
+    // What a reader calls it, and it does **not** change with the value: a control that introduced
+    // itself as its own current value would announce "staging, combo box, staging". What the
+    // collapsed box *shows* is the value; what it is *called* is this.
+    label: string
+    items: List
+    open: bool
+    disabled: bool
+}
 ```
 
-The value a choice is showing, or "" when nothing is chosen. A menu has none.
+**A picker of values: a collapsed box showing the current one, and a popup list to change it.**
+
+**Its own control since 2026-11-16, where it was a `Menu` carrying `Role.ComboBox` before.** The
+`Menu` struct's comment argued the other way and is worth answering rather than deleting: "one
+structure, because a dropdown *is* a popup list with a collapsed title, and building a second one
+would have been a copy of the popup, the keyboard handling and the dismissal to change two role
+names". The first half of that is right and this control depends on it -- the popup, the
+dismissal and the open keyboard are **shared**, not copied, through `open_popup_input` and
+`list_widget`. The second half was not: a menu and a combo box differ in the half that was never
+examined, which is what happens when the control is **closed**.
+
+
+```
+closed         menu                    combo box
+Up / Down      nothing                 change the value, without opening
+Home / End     nothing                 first / last value
+a letter       nothing                 jump to the next value starting with it
+Enter, Space   open                    open
+Alt+Down       nothing                 open
+```
+
+A menu has nothing to change while closed -- its items are commands and picking one runs it. A
+combo box holds a value, and every platform lets the arrows move it without the list ever
+appearing. That is not a role name; it is a different control, and it was missing: `curly gui`
+showed it as a method picker whose Down key opened a list instead of selecting `POST`.
+
+**Not editable.** The value is always one of `items`. An editable combo box -- a text field with
+a dropdown attached -- is a different control again, joining this to the whole of `Entry`
+(caret, selection, input method), and it is deliberately left for when something asks.
+
+### `ComboBoxStep`
+
+```
+pub struct ComboBoxStep {
+    combo: ComboBox
+    // The item now chosen, or -1 when the value did not change.
+    //
+    // **Set by a closed arrow key as well as by the popup**, which is the whole difference from
+    // `MenuStep.chosen`: a combo box changes value without ever opening, so an application that
+    // only watched the popup would miss most of the changes a keyboard user makes.
+    chosen: int
+    // The popup closed without choosing. Separate from `chosen` for `MenuStep`'s reason.
+    dismissed: bool
+}
+```
+
+### `combo_box_of`
+
+```
+pub fn combo_box_of(name: string, label: string, items: [string], selected: int) -> ComboBox
+```
+
+### `combo_box_value`
+
+```
+pub fn combo_box_value(c: ComboBox) -> string
+```
+
+The value it is showing, or "" when nothing is chosen -- which an empty item list makes real.
+
+### `combo_box_text`
+
+```
+pub fn combo_box_text(c: ComboBox) -> string
+```
+
+**What the collapsed box shows: the value, or the label when nothing is chosen.**
+
+A picker that rendered blank looks broken rather than unset, and an empty selection is real --
+`combo_box_of` stores -1 for an index outside the items. Separate from `combo_box_value`, which
+answers "" in that case and is what the accessibility node publishes: a reader must hear that
+nothing is chosen, where an eye needs something in the box to read.
+
+### `combo_box_widget`
+
+```
+pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget
+```
+
+The collapsed control: what it shows, and the same face every other control wears.
+
+### `combo_box_popup_layer`
+
+```
+pub fn combo_box_popup_layer(c: ComboBox, style: Style, at: Rect) -> widget.Layer
+```
+
+The popup, as a layer. The same one a menu uses -- a list is a list.
+
+### `combo_box_input`
+
+```
+pub fn combo_box_input(c: ComboBox, input: Input, at: Rect, popup_at: Rect) -> ComboBoxStep
+```
 
 ### `MenuStep`
 

@@ -2349,20 +2349,19 @@ fn collect_bars(l: Laid, style: Style, ops: MutableArray<scene.Op>) {
 // the only honest difference is what a reader calls it, which is why `List.role` is a field.
 pub struct Menu {
     name: string
-    // What the collapsed control shows. For a menu it is the menu's name ("File"); for a choice it
-    // is **not used** -- `collapsed_text` reads the selection instead, so the two cannot disagree.
+    // What the collapsed control shows: the menu's name, "File".
     title: string
-    // What a reader calls it. The same as `title` for a menu, and a fixed name for a choice, whose
-    // title changes as the user picks: a control that introduced itself as its own current value
-    // would announce "staging, combo box, staging".
+    // What a reader calls it, which for a menu is the same thing.
+    //
+    // **Two fields for one string, which a combo box is why.** This struct held both menus and
+    // value pickers until 2026-11-16, and a picker's collapsed box shows its *value* while a reader
+    // must still hear a fixed name -- "staging, combo box" and not "staging, combo box, staging".
+    // The picker is `ComboBox` now and the two fields are the same here, kept because a menu whose
+    // accessible name differs from its title is a thing an application may yet want.
     label: string
     items: List
     open: bool
     disabled: bool
-    // `Menu` for a list of commands, `ComboBox` for a picker of values. One structure, because a
-    // dropdown *is* a popup list with a collapsed title and building a second one would have been a
-    // copy of the popup, the keyboard handling and the dismissal to change two role names.
-    role: widget.Role
 }
 
 pub fn menu_of(name: string, title: string, items: [string]) -> Menu {
@@ -2376,58 +2375,270 @@ pub fn menu_of(name: string, title: string, items: [string]) -> Menu {
         label: title,
         items: inner,
         open: false,
-        disabled: false,
-        role: widget.Role.Menu
+        disabled: false
     }
 }
 
-// A dropdown: pick one of `items`, showing the one picked.
-//
-// **The same control as a menu, announcing differently** -- a menu offers commands and this offers
-// values, which a reader distinguishes and a user does too. `selected` is an index into `items`, or
-// -1 for nothing chosen yet, in which case the collapsed control shows `label`.
-//
-// The chosen value is **read from the list's selection rather than stored**, so there is no second
-// place for it to be wrong: `menu_input` moves the selection and the collapsed text follows.
-pub fn choice_of(name: string, label: string, items: [string], selected: int) -> Menu {
-    val inner = with list_of(concat(name, "/items"), label, items) {
-        role: widget.Role.List,
-        item_role: widget.Role.ListItem,
-        selected: if selected < 0 || selected >= len(items) { 0 - 1 } else { selected }
-    }
-    return Menu {
-        name: name,
-        title: label,
-        label: label,
-        items: inner,
-        open: false,
-        disabled: false,
-        role: widget.Role.ComboBox
-    }
-}
+// **`choice_of` was here and is `combo_box_of` (2026-11-16).** It built a `Menu` carrying
+// `Role.ComboBox`, which made a value picker out of a command list by relabelling it -- and left
+// the picker with a menu's keyboard, so a closed one could not change its value with the arrows at
+// all. See `ComboBox`, which is the control that question wanted.
 
 // What the collapsed control shows: the chosen value for a choice, the title for a menu.
 pub fn collapsed_text(m: Menu) -> string {
-    if !widget.Role.is_ComboBox(m.role) {
-        return m.title
-    }
-    val at = m.items.selected
-    if at < 0 || at >= len(m.items.items) {
-        return m.label
-    }
-    return m.items.items[at]
+    return m.title
 }
 
-// The value a choice is showing, or "" when nothing is chosen. A menu has none.
-pub fn chosen_value(m: Menu) -> string {
-    if !widget.Role.is_ComboBox(m.role) {
+// **`chosen_value` was here and is `combo_box_value` (2026-11-16).** It answered the value a
+// picker was showing and "" for a menu, which is a function whose answer is decided by a role
+// field -- the shape the split removed. A menu has no value and now cannot be asked for one.
+
+// ---------------------------------------------------------------- the combo box
+
+// **A picker of values: a collapsed box showing the current one, and a popup list to change it.**
+//
+// **Its own control since 2026-11-16, where it was a `Menu` carrying `Role.ComboBox` before.** The
+// `Menu` struct's comment argued the other way and is worth answering rather than deleting: "one
+// structure, because a dropdown *is* a popup list with a collapsed title, and building a second one
+// would have been a copy of the popup, the keyboard handling and the dismissal to change two role
+// names". The first half of that is right and this control depends on it -- the popup, the
+// dismissal and the open keyboard are **shared**, not copied, through `open_popup_input` and
+// `list_widget`. The second half was not: a menu and a combo box differ in the half that was never
+// examined, which is what happens when the control is **closed**.
+//
+//     closed         menu                    combo box
+//     Up / Down      nothing                 change the value, without opening
+//     Home / End     nothing                 first / last value
+//     a letter       nothing                 jump to the next value starting with it
+//     Enter, Space   open                    open
+//     Alt+Down       nothing                 open
+//
+// A menu has nothing to change while closed -- its items are commands and picking one runs it. A
+// combo box holds a value, and every platform lets the arrows move it without the list ever
+// appearing. That is not a role name; it is a different control, and it was missing: `curly gui`
+// showed it as a method picker whose Down key opened a list instead of selecting `POST`.
+//
+// **Not editable.** The value is always one of `items`. An editable combo box -- a text field with
+// a dropdown attached -- is a different control again, joining this to the whole of `Entry`
+// (caret, selection, input method), and it is deliberately left for when something asks.
+pub struct ComboBox {
+    name: string
+    // What a reader calls it, and it does **not** change with the value: a control that introduced
+    // itself as its own current value would announce "staging, combo box, staging". What the
+    // collapsed box *shows* is the value; what it is *called* is this.
+    label: string
+    items: List
+    open: bool
+    disabled: bool
+}
+
+pub struct ComboBoxStep {
+    combo: ComboBox
+    // The item now chosen, or -1 when the value did not change.
+    //
+    // **Set by a closed arrow key as well as by the popup**, which is the whole difference from
+    // `MenuStep.chosen`: a combo box changes value without ever opening, so an application that
+    // only watched the popup would miss most of the changes a keyboard user makes.
+    chosen: int
+    // The popup closed without choosing. Separate from `chosen` for `MenuStep`'s reason.
+    dismissed: bool
+}
+
+pub fn combo_box_of(name: string, label: string, items: [string], selected: int) -> ComboBox {
+    return ComboBox {
+        name: name,
+        label: label,
+        items: with list_of(concat(name, "/items"), label, items) {
+            selected: if selected < 0 || selected >= len(items) { 0 - 1 } else { selected }
+        },
+        open: false,
+        disabled: false
+    }
+}
+
+// The value it is showing, or "" when nothing is chosen -- which an empty item list makes real.
+pub fn combo_box_value(c: ComboBox) -> string {
+    val at = c.items.selected
+    if at < 0 || at >= len(c.items.items) {
         return ""
     }
-    val at = m.items.selected
-    if at < 0 || at >= len(m.items.items) {
-        return ""
+    return c.items.items[at]
+}
+
+// **What the collapsed box shows: the value, or the label when nothing is chosen.**
+//
+// A picker that rendered blank looks broken rather than unset, and an empty selection is real --
+// `combo_box_of` stores -1 for an index outside the items. Separate from `combo_box_value`, which
+// answers "" in that case and is what the accessibility node publishes: a reader must hear that
+// nothing is chosen, where an eye needs something in the box to read.
+pub fn combo_box_text(c: ComboBox) -> string {
+    val shown = combo_box_value(c)
+    return if shown == "" { c.label } else { shown }
+}
+
+// The collapsed control: what it shows, and the same face every other control wears.
+pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget {
+    val ink = if c.disabled { style.disabled_ink } else { style.ink }
+    val inside = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: style.padding,
+        surface: face_of(style, style.face),
+        align: widget.stretched(),
+        children: [widget.label_of(combo_box_text(c), style.text_size, ink)],
+        name: ""
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: c.name,
+        role: widget.Role.ComboBox,
+        label: c.label,
+        description: "",
+        // **The value, which is what a reader says after the name.** A combo box that published no
+        // value would announce "Method, combo box" and leave the user to open it to find out.
+        value: combo_box_value(c),
+        state: with widget.no_state() {
+            disabled: c.disabled,
+            expanded: Option<bool>.Some(c.open)
+        },
+        tab_stop: true,
+        child: inside
+    })
+}
+
+// The popup, as a layer. The same one a menu uses -- a list is a list.
+pub fn combo_box_popup_layer(c: ComboBox, style: Style, at: Rect) -> widget.Layer {
+    return widget.layer_at(at, true, list_widget(c.items, style))
+}
+
+fn combo_unchanged(c: ComboBox) -> ComboBoxStep {
+    return ComboBoxStep { combo: c, chosen: 0 - 1, dismissed: false }
+}
+
+// Moves the selection by `by`, clamped. **No wrap**, which is what a closed combo box does
+// everywhere: wrapping from the last value to the first on one keypress is a surprise when the
+// list is not visible to explain it.
+fn combo_moved(c: ComboBox, to: int) -> ComboBoxStep {
+    val n = len(c.items.items)
+    if n == 0 {
+        return combo_unchanged(c)
     }
-    return m.items.items[at]
+    var at = to
+    if at < 0 {
+        at = 0
+    }
+    if at >= n {
+        at = n - 1
+    }
+    if at == c.items.selected {
+        return combo_unchanged(c)
+    }
+    return ComboBoxStep {
+        combo: with c { items: with c.items { selected: at } },
+        chosen: at,
+        dismissed: false
+    }
+}
+
+// **Type-ahead: the next value starting with `typed`, wrapping once.** From *after* the current
+// selection, so pressing `p` twice over POST, PUT and PATCH walks them rather than sticking on the
+// first. Case-insensitive, because a value list is written for reading and a user types in haste.
+fn combo_typed(c: ComboBox, typed: string) -> ComboBoxStep {
+    val n = len(c.items.items)
+    if n == 0 || typed == "" {
+        return combo_unchanged(c)
+    }
+    // **The one-argument `to_lower`**, which folds without a locale. A combo box's items are
+    // whatever an application put in them, in whatever language, and this control cannot know the
+    // user's locale -- naming one here would be guessing. Type-ahead that is occasionally wrong in
+    // Turkish is better than a dependency on a locale nobody passed.
+    val want = to_lower(typed)
+    var step = 1
+    while step <= n {
+        val at = (c.items.selected + step) % n
+        if starts_with(to_lower(c.items.items[at]), want) {
+            return combo_moved(c, at)
+        }
+        step = step + 1
+    }
+    return combo_unchanged(c)
+}
+
+fn combo_opened(c: ComboBox) -> ComboBoxStep {
+    return ComboBoxStep { combo: with c { open: true }, chosen: 0 - 1, dismissed: false }
+}
+
+// One keystroke against a **closed** combo box, which is the whole of what makes it not a menu.
+//
+// Statements rather than an `if`/`else` chain used as a value, because the last test binds -- a
+// `Char` carries the letter that type-ahead needs, and a pattern `if` is a statement in this
+// language. Written as early returns, so each key reads as its own line.
+fn closed_combo_key(c: ComboBox, k: Keystroke) -> ComboBoxStep {
+    // **Alt+Down opens where a bare Down changes the value** -- the one place the two gestures have
+    // to be told apart, and the modifier is how every platform tells them. Tested first for that
+    // reason: the bare `Down` below would otherwise swallow it.
+    if Key.is_Down(k.key) && k.alt {
+        return combo_opened(c)
+    }
+    if Key.is_Enter(k.key) || Key.is_Space(k.key) {
+        return combo_opened(c)
+    }
+    if Key.is_Down(k.key) {
+        return combo_moved(c, c.items.selected + 1)
+    }
+    if Key.is_Up(k.key) {
+        return combo_moved(c, c.items.selected - 1)
+    }
+    if Key.is_Home(k.key) {
+        return combo_moved(c, 0)
+    }
+    if Key.is_End(k.key) {
+        return combo_moved(c, len(c.items.items) - 1)
+    }
+    if Char(ch) = k.key {
+        return combo_typed(c, ch)
+    }
+    return combo_unchanged(c)
+}
+
+fn closed_combo_input(c: ComboBox, input: Input, at: Rect) -> ComboBoxStep {
+    return switch input {
+        // A press on the collapsed box opens it, on the way down as a menu title does.
+        Press(p) {
+            if widget.contains(at, p) {
+                combo_opened(c)
+            } else {
+                combo_unchanged(c)
+            }
+        }
+        KeyDown(k) { closed_combo_key(c, k) }
+        // Text arrives for a typed character on the platforms that send it rather than a `Char`
+        // keystroke, and type-ahead is what a closed combo box does with it.
+        Text(t) { combo_typed(c, t) }
+        KeyUp(_) { combo_unchanged(c) }
+        Paste(_) { combo_unchanged(c) }
+        Release(_) { combo_unchanged(c) }
+        Move(_) { combo_unchanged(c) }
+        Wheel(_) { combo_unchanged(c) }
+    }
+}
+
+pub fn combo_box_input(c: ComboBox, input: Input, at: Rect, popup_at: Rect) -> ComboBoxStep {
+    if c.disabled {
+        return combo_unchanged(c)
+    }
+    if !c.open {
+        return closed_combo_input(c, input, at)
+    }
+    // **Open, it is a popup list and behaves exactly like one** -- Escape dismisses, Enter chooses
+    // the highlight, a click outside dismisses, a release over a row chooses it, and the arrows
+    // belong to the list. Shared with `Menu` rather than copied, which is the half of that struct's
+    // old argument this control keeps.
+    val step = open_popup_input(c.items, input, at, popup_at)
+    return ComboBoxStep {
+        combo: with c { items: step.items, open: step.open },
+        chosen: step.chosen,
+        dismissed: step.dismissed
+    }
 }
 
 pub struct MenuStep {
@@ -2485,7 +2696,29 @@ fn closed_menu_input(m: Menu, input: Input, title_bounds: Rect) -> MenuStep {
     }
 }
 
-fn open_menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect) -> MenuStep {
+// What an **open popup list** does, for both the controls that have one.
+//
+// **Shared rather than copied**, which is the half of `Menu`'s old one-structure argument that
+// survives: a dropdown really is a popup list with a collapsed thing above it, and the open half --
+// Escape dismisses, Enter chooses the highlight, a click outside dismisses, a release over a row
+// chooses it, and everything else is the list's -- is identical whether the collapsed thing is a
+// menu title or a value. Only the *closed* half differs, and that is where the two controls part.
+struct PopupStep {
+    items: List
+    open: bool
+    chosen: int
+    dismissed: bool
+}
+
+fn popup_held(l: List) -> PopupStep {
+    return PopupStep { items: l, open: true, chosen: 0 - 1, dismissed: false }
+}
+
+fn popup_dismissed(l: List) -> PopupStep {
+    return PopupStep { items: l, open: false, chosen: 0 - 1, dismissed: true }
+}
+
+fn open_popup_input(items: List, input: Input, title_bounds: Rect, popup_bounds: Rect) -> PopupStep {
     // `Other("")` for an input that is not a keystroke, so the tests below read as one list rather
     // than as a key check wrapped in an input check.
     val pressed = switch input {
@@ -2500,27 +2733,27 @@ fn open_menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect
     }
     // **Escape closes without choosing, and that is a dismissal rather than a choice of nothing.**
     if Key.is_Escape(pressed) {
-        return dismissed_menu(m)
+        return popup_dismissed(items)
     }
     if Key.is_Enter(pressed) || Key.is_Space(pressed) {
-        if m.items.selected >= 0 {
-            return MenuStep { menu: with m { open: false }, chosen: m.items.selected, dismissed: false }
+        if items.selected >= 0 {
+            return PopupStep { items: items, open: false, chosen: items.selected, dismissed: false }
         }
-        return dismissed_menu(m)
+        return popup_dismissed(items)
     }
     // **A click outside both boxes dismisses it**, which is what placed layers letting clicks
-    // through is for: the click also reaches whatever was under it, and the menu closing is this
+    // through is for: the click also reaches whatever was under it, and the popup closing is this
     // module's half of that.
     if Press(p) = input {
         if !widget.contains(popup_bounds, p) && !widget.contains(title_bounds, p) {
-            return dismissed_menu(m)
+            return popup_dismissed(items)
         }
-        // On the title again: a second press closes it, as every menu bar does.
+        // On the collapsed control again: a second press closes it, as every menu bar does.
         if widget.contains(title_bounds, p) {
-            return dismissed_menu(m)
+            return popup_dismissed(items)
         }
     }
-    // **A release over a row chooses it, which is what makes a menu usable with a mouse at all.**
+    // **A release over a row chooses it, which is what makes this usable with a mouse at all.**
     //
     // Until this, choosing was keyboard-only: a press on a row fell through to the list below and
     // moved the selection, and nothing ever turned that into a choice -- so a user could open a
@@ -2529,16 +2762,28 @@ fn open_menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect
     //
     // **On the release rather than the press**, which makes both gestures work with one rule: a
     // menu-bar press-drag-release lands its release on the item it ended over, and an ordinary
-    // click is a press and a release on the same row. It also means a press that opened the menu
-    // cannot immediately choose, since that release lands on the title.
+    // click is a press and a release on the same row. It also means a press that opened it cannot
+    // immediately choose, since that release lands on the collapsed control.
     if Release(p) = input {
-        if widget.contains(popup_bounds, p) && m.items.selected >= 0 {
-            return MenuStep { menu: with m { open: false }, chosen: m.items.selected, dismissed: false }
+        if widget.contains(popup_bounds, p) && items.selected >= 0 {
+            return PopupStep { items: items, open: false, chosen: items.selected, dismissed: false }
         }
     }
     // Everything else is the list's: arrows, Home, End, the wheel, and a press on a row.
-    val step = list_input(m.items, input, popup_bounds)
-    return MenuStep { menu: with m { items: step.list }, chosen: 0 - 1, dismissed: false }
+    val step = list_input(items, input, popup_bounds)
+    return popup_held(step.list)
+}
+
+// The menu's open half, which is `open_popup_input` and nothing else. It kept its own name
+// because `menu_input` reads better dispatching to a pair than to one shared function and one
+// inline branch, and because the closed half beside it is where a menu's behaviour actually is.
+fn open_menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect) -> MenuStep {
+    val step = open_popup_input(m.items, input, title_bounds, popup_bounds)
+    return MenuStep {
+        menu: with m { items: step.items, open: step.open },
+        chosen: step.chosen,
+        dismissed: step.dismissed
+    }
 }
 
 fn opened(m: Menu) -> MenuStep {
@@ -2574,13 +2819,15 @@ pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
     })
     return widget.Widget.Control(widget.Focusable {
         name: m.name,
-        role: m.role,
+        role: widget.Role.Menu,
         label: m.label,
         description: "",
         // **A choice announces its value and a menu has none to announce.** This is the whole
         // behavioural difference between the two once the role is right: a reader says the label,
         // then what it is, then what it holds.
-        value: chosen_value(m),
+        // A menu has no value -- it is a list of commands, and the thing it is *called* is all a
+        // reader needs. A picker's value is `combo_box_value`, on the control that has one.
+        value: "",
         state: with widget.no_state() {
             disabled: m.disabled,
             expanded: Option<bool>.Some(m.open)
