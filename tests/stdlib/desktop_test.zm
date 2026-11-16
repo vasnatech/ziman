@@ -157,7 +157,7 @@ fn box_text(r: window.Region) -> string {
 }
 
 fn caret_text(laid: widget.Laid, at: window.Position, d: widget.Density) -> string {
-    return switch desktop.caret_on_screen(at, laid, d) {
+    return switch desktop.caret_on_screen(at, laid, d, "url") {
         Some(box) { box_text(box) }
         None { "(none)" }
     }
@@ -203,8 +203,8 @@ fn the_caret_is_reported_in_screen_pixels() {
 fn the_caret_scales_with_the_display() {
     val laid = laid_field("hello", 2)
     val at = window.Position { x: 100, y: 200 }
-    val one = desktop.caret_on_screen(at, laid, one_to_one())
-    val two = desktop.caret_on_screen(at, laid, widget.density_of(2.0))
+    val one = desktop.caret_on_screen(at, laid, one_to_one(), "url")
+    val two = desktop.caret_on_screen(at, laid, widget.density_of(2.0), "url")
     switch one {
         Some(a) {
             switch two {
@@ -229,7 +229,8 @@ fn a_caret_is_never_zero_sized() {
     val tiny = desktop.caret_on_screen(
         window.Position { x: 0, y: 0 },
         laid,
-        widget.density_of(0.25)
+        widget.density_of(0.25),
+        "url"
     )
     switch tiny {
         Some(box) {

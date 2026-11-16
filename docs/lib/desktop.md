@@ -142,7 +142,12 @@ is. The next frame is a full one, which is right: none of the old pixels mean an
 ### `caret_on_screen`
 
 ```
-pub fn caret_on_screen(at: window.Position, laid: widget.Laid, d: Density) -> Option<window.Region>
+pub fn caret_on_screen(
+    at: window.Position,
+    laid: widget.Laid,
+    d: Density,
+    focused: string
+) -> Option<window.Region>
 ```
 
 Where the caret is **on the screen, in pixels**, which is the one thing an input method needs
@@ -162,7 +167,14 @@ an input method and stays testable without one. An application writes:
 
 
 ```
-if Some(box) = desktop.caret_on_screen(try window.origin(w), laid, density) {
+if Some(box) = desktop.caret_on_screen(try window.origin(w), laid, density, focused) {
     ibus.caret_at(box.x, box.y, box.width, box.height)
 }
 ```
+
+**`focused` was added on 2026-11-15, and without it this answered the wrong caret.** Every text
+field put a caret box in the tree, so `node_named` handed back the first one in document order
+-- which is the field nearest the top left, not the one being typed into. An input method's
+candidate list therefore opened under some other field. The caret is still in every field's
+layout (it is a layout participant; see `widget.collect`), so the focused control is what picks
+the right one, exactly as painting does.

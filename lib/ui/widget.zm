@@ -1744,6 +1744,15 @@ pub fn is_control(l: Laid) -> bool {
     }
 }
 
+// The name the caret's box carries in the laid-out tree.
+//
+// **Here rather than in `controls`, where it lived until 2026-11-15**, because the painter has to
+// recognise it: a caret is drawn only for the control that has the focus, and `collect` is what
+// decides. A marker the painter must know belongs to the painter's layer. `controls.caret_box`
+// still puts it there and `desktop.caret_on_screen` still reads it back; both now name it from
+// here.
+pub val caret_name = "caret"
+
 // ---------------------------------------------------------------- painting
 
 // The laid-out tree as a `Scene`, parents before children so a background sits behind what it is
@@ -1752,9 +1761,16 @@ pub fn is_control(l: Laid) -> bool {
 // Text is placed on its **baseline**, which is why a label's y is its bounds' top plus the line
 // height rather than the top itself: a glyph drawn at the top of its box has its ascenders above
 // the box and looks like it has escaped.
+//
+// **No focus, so no caret** (2026-11-15). A text field's caret marks the insertion point of the
+// field being typed into, and this entry point is not told which that is -- so it draws none, the
+// same answer it gives for the focus ring. An application that wants either calls `paint_focused`.
+// Before that rule existed every field drew one at once, which is what a window full of text
+// fields each carrying a blinking-looking bar turns out to be: `curly gui` showed eight carets in
+// one frame with the focus on a tree.
 pub fn paint(l: Laid, m: Metrics) -> scene.Scene {
     val ops = mutable_array_new<Op>()
-    collect(l, m, ops)
+    collect(l, m, ops, "", false)
     return scene.with_ops(
         scene.scene_of(l.bounds.x + l.bounds.width, l.bounds.y + l.bounds.height),
         snapshot(ops)
@@ -1776,9 +1792,13 @@ pub fn paint(l: Laid, m: Metrics) -> scene.Scene {
 //
 // An unknown name draws nothing rather than refusing: a focus naming a control this tree no longer
 // holds is an ordinary moment between two frames, not an error.
+// **It draws the caret as well as the ring**, both for the named control only. They are the same
+// kind of thing -- painting that depends on who has the focus -- and this is the only seam that
+// knows, so putting one here and the other in the widget tree is what let every field in a window
+// draw a caret at once.
 pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: float) -> scene.Scene {
     val ops = mutable_array_new<Op>()
-    collect(l, m, ops)
+    collect(l, m, ops, focused, false)
     if Some(node) = focus_node(l, focused) {
         // Drawn **inside** the control's own box rather than around it: a ring outside overlaps
         // whatever is next to it, and in a dense form that is the neighbouring control.
@@ -1853,10 +1873,10 @@ fn focus_node(l: Laid, name: string) -> Option<Laid> {
     return Option<Laid>.None
 }
 
-// The ops alone, for a caller composing a scene of its own.
+// The ops alone, for a caller composing a scene of its own. **No focus, so no caret**, as `paint`.
 pub fn paint_ops(l: Laid, m: Metrics) -> [Op] {
     val ops = mutable_array_new<Op>()
-    collect(l, m, ops)
+    collect(l, m, ops, "", false)
     return snapshot(ops)
 }
 
@@ -1919,7 +1939,26 @@ fn paint_surface(s: Surface, bounds: Rect, ops: MutableArray<Op>) {
     }
 }
 
-fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>) {
+// `caret_for` is the name of the control whose caret should be drawn, and `mine` says whether this
+// node is inside it. Everything else about painting is focus-blind; the caret is not, which is the
+// same bargain `paint_focused` makes for the focus ring and for the same reason -- a control does
+// not know whether it has the focus and should not have to be told.
+//
+// **The caret's box stays in the tree whether or not it is painted**, which is deliberate: it is a
+// layout participant one point wide, sitting between the runs before and after it, so dropping it
+// for an unfocused field would shift that field's trailing text by a point and change its natural
+// width. The box is laid out always and inked only for the focused control, so nothing moves when
+// the focus does.
+fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: bool) {
+    if l.name == caret_name && !mine {
+        return
+    }
+    var inside = mine
+    if Control(it) = l.widget {
+        // Reset at every control, so a caret inside a *different* control nested in the focused
+        // one is still not drawn.
+        inside = caret_for != "" && it.name == caret_for
+    }
     if Group(it) = l.widget {
         paint_surface(it.surface, l.bounds, ops)
     }
@@ -1961,7 +2000,7 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>) {
     if Scroll(_) = l.widget {
         val inner = mutable_array_new<Op>()
         for child in l.children {
-            collect(child, m, inner)
+            collect(child, m, inner, caret_for, inside)
         }
         push(ops, scene.clipped(shape.rect_path(l.bounds), snapshot(inner)))
         return
@@ -1982,7 +2021,7 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>) {
         val inner = mutable_array_new<Op>()
         var out = false
         for child in l.children {
-            collect(child, m, inner)
+            collect(child, m, inner, caret_for, inside)
             if escapes(child, l.bounds) {
                 out = true
             }
@@ -2000,6 +2039,6 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>) {
         return
     }
     for child in l.children {
-        collect(child, m, ops)
+        collect(child, m, ops, caret_for, inside)
     }
 }

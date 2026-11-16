@@ -137,7 +137,7 @@ numbers, so the call is:
 
 
 ```
-if Some(box) = desktop.caret_on_screen(try window.origin(w), laid, density) {
+if Some(box) = desktop.caret_on_screen(try window.origin(w), laid, density, focused) {
     ibus.caret_at(box.x, box.y, box.width, box.height)
 }
 ```

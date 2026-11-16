@@ -22,12 +22,12 @@
 // it last showed, and work out what to send. That something is backend glue, and this is where the
 // backend glue goes.
 use controls
-use controls.caret_name
 use geom
 use raster
 use scene
 use widget
 use widget.Density
+use widget.caret_name
 use window
 use window.KeyPress
 
@@ -232,11 +232,26 @@ pub fn repaint(
 // The arithmetic is here, and the `ibus` call is not, so that this module keeps no dependency on
 // an input method and stays testable without one. An application writes:
 //
-//     if Some(box) = desktop.caret_on_screen(try window.origin(w), laid, density) {
+//     if Some(box) = desktop.caret_on_screen(try window.origin(w), laid, density, focused) {
 //         ibus.caret_at(box.x, box.y, box.width, box.height)
 //     }
-pub fn caret_on_screen(at: window.Position, laid: widget.Laid, d: Density) -> Option<window.Region> {
-    switch widget.node_named(laid, caret_name) {
+// **`focused` was added on 2026-11-15, and without it this answered the wrong caret.** Every text
+// field put a caret box in the tree, so `node_named` handed back the first one in document order
+// -- which is the field nearest the top left, not the one being typed into. An input method's
+// candidate list therefore opened under some other field. The caret is still in every field's
+// layout (it is a layout participant; see `widget.collect`), so the focused control is what picks
+// the right one, exactly as painting does.
+pub fn caret_on_screen(
+    at: window.Position,
+    laid: widget.Laid,
+    d: Density,
+    focused: string
+) -> Option<window.Region> {
+    val within = switch widget.node_named(laid, focused) {
+        Some(control) { control }
+        None { return Option<window.Region>.None }
+    }
+    switch widget.node_named(within, caret_name) {
         Some(node) {
             val box = node.bounds
             return Option<window.Region>.Some(window.Region {

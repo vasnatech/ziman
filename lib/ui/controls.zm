@@ -32,6 +32,7 @@ use widget
 use widget.Insets
 use widget.Laid
 use widget.Toggle
+use widget.caret_name
 
 // ----------------------------------------------------------------- the inputs
 
@@ -1058,9 +1059,9 @@ fn sorted_edges(edges: [int], n: int) -> [int] {
     return snapshot(kept)
 }
 
-// The name the caret's box carries in the laid-out tree, so that a test can find it and an
-// application can draw attention to it.
-pub val caret_name = "caret"
+// **`caret_name` moved to `widget` on 2026-11-15** and is `widget.caret_name`. It names the box
+// this module puts in the tree, but what reads it is the painter -- a caret is drawn only for the
+// control that has the focus -- so the constant belongs to the layer that decides.
 
 // The field as a widget.
 //

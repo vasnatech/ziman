@@ -636,15 +636,6 @@ say so. `entry_input` passes `style.text_font`, so a field drawn in a face measu
 in the same one -- a caret placed by the wrong face's widths lands between the wrong letters,
 and only on the text where the two faces differ.
 
-### `caret_name`
-
-```
-pub val caret_name = "caret"
-```
-
-The name the caret's box carries in the laid-out tree, so that a test can find it and an
-application can draw attention to it.
-
 ### `entry_widget`
 
 ```

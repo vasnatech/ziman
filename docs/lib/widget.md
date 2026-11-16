@@ -1562,6 +1562,20 @@ pub fn is_control(l: Laid) -> bool
 
 Whether a laid node is a control: its own widget takes focus.
 
+### `caret_name`
+
+```
+pub val caret_name = "caret"
+```
+
+The name the caret's box carries in the laid-out tree.
+
+**Here rather than in `controls`, where it lived until 2026-11-15**, because the painter has to
+recognise it: a caret is drawn only for the control that has the focus, and `collect` is what
+decides. A marker the painter must know belongs to the painter's layer. `controls.caret_box`
+still puts it there and `desktop.caret_on_screen` still reads it back; both now name it from
+here.
+
 ## Painting
 
 ### `paint`
@@ -1576,6 +1590,13 @@ behind.
 Text is placed on its **baseline**, which is why a label's y is its bounds' top plus the line
 height rather than the top itself: a glyph drawn at the top of its box has its ascenders above
 the box and looks like it has escaped.
+
+**No focus, so no caret** (2026-11-15). A text field's caret marks the insertion point of the
+field being typed into, and this entry point is not told which that is -- so it draws none, the
+same answer it gives for the focus ring. An application that wants either calls `paint_focused`.
+Before that rule existed every field drew one at once, which is what a window full of text
+fields each carrying a blinking-looking bar turns out to be: `curly gui` showed eight carets in
+one frame with the focus on a tree.
 
 ### `paint_focused`
 
@@ -1598,6 +1619,10 @@ same reason.
 
 An unknown name draws nothing rather than refusing: a focus naming a control this tree no longer
 holds is an ordinary moment between two frames, not an error.
+**It draws the caret as well as the ring**, both for the named control only. They are the same
+kind of thing -- painting that depends on who has the focus -- and this is the only seam that
+knows, so putting one here and the other in the widget tree is what let every field in a window
+draw a caret at once.
 
 ### `paint_ops`
 
@@ -1605,4 +1630,4 @@ holds is an ordinary moment between two frames, not an error.
 pub fn paint_ops(l: Laid, m: Metrics) -> [Op]
 ```
 
-The ops alone, for a caller composing a scene of its own.
+The ops alone, for a caller composing a scene of its own. **No focus, so no caret**, as `paint`.

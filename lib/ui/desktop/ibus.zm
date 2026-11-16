@@ -124,7 +124,7 @@ pub fn focused(on: bool) {
 // inside itself. `desktop.caret_on_screen` adds the two and hands back exactly these four
 // numbers, so the call is:
 //
-//     if Some(box) = desktop.caret_on_screen(try window.origin(w), laid, density) {
+//     if Some(box) = desktop.caret_on_screen(try window.origin(w), laid, density, focused) {
 //         ibus.caret_at(box.x, box.y, box.width, box.height)
 //     }
 //

@@ -13,6 +13,7 @@ use scene
 use shape
 use test
 use widget
+use widget.caret_name
 
 fn metrics() -> widget.Metrics {
     return widget.metrics_of(
@@ -346,7 +347,6 @@ fn only_a_key_or_text_could_change_a_field() {
 // --- the text entry
 
 use controls.bar_thickness
-use controls.caret_name
 use controls.min_thumb
 use controls.thumb_name
 use edit
@@ -2595,6 +2595,70 @@ fn an_edged_style_reaches_every_control_that_has_a_face() {
         1
     )
     test.assert_eq(rings(painted(controls.menu_title_widget(controls.menu_of("m", "File", []), style))), 1)
+}
+
+// ------------------------------------------- the caret belongs to the focused field (2026-11-15)
+
+// **A field that does not have the focus draws no caret**, which it did until 2026-11-15: the
+// caret box was a widget in the tree with its own ink, so every field in a window painted one at
+// once. `curly gui` showed eight at a time with the focus on a tree -- found by looking at the
+// running application, which is the only place this was visible, since the caret's *box* is in the
+// layout either way and every test asked the layout.
+//
+// **The box is still laid out when unfocused, and that is deliberate.** It is a layout participant
+// one point wide sitting between the runs before and after it, so dropping it would shift the
+// field's trailing text by a point and change its natural width -- a visible jump every time the
+// focus moved. Laid out always, inked only for the focused control.
+fn caret_fills(ops: [scene.Op], at: geom.Rect) -> int {
+    var n = 0
+    for op in ops {
+        if Fill(it) = op {
+            val b = shape.path_bounds(it.path)
+            if b.x == at.x && b.y == at.y && b.width == at.width {
+                n = n + 1
+            }
+        }
+        if Nested(group) = op {
+            n = n + caret_fills(group.ops, at)
+        }
+    }
+    return n
+}
+
+fn field_laid() -> widget.Laid {
+    return widget.layout(
+        controls.entry_widget(controls.entry_of("url", "URL", "abc"), controls.default_style(), metrics()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+}
+
+#[test]
+fn an_unfocused_field_lays_its_caret_out_and_does_not_paint_it() {
+    val laid = field_laid()
+    val caret = box_named(laid, caret_name)
+    // laid out, whatever the focus
+    test.assert(caret.width > 0.0)
+    // and not painted, because nothing has the focus here
+    test.assert_eq(caret_fills(widget.paint_ops(laid, metrics()), caret), 0)
+}
+
+#[test]
+fn the_focused_field_paints_exactly_one_caret() {
+    val laid = field_laid()
+    val caret = box_named(laid, caret_name)
+    val scene = widget.paint_focused(laid, metrics(), "url", paint.rgb(0.0, 0.0, 1.0), 2.0)
+    test.assert_eq(caret_fills(scene.ops, caret), 1)
+}
+
+// The focus naming a *different* control paints no caret in this one -- which is the half that
+// makes a window with eight fields show one caret rather than eight.
+#[test]
+fn a_field_that_is_not_the_focused_one_paints_no_caret() {
+    val laid = field_laid()
+    val caret = box_named(laid, caret_name)
+    val scene = widget.paint_focused(laid, metrics(), "somewhere-else", paint.rgb(0.0, 0.0, 1.0), 2.0)
+    test.assert_eq(caret_fills(scene.ops, caret), 0)
 }
 
 // **A list's selected row is rounded but never edged.** A border round each row of a list is a box
