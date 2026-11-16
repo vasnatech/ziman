@@ -12,6 +12,7 @@ use geom.normalized
 use geom.point_of
 use geom.rect_between
 use geom.rect_of
+use geom.rect_union
 use geom.right
 use geom.transform_point
 use math.sqrt
@@ -244,6 +245,44 @@ pub fn round_rect_path(r: Rect, rx: float, ry: float) -> Path {
     cubic_to(b, point_of(n.x, n.y + hy - oy), point_of(n.x + hx - ox, n.y), point_of(n.x + hx, n.y))
     close_path(b)
     return built(b, Winding.NonZero)
+}
+
+// **The area between two closed contours** -- `outer` with `inner` punched out of it, as one path
+// that any fill can draw. A ring, an annulus, a frame, a washer; the border of a box is the case
+// this was written for.
+//
+// **`EvenOdd` rather than a reversed inner contour**, which is what makes this a two-line function
+// instead of a path-reversal one. Even-odd asks how many contours enclose a point and fills the odd
+// answers, so a nested `inner` leaves a hole whichever direction either contour was built in --
+// where `NonZero` would need `inner` wound against `outer` and would quietly fill solid if a
+// constructor ever changed direction. Neither `round_rect_path` nor `ellipse_path` promises a
+// direction, so depending on one would be depending on an accident.
+//
+// **An empty `inner` is no hole**, which is the degenerate case a caller actually hits: a border
+// half the thickness of its box leaves no inside, and a ring with nothing taken out of it is the
+// outer contour. Answered here rather than guarded at each call.
+//
+// The bounds are the union and not `outer`'s. Even-odd of two contours that do *not* nest covers
+// the symmetric difference, which can reach outside `outer` -- so a caller who passes two
+// overlapping circles gets a correct box rather than a clipped one. For the nested case the union
+// *is* `outer`'s box, so the general answer costs the common one nothing.
+//
+// **Why a caller wants this rather than a stroke.** A stroked outline is the general offsetting
+// problem -- flatten every curve, offset the polyline, join every corner, mind the miter limit --
+// and `raster.draw_ops`'s own comment calls `stroker.outline` the most expensive single thing in
+// that module. Measured on one 60x24 face: **649 us to widen a rounded border against 123 us for a
+// square one**, which was the whole cost of a second look and feel through a damage region (F286).
+// A ring says the same ink analytically, because the offset of a rounded rectangle is another
+// rounded rectangle and nothing has to be discovered.
+pub fn ring_path(outer: Path, inner: Path) -> Path {
+    if len(inner.segments) == 0 {
+        return outer
+    }
+    return Path {
+        segments: concat(outer.segments, inner.segments),
+        winding: Winding.EvenOdd,
+        bounds: rect_union(outer.bounds, inner.bounds)
+    }
 }
 
 // ---- transforming and measuring

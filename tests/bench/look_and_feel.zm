@@ -10,10 +10,11 @@
 // repeats: this machine's absolutes have moved about 2x between batches an hour apart with no code
 // change. Read the pair within a pass, never a number here against a number elsewhere.
 //
-// **The answer, as of 2026-11-15: no, it is not noise -- an edged look is 4-4.5x a flat one, and
-// that holds through a damage region as well as over the whole window.** The reason is one number,
-// and it is at `rasterised_region` below: widening a rounded border costs 0.65 ms per box against a
-// square border's 0.12. Everything else in this file is the context that made that number findable.
+// **The answer, as of 2026-11-15: an edged look is 2x a flat one, and it was 4-4.5x until this
+// benchmark said why.** The reason was one number, at `rasterised_region` below: a rounded border
+// was *stroked*, and widening it cost 0.65 ms per box against a square border's 0.12. It is a
+// filled ring now and the premium is the second contour, which is what an edge actually costs.
+// Everything else in this file is the context that made that number findable.
 use clock
 use controls
 use font
@@ -145,10 +146,22 @@ fn rasterised(
 // is the 2.35 ms the one-row scene shows, and a frame's whole edged premium is that number times
 // the boxes a damage region happens to contain.
 //
-// So the lever is **not** regional repaint, which already works: it is that a rounded rectangle's
-// stroke goes through the general polygon offsetter -- flatten four cubics into a long polyline,
+// So the lever was **not** regional repaint, which already worked: it was that a rounded rectangle's
+// stroke went through the general polygon offsetter -- flatten four cubics into a long polyline,
 // offset it, miter every join -- where the outline is analytically two concentric rounded rects.
-// Filed as the next step rather than done here.
+//
+// ***Done the same day.*** `widget.paint_surface` fills a `shape.ring_path` instead of stroking a
+// centreline, and the figures above are the ones it replaced. After:
+//
+//     region                     flat           edged         was
+//     60x24   (one control)      0.85-1.2 ms    1.8-2.15 ms   4.0-4.7
+//     900x24  (one row)          1.0-1.55       1.85-2.2      4.3-4.6
+//     whole window 900x1660      27             54            118-137
+//
+// **2.3x off the edged frame, and the premium over a flat look falls from 4.4x to about 2x.** Per box,
+// drawn: 974-1,008 us stroked against 302-342 ringed. The remaining 2x is the ring's own fill --
+// two contours where a flat look has one -- which is the honest price of an edge rather than an
+// accident of how it was expressed.
 fn rasterised_region(
     rows: int,
     style: controls.Style,

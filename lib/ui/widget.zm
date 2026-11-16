@@ -1863,18 +1863,35 @@ pub fn paint_ops(l: Laid, m: Metrics) -> [Op] {
 // A container's fill and border, in that order: a border drawn under its own fill is a border
 // behind the thing it is supposed to outline, with half of it hidden.
 //
-// **The border's path is inset by half its width**, because a stroke straddles the path it follows
-// -- so a stroke of 4 along the bounds hangs two points outside the box and into whatever is beside
-// it. `paint_focused`'s focus ring found this first and does the same arithmetic; this is the
-// second place, which is why the comment is here and not only there.
+// **The border is a filled ring, not a stroked path (2026-11-15), and it is 5x cheaper for it.**
+// A stroke is the general offsetting problem -- flatten every curve, offset the polyline, join
+// every corner, mind the miter limit -- and `raster.draw_ops`'s own comment calls `stroker.outline`
+// the most expensive single thing in that module. Measured on one 60x24 face: **649 us to widen a
+// rounded border against 123 us for a square one**, which was the entire cost of a second look and
+// feel through a damage region (F286's deferred number, taken the same day:
+// tests/bench/look_and_feel.zm). The offset of a rounded rectangle is another rounded rectangle, so
+// `shape.ring_path` says the same ink without discovering anything.
 //
-// The inset path's radius shrinks by the same half so the border's curve stays concentric with the
-// fill's rather than bulging away from it at the corners. **It is not clamped here, and the first
-// version clamped it twice**: a thick border on a small radius gives a negative number, and
-// `shape.round_rect_path` already answers a plain rectangle for anything at or below zero -- as it
-// does for a radius of zero itself. Both guards were written before that was checked, and mutation
-// testing found them by leaving two mutants alive: removing each changed no output, which is what a
-// branch nothing can observe looks like.
+// **It also fixes a corner the stroke got wrong, which is how the change was checked.** Rasterised
+// against the stroked version it replaces, pixel for pixel: a square border is bit-identical, a
+// rounded one differs only by anti-aliasing at the curves (max 3-15 of 255, mean 0.0002 -- the ring
+// rasterises the exact cubics where the stroker flattens them to a tolerance), and **the thick case
+// disagrees at full intensity because the stroke was wrong there.** With radius 4 and a border of 8,
+// the old `radius - half` clamped to zero, so the stroked centreline was a plain rectangle and the
+// border's *outer* corner squared off against a fill drawn at radius 4. The extreme corner pixel
+// reads painted under the stroke and unpainted under the ring. The ring cannot drift that way: its
+// outer contour is the same `round_rect_path(bounds, radius)` the fill uses.
+//
+// **What the old approach had to know and this does not.** A stroke straddles the path it follows,
+// so the border's path was inset by half its width and its radius shrunk by the same half -- the
+// arithmetic `paint_focused`'s focus ring still does, which is why that comment stays there. The
+// hole here is inset by the *whole* width instead, because a fill covers what it encloses rather
+// than straddling it, and the radius shrinks by the whole width for the same reason. **The guard
+// is on the hole's size rather than on its radius**: a border half the thickness of its box leaves
+// no inside, and an empty inner contour is what `shape.ring_path` answers as "no hole". The
+// radius still needs no clamp, for the reason the first version learned by mutation testing --
+// `shape.round_rect_path` answers a plain rectangle for anything at or below zero, so two guards
+// written before that was checked were both unobservable.
 fn paint_surface(s: Surface, bounds: Rect, ops: MutableArray<Op>) {
     // **Resolved here, once, against the box actually being painted** -- which is the point of
     // `Radius` being a kind rather than a number: the tree was built before anything knew how big
@@ -1884,17 +1901,20 @@ fn paint_surface(s: Surface, bounds: Rect, ops: MutableArray<Op>) {
         push(ops, scene.fill(shape.round_rect_path(bounds, radius), Paint.Solid(colour)))
     }
     if Some(edge) = s.border {
-        val half = edge.width * 0.5
-        val inner = geom.rect_of(
-            bounds.x + half,
-            bounds.y + half,
-            bounds.width - edge.width,
-            bounds.height - edge.width
+        val hole = geom.rect_of(
+            bounds.x + edge.width,
+            bounds.y + edge.width,
+            bounds.width - edge.width * 2.0,
+            bounds.height - edge.width * 2.0
         )
-        push(ops, scene.stroke(
-            shape.round_rect_path(inner, radius - half),
-            Paint.Solid(edge.colour),
-            paint.stroke_of(edge.width)
+        val inner = if hole.width > 0.0 && hole.height > 0.0 {
+            shape.round_rect_path(hole, radius - edge.width)
+        } else {
+            shape.empty_path()
+        }
+        push(ops, scene.fill(
+            shape.ring_path(shape.round_rect_path(bounds, radius), inner),
+            Paint.Solid(edge.colour)
         ))
     }
 }

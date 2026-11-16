@@ -1211,6 +1211,45 @@ fn first_point(p: shape.Path) -> geom.Point {
     return geom.point_of(0.0, 0.0)
 }
 
+// Where the ring's hole starts. A border is a ring since 2026-11-15 -- the outer contour followed
+// by the hole, filled `EvenOdd` -- so the second `MoveTo` is the hole's first corner, and the gap
+// between it and the first is the border's width. This is how "the border is this thick" is asserted
+// now that no op carries a stroke width.
+fn hole_point(p: shape.Path) -> geom.Point {
+    var seen = 0
+    for segment in p.segments {
+        if MoveTo(at) = segment {
+            seen = seen + 1
+            if seen == 2 {
+                return at
+            }
+        }
+    }
+    test.fail("a path with no second MoveTo -- not a ring")
+    return geom.point_of(0.0, 0.0)
+}
+
+// Whether the ring's hole curves, as against its outer contour. `has_curve` cannot tell them apart
+// -- it answers for the whole path -- and the two genuinely differ when a border is thicker than
+// its radius.
+fn hole_has_curve(p: shape.Path) -> bool {
+    var seen = 0
+    for segment in p.segments {
+        if MoveTo(_) = segment {
+            seen = seen + 1
+        }
+        if seen >= 2 {
+            if CubicTo(_) = segment {
+                return true
+            }
+            if QuadTo(_) = segment {
+                return true
+            }
+        }
+    }
+    return false
+}
+
 fn fill_path(op: scene.Op) -> shape.Path {
     switch op {
         Fill(it) { return it.path }
@@ -1266,8 +1305,12 @@ fn a_corner_radius_rounds_the_fill() {
 
 // A border is its own op, and **after** the fill: a border painted first is a border behind the
 // thing it outlines, and half of it disappears under the fill.
+//
+// **Both ops are fills since 2026-11-15**, the border being a ring rather than a stroke. The order
+// is what this test is for and it is unchanged; `a_border_is_a_ring_and_not_a_stroke` below is what
+// holds the representation.
 #[test]
-fn a_border_strokes_after_the_fill() {
+fn a_border_is_painted_after_the_fill() {
     val edged = widget.Surface {
         fill: Option<paint.Color>.Some(paint.white()),
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
@@ -1276,11 +1319,30 @@ fn a_border_strokes_after_the_fill() {
     val ops = ops_of(edged)
     test.assert_len(2, ops)
     test.assert(scene.Op.is_Fill(ops[0]))
-    test.assert(scene.Op.is_StrokePath(ops[1]))
+    test.assert(scene.Op.is_Fill(ops[1]))
+    // The face is NonZero and the ring is EvenOdd, which is what tells them apart.
+    test.assert(shape.Winding.is_NonZero(fill_path(ops[0]).winding))
+    test.assert(shape.Winding.is_EvenOdd(fill_path(ops[1]).winding))
+}
+
+// **A border is a ring and not a stroke**, which is a performance claim as much as a shape one:
+// stroking cost 974-1008 us per 60x24 face against the ring's 302-342, and it was the whole price
+// of a second look and feel through a damage region. See `paint_surface` in lib/ui/widget.zm.
+#[test]
+fn a_border_is_a_ring_and_not_a_stroke() {
+    val outline = widget.Surface {
+        fill: Option<paint.Color>.None,
+        border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
+        corner: widget.Radius.Points(4.0)
+    }
+    val ops = ops_of(outline)
+    test.assert_len(1, ops)
+    test.assert_false(scene.Op.is_StrokePath(ops[0]))
+    test.assert(shape.Winding.is_EvenOdd(fill_path(ops[0]).winding))
 }
 
 #[test]
-fn a_border_without_a_fill_is_just_the_stroke() {
+fn a_border_without_a_fill_is_just_the_ring() {
     val outline = widget.Surface {
         fill: Option<paint.Color>.None,
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
@@ -1288,15 +1350,18 @@ fn a_border_without_a_fill_is_just_the_stroke() {
     }
     val ops = ops_of(outline)
     test.assert_len(1, ops)
-    test.assert(scene.Op.is_StrokePath(ops[0]))
+    test.assert(scene.Op.is_Fill(ops[0]))
+    test.assert(shape.Winding.is_EvenOdd(fill_path(ops[0]).winding))
 }
 
-// **The border lands inside the box**, which is the one piece of arithmetic here: a stroke
-// straddles the path it follows, so a width-4 border along the bounds would hang two points over
-// the edge and into whatever is beside it. The path is inset by half the width, so the first point
-// of it is at 2.0 rather than 0.0 -- the same bargain `paint_focused`'s ring makes.
+// **The border lands inside the box**, which is the one piece of arithmetic here -- and the ring
+// does it differently from the stroke it replaced. A stroke straddled its path, so the path was
+// inset by *half* the width and its first point sat at 2.0 for a width-4 border. A fill covers what
+// it encloses, so the ring's outer contour **is** the bounds (first point 0.0) and the hole is inset
+// by the *whole* width. The ink lands in the same place; the arithmetic that puts it there moved.
+// `paint_focused`'s focus ring still strokes and still insets by half.
 #[test]
-fn a_border_is_stroked_inside_the_bounds() {
+fn a_border_is_inside_the_bounds() {
     val edged = widget.Surface {
         fill: Option<paint.Color>.None,
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 4.0)),
@@ -1305,10 +1370,17 @@ fn a_border_is_stroked_inside_the_bounds() {
     val ops = ops_of(edged)
     test.assert_len(1, ops)
     val at = first_point(fill_path(ops[0]))
-    test.assert_eq(at.x, 2.0)
-    test.assert_eq(at.y, 2.0)
+    test.assert_eq(at.x, 0.0)
+    test.assert_eq(at.y, 0.0)
+    // and the hole is the whole width in, so the ink is the 4 points between them
+    val hole = hole_point(fill_path(ops[0]))
+    test.assert_eq(hole.x, 4.0)
+    test.assert_eq(hole.y, 4.0)
 }
 
+// **The width is the gap between the two contours**, there being no stroke to carry one. A stronger
+// assertion than the old one for it: this checks the width is *used*, where reading
+// `it.stroke.width` back only checked it was stored.
 #[test]
 fn a_border_keeps_the_width_it_was_given() {
     val edged = widget.Surface {
@@ -1317,13 +1389,10 @@ fn a_border_keeps_the_width_it_was_given() {
         corner: widget.Radius.Square
     }
     val ops = ops_of(edged)
-    switch ops[0] {
-        StrokePath(it) { test.assert_eq(it.stroke.width, 3.0) }
-        Fill(_) { test.fail("wrong op") }
-        Text(_) { test.fail("wrong op") }
-        DrawImage(_) { test.fail("wrong op") }
-        Nested(_) { test.fail("wrong op") }
-    }
+    val at = first_point(fill_path(ops[0]))
+    val hole = hole_point(fill_path(ops[0]))
+    test.assert_eq(hole.x - at.x, 3.0)
+    test.assert_eq(hole.y - at.y, 3.0)
 }
 
 #[test]
@@ -1337,12 +1406,21 @@ fn a_rounded_border_curves_too() {
     test.assert(has_curve(fill_path(ops[0])))
 }
 
-// **A thick border on a small radius squares off rather than inverting.** The border's path shrinks
-// its radius by half the stroke width so the curve stays concentric with the fill's, and a 1-point
-// radius under a 6-point border asks for -2 -- which `shape.round_rect_path` answers as a
-// rectangle. Delegated rather than clamped twice.
+// **A thick border on a small radius squares off its HOLE and keeps its outer curve** -- and this
+// test asserted the opposite until 2026-11-15, because the stroke it asserted was wrong.
+//
+// A 1-point radius under a 6-point border asks the inner contour for -5, which
+// `shape.round_rect_path` answers as a rectangle; so the hole is square. The *outer* contour is the
+// same `round_rect_path(bounds, radius)` the fill uses, so it keeps the 1-point curve it was given.
+//
+// **What the stroke did instead.** Its single path was the centreline, inset by half the width with
+// the radius shrunk by the same half -- so `radius - half` went to zero, the whole path became a
+// rectangle, and the border's *outer* corner squared off against a fill drawn with a curve. The old
+// version of this test asserted that squaring-off as correct. Checked at the pixels before the
+// change: with radius 4 and a 8-point border the extreme corner pixel reads painted under the
+// stroke and unpainted under the ring, and the ring is the one that matches the fill underneath.
 #[test]
-fn a_border_thicker_than_the_radius_squares_off_rather_than_inverting() {
+fn a_border_thicker_than_the_radius_squares_off_its_hole_and_not_its_outer_curve() {
     val edged = widget.Surface {
         fill: Option<paint.Color>.None,
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 6.0)),
@@ -1350,13 +1428,15 @@ fn a_border_thicker_than_the_radius_squares_off_rather_than_inverting() {
     }
     val ops = ops_of(edged)
     test.assert_len(1, ops)
-    test.assert_false(has_curve(fill_path(ops[0])))
+    test.assert(has_curve(fill_path(ops[0])))
+    test.assert_false(hole_has_curve(fill_path(ops[0])))
 }
 
-// The fill keeps its own radius when the border squares off -- the clamp is the border's, not the
-// surface's.
+// The fill keeps its own radius, and so does the border's outer contour -- the squaring-off is the
+// *hole's*, not the surface's and not the border's outer edge. Three radii in one surface, which is
+// what the ring made expressible and the stroke could not say.
 #[test]
-fn the_clamp_is_the_borders_and_not_the_fills() {
+fn the_squaring_off_is_the_holes_and_not_the_fills() {
     val edged = widget.Surface {
         fill: Option<paint.Color>.Some(paint.white()),
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 6.0)),
@@ -1365,7 +1445,8 @@ fn the_clamp_is_the_borders_and_not_the_fills() {
     val ops = ops_of(edged)
     test.assert_len(2, ops)
     test.assert(has_curve(fill_path(ops[0])))
-    test.assert_false(has_curve(fill_path(ops[1])))
+    test.assert(has_curve(fill_path(ops[1])))
+    test.assert_false(hole_has_curve(fill_path(ops[1])))
 }
 
 // ----------------------------------------------------- alignment (2026-11-12)
@@ -1578,20 +1659,24 @@ fn a_rounded_surface_fills_and_curves_but_does_not_edge() {
 }
 
 // **Nothing behind it**, which is the whole point of an outline: a ghost panel shows what is
-// under it. A fill of any colour, including a transparent one, would be an op that paints.
+// under it. A face of any colour, including a transparent one, would be an op that paints.
+//
+// One op, and since 2026-11-15 it is a *fill* -- but a ring, which paints only its frame. So the
+// claim is no longer "no fill op" but "no solid fill": the single op's winding is `EvenOdd`, and an
+// even-odd path with a hole in it leaves the middle alone.
 #[test]
-fn an_outlined_surface_paints_no_fill_at_all() {
+fn an_outlined_surface_paints_no_solid_fill_at_all() {
     val ops = ops_of(widget.outlined(paint.black(), 2.0, 4.0))
     test.assert_len(1, ops)
-    test.assert(scene.Op.is_StrokePath(ops[0]))
+    test.assert(shape.Winding.is_EvenOdd(fill_path(ops[0]).winding))
 }
 
 #[test]
 fn an_edged_surface_does_both_in_order() {
     val ops = ops_of(widget.edged(paint.white(), paint.black(), 2.0, 5.0))
     test.assert_len(2, ops)
-    test.assert(scene.Op.is_Fill(ops[0]))
-    test.assert(scene.Op.is_StrokePath(ops[1]))
+    test.assert(shape.Winding.is_NonZero(fill_path(ops[0]).winding))
+    test.assert(shape.Winding.is_EvenOdd(fill_path(ops[1]).winding))
     test.assert(has_curve(fill_path(ops[0])))
 }
 
