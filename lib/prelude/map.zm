@@ -207,24 +207,6 @@ pub native fn get<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
 // single process, is not a measurement of a size-dependent thing.
 pub native fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
 
-// **A new Map without any of `keys`.** The plural of what the singular takes, which is a variadic
-// parameter -- so `remove_all(m, "a", "b")`, and `remove_all(m, ks)` for an array, the lone-array
-// spread taking it.
-//
-// **It was this name until 2026-10-22, `remove` until 2026-11-15, and this name again** -- the
-// singular's doc carries the count and the measurement that moved it back, and the short of it is
-// that nothing in this repository ever called the variadic plurally. It is kept rather than dropped
-// because the question is real and the alternative spelling is a loop: `remove_keys` takes a
-// `Set<K>` and this takes loose keys or an array, which is every shape a caller has.
-//
-// Nothing is ambiguous between the two names, and that is the whole reason there are two: argument
-// one fixes `K`, so a lone `[K]` argument spreads and a lone `K` does not -- but `remove(m, k)` and
-// `remove(m, ks...)` could not be two declarations of one name, because a `Set<K>` or `[K]` key is
-// a real thing to hold and no call could say which reading it meant. See `remove_keys` for that
-// wall, which is unchanged in substance and has stood through all three namings.
-#[at_least_one]
-pub native fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
-
 // Drops `key`, answering whether it was actually there; a key that is absent is not an error.
 //
 // **It answered `Option<V>` -- the value it took out -- until 2026-10-22, and answers `bool`
@@ -246,6 +228,24 @@ pub native fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map
 // read "answers something" as "has no effect" and refused `remove(mb, k)` in statement position.
 #[effectful]
 pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
+
+// **A new Map without any of `keys`.** The plural of what the singular takes, which is a variadic
+// parameter -- so `remove_all(m, "a", "b")`, and `remove_all(m, ks)` for an array, the lone-array
+// spread taking it.
+//
+// **It was this name until 2026-10-22, `remove` until 2026-11-15, and this name again** -- the
+// singular's doc carries the count and the measurement that moved it back, and the short of it is
+// that nothing in this repository ever called the variadic plurally. It is kept rather than dropped
+// because the question is real and the alternative spelling is a loop: `remove_keys` takes a
+// `Set<K>` and this takes loose keys or an array, which is every shape a caller has.
+//
+// Nothing is ambiguous between the two names, and that is the whole reason there are two: argument
+// one fixes `K`, so a lone `[K]` argument spreads and a lone `K` does not -- but `remove(m, k)` and
+// `remove(m, ks...)` could not be two declarations of one name, because a `Set<K>` or `[K]` key is
+// a real thing to hold and no call could say which reading it meant. See `remove_keys` for that
+// wall, which is unchanged in substance and has stood through all three namings.
+#[at_least_one]
+pub native fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
 
 // Drops each of `keys`, answering whether any of them was there. `remove`'s plural in the builder
 // world, and the same name-for-name pairing the immutable one has.

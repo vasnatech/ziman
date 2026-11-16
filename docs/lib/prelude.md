@@ -2111,30 +2111,6 @@ it won. The lesson is the one tests/bench/map_ops.zm's own header keeps relearni
 docs/design/journal records as *one benchmark said the opposite of five*: a single size, in a
 single process, is not a measurement of a size-dependent thing.
 
-### `remove_all`
-
-```
-pub native fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
-```
-
-**A new Map without any of `keys`.** The plural of what the singular takes, which is a variadic
-parameter -- so `remove_all(m, "a", "b")`, and `remove_all(m, ks)` for an array, the lone-array
-spread taking it.
-
-**It was this name until 2026-10-22, `remove` until 2026-11-15, and this name again** -- the
-singular's doc carries the count and the measurement that moved it back, and the short of it is
-that nothing in this repository ever called the variadic plurally. It is kept rather than dropped
-because the question is real and the alternative spelling is a loop: `remove_keys` takes a
-`Set<K>` and this takes loose keys or an array, which is every shape a caller has.
-
-Nothing is ambiguous between the two names, and that is the whole reason there are two: argument
-one fixes `K`, so a lone `[K]` argument spreads and a lone `K` does not -- but `remove(m, k)` and
-`remove(m, ks...)` could not be two declarations of one name, because a `Set<K>` or `[K]` key is
-a real thing to hold and no call could say which reading it meant. See `remove_keys` for that
-wall, which is unchanged in substance and has stood through all three namings.
-
-### `remove`
-
 ```
 pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
 ```
@@ -2160,6 +2136,26 @@ was needed for a sharper reason while this answered a value: without it the drop
 read "answers something" as "has no effect" and refused `remove(mb, k)` in statement position.
 
 ### `remove_all`
+
+```
+pub native fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
+```
+
+**A new Map without any of `keys`.** The plural of what the singular takes, which is a variadic
+parameter -- so `remove_all(m, "a", "b")`, and `remove_all(m, ks)` for an array, the lone-array
+spread taking it.
+
+**It was this name until 2026-10-22, `remove` until 2026-11-15, and this name again** -- the
+singular's doc carries the count and the measurement that moved it back, and the short of it is
+that nothing in this repository ever called the variadic plurally. It is kept rather than dropped
+because the question is real and the alternative spelling is a loop: `remove_keys` takes a
+`Set<K>` and this takes loose keys or an array, which is every shape a caller has.
+
+Nothing is ambiguous between the two names, and that is the whole reason there are two: argument
+one fixes `K`, so a lone `[K]` argument spreads and a lone `K` does not -- but `remove(m, k)` and
+`remove(m, ks...)` could not be two declarations of one name, because a `Set<K>` or `[K]` key is
+a real thing to hold and no call could say which reading it meant. See `remove_keys` for that
+wall, which is unchanged in substance and has stood through all three namings.
 
 ```
 pub native fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool
@@ -3267,18 +3263,6 @@ repository and the two that depend on it, none passed more than one argument. `a
 variadic, and the asymmetry is deliberate now rather than left over: `add` has real plural
 callers and `remove` had none.
 
-### `remove_all`
-
-```
-pub native fn remove_all<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
-```
-
-**A new Set without any of `items`.** `remove`'s plural, which this world gained on 2026-10-22
-and kept: `remove_all` never had an immutable Set form before then, so "a set without these" took
-a fold or a `filter`.
-
-### `remove`
-
 ```
 pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
 ```
@@ -3289,6 +3273,14 @@ Drops `item`, answering whether it was there; nothing happens for one that is ab
 "make sure this is gone" has no use for.
 
 ### `remove_all`
+
+```
+pub native fn remove_all<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
+```
+
+**A new Set without any of `items`.** `remove`'s plural, which this world gained on 2026-10-22
+and kept: `remove_all` never had an immutable Set form before then, so "a set without these" took
+a fold or a `filter`.
 
 ```
 pub native fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
