@@ -837,12 +837,39 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
      sample backend: `service/integration_sync.zm:266`, `service/oura.zm:582`, `:583`, `:600` (two
      on that line) and `service/export/export_xml.zm:184`. **Do this first** -- it is a free win and
      it shrinks the case for the interpreter change by exactly the amount it is worth.
-  2. **The builder's per-call handle validation, which is item 4 above and still never done.**
-     `MutableMap len` 37 ns and `MutableSet len` 56 against `Map len`'s 17, for the same field read
-     -- `handleset_has` is a hash probe paid on literally every builder call, and on `len` it is the
-     entire cost. Note what changed around it: the frameless work (2026-11-14/15) took the
-     interpreter *frame* out of these calls, so the handle probe is now the whole of the remainder
-     rather than half of it.
+  2. **The builder's per-call handle validation, which is item 4 above and still never done -- and
+     it is worth four times what that item guessed.** It called the cost "small, but on literally
+     every builder call". **Sized 2026-11-15 by stubbing the check out and measuring the ceiling**,
+     three paired passes, 5,000,000 ops, with immutable `Map len` as the control:
+
+     | row | validated | check stubbed | |
+     | --- | --- | --- | --- |
+     | `Map len` (control, no handle) | 37 ns | 37-38 | unmoved |
+     | `MutableMap len` | 69-70 | 40-42 | **-40%** |
+     | `MutableSet len` | 73-75 | 48-51 | **-34%** |
+     | `MutableMap contains` | 73-74 | 50-51 | **-31%** |
+     | `MutableMap set` | 86-89 | 63-67 | **-25%** |
+     | `MutableSet add` | 53-54 | 27-28 | **-49%** |
+
+     **About 22-28 ns on every builder call, uniformly** -- which is a quarter to a half of these
+     rows. (Absolute figures from that probe's own harness; compare only within the pair, per this
+     entry's own rule.) The control is what makes it a measurement rather than a guess: the
+     immutable `Map`, which holds no handle, does not move.
+
+     Two things cost that: `handleset_has`, a sharded hash probe under a mutex measured at 13.9 ns
+     single-threaded (src/handles.h has the shard-count table), and `builder_owner_check`.
+     **And src/handles.h already names the fix**: "a fully lock-free design -- a generation counter
+     inside the handle value, so validation is an atomic load -- is the real answer and a much
+     larger change". It is larger because it changes what a handle *value* is, and 11 HandleSet
+     declarations share the mechanism (`tools/check_handle_sets.py` counts them), not only the two
+     builder worlds.
+
+     **Do not just delete the check.** It is load-bearing: `5468e8e3` fixed a GC segfault that was
+     a missing handle validation, and the frameless natives rely on this being the only error they
+     can raise. The win is making it cheap, not making it absent.
+
+     Note what changed around it: the frameless work (2026-11-14/15) took the interpreter *frame*
+     out of these calls, so this probe is now the whole of the remainder rather than half of it.
   3. **The persistent `Set add` shortcut, still out only because it was reverted in a pair.** It
      went back on 2026-11-12 alongside `remove`'s, whose revert has since been shown wrong (see the
      correction in the entry above). `add` keeps its variadic -- it has real plural callers, where
