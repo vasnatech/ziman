@@ -108,6 +108,35 @@ static int do_button(Window w, int x, int y, int button) {
     return 0;
 }
 
+/* Half a click, so a drag can be driven: press, then move, then release.
+ *
+ * **`click` cannot express a drag**, which is what the split pane's divider needed and what no
+ * control before it did -- every earlier gesture here was a press and a release at one point, and
+ * `do_button` sends both before any motion can be injected between them. Pressing and releasing
+ * separately is the whole addition; the event is the same one `do_button` builds. */
+static int do_half_button(Window w, int x, int y, int button, int press) {
+    XButtonEvent ev;
+    memset(&ev, 0, sizeof ev);
+    ev.display = dpy;
+    ev.window = w;
+    ev.root = DefaultRootWindow(dpy);
+    ev.subwindow = None;
+    ev.time = CurrentTime;
+    ev.x = x; ev.y = y; ev.x_root = x; ev.y_root = y;
+    ev.same_screen = True;
+    ev.button = (unsigned)button;
+    if (press) {
+        ev.type = ButtonPress;
+        XSendEvent(dpy, w, True, ButtonPressMask, (XEvent *)&ev);
+    } else {
+        ev.type = ButtonRelease;
+        ev.state = Button1Mask;
+        XSendEvent(dpy, w, True, ButtonReleaseMask, (XEvent *)&ev);
+    }
+    settle();
+    return 0;
+}
+
 /* The wheel is buttons 4 and 5 in X11, which the native turns into Scroll -- so this sends a
  * button and the assertion on the other side is about a Scroll. */
 static int do_scroll(Window w, int x, int y, const char *direction) {
@@ -178,6 +207,8 @@ static void usage(void) {
     fprintf(stderr,
             "usage: x11_inject <window-id> key <keysym> [shift|control|alt|meta]\n"
             "       x11_inject <window-id> click <x> <y> <button>\n"
+            "       x11_inject <window-id> press <x> <y> <button>\n"
+            "       x11_inject <window-id> release <x> <y> <button>\n"
             "       x11_inject <window-id> scroll <x> <y> <up|down>\n"
             "       x11_inject <window-id> move <x> <y>\n"
             "       x11_inject <window-id> resize <width> <height>\n"
@@ -202,6 +233,10 @@ int main(int argc, char **argv) {
         rc = do_key(w, argv[3], argc > 4 ? argv[4] : NULL);
     } else if (strcmp(what, "click") == 0 && argc > 5) {
         rc = do_button(w, atoi(argv[3]), atoi(argv[4]), atoi(argv[5]));
+    } else if (strcmp(what, "press") == 0 && argc > 5) {
+        rc = do_half_button(w, atoi(argv[3]), atoi(argv[4]), atoi(argv[5]), 1);
+    } else if (strcmp(what, "release") == 0 && argc > 5) {
+        rc = do_half_button(w, atoi(argv[3]), atoi(argv[4]), atoi(argv[5]), 0);
     } else if (strcmp(what, "scroll") == 0 && argc > 5) {
         rc = do_scroll(w, atoi(argv[3]), atoi(argv[4]), argv[5]);
     } else if (strcmp(what, "move") == 0 && argc > 4) {

@@ -347,6 +347,7 @@ fn only_a_key_or_text_could_change_a_field() {
 // --- the text entry
 
 use controls.bar_thickness
+use controls.divider_line
 use controls.divider_thickness
 use controls.min_column
 use controls.min_thumb
@@ -3434,6 +3435,28 @@ fn the_divider_takes_the_focus_and_the_pane_does_not() {
     test.assert_eq(focus.controls(l)[0].name, controls.divider_name(pane()))
     val tree = a11y.tree_of(l, "Records", "")
     test.assert_eq(said_of_tree(tree, "sidebar"), "split pane")
+}
+
+// **What is drawn is a line; what can be grabbed is the whole six points.** The first version
+// filled the grab area with `style.face` and was invisible in the first application that used it,
+// because the control on at least one side of a divider is drawn in `style.face` too. Nothing in
+// the layout or the accessibility tree could have shown that -- the box was the right box -- so
+// this test asserts the one thing that was wrong: the ink is narrower than the target.
+#[test]
+fn the_divider_draws_a_line_narrower_than_the_grab_area() {
+    val l = laid_pane(pane(), pane_extent)
+    test.assert_eq(box_named(l, controls.divider_name(pane())).width, divider_thickness)
+    val fills = mutable_array_new<geom.Rect>()
+    for op in widget.paint_ops(l, metrics()) {
+        if Fill(f) = op {
+            push(fills, shape.path_bounds(f.path))
+        }
+    }
+    // The panes are empty and paint nothing, so the divider's line is the only fill in the tree.
+    test.assert_len(1, snapshot(fills))
+    test.assert_eq(fills[0].width, divider_line)
+    // Centred in the grab area: two points of line with two either side of it.
+    test.assert_eq(fills[0].x, 100.0 + (divider_thickness - divider_line) / 2.0)
 }
 
 #[test]

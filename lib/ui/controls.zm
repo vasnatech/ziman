@@ -2941,6 +2941,17 @@ pub val divider_thickness = 6.0
 // point is a point whatever is either side of it.
 pub val divider_step = 10.0
 
+// How wide the **line** down the middle of a divider is, where `divider_thickness` is how wide the
+// thing you can grab is.
+//
+// **Two numbers because a divider is two things**, which is what every toolkit does and what
+// looking at the first one running made obvious: a six-point bar filled with `style.face` is
+// invisible for most of its length, because the control on at least one side of it is drawn in
+// `style.face` too. A divider has to read as a *line* -- so the grab area paints nothing and a
+// narrow line is centred in it. Four points of nothing either side is also why a 6-point target is
+// enough to hit.
+pub val divider_line = 2.0
+
 // Two panes with a divider between them, which the user can drag.
 //
 // **The first control here that owns a layout rather than filling one**, and it is still not a
@@ -3167,6 +3178,35 @@ fn split_key(s: SplitPane, k: Keystroke, extent: float) -> SplitStep {
     return split_still(s)
 }
 
+// The line a divider is seen as.
+//
+// **`disabled_ink` rather than a colour of its own**, which is a deliberate reuse and not a
+// shortcut: `Style` has no divider colour, and adding one would make every theme answer a
+// question most themes do not care about. It is the one grey in the palette darker than a face,
+// which is what a line between two faces has to be. A theme that wants more says so by making
+// this darker, and if one ever needs the line a different colour from its disabled text, *that*
+// is when `Style` grows a field.
+//
+// **It darkens to the ink while it is held**, because a drag with no feedback leaves a user
+// unsure whether they took hold of anything -- the divider is the one control here with no other
+// way to show that it is being used.
+fn divider_line_widget(s: SplitPane, style: Style, held: bool) -> widget.Widget {
+    val colour = if held { style.ink } else { style.disabled_ink }
+    val line = widget.Widget.Group(widget.Stack {
+        direction: s.direction,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: highlight_of(style, colour),
+        align: widget.stretched(),
+        children: [],
+        name: ""
+    })
+    return switch s.direction {
+        Row { widget.fixed_of(divider_line, 0.0, line) }
+        Column { widget.fixed_of(0.0, divider_line, line) }
+    }
+}
+
 // The pane as a widget: the first pane at its size, the divider, and the second pane taking what
 // is left.
 //
@@ -3203,15 +3243,19 @@ pub fn split_pane_widget(
         value: str(floor(at)),
         state: with widget.no_state() { disabled: s.disabled },
         tab_stop: true,
+        // **The grab area paints nothing and the line inside it does.** Filling the whole six
+        // points makes a divider that disappears against any control drawn in the same face, which
+        // is what the first application to use one showed in its first frame.
         child: widget.Widget.Group(widget.Stack {
             direction: s.direction,
             spacing: 0.0,
             padding: widget.no_insets(),
-            // Never edged, for `highlight_of`'s reason: a border down both sides of a six-point
-            // divider is two lines where the design asked for one.
-            surface: highlight_of(style, if held { style.pressed_face } else { style.face }),
-            align: widget.stretched(),
-            children: [],
+            surface: widget.no_surface(),
+            // Centred **along** the stack and stretched across it, which places the line in the
+            // middle of the grab area in either direction without this function knowing which one
+            // it is in.
+            align: widget.Alignment { across: widget.Across.Stretch, along: widget.Along.Centre },
+            children: [divider_line_widget(s, style, held)],
             name: ""
         })
     })

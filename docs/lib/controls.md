@@ -1444,6 +1444,22 @@ What one arrow key moves the divider by.
 something this module cannot see, so it has to be given one; a divider moves in points, and a
 point is a point whatever is either side of it.
 
+### `divider_line`
+
+```
+pub val divider_line = 2.0
+```
+
+How wide the **line** down the middle of a divider is, where `divider_thickness` is how wide the
+thing you can grab is.
+
+**Two numbers because a divider is two things**, which is what every toolkit does and what
+looking at the first one running made obvious: a six-point bar filled with `style.face` is
+invisible for most of its length, because the control on at least one side of it is drawn in
+`style.face` too. A divider has to read as a *line* -- so the grab area paints nothing and a
+narrow line is centred in it. Four points of nothing either side is also why a 6-point target is
+enough to hit.
+
 ### `SplitPane`
 
 ```
