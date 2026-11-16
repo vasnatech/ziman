@@ -1,0 +1,130 @@
+// What a screen reader says about the controls above it.
+//
+// **The only demo that shows a layer rather than a control.** `a11y` turns a laid-out tree into a
+// tree of nodes -- a role, a name, a value and the states that change what they mean -- and
+// `atspi` puts that on the bus for a reader to walk. This shows the middle of that: the sentence
+// a reader would say for each node, computed from the same tree the window draws.
+//
+// **It lays itself out to find out.** A role is declared where a widget is built, but a *tree* of
+// them only exists once something has been laid out -- so `view` lays its own controls out in a
+// box of a known size and reads the announcements off that. Cheap, because it is six nodes, and
+// honest, because it is the same function the window itself calls.
+use a11y
+use boxes
+use controls
+use demos/accessibility_ui
+use geom
+use widget
+use widget.Toggle
+
+// The box the demo lays itself out in to describe itself. Any size would do -- an announcement
+// does not depend on where a control is -- so this is simply room enough for one row.
+val probe = 600.0
+
+pub struct Demo {
+    press: controls.Button
+    notify: controls.CheckBox
+    picker: controls.ComboBox
+    // Which control the reader is on. **Focus is held by name, outside the tree**, precisely so
+    // that rebuilding the tree cannot move it.
+    focused: string
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        press: controls.button_of("a11y-press", "Send"),
+        notify: controls.check_box_of("a11y-notify", "Notify me", Toggle.Mixed),
+        picker: controls.combo_box_of("a11y-picker", "Environment", ["local", "staging"], 1),
+        focused: "a11y-notify"
+    }
+}
+
+fn controls_row(d: Demo, style: controls.Style, m: widget.Metrics) -> [widget.Widget] {
+    return [
+        controls.button_widget(d.press, style),
+        controls.check_box_widget(d.notify, style, m),
+        controls.combo_box_widget(d.picker, style)
+    ]
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    val row = controls_row(d, style, m)
+    val laid = widget.layout(
+        widget.row_of(8.0, row),
+        geom.rect_of(0.0, 0.0, probe, 40.0),
+        m
+    )
+    val tree = a11y.tree_of(laid, "gallery", d.focused)
+    val lines = mutable_array_new<widget.Widget>()
+    for node in tree.nodes {
+        val said = a11y.announce(node)
+        if len(said) > 0 {
+            // **The focused node is marked here and not in what it says.** `announce` never
+            // mentions focus, and that is right: a reader follows the focus and reads the node it
+            // lands on, so saying "focused" would be a word on every line a user ever hears.
+            // Which line that is, though, is the whole point of the demo -- so the arrow is the
+            // gallery's, pointing at the one sentence a reader would actually say.
+            push(lines, accessibility_ui.line(concat(if node.focused { "> " } else { "  " }, said), style))
+        }
+    }
+    return accessibility_ui.screen(accessibility_ui.Screen {
+        press: row[0],
+        check: row[1],
+        picker: row[2],
+        said: concat(
+            "A reader says one of these -- the one the focus is on. Click a control to move it."
+        ),
+        lines: snapshot(lines)
+    }, style, m)
+}
+
+pub fn anchor(d: Demo) -> string {
+    if d.picker.open {
+        return "a11y-picker"
+    }
+    return ""
+}
+
+pub fn layer(d: Demo, style: controls.Style, at: geom.Rect) -> widget.Layer {
+    return controls.combo_box_popup_layer(d.picker, style, geom.rect_of(
+        at.x,
+        at.y + at.height,
+        at.width,
+        (len(d.picker.items.items) as float) * d.picker.items.row_height
+    ))
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    // **The focus the reader follows is this demo's own**, not the window's: the point is to show
+    // what "focused" does to an announcement, and the window's focus is on whatever was last
+    // clicked, which may be the tree on the left.
+    val here = if name == "a11y-press" || name == "a11y-notify" || name == "a11y-picker" {
+        with d { focused: name }
+    } else {
+        d
+    }
+    if name == "a11y-press" {
+        return with here { press: controls.button_input(here.press, input, boxes.bounds_of(laid, name)).button }
+    }
+    if name == "a11y-notify" {
+        return with here { notify: controls.check_box_input(here.notify, input, boxes.bounds_of(laid, name)).check_box }
+    }
+    if name == "a11y-picker" || name == "a11y-picker/items" {
+        return with here {
+            picker: controls.combo_box_input(
+                here.picker,
+                input,
+                boxes.bounds_of(laid, "a11y-picker"),
+                boxes.bounds_of(laid, "a11y-picker/items")
+            ).combo
+        }
+    }
+    return here
+}

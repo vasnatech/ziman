@@ -1,0 +1,116 @@
+// The box model: a stack, the three ways a child takes room in one, and where the spare room
+// goes.
+//
+// **A stack divides space along its own direction and hands every child the parent's full extent
+// across it.** That is the whole of it, and the three kinds of child are the rest: `Fixed` asks
+// for a size, `Expand` asks for a share of what is left, and `Flex` is a child that is nothing
+// but a share. Choosing where the spare room goes when nothing is flexible is the alignment, and
+// that is what the picker here changes.
+use boxes
+use controls
+use demos/layout_ui
+use geom
+use widget
+
+pub struct Demo {
+    along: controls.ComboBox
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        along: controls.combo_box_of("layout-along", "Along", ["Start", "Centre", "End"], 0)
+    }
+}
+
+fn chosen(d: Demo) -> widget.Along {
+    if d.along.items.selected == 1 {
+        return widget.Along.Centre
+    }
+    if d.along.items.selected == 2 {
+        return widget.Along.End
+    }
+    return widget.Along.Start
+}
+
+// Three fixed blocks in a row, with the spare room placed by the picker. **Nothing flexible**,
+// which is the condition for an alignment to mean anything: a `flex()` eats the spare room by
+// definition, so a stack holding one is already full.
+fn a_row(d: Demo, style: controls.Style) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 8.0,
+        padding: widget.insets_of(0.0, 4.0, 0.0, 4.0),
+        surface: widget.no_surface(),
+        align: widget.Alignment { across: widget.Across.Centre, along: chosen(d) },
+        children: [
+            layout_ui.block("fixed 90", style),
+            layout_ui.block("fixed 90", style),
+            layout_ui.block("fixed 90", style)
+        ],
+        name: ""
+    })
+}
+
+// The same row with the middle block expanded, which is what every toolbar is: a thing of its own
+// size, a thing that fills, and another thing of its own size.
+fn a_filled_row(style: controls.Style) -> widget.Widget {
+    return widget.row_of(8.0, [
+        layout_ui.block("fixed", style),
+        widget.expand(layout_ui.block("expand -- takes what is left", style)),
+        layout_ui.block("fixed", style)
+    ])
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return layout_ui.screen(layout_ui.Screen {
+        picker: controls.combo_box_widget(d.along, style),
+        row: a_row(d, style),
+        column: a_filled_row(style),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    return concat(
+        "The top row has no flexible child, so the spare room is placed by the alignment (",
+        controls.combo_box_value(d.along),
+        "). The bottom row has one, so there is no spare room to place."
+    )
+}
+
+pub fn anchor(d: Demo) -> string {
+    if d.along.open {
+        return "layout-along"
+    }
+    return ""
+}
+
+pub fn layer(d: Demo, style: controls.Style, at: geom.Rect) -> widget.Layer {
+    return controls.combo_box_popup_layer(d.along, style, geom.rect_of(
+        at.x,
+        at.y + at.height,
+        at.width,
+        (len(d.along.items.items) as float) * d.along.items.row_height
+    ))
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "layout-along" || name == "layout-along/items" {
+        return with d {
+            along: controls.combo_box_input(
+                d.along,
+                input,
+                boxes.bounds_of(laid, "layout-along"),
+                boxes.bounds_of(laid, "layout-along/items")
+            ).combo
+        }
+    }
+    return d
+}

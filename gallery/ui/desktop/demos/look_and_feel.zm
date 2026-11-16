@@ -1,0 +1,125 @@
+// The same controls under three looks, which is what `Style` is for.
+//
+// **A theme is not a palette.** Swapping every colour gives a different *theme of the same
+// widgets*, which is why an application could ship a dark palette long before it could ship a
+// button that looked different. What distinguishes a flat look from an edged one, or a rounded
+// field from a square one, is **shape** -- `Surface.border` and `Surface.corner` -- and until
+// `widget.Surface` widened, this layer had no way to ask for any of it.
+use boxes
+use controls
+use demos/look_and_feel_ui
+use geom
+use paint
+use widget
+use widget.Toggle
+
+pub struct Demo {
+    picker: controls.ComboBox
+    press: controls.Button
+    notify: controls.CheckBox
+    field: controls.Entry
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        picker: controls.combo_box_of("look-picker", "Look", ["Plain", "Soft", "Outlined"], 0),
+        press: controls.button_of("look-press", "Send"),
+        notify: controls.check_box_of("look-notify", "Notify me", Toggle.On),
+        field: controls.entry_of("look-field", "Your name", "Ada Lovelace")
+    }
+}
+
+// **Absent and zero in `default_style`, on purpose**: the default look is what it always was, and
+// a look and feel is what you get by setting the two fields that are shape rather than colour.
+fn look_of(d: Demo, style: controls.Style) -> controls.Style {
+    if d.picker.items.selected == 1 {
+        return with style {
+            corner: widget.Radius.Points(6.0),
+            face: paint.rgb(0.91, 0.93, 0.97),
+            pressed_face: paint.rgb(0.80, 0.85, 0.95)
+        }
+    }
+    if d.picker.items.selected == 2 {
+        return with style {
+            corner: widget.Radius.Points(3.0),
+            face: paint.rgb(1.0, 1.0, 1.0),
+            face_border: Option<widget.Border>.Some(widget.Border {
+                colour: paint.rgb(0.55, 0.58, 0.62),
+                width: 1.0
+            })
+        }
+    }
+    return style
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    val look = look_of(d, style)
+    return look_and_feel_ui.screen(look_and_feel_ui.Screen {
+        // **The picker keeps the window's own style** so that it stays where the eye expects it
+        // while everything beside it changes: a control that restyles itself is harder to find
+        // again, and this one is how you get back.
+        picker: controls.combo_box_widget(d.picker, style),
+        button: controls.button_widget(d.press, look),
+        check: controls.check_box_widget(d.notify, look, m),
+        field: controls.entry_widget(d.field, look, m),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    if d.picker.items.selected == 1 {
+        return "Soft: rounded corners and a tinted face. A palette plus one shape field."
+    }
+    if d.picker.items.selected == 2 {
+        return "Outlined: a white face with a border. Every control goes through `face_of`, so one field reaches all of them."
+    }
+    return "Plain: what `default_style` gives -- square, filled, unedged."
+}
+
+pub fn anchor(d: Demo) -> string {
+    if d.picker.open {
+        return "look-picker"
+    }
+    return ""
+}
+
+pub fn layer(d: Demo, style: controls.Style, at: geom.Rect) -> widget.Layer {
+    return controls.combo_box_popup_layer(d.picker, style, geom.rect_of(
+        at.x,
+        at.y + at.height,
+        at.width,
+        (len(d.picker.items.items) as float) * d.picker.items.row_height
+    ))
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "look-picker" || name == "look-picker/items" {
+        return with d {
+            picker: controls.combo_box_input(
+                d.picker,
+                input,
+                boxes.bounds_of(laid, "look-picker"),
+                boxes.bounds_of(laid, "look-picker/items")
+            ).combo
+        }
+    }
+    if name == "look-press" {
+        return with d { press: controls.button_input(d.press, input, boxes.bounds_of(laid, name)).button }
+    }
+    if name == "look-notify" {
+        return with d { notify: controls.check_box_input(d.notify, input, boxes.bounds_of(laid, name)).check_box }
+    }
+    if name == "look-field" {
+        return with d {
+            field: controls.entry_input(d.field, input, boxes.bounds_of(laid, name), look_of(d, style), m).entry
+        }
+    }
+    return d
+}

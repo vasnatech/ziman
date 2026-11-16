@@ -10,11 +10,14 @@
 // **A demo is exactly two files**, the logic and the design, and `files_of` derives both from the
 // stem rather than listing them -- so a demo cannot be added with its design file forgotten.
 use controls
+use demos/accessibility
 use demos/button
 use demos/check_box
 use demos/combo_box
 use demos/dialog
+use demos/layout
 use demos/list
+use demos/look_and_feel
 use demos/menu
 use demos/scroll_bar
 use demos/split_pane
@@ -40,6 +43,9 @@ pub enum Demo {
     ComboBox(combo_box.Demo)
     Menu(menu.Demo)
     Dialog(dialog.Demo)
+    Layout(layout.Demo)
+    LookAndFeel(look_and_feel.Demo)
+    Accessibility(accessibility.Demo)
 }
 
 // The catalogue, in the order the tree shows it: the plain controls, then the ones that hold
@@ -58,7 +64,10 @@ pub fn all() -> [Demo] {
         Demo.SplitPane(split_pane.demo()),
         Demo.ComboBox(combo_box.demo()),
         Demo.Menu(menu.demo()),
-        Demo.Dialog(dialog.demo())
+        Demo.Dialog(dialog.demo()),
+        Demo.Layout(layout.demo()),
+        Demo.LookAndFeel(look_and_feel.demo()),
+        Demo.Accessibility(accessibility.demo())
     ]
 }
 
@@ -77,6 +86,9 @@ pub fn title_of(d: Demo) -> string {
         ComboBox(_) { "Combo box" }
         Menu(_) { "Menu" }
         Dialog(_) { "Dialog" }
+        Layout(_) { "Rows and columns" }
+        LookAndFeel(_) { "Three looks" }
+        Accessibility(_) { "What a reader says" }
     }
 }
 
@@ -96,6 +108,9 @@ pub fn stem_of(d: Demo) -> string {
         ComboBox(_) { "combo_box" }
         Menu(_) { "menu" }
         Dialog(_) { "dialog" }
+        Layout(_) { "layout" }
+        LookAndFeel(_) { "look_and_feel" }
+        Accessibility(_) { "accessibility" }
     }
 }
 
@@ -120,6 +135,9 @@ pub fn view_of(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widg
         ComboBox(it) { combo_box.view(it, style, m) }
         Menu(it) { menu.view(it, style, m) }
         Dialog(it) { dialog.view(it, style, m) }
+        Layout(it) { layout.view(it, style, m) }
+        LookAndFeel(it) { look_and_feel.view(it, style, m) }
+        Accessibility(it) { accessibility.view(it, style, m) }
     }
 }
 
@@ -145,6 +163,9 @@ pub fn input_to(
         ComboBox(it) { Demo.ComboBox(combo_box.input(it, name, input, laid, style, m)) }
         Menu(it) { Demo.Menu(menu.input(it, name, input, laid, style, m)) }
         Dialog(it) { Demo.Dialog(dialog.input(it, name, input, laid, style, m)) }
+        Layout(it) { Demo.Layout(layout.input(it, name, input, laid, style, m)) }
+        LookAndFeel(it) { Demo.LookAndFeel(look_and_feel.input(it, name, input, laid, style, m)) }
+        Accessibility(it) { Demo.Accessibility(accessibility.input(it, name, input, laid, style, m)) }
     }
 }
 
@@ -160,6 +181,9 @@ pub fn anchor_of(d: Demo) -> string {
     return switch d {
         ComboBox(it) { combo_box.anchor(it) }
         Menu(it) { menu.anchor(it) }
+        Layout(it) { layout.anchor(it) }
+        LookAndFeel(it) { look_and_feel.anchor(it) }
+        Accessibility(it) { accessibility.anchor(it) }
         Button(_) { "" }
         CheckBox(_) { "" }
         TextField(_) { "" }
@@ -199,6 +223,27 @@ pub fn layer_of(d: Demo, style: controls.Style, m: widget.Metrics, at: geom.Rect
                 Option<widget.Layer>.None
             }
         }
+        Layout(it) {
+            if layout.anchor(it) == "" {
+                Option<widget.Layer>.None
+            } else {
+                Option<widget.Layer>.Some(layout.layer(it, style, at))
+            }
+        }
+        LookAndFeel(it) {
+            if look_and_feel.anchor(it) == "" {
+                Option<widget.Layer>.None
+            } else {
+                Option<widget.Layer>.Some(look_and_feel.layer(it, style, at))
+            }
+        }
+        Accessibility(it) {
+            if accessibility.anchor(it) == "" {
+                Option<widget.Layer>.None
+            } else {
+                Option<widget.Layer>.Some(accessibility.layer(it, style, at))
+            }
+        }
         Button(_) { Option<widget.Layer>.None }
         CheckBox(_) { Option<widget.Layer>.None }
         TextField(_) { Option<widget.Layer>.None }
@@ -210,4 +255,36 @@ pub fn layer_of(d: Demo, style: controls.Style, m: widget.Metrics, at: geom.Rect
         ScrollBar(_) { Option<widget.Layer>.None }
         SplitPane(_) { Option<widget.Layer>.None }
     }
+}
+
+// Which branch of the catalogue a demo hangs under.
+//
+// **A group with one demo in it is still a group.** The branches say what the gallery is *about*
+// -- the controls, the box model, the look, what a reader hears -- and a tree that grew its
+// second branch later would change every row index at once, which is the arithmetic every test
+// here depends on.
+pub fn group_of(d: Demo) -> string {
+    return switch d {
+        Layout(_) { "Layout" }
+        LookAndFeel(_) { "Look and feel" }
+        Accessibility(_) { "Accessibility" }
+        Button(_) { "Controls" }
+        CheckBox(_) { "Controls" }
+        TextField(_) { "Controls" }
+        TextArea(_) { "Controls" }
+        List(_) { "Controls" }
+        Tabs(_) { "Controls" }
+        Tree(_) { "Controls" }
+        Table(_) { "Controls" }
+        ScrollBar(_) { "Controls" }
+        SplitPane(_) { "Controls" }
+        ComboBox(_) { "Controls" }
+        Menu(_) { "Controls" }
+        Dialog(_) { "Controls" }
+    }
+}
+
+// The branches, in the order the tree shows them.
+pub fn groups() -> [string] {
+    return ["Controls", "Layout", "Look and feel", "Accessibility"]
 }

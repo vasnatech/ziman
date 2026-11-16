@@ -38,6 +38,8 @@ pub struct State {
     // no bounds to clamp it against, so the event loop writes it here on every resize.
     window_width: float
     tree: controls.Tree
+    // Which demo each tree row shows. See `row_demos`.
+    row_demo: [int]
     tabs: controls.Tabs
     // One tab per file of the chosen demo, named after the file.
     files: controls.Tabs
@@ -71,6 +73,7 @@ pub fn opening_state() -> State {
         },
         window_width: 1100.0,
         tree: with controls.tree_of("catalogue", "Controls", tree_rows(demos)) { selected: 1 },
+        row_demo: row_demos(demos),
         tabs: with controls.tabs_of("tabs", "Views", ["Demo", "Code"]) {
             tab_width: tab_width
         },
@@ -84,18 +87,56 @@ pub fn opening_state() -> State {
     return showing(begin, 0)
 }
 
-// One group row with every demo under it.
+// A branch per group, with its demos under it.
 //
-// **A group even with one group in it**, because the second group is coming -- layout, look and
-// feel, accessibility -- and a tree that gains its first branch later is a tree whose row
-// arithmetic changes under every test at once.
+// **Built in `all.groups()`'s order, not in the demos' order**, so a demo can be added anywhere
+// in the catalogue without being filed anywhere it does not belong. A group with nothing in it
+// draws no branch, which is what lets `groups()` name a branch before its first demo exists.
 fn tree_rows(demos: [all.Demo]) -> [controls.TreeRow] {
     val rows = mutable_array_new<controls.TreeRow>()
-    push(rows, controls.tree_branch("Controls", 0, true))
-    for d in demos {
-        push(rows, controls.tree_row(all.title_of(d), 1))
+    for group in all.groups() {
+        if any_in(demos, group) {
+            push(rows, controls.tree_branch(group, 0, true))
+            for d in demos {
+                if all.group_of(d) == group {
+                    push(rows, controls.tree_row(all.title_of(d), 1))
+                }
+            }
+        }
     }
     return snapshot(rows)
+}
+
+// Which demo each tree row shows, by row index, or -1 for a branch.
+//
+// **A parallel array rather than arithmetic**, which the single-group version could get away
+// with: with branches between them a row's index is no longer its demo's index plus one, and
+// working it out at the point of use is how a catalogue ends up selecting the wrong thing after
+// someone adds a group.
+fn row_demos(demos: [all.Demo]) -> [int] {
+    val out = mutable_array_new<int>()
+    for group in all.groups() {
+        if any_in(demos, group) {
+            push(out, 0 - 1)
+            var i = 0
+            while i < len(demos) {
+                if all.group_of(demos[i]) == group {
+                    push(out, i)
+                }
+                i = i + 1
+            }
+        }
+    }
+    return snapshot(out)
+}
+
+fn any_in(demos: [all.Demo], group: string) -> bool {
+    for d in demos {
+        if all.group_of(d) == group {
+            return true
+        }
+    }
+    return false
 }
 
 // A code pane: a text area nobody can type into, as many rows as the pane will show.
@@ -205,8 +246,12 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.
         // **Selecting shows it; there is nothing to activate.** A tree whose rows had to be
         // opened as well as reached would make the catalogue two gestures deep for no gain --
         // the demo is already on screen beside it.
+        // **A branch shows nothing rather than the demo above it.** Opening and closing a
+        // group moves the selection onto the branch, and a catalogue that answered that with
+        // "whatever was last in the group" would change the pane for a gesture that was about
+        // the tree.
         if taken.moved {
-            return showing(moved, moved.tree.selected - 1)
+            return showing(moved, demo_at(moved, moved.tree.selected))
         }
         return moved
     }
@@ -233,6 +278,13 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.
     return with here {
         demos: demo_set(here.demos, here.at, all.input_to(here.demos[here.at], name, input, laid, style, m))
     }
+}
+
+fn demo_at(s: State, row: int) -> int {
+    if row < 0 || row >= len(s.row_demo) {
+        return 0 - 1
+    }
+    return s.row_demo[row]
 }
 
 fn demo_set(demos: [all.Demo], at: int, one: all.Demo) -> [all.Demo] {
