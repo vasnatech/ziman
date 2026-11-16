@@ -1,0 +1,60 @@
+// A radio group: one of several, and the control is the group.
+//
+// **A lone radio button is a control a user cannot undo** -- there is no gesture that unselects
+// one -- so what a user is choosing is which of N, which is one piece of state and therefore one
+// control, with one tab stop and one name. That is also what makes the arrows work: a group is
+// the only thing that knows what "the next one" is.
+//
+// **The arrows choose rather than merely moving**, which is the opposite of a list and the same
+// as a tab strip: a radio group has no state between "looking at" and "chosen".
+use boxes
+use controls
+use demos/radios_ui
+use widget
+
+pub struct Demo {
+    how_often: controls.Radios
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        how_often: controls.radios_of(
+            "radios-often",
+            "How often",
+            ["Never", "Daily", "Weekly", "Monthly"],
+            1
+        )
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return radios_ui.screen(radios_ui.Screen {
+        group: controls.radios_widget(d.how_often, style, m),
+        said: said(d)
+    }, style, m)
+}
+
+fn said(d: Demo) -> string {
+    if d.how_often.selected < 0 {
+        return "Nothing chosen. Any arrow key starts at the first option."
+    }
+    return concat(
+        "Chosen: ",
+        d.how_often.items[d.how_often.selected],
+        ". The arrows choose as they move -- there is no second keystroke to confirm."
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "radios-often" {
+        return with d { how_often: controls.radios_input(d.how_often, input, boxes.bounds_of(laid, name)).radios }
+    }
+    return d
+}

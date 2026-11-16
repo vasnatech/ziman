@@ -3922,6 +3922,567 @@ pub fn table_widget(t: Table, style: Style) -> widget.Widget {
     })
 }
 
+// ------------------------------------------------------- radio buttons
+
+// How tall one option is. **A val rather than a field**, as `bar_thickness` is: a group whose
+// options were different heights would be a list, and a list is a different control.
+pub val radio_height = 24.0
+
+// A choice of one from several.
+//
+// **The control is the group, not the button**, which is the whole difference from a check box. A
+// lone radio button is a control a user cannot undo: there is no gesture that unselects one, so a
+// single radio is a switch that can only ever be turned on. What a user is choosing is which of N,
+// and that is one piece of state, so it is one control with one tab stop and one name -- which is
+// also what makes the arrows work, since a group is the only thing that knows what "the next one"
+// is.
+//
+// **A column, and only a column.** A row of options needs every option to be the same width to be
+// hit-tested -- the compromise `Tabs.tab_width` makes -- and an option's label is a sentence where
+// a tab's is a word. A row of two short options is a real layout and this does not do it yet.
+pub struct Radios {
+    name: string
+    label: string
+    items: [string]
+    // The chosen option, or -1 for none. **A real state**: a group a user has not touched and that
+    // was given no default has nothing chosen, and inventing one would answer a question nobody
+    // asked.
+    selected: int
+    disabled: bool
+}
+
+pub fn radios_of(name: string, label: string, items: [string], selected: int) -> Radios {
+    return Radios {
+        name: name,
+        label: label,
+        items: items,
+        selected: if selected < 0 || selected >= len(items) { 0 - 1 } else { selected },
+        disabled: false
+    }
+}
+
+// An option's own name, which focus and accessibility address it by.
+pub fn radio_name(r: Radios, index: int) -> string {
+    return concat(r.name, "/", str(index))
+}
+
+pub struct RadioStep {
+    radios: Radios
+    moved: bool
+}
+
+fn radios_still(r: Radios) -> RadioStep {
+    return RadioStep { radios: r, moved: false }
+}
+
+fn radio_to(r: Radios, want: int) -> RadioStep {
+    val last = len(r.items) - 1
+    if last < 0 {
+        return radios_still(r)
+    }
+    val at = if want < 0 { 0 } else { if want > last { last } else { want } }
+    return RadioStep { radios: with r { selected: at }, moved: at != r.selected }
+}
+
+// What an input does to a group.
+//
+// **The arrows select, they do not merely move.** That is what a radio group does everywhere and
+// it is the opposite of a list: there is no second keystroke to confirm, because a radio group
+// *is* the confirmation -- it has no state between "looking at" and "chosen". A group that needed
+// Space after an arrow would leave a keyboard user with a selection the screen disagrees with.
+//
+// **Both pairs of arrows, unlike a split pane.** A column of options is navigated with Up and Down
+// by every keyboard user and with Left and Right by every one who learned radios on a form where
+// they were in a row; neither is wrong about what "the next option" means.
+pub fn radios_input(r: Radios, input: Input, bounds: Rect) -> RadioStep {
+    if r.disabled {
+        return radios_still(r)
+    }
+    val last = len(r.items) - 1
+    return switch input {
+        Press(p) {
+            if !widget.contains(bounds, p) {
+                radios_still(r)
+            } else {
+                val row = floor((p.y - bounds.y) / radio_height)
+                if row < 0 || row > last {
+                    radios_still(r)
+                } else {
+                    radio_to(r, row)
+                }
+            }
+        }
+        KeyDown(k) { radios_key(r, k) }
+        KeyUp(_) { radios_still(r) }
+        Text(_) { radios_still(r) }
+        Paste(_) { radios_still(r) }
+        Release(_) { radios_still(r) }
+        Move(_) { radios_still(r) }
+        // **A wheel over a group chooses nothing.** A user scrolling a form past a group of
+        // options has not asked to change their answer, and a group that changed it would be a
+        // form that fills itself in wrong as you read it.
+        Wheel(_) { radios_still(r) }
+    }
+}
+
+fn radios_key(r: Radios, k: Keystroke) -> RadioStep {
+    val last = len(r.items) - 1
+    if last < 0 {
+        return radios_still(r)
+    }
+    // **From the first option when nothing is chosen**, whichever arrow is pressed: a group with
+    // no selection has no "next", and starting at the top is what a user pressing Down expects
+    // where starting at the bottom is a surprise.
+    val here = if r.selected < 0 { 0 } else { r.selected }
+    if Key.is_Down(k.key) || Key.is_Right(k.key) {
+        return radio_to(r, if r.selected < 0 { 0 } else { here + 1 })
+    }
+    if Key.is_Up(k.key) || Key.is_Left(k.key) {
+        return radio_to(r, if r.selected < 0 { 0 } else { here - 1 })
+    }
+    if Key.is_Home(k.key) {
+        return radio_to(r, 0)
+    }
+    if Key.is_End(k.key) {
+        return radio_to(r, last)
+    }
+    // Space chooses the option the group is on, which is already chosen -- so it reports nothing
+    // and exists only so that a user who presses it is not told their keyboard is broken.
+    if Key.is_Space(k.key) && r.selected >= 0 {
+        return radios_still(r)
+    }
+    return radios_still(r)
+}
+
+// The group as a widget: an option per row, each a part of the group.
+//
+// **The options carry `checked`, and the group carries nothing**, which is what a reader reads:
+// it announces "radio button, Weekly, checked" for the one you are on. A group holding an index
+// would make every adapter work out for itself which child the number meant.
+pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widget {
+    val ink = if r.disabled { style.disabled_ink } else { style.ink }
+    val side = widget.height_in(m, style.text_font, style.text_size)
+    val rows = mutable_array_new<widget.Widget>()
+    var i = 0
+    while i < len(r.items) {
+        val chosen = i == r.selected
+        val dot = widget.fixed_of(side, side, widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            // **A circle, always, whatever the theme's corner is.** A square radio button is the
+            // one shape a user reads as a check box, and the difference between the two controls
+            // is the difference between "some of these" and "one of these" -- which is worth more
+            // than a theme's consistency. `Fraction(0.5)` is a capsule of any size, and the box
+            // is a square, so it is a circle.
+            surface: widget.Surface {
+                fill: Option<Color>.Some(if chosen { style.pressed_face } else { style.face }),
+                border: style.face_border,
+                corner: widget.Radius.Fraction(0.5)
+            },
+            align: widget.centred(),
+            children: [widget.label_in_face(if chosen { "•" } else { " " }, style.text_size, ink, style.text_font)],
+            name: ""
+        }))
+        val row = widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: style.text_size * 0.5,
+            padding: widget.insets_of(0.0, 2.0, 0.0, 2.0),
+            surface: widget.no_surface(),
+            align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+            children: [dot, widget.label_in_face(r.items[i], style.text_size, ink, style.text_font)],
+            name: ""
+        })
+        push(rows, widget.fixed_of(0.0, radio_height, widget.part_of(
+            radio_name(r, i),
+            widget.Role.RadioButton,
+            r.items[i],
+            with widget.no_state() {
+                disabled: r.disabled,
+                checked: Option<Toggle>.Some(if chosen { Toggle.On } else { Toggle.Off })
+            },
+            row
+        )))
+        i = i + 1
+    }
+    return widget.Widget.Control(widget.Focusable {
+        name: r.name,
+        // **A group, which is what AT-SPI calls the container of a set of radio buttons.** It is
+        // not itself a radio button, and a reader that announced it as one would be describing a
+        // control that cannot be operated.
+        role: widget.Role.Group,
+        label: r.label,
+        description: "",
+        value: "",
+        state: with widget.no_state() { disabled: r.disabled },
+        tab_stop: true,
+        child: widget.column_of(0.0, snapshot(rows))
+    })
+}
+
+// ------------------------------------------------------------- the slider
+
+// How thick the track is, and how wide the thumb is. **Shared by the widget and the hit test**,
+// which is `bar_thickness`'s rule.
+pub val track_thickness = 4.0
+pub val thumb_width = 14.0
+// How tall the thumb is drawn.
+//
+// **Given rather than taken from the row**, because a thumb is a thing of its own size: a slider
+// in a 60-point row should not have a 60-point thumb. The first version placed it in a layer of
+// height zero -- a rect `layer_at` honoured exactly -- so the slider drew a track and nothing to
+// drag, which is the same mistake the link made with a `Fixed` of height zero on the same
+// afternoon. A box whose size nobody states is a box of nothing.
+pub val thumb_height = 18.0
+
+// A number chosen by dragging.
+//
+// **The range and the step are the control's, not the application's.** A slider that took a
+// fraction and left the arithmetic outside would make every caller write the same three lines,
+// and get the clamp wrong in at least one of them -- which is the shape `scroll_to_reveal` and
+// `clamp_offset` already exist to prevent elsewhere.
+pub struct Slider {
+    name: string
+    label: string
+    value: float
+    least: float
+    most: float
+    // What one arrow key moves, and what the value is snapped to. **Zero means no snapping**,
+    // which is a continuous slider and a real thing to want -- a colour picker's hue has no
+    // steps.
+    step: float
+    grabbed: bool
+    disabled: bool
+}
+
+pub fn slider_of(name: string, label: string, least: float, most: float, value: float) -> Slider {
+    return with Slider {
+        name: name,
+        label: label,
+        value: value,
+        least: least,
+        most: if most < least { least } else { most },
+        step: 1.0,
+        grabbed: false,
+        disabled: false
+    } {
+        value: snapped_value(least, if most < least { least } else { most }, 1.0, value)
+    }
+}
+
+// A value clamped into the range and snapped to the step.
+//
+// **One function, used by every gesture and by the constructor**, so a slider can never hold a
+// value it would refuse to be dragged to -- which is the state that makes a control look broken
+// the first time a user touches it.
+pub fn snapped_value(least: float, most: float, step: float, want: float) -> float {
+    val held = if want < least { least } else { if want > most { most } else { want } }
+    if step <= 0.0 {
+        return held
+    }
+    val steps = (held - least) / step
+    val whole = (floor(steps + 0.5) as float) * step
+    val landed = least + whole
+    return if landed > most { most } else { landed }
+}
+
+// Where the thumb's left edge sits, in points from the start of the track.
+//
+// **One function, read by the widget and by every gesture** -- `thumb_of`'s rule, for the reason
+// it keeps being restated: a thumb drawn by one calculation and dragged by another jumps under
+// the pointer.
+pub fn slider_at(s: Slider, width: float) -> float {
+    val room = width - thumb_width
+    if room <= 0.0 || s.most <= s.least {
+        return 0.0
+    }
+    return room * (s.value - s.least) / (s.most - s.least)
+}
+
+// The value a point along the track asks for, before it is snapped.
+fn value_at(s: Slider, bounds: Rect, x: float) -> float {
+    val room = bounds.width - thumb_width
+    if room <= 0.0 {
+        return s.least
+    }
+    // Measured from the thumb's centre, so that pressing the middle of the track asks for the
+    // middle of the range rather than for a value half a thumb low.
+    val along = x - bounds.x - thumb_width / 2.0
+    return s.least + (s.most - s.least) * along / room
+}
+
+pub struct SliderStep {
+    slider: Slider
+    moved: bool
+}
+
+fn slider_still(s: Slider) -> SliderStep {
+    return SliderStep { slider: s, moved: false }
+}
+
+fn slider_to(s: Slider, want: float) -> SliderStep {
+    val now = snapped_value(s.least, s.most, s.step, want)
+    return SliderStep { slider: with s { value: now }, moved: now != s.value }
+}
+
+// What an input does to a slider.
+//
+// **A press anywhere on the track takes the value under it**, rather than paging towards it as a
+// scroll bar does. The two look alike and mean different things: a scroll bar moves a view and a
+// page is the unit a reader moves by, where a slider *is* the value and a user pressing at the
+// three-quarter mark is asking for three quarters. It takes hold at the same time, so a press and
+// a drag are one gesture.
+pub fn slider_input(s: Slider, input: Input, bounds: Rect) -> SliderStep {
+    if s.disabled {
+        return slider_still(s)
+    }
+    return switch input {
+        Press(p) {
+            if !widget.contains(bounds, p) {
+                slider_still(s)
+            } else {
+                val taken = slider_to(s, value_at(s, bounds, p.x))
+                SliderStep { slider: with taken.slider { grabbed: true }, moved: taken.moved }
+            }
+        }
+        Move(p) {
+            if s.grabbed {
+                slider_to(s, value_at(s, bounds, p.x))
+            } else {
+                slider_still(s)
+            }
+        }
+        Release(_) { SliderStep { slider: with s { grabbed: false }, moved: false } }
+        KeyDown(k) { slider_key(s, k) }
+        KeyUp(_) { slider_still(s) }
+        Text(_) { slider_still(s) }
+        Paste(_) { slider_still(s) }
+        // **The wheel moves it**, unlike a list's selection and unlike a split pane's divider: a
+        // slider under the pointer is the thing the pointer is for, and every volume control ever
+        // built answers the wheel.
+        Wheel(w) { slider_to(s, s.value + (w.vertical as float) * slider_step(s)) }
+    }
+}
+
+// What one keypress or notch moves. The step when there is one, and a hundredth of the range when
+// there is not -- a continuous slider still has to be usable from the keyboard.
+fn slider_step(s: Slider) -> float {
+    if s.step > 0.0 {
+        return s.step
+    }
+    return (s.most - s.least) / 100.0
+}
+
+fn slider_key(s: Slider, k: Keystroke) -> SliderStep {
+    val one = slider_step(s)
+    // A page is a tenth of the range, floored at one step, which is what makes PageUp useful on a
+    // slider of 1000 and harmless on a slider of 5.
+    val page = if (s.most - s.least) / 10.0 > one { (s.most - s.least) / 10.0 } else { one }
+    if Key.is_Right(k.key) || Key.is_Up(k.key) {
+        return slider_to(s, s.value + one)
+    }
+    if Key.is_Left(k.key) || Key.is_Down(k.key) {
+        return slider_to(s, s.value - one)
+    }
+    if Key.is_PageUp(k.key) {
+        return slider_to(s, s.value + page)
+    }
+    if Key.is_PageDown(k.key) {
+        return slider_to(s, s.value - page)
+    }
+    if Key.is_Home(k.key) {
+        return slider_to(s, s.least)
+    }
+    if Key.is_End(k.key) {
+        return slider_to(s, s.most)
+    }
+    return slider_still(s)
+}
+
+// The slider as a widget: a track with a thumb on it.
+//
+// **The thumb is a fixed box after a gap**, which places it without arithmetic the hit test would
+// have to repeat -- the gap is `slider_at`'s answer, so the layout and `slider_input` are reading
+// one calculation.
+pub fn slider_widget(s: Slider, style: Style, width: float) -> widget.Widget {
+    val face = if s.grabbed { style.pressed_face } else { style.face }
+    val track = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: highlight_of(style, style.disabled_ink),
+        align: widget.stretched(),
+        children: [],
+        name: ""
+    })
+    val thumb = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: face_of(style, face),
+        align: widget.stretched(),
+        children: [],
+        name: ""
+    })
+    // **The thumb is placed by a gap, not by a rectangle.** `layer_at` takes an absolute box and
+    // the only thing a slider knows absolutely is how far along the thumb goes -- its height comes
+    // from the lane it is in, which this function is not told. A row of [gap, thumb, the rest]
+    // says the position with the one number there is and leaves the height to `thumb_height`,
+    // centred across.
+    val over = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+        children: [
+            widget.fixed_of(slider_at(s, width), 0.0, widget.Widget.Nothing),
+            widget.fixed_of(thumb_width, thumb_height, thumb),
+            widget.flex()
+        ],
+        name: ""
+    })
+    val lane = widget.Widget.Layered(widget.Stacked {
+        name: "",
+        layers: [
+            // The track is centred in the lane, so the thumb overhangs it either side.
+            widget.base_layer(widget.column_of(0.0, [
+                widget.flex(),
+                widget.fixed_of(0.0, track_thickness, track),
+                widget.flex()
+            ])),
+            widget.base_layer(over)
+        ]
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: s.name,
+        role: widget.Role.Slider,
+        label: s.label,
+        description: "",
+        // **The value, which is the whole of what a slider is.** A reader that said "Volume,
+        // slider" and stopped would have told the user nothing they could not have guessed.
+        value: str(floor(s.value)),
+        state: with widget.no_state() { disabled: s.disabled },
+        tab_stop: true,
+        child: lane
+    })
+}
+
+// --------------------------------------------------------------- the link
+
+// Text that goes somewhere.
+//
+// **A control, not a label**, which is the point: a link has to be reachable by Tab, operable by
+// Enter, and announced as a link, and a coloured label is none of those. What it does *not* do is
+// go anywhere -- this layer has no browser and no idea what a URL means -- so it answers that it
+// was activated and the application decides.
+pub struct Link {
+    name: string
+    // What it says.
+    label: string
+    // Where it goes, which this layer never reads. It is handed back on activation so an
+    // application does not have to keep a second table from names to destinations.
+    href: string
+    held: bool
+    disabled: bool
+}
+
+// How thick the underline is and how far under the words it sits. **Two numbers shared by the
+// widget and by the height it asks for**, which is the only way the box can be exactly as tall as
+// what goes in it.
+pub val underline_width = 1.0
+pub val underline_gap = 1.0
+
+pub fn link_of(name: string, label: string, href: string) -> Link {
+    return Link { name: name, label: label, href: href, held: false, disabled: false }
+}
+
+pub struct LinkStep {
+    link: Link
+    // **Followed, not clicked**: a press that drags off and releases elsewhere is not a follow,
+    // which is `ButtonStep.activated`'s rule and the reason this is built on a button.
+    followed: bool
+}
+
+pub fn link_input(l: Link, input: Input, bounds: Rect) -> LinkStep {
+    val step = button_input(with button_of(l.name, l.label) { disabled: l.disabled, held: l.held }, input, bounds)
+    return LinkStep { link: with l { held: step.button.held }, followed: step.activated }
+}
+
+// The link as a widget: its text, underlined.
+//
+// **The underline is the signal, not the colour.** A link told apart from body text by hue alone
+// is a link a colour-blind reader cannot find, and `Style` has no link colour to set -- which is
+// the right way round: the underline works in every theme and on every display, where a blue that
+// reads on white is a blue that vanishes on navy. A theme that wants a coloured link is the
+// argument for a `Style.link` field, and nothing has made that argument yet.
+//
+// **It measures its own text, which is why it takes a `Metrics`.** The first version put the
+// label and the rule in a stretched column and said in a comment that the column would be as wide
+// as its widest child -- and a column is as wide as the box it is *given*, which at the root of a
+// layout is the whole window. So the underline ran the width of the pane with the words at one
+// end of it. A control that wants to be the size of its text has to ask how wide its text is;
+// `check_box_widget` takes a `Metrics` to make a square for the same kind of reason.
+pub fn link_widget(l: Link, style: Style, m: widget.Metrics) -> widget.Widget {
+    val ink = if l.disabled { style.disabled_ink } else { style.ink }
+    val rule = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.filled(ink),
+        align: widget.stretched(),
+        children: [],
+        name: ""
+    })
+    // The text's own width, which is what the rule under it is fixed to, and its own height,
+    // which it has to be told.
+    //
+    // **A `Fixed` of zero on an axis is zero unless its parent stretches it**, and the row below
+    // centres across rather than stretching -- so the first version of this measured zero high and
+    // the link drew nothing at all: no rule, no words, no error. The check box learned the same
+    // thing from the other side, where a stretched row made its square a rectangle. A stack can be
+    // told not to stretch a child; it cannot be given one whose size it does not know.
+    val words = widget.width_in(m, style.text_font, l.label, style.text_size)
+    val tall = widget.height_in(m, style.text_font, style.text_size) + underline_gap + underline_width
+    val underlined = widget.fixed_of(words, tall, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: underline_gap,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        children: [
+            widget.label_in_face(l.label, style.text_size, ink, style.text_font),
+            widget.fixed_of(0.0, underline_width, rule)
+        ],
+        name: ""
+    }))
+    val inside = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: style.padding,
+        surface: if l.held { highlight_of(style, style.pressed_face) } else { widget.no_surface() },
+        // **`Along.Start`, so the text stays at the start of whatever box the link is given.** A
+        // link centred in a wide row would be a link that moves when the window is resized.
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+        children: [underlined],
+        name: ""
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: l.name,
+        role: widget.Role.Link,
+        label: l.label,
+        // **The destination is not announced.** A reader that read every URL aloud would be
+        // unusable on a page of links, and what a user needs to hear is where it goes in words,
+        // which is the label's job. An application with a reason to say more sets a description of
+        // its own.
+        description: "",
+        value: "",
+        state: with widget.no_state() { disabled: l.disabled },
+        tab_stop: true,
+        child: inside
+    })
+}
+
 // ------------------------------------------------------------------- the style
 
 // How a control is drawn. Injected rather than global, for the reason `widget.Metrics` is: a module

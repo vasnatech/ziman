@@ -16,10 +16,13 @@ use demos/check_box
 use demos/combo_box
 use demos/dialog
 use demos/layout
+use demos/link
 use demos/list
 use demos/look_and_feel
 use demos/menu
+use demos/radios
 use demos/scroll_bar
+use demos/slider
 use demos/split_pane
 use demos/table
 use demos/tabs
@@ -32,6 +35,7 @@ use widget
 pub enum Demo {
     Button(button.Demo)
     CheckBox(check_box.Demo)
+    Radios(radios.Demo)
     TextField(text_field.Demo)
     TextArea(text_area.Demo)
     List(list.Demo)
@@ -39,9 +43,11 @@ pub enum Demo {
     Tree(tree.Demo)
     Table(table.Demo)
     ScrollBar(scroll_bar.Demo)
+    Slider(slider.Demo)
     SplitPane(split_pane.Demo)
     ComboBox(combo_box.Demo)
     Menu(menu.Demo)
+    Link(link.Demo)
     Dialog(dialog.Demo)
     Layout(layout.Demo)
     LookAndFeel(look_and_feel.Demo)
@@ -54,6 +60,7 @@ pub fn all() -> [Demo] {
     return [
         Demo.Button(button.demo()),
         Demo.CheckBox(check_box.demo()),
+        Demo.Radios(radios.demo()),
         Demo.TextField(text_field.demo()),
         Demo.TextArea(text_area.demo()),
         Demo.List(list.demo()),
@@ -61,9 +68,11 @@ pub fn all() -> [Demo] {
         Demo.Tree(tree.demo()),
         Demo.Table(table.demo()),
         Demo.ScrollBar(scroll_bar.demo()),
+        Demo.Slider(slider.demo()),
         Demo.SplitPane(split_pane.demo()),
         Demo.ComboBox(combo_box.demo()),
         Demo.Menu(menu.demo()),
+        Demo.Link(link.demo()),
         Demo.Dialog(dialog.demo()),
         Demo.Layout(layout.demo()),
         Demo.LookAndFeel(look_and_feel.demo()),
@@ -75,6 +84,7 @@ pub fn title_of(d: Demo) -> string {
     return switch d {
         Button(_) { "Button" }
         CheckBox(_) { "Check box" }
+        Radios(_) { "Radio group" }
         TextField(_) { "Text field" }
         TextArea(_) { "Text area" }
         List(_) { "List" }
@@ -82,9 +92,11 @@ pub fn title_of(d: Demo) -> string {
         Tree(_) { "Tree" }
         Table(_) { "Table" }
         ScrollBar(_) { "Scroll bar" }
+        Slider(_) { "Slider" }
         SplitPane(_) { "Split pane" }
         ComboBox(_) { "Combo box" }
         Menu(_) { "Menu" }
+        Link(_) { "Link" }
         Dialog(_) { "Dialog" }
         Layout(_) { "Rows and columns" }
         LookAndFeel(_) { "Three looks" }
@@ -97,6 +109,7 @@ pub fn stem_of(d: Demo) -> string {
     return switch d {
         Button(_) { "button" }
         CheckBox(_) { "check_box" }
+        Radios(_) { "radios" }
         TextField(_) { "text_field" }
         TextArea(_) { "text_area" }
         List(_) { "list" }
@@ -104,9 +117,11 @@ pub fn stem_of(d: Demo) -> string {
         Tree(_) { "tree" }
         Table(_) { "table" }
         ScrollBar(_) { "scroll_bar" }
+        Slider(_) { "slider" }
         SplitPane(_) { "split_pane" }
         ComboBox(_) { "combo_box" }
         Menu(_) { "menu" }
+        Link(_) { "link" }
         Dialog(_) { "dialog" }
         Layout(_) { "layout" }
         LookAndFeel(_) { "look_and_feel" }
@@ -124,6 +139,7 @@ pub fn view_of(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widg
     return switch d {
         Button(it) { button.view(it, style, m) }
         CheckBox(it) { check_box.view(it, style, m) }
+        Radios(it) { radios.view(it, style, m) }
         TextField(it) { text_field.view(it, style, m) }
         TextArea(it) { text_area.view(it, style, m) }
         List(it) { list.view(it, style, m) }
@@ -131,9 +147,11 @@ pub fn view_of(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widg
         Tree(it) { tree.view(it, style, m) }
         Table(it) { table.view(it, style, m) }
         ScrollBar(it) { scroll_bar.view(it, style, m) }
+        Slider(it) { slider.view(it, style, m) }
         SplitPane(it) { split_pane.view(it, style, m) }
         ComboBox(it) { combo_box.view(it, style, m) }
         Menu(it) { menu.view(it, style, m) }
+        Link(it) { link.view(it, style, m) }
         Dialog(it) { dialog.view(it, style, m) }
         Layout(it) { layout.view(it, style, m) }
         LookAndFeel(it) { look_and_feel.view(it, style, m) }
@@ -152,6 +170,7 @@ pub fn input_to(
     return switch d {
         Button(it) { Demo.Button(button.input(it, name, input, laid, style, m)) }
         CheckBox(it) { Demo.CheckBox(check_box.input(it, name, input, laid, style, m)) }
+        Radios(it) { Demo.Radios(radios.input(it, name, input, laid, style, m)) }
         TextField(it) { Demo.TextField(text_field.input(it, name, input, laid, style, m)) }
         TextArea(it) { Demo.TextArea(text_area.input(it, name, input, laid, style, m)) }
         List(it) { Demo.List(list.input(it, name, input, laid, style, m)) }
@@ -159,9 +178,11 @@ pub fn input_to(
         Tree(it) { Demo.Tree(tree.input(it, name, input, laid, style, m)) }
         Table(it) { Demo.Table(table.input(it, name, input, laid, style, m)) }
         ScrollBar(it) { Demo.ScrollBar(scroll_bar.input(it, name, input, laid, style, m)) }
+        Slider(it) { Demo.Slider(slider.input(it, name, input, laid, style, m)) }
         SplitPane(it) { Demo.SplitPane(split_pane.input(it, name, input, laid, style, m)) }
         ComboBox(it) { Demo.ComboBox(combo_box.input(it, name, input, laid, style, m)) }
         Menu(it) { Demo.Menu(menu.input(it, name, input, laid, style, m)) }
+        Link(it) { Demo.Link(link.input(it, name, input, laid, style, m)) }
         Dialog(it) { Demo.Dialog(dialog.input(it, name, input, laid, style, m)) }
         Layout(it) { Demo.Layout(layout.input(it, name, input, laid, style, m)) }
         LookAndFeel(it) { Demo.LookAndFeel(look_and_feel.input(it, name, input, laid, style, m)) }
@@ -186,6 +207,9 @@ pub fn anchor_of(d: Demo) -> string {
         Accessibility(it) { accessibility.anchor(it) }
         Button(_) { "" }
         CheckBox(_) { "" }
+        Radios(_) { "" }
+        Slider(_) { "" }
+        Link(_) { "" }
         TextField(_) { "" }
         TextArea(_) { "" }
         List(_) { "" }
@@ -246,6 +270,9 @@ pub fn layer_of(d: Demo, style: controls.Style, m: widget.Metrics, at: geom.Rect
         }
         Button(_) { Option<widget.Layer>.None }
         CheckBox(_) { Option<widget.Layer>.None }
+        Radios(_) { Option<widget.Layer>.None }
+        Slider(_) { Option<widget.Layer>.None }
+        Link(_) { Option<widget.Layer>.None }
         TextField(_) { Option<widget.Layer>.None }
         TextArea(_) { Option<widget.Layer>.None }
         List(_) { Option<widget.Layer>.None }
@@ -270,6 +297,9 @@ pub fn group_of(d: Demo) -> string {
         Accessibility(_) { "Accessibility" }
         Button(_) { "Controls" }
         CheckBox(_) { "Controls" }
+        Radios(_) { "Controls" }
+        Slider(_) { "Controls" }
+        Link(_) { "Controls" }
         TextField(_) { "Controls" }
         TextArea(_) { "Controls" }
         List(_) { "Controls" }

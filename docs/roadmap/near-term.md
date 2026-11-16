@@ -1680,8 +1680,10 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   palette has nothing pictorial in it.
 
 - **The widget set has nine controls, and a desktop application needs about thirty** -- *research
-  done 2026-11-16; **SplitPane and Table built the same day** (F288, F289, 34 unit tests, 14
-  mutations, 5 new roles). Everything else below is not started.*
+  done 2026-11-16; **SplitPane and Table built the same day** (F288, F289), then **the three
+  empty roles filled** -- radio group, slider, link (F290). 60 unit tests and 20 mutations across
+  the five, 5 new roles, and a UI gallery that shows all of them. Everything else below is not
+  started.*
   Asked for "more controls, split pane, table, etc.", and the two reference points chosen were
   **Swing's standard component set** and **[JIDE Software](https://www.jidesoft.com/products/)**,
   whose fifteen products exist precisely because Swing's floor was not enough for the applications
@@ -1694,9 +1696,10 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   Expanded, Viewport, Layer) and the `dialog_layer`/`dialog_keys` pair that is a tenth in all but
   name.
 
-  **Three roles are declared with no control behind them**, which is the sharpest single finding
-  and is a gap nothing would have reported -- and all three are still open after F288/F289:
-  `widget.Role` has `RadioButton`, `Slider` and `Link`,
+  **Three roles were declared with no control behind them**, which was the sharpest single
+  finding and a gap nothing would have reported -- ~~and all three are still open after
+  F288/F289~~ **all three built 2026-11-16 (F290)**: `widget.Role` had `RadioButton`, `Slider` and
+  `Link`,
   `a11y.role_word` spells all three for a reader and `atspi.zm` maps all three to a platform
   number. The vocabulary is complete and the controls were never written, so every layer below the
   widget set is already waiting for them. That is a half-day each, not a design pass.
@@ -1705,9 +1708,9 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   | --- | --- | --- | --- |
   | ~~SplitPane~~ **DONE** | `JSplitPane` | `TableSplitPane`, DocumentPane's split view | a divider that drags, and the first control that *owns* a layout rather than filling one. See [F288](../reviews/tasks/f288-f289.md) |
   | ~~Table~~ **DONE** | `JTable` | the whole *Grids* product | header, columns, column widths. Sorting, filtering, cell selection and editing deferred, as JIDE layers them. See [F289](../reviews/tasks/f288-f289.md) |
-  | RadioButton + group | `JRadioButton`, `ButtonGroup` | -- | role exists; the group is the new idea (one of N, by name) |
-  | Slider | `JSlider` | `RangeSlider` | role exists; shares the thumb arithmetic with `ScrollBar` |
-  | Link | -- | -- | role exists; a Button that looks like text and reports a URL |
+  | ~~RadioButton + group~~ **DONE** | `JRadioButton`, `ButtonGroup` | -- | the *group* is the control: a lone radio is one a user cannot undo. Column only; a row of options needs every option the same width |
+  | ~~Slider~~ **DONE** | `JSlider` | `RangeSlider` | range, step and snap belong to the control. A press takes the value under it where a scroll bar pages. `RangeSlider` (two thumbs) not done |
+  | ~~Link~~ **DONE** | -- | -- | underline is the signal, not colour -- a hue-only link is one a colour-blind reader cannot find. No `Style.link` field yet |
   | ProgressBar | `JProgressBar` | inside `StatusBar` | new role; determinate and indeterminate are different controls wearing one name |
   | Spinner | `JSpinner` | -- | new role; it is an `Entry` with two buttons and a value model |
   | ToggleButton | `JToggleButton` | -- | `Button` plus `State.checked` |

@@ -1,0 +1,69 @@
+// A link: text that goes somewhere.
+//
+// **A control, not a coloured label.** A link has to be reachable by Tab, operable by Enter and
+// announced as a link, and a label is none of those. What it does not do is go anywhere -- this
+// layer has no browser -- so it answers that it was followed and the application decides.
+//
+// **The underline is the signal and the colour is not.** A link told apart from body text by hue
+// alone is a link a colour-blind reader cannot find; an underline works in every theme and on
+// every display.
+use boxes
+use controls
+use demos/link_ui
+use widget
+
+pub struct Demo {
+    syntax: controls.Link
+    library: controls.Link
+    off: controls.Link
+    went: string
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        syntax: controls.link_of("link-syntax", "Read the syntax guide", "https://ziman.dev/#syntax"),
+        library: controls.link_of("link-library", "Browse the library map", "https://ziman.dev/library-map.html"),
+        off: with controls.link_of("link-off", "A link that is not live", "") { disabled: true },
+        went: "Nothing followed yet."
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return link_ui.screen(link_ui.Screen {
+        syntax: controls.link_widget(d.syntax, style, m),
+        library: controls.link_widget(d.library, style, m),
+        off: controls.link_widget(d.off, style, m),
+        said: d.went
+    }, style, m)
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "link-syntax" {
+        val taken = controls.link_input(d.syntax, input, boxes.bounds_of(laid, name))
+        return with d { syntax: taken.link, went: went_of(taken, d) }
+    }
+    if name == "link-library" {
+        val taken = controls.link_input(d.library, input, boxes.bounds_of(laid, name))
+        return with d { library: taken.link, went: went_of(taken, d) }
+    }
+    if name == "link-off" {
+        return with d { off: controls.link_input(d.off, input, boxes.bounds_of(laid, name)).link }
+    }
+    return d
+}
+
+// **The href comes back with the step**, so an application does not keep a second table from
+// control names to destinations.
+fn went_of(taken: controls.LinkStep, d: Demo) -> string {
+    if taken.followed {
+        return concat("Would open ", taken.link.href)
+    }
+    return d.went
+}

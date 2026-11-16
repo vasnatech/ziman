@@ -351,7 +351,9 @@ use controls.divider_line
 use controls.divider_thickness
 use controls.min_column
 use controls.min_thumb
+use controls.thumb_height
 use controls.thumb_name
+use controls.thumb_width
 use edit
 
 // Ten units per character, from `metrics()` above, so a caret after three characters sits at 30
@@ -3945,4 +3947,291 @@ fn a_disabled_table_ignores_everything() {
     test.assert_eq(to_table(off, controls.Input.Press(geom.point_of(20.0, 45.0))).table.selected, 2)
     test.assert_false(to_table(off, controls.Input.KeyDown(key(controls.Key.Down))).moved)
     test.assert_eq(to_table(off, controls.Input.Press(geom.point_of(100.0, 10.0))).table.resizing, 0 - 1)
+}
+
+// ---------------------------------------------------- the radio group
+
+// Taller than the four options need, so that "below the last option" is a place a press can
+// actually land: four 24-point rows end at 96.
+val radio_box = geom.rect_of(0.0, 0.0, 200.0, 120.0)
+
+fn radios() -> controls.Radios {
+    return controls.radios_of("how-often", "How often", ["Never", "Daily", "Weekly", "Monthly"], 1)
+}
+
+fn to_radios(r: controls.Radios, input: controls.Input) -> controls.RadioStep {
+    return controls.radios_input(r, input, radio_box)
+}
+
+// **The arrows select, they do not merely move.** A radio group has no state between "looking at"
+// and "chosen", so a group that needed Space after an arrow would leave a keyboard user with a
+// selection the screen disagrees with. This is the opposite of a list and the same as a tab strip.
+#[test]
+fn an_arrow_chooses_rather_than_only_moving() {
+    val down = to_radios(radios(), controls.Input.KeyDown(key(controls.Key.Down)))
+    test.assert_eq(down.radios.selected, 2)
+    test.assert(down.moved)
+    test.assert_eq(to_radios(radios(), controls.Input.KeyDown(key(controls.Key.Up))).radios.selected, 0)
+}
+
+// Both pairs, because a column of options is navigated with Up and Down by everyone who reads it
+// as a list and with Left and Right by everyone who learned radios on a form where they sat in a
+// row.
+#[test]
+fn both_pairs_of_arrows_move_the_choice() {
+    test.assert_eq(to_radios(radios(), controls.Input.KeyDown(key(controls.Key.Right))).radios.selected, 2)
+    test.assert_eq(to_radios(radios(), controls.Input.KeyDown(key(controls.Key.Left))).radios.selected, 0)
+}
+
+// **From the first option when nothing is chosen, whichever arrow it was.** A group with no
+// selection has no "next", and a user pressing Down expects the top rather than the bottom.
+#[test]
+fn an_empty_group_starts_at_the_first_option() {
+    val none = with radios() { selected: 0 - 1 }
+    test.assert_eq(to_radios(none, controls.Input.KeyDown(key(controls.Key.Down))).radios.selected, 0)
+    test.assert_eq(to_radios(none, controls.Input.KeyDown(key(controls.Key.Up))).radios.selected, 0)
+}
+
+#[test]
+fn the_choice_stops_at_both_ends() {
+    val first = with radios() { selected: 0 }
+    test.assert_eq(to_radios(first, controls.Input.KeyDown(key(controls.Key.Up))).radios.selected, 0)
+    test.assert_false(to_radios(first, controls.Input.KeyDown(key(controls.Key.Up))).moved)
+    val last = with radios() { selected: 3 }
+    test.assert_eq(to_radios(last, controls.Input.KeyDown(key(controls.Key.Down))).radios.selected, 3)
+    test.assert_eq(to_radios(radios(), controls.Input.KeyDown(key(controls.Key.End))).radios.selected, 3)
+    test.assert_eq(to_radios(radios(), controls.Input.KeyDown(key(controls.Key.Home))).radios.selected, 0)
+}
+
+#[test]
+fn a_press_chooses_the_option_under_it() {
+    test.assert_eq(to_radios(radios(), controls.Input.Press(geom.point_of(20.0, 10.0))).radios.selected, 0)
+    test.assert_eq(to_radios(radios(), controls.Input.Press(geom.point_of(20.0, 60.0))).radios.selected, 2)
+    // Below the last option is not a choice, and neither is outside the group.
+    test.assert_false(to_radios(radios(), controls.Input.Press(geom.point_of(20.0, 110.0))).moved)
+    test.assert_false(to_radios(radios(), controls.Input.Press(geom.point_of(400.0, 10.0))).moved)
+}
+
+// **A wheel over a group chooses nothing.** A user scrolling a form past a set of options has not
+// asked to change their answer, and a form that fills itself in wrong as you read it is worse
+// than one that does nothing.
+#[test]
+fn a_wheel_does_not_change_the_choice() {
+    test.assert_false(to_radios(radios(), controls.Input.Wheel(controls.Wheel {
+        at: geom.point_of(20.0, 40.0),
+        vertical: 0 - 1,
+        horizontal: 0
+    })).moved)
+}
+
+// One tab stop for the group, the options as parts, and the group announced as a group -- it is
+// not itself a radio button, and a reader announcing it as one would be describing a control that
+// cannot be operated.
+#[test]
+fn a_group_is_one_tab_stop_whose_options_carry_the_state() {
+    val l = widget.layout(
+        controls.radios_widget(radios(), controls.default_style(), metrics()),
+        radio_box,
+        metrics()
+    )
+    test.assert_len(1, focus.controls(l))
+    val tree = a11y.tree_of(l, "Form", "")
+    test.assert_eq(said_of_tree(tree, "how-often"), "group, How often")
+    test.assert_eq(said_of_tree(tree, controls.radio_name(radios(), 1)), "radio button, Daily, checked")
+    test.assert_eq(said_of_tree(tree, controls.radio_name(radios(), 0)), "radio button, Never, unchecked")
+}
+
+#[test]
+fn a_disabled_group_ignores_everything() {
+    val off = with radios() { disabled: true }
+    test.assert_false(to_radios(off, controls.Input.KeyDown(key(controls.Key.Down))).moved)
+    test.assert_false(to_radios(off, controls.Input.Press(geom.point_of(20.0, 10.0))).moved)
+}
+
+// ---------------------------------------------------- the slider
+
+val slider_box = geom.rect_of(0.0, 0.0, 114.0, 24.0)
+
+// A hundred points of travel: the box is 114 wide and the thumb 14, so a value of 50 sits the
+// thumb's left edge at 50.
+fn slider() -> controls.Slider {
+    return controls.slider_of("volume", "Volume", 0.0, 100.0, 50.0)
+}
+
+fn to_slider(s: controls.Slider, input: controls.Input) -> controls.SliderStep {
+    return controls.slider_input(s, input, slider_box)
+}
+
+#[test]
+fn a_value_is_clamped_and_snapped() {
+    test.assert_eq(controls.snapped_value(0.0, 100.0, 1.0, 50.4), 50.0)
+    test.assert_eq(controls.snapped_value(0.0, 100.0, 1.0, 50.6), 51.0)
+    test.assert_eq(controls.snapped_value(0.0, 100.0, 1.0, 0.0 - 20.0), 0.0)
+    test.assert_eq(controls.snapped_value(0.0, 100.0, 1.0, 900.0), 100.0)
+    // A step of 25 lands on a quarter and never past the end.
+    test.assert_eq(controls.snapped_value(0.0, 100.0, 25.0, 60.0), 50.0)
+    test.assert_eq(controls.snapped_value(0.0, 100.0, 25.0, 99.0), 100.0)
+    // **A range that is not a whole number of steps**, which is where the last clamp earns its
+    // place: 0 to 10 by 4 snaps 10 to the nearest multiple, which is 12, which is off the end of
+    // the slider. Found by mutation -- every other case here has a range the step divides, so
+    // removing the clamp passed all of them.
+    test.assert_eq(controls.snapped_value(0.0, 10.0, 4.0, 10.0), 10.0)
+    test.assert_eq(controls.snapped_value(0.0, 10.0, 4.0, 7.0), 8.0)
+    // **No step is a real slider**, and it keeps the value it was given.
+    test.assert_eq(controls.snapped_value(0.0, 1.0, 0.0, 0.3333), 0.3333)
+}
+
+// **A press takes the value under it**, rather than paging towards it as a scroll bar does: a
+// slider *is* the value, and a user pressing at the three-quarter mark is asking for three
+// quarters. And it takes hold at the same time, so a press and a drag are one gesture.
+#[test]
+fn a_press_takes_the_value_under_it_and_grabs() {
+    val taken = to_slider(slider(), controls.Input.Press(geom.point_of(82.0, 12.0)))
+    test.assert_eq(taken.slider.value, 75.0)
+    test.assert(taken.slider.grabbed)
+    test.assert(taken.moved)
+    val dragged = to_slider(taken.slider, controls.Input.Move(geom.point_of(7.0, 12.0)))
+    test.assert_eq(dragged.slider.value, 0.0)
+    test.assert_false(to_slider(dragged.slider, controls.Input.Release(geom.point_of(7.0, 12.0))).slider.grabbed)
+}
+
+// A move with nothing held does nothing: the pointer crossing a slider on its way elsewhere is
+// not a gesture.
+#[test]
+fn a_move_without_a_grab_changes_nothing() {
+    test.assert_false(to_slider(slider(), controls.Input.Move(geom.point_of(7.0, 12.0))).moved)
+}
+
+#[test]
+fn the_keys_move_by_a_step_a_page_and_to_the_ends() {
+    test.assert_eq(to_slider(slider(), controls.Input.KeyDown(key(controls.Key.Right))).slider.value, 51.0)
+    test.assert_eq(to_slider(slider(), controls.Input.KeyDown(key(controls.Key.Left))).slider.value, 49.0)
+    test.assert_eq(to_slider(slider(), controls.Input.KeyDown(key(controls.Key.PageUp))).slider.value, 60.0)
+    test.assert_eq(to_slider(slider(), controls.Input.KeyDown(key(controls.Key.PageDown))).slider.value, 40.0)
+    test.assert_eq(to_slider(slider(), controls.Input.KeyDown(key(controls.Key.Home))).slider.value, 0.0)
+    test.assert_eq(to_slider(slider(), controls.Input.KeyDown(key(controls.Key.End))).slider.value, 100.0)
+}
+
+// **A continuous slider is still usable from the keyboard**, which is what the fallback step is
+// for: without it an arrow key on a slider with no step would move it by nothing.
+#[test]
+fn a_continuous_slider_still_moves_by_keyboard() {
+    val smooth = with controls.slider_of("hue", "Hue", 0.0, 1.0, 0.5) { step: 0.0 }
+    test.assert(to_slider(smooth, controls.Input.KeyDown(key(controls.Key.Right))).slider.value > 0.5)
+}
+
+// The one-function rule again: the thumb the layout draws is the thumb the press reads.
+#[test]
+fn the_drawn_thumb_is_where_the_value_says() {
+    test.assert_eq(controls.slider_at(slider(), 114.0), 50.0)
+    test.assert_eq(controls.slider_at(with slider() { value: 0.0 }, 114.0), 0.0)
+    test.assert_eq(controls.slider_at(with slider() { value: 100.0 }, 114.0), 100.0)
+    // And a press at the drawn thumb's own middle asks for the value it is already at.
+    val middle = controls.slider_at(slider(), 114.0) + thumb_width / 2.0
+    test.assert_eq(to_slider(slider(), controls.Input.Press(geom.point_of(middle, 12.0))).slider.value, 50.0)
+}
+
+// A reader that said "Volume, slider" and stopped would have told the user nothing they could not
+// have guessed.
+#[test]
+fn a_slider_announces_its_value() {
+    val l = widget.layout(
+        controls.slider_widget(slider(), controls.default_style(), 114.0),
+        slider_box,
+        metrics()
+    )
+    test.assert_eq(said_of_tree(a11y.tree_of(l, "Settings", ""), "volume"), "slider, Volume, 50")
+    test.assert_len(1, focus.controls(l))
+}
+
+#[test]
+fn a_disabled_slider_ignores_everything() {
+    val off = with slider() { disabled: true }
+    test.assert_false(to_slider(off, controls.Input.KeyDown(key(controls.Key.Right))).moved)
+    test.assert_false(to_slider(off, controls.Input.Press(geom.point_of(82.0, 12.0))).slider.grabbed)
+}
+
+// **The thumb is drawn, where the value says, at a size of its own.** The first version put it in
+// a layer whose rectangle was `thumb_width` wide and *zero* tall -- a box `layer_at` honoured
+// exactly -- so a slider drew a track and nothing to drag. The layout was right, the hit test was
+// right, every assertion above passed, and there was nothing on screen to take hold of. It is a
+// row of [gap, thumb, the rest] now, so the only number the control states is the one it knows.
+#[test]
+fn the_thumb_is_drawn_where_the_value_says() {
+    val laid = widget.layout(
+        controls.slider_widget(slider(), controls.default_style(), 114.0),
+        geom.rect_of(0.0, 0.0, 114.0, 30.0),
+        metrics()
+    )
+    var thumb_x = 0.0 - 1.0
+    var thumb_h = 0.0 - 1.0
+    for op in widget.paint_ops(laid, metrics()) {
+        if Fill(f) = op {
+            val painted = shape.path_bounds(f.path)
+            if painted.width == thumb_width {
+                thumb_x = painted.x
+                thumb_h = painted.height
+            }
+        }
+    }
+    test.assert_eq(thumb_x, controls.slider_at(slider(), 114.0))
+    test.assert_eq(thumb_h, thumb_height)
+}
+
+// ---------------------------------------------------- the link
+
+fn a_link() -> controls.Link {
+    return controls.link_of("docs", "Read the syntax guide", "https://ziman.dev/syntax")
+}
+
+// A link is a button underneath, so it inherits the rule that matters: a press that drags off and
+// releases elsewhere is not a follow.
+#[test]
+fn a_link_is_followed_by_a_press_and_not_by_a_drag_away() {
+    val held = controls.link_input(a_link(), controls.Input.Press(inside()), box)
+    test.assert(held.link.held)
+    test.assert_false(held.followed)
+    test.assert(controls.link_input(held.link, controls.Input.Release(inside()), box).followed)
+    test.assert_false(controls.link_input(held.link, controls.Input.Release(outside()), box).followed)
+    test.assert(controls.link_input(a_link(), controls.Input.KeyDown(key(enter)), box).followed)
+    // **Enter follows on the way down and Space on the way up**, which is the button's rule and
+    // every platform's: Space is a press, and a press is not over until it is released.
+    val spaced = controls.link_input(a_link(), controls.Input.KeyDown(key(space)), box)
+    test.assert_false(spaced.followed)
+    test.assert(spaced.link.held)
+    test.assert(controls.link_input(spaced.link, controls.Input.KeyUp(key(space)), box).followed)
+}
+
+// **The destination is carried and not announced.** A reader reading every URL aloud would be
+// unusable on a page of links; what a user needs is where it goes in words, which is the label.
+#[test]
+fn a_link_says_what_it_is_and_not_where_it_goes() {
+    val l = widget.layout(controls.link_widget(a_link(), controls.default_style(), metrics()), box, metrics())
+    test.assert_eq(said_of_tree(a11y.tree_of(l, "Docs", ""), "docs"), "link, Read the syntax guide")
+    test.assert_eq(a_link().href, "https://ziman.dev/syntax")
+    test.assert_len(1, focus.controls(l))
+}
+
+// **The underline is under the words, not under the padding.** A stretched column hands every
+// child its own full width and the column's width is its widest child, which is the text -- so
+// the rule matches the label rather than the control's box.
+#[test]
+fn the_underline_is_as_wide_as_the_text() {
+    val style = controls.default_style()
+    val l = widget.layout(
+        controls.link_widget(a_link(), style, metrics()),
+        geom.rect_of(0.0, 0.0, 600.0, 40.0),
+        metrics()
+    )
+    var rule = 0.0 - 1.0
+    for op in widget.paint_ops(l, metrics()) {
+        if Fill(f) = op {
+            val painted = shape.path_bounds(f.path)
+            if painted.height == 1.0 {
+                rule = painted.width
+            }
+        }
+    }
+    // The fake metrics are ten points a character, and the label is 21 characters.
+    test.assert_eq(rule, 210.0)
 }

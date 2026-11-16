@@ -1872,6 +1872,302 @@ it. The rows are `part_of` -- something a click and a reader reach and Tab does 
 the column headers, which is what will make a header sortable without a second tab stop per
 column.
 
+## Radio buttons
+
+### `radio_height`
+
+```
+pub val radio_height = 24.0
+```
+
+How tall one option is. **A val rather than a field**, as `bar_thickness` is: a group whose
+options were different heights would be a list, and a list is a different control.
+
+### `Radios`
+
+```
+pub struct Radios {
+    name: string
+    label: string
+    items: [string]
+    // The chosen option, or -1 for none. **A real state**: a group a user has not touched and that
+    // was given no default has nothing chosen, and inventing one would answer a question nobody
+    // asked.
+    selected: int
+    disabled: bool
+}
+```
+
+A choice of one from several.
+
+**The control is the group, not the button**, which is the whole difference from a check box. A
+lone radio button is a control a user cannot undo: there is no gesture that unselects one, so a
+single radio is a switch that can only ever be turned on. What a user is choosing is which of N,
+and that is one piece of state, so it is one control with one tab stop and one name -- which is
+also what makes the arrows work, since a group is the only thing that knows what "the next one"
+is.
+
+**A column, and only a column.** A row of options needs every option to be the same width to be
+hit-tested -- the compromise `Tabs.tab_width` makes -- and an option's label is a sentence where
+a tab's is a word. A row of two short options is a real layout and this does not do it yet.
+
+### `radios_of`
+
+```
+pub fn radios_of(name: string, label: string, items: [string], selected: int) -> Radios
+```
+
+### `radio_name`
+
+```
+pub fn radio_name(r: Radios, index: int) -> string
+```
+
+An option's own name, which focus and accessibility address it by.
+
+### `RadioStep`
+
+```
+pub struct RadioStep {
+    radios: Radios
+    moved: bool
+}
+```
+
+### `radios_input`
+
+```
+pub fn radios_input(r: Radios, input: Input, bounds: Rect) -> RadioStep
+```
+
+What an input does to a group.
+
+**The arrows select, they do not merely move.** That is what a radio group does everywhere and
+it is the opposite of a list: there is no second keystroke to confirm, because a radio group
+*is* the confirmation -- it has no state between "looking at" and "chosen". A group that needed
+Space after an arrow would leave a keyboard user with a selection the screen disagrees with.
+
+**Both pairs of arrows, unlike a split pane.** A column of options is navigated with Up and Down
+by every keyboard user and with Left and Right by every one who learned radios on a form where
+they were in a row; neither is wrong about what "the next option" means.
+
+### `radios_widget`
+
+```
+pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widget
+```
+
+The group as a widget: an option per row, each a part of the group.
+
+**The options carry `checked`, and the group carries nothing**, which is what a reader reads:
+it announces "radio button, Weekly, checked" for the one you are on. A group holding an index
+would make every adapter work out for itself which child the number meant.
+
+## The slider
+
+### `track_thickness`
+
+```
+pub val track_thickness = 4.0
+```
+
+How thick the track is, and how wide the thumb is. **Shared by the widget and the hit test**,
+which is `bar_thickness`'s rule.
+
+### `thumb_width`
+
+```
+pub val thumb_width = 14.0
+```
+
+### `thumb_height`
+
+```
+pub val thumb_height = 18.0
+```
+
+How tall the thumb is drawn.
+
+**Given rather than taken from the row**, because a thumb is a thing of its own size: a slider
+in a 60-point row should not have a 60-point thumb. The first version placed it in a layer of
+height zero -- a rect `layer_at` honoured exactly -- so the slider drew a track and nothing to
+drag, which is the same mistake the link made with a `Fixed` of height zero on the same
+afternoon. A box whose size nobody states is a box of nothing.
+
+### `Slider`
+
+```
+pub struct Slider {
+    name: string
+    label: string
+    value: float
+    least: float
+    most: float
+    // What one arrow key moves, and what the value is snapped to. **Zero means no snapping**,
+    // which is a continuous slider and a real thing to want -- a colour picker's hue has no
+    // steps.
+    step: float
+    grabbed: bool
+    disabled: bool
+}
+```
+
+A number chosen by dragging.
+
+**The range and the step are the control's, not the application's.** A slider that took a
+fraction and left the arithmetic outside would make every caller write the same three lines,
+and get the clamp wrong in at least one of them -- which is the shape `scroll_to_reveal` and
+`clamp_offset` already exist to prevent elsewhere.
+
+### `slider_of`
+
+```
+pub fn slider_of(name: string, label: string, least: float, most: float, value: float) -> Slider
+```
+
+### `snapped_value`
+
+```
+pub fn snapped_value(least: float, most: float, step: float, want: float) -> float
+```
+
+A value clamped into the range and snapped to the step.
+
+**One function, used by every gesture and by the constructor**, so a slider can never hold a
+value it would refuse to be dragged to -- which is the state that makes a control look broken
+the first time a user touches it.
+
+### `slider_at`
+
+```
+pub fn slider_at(s: Slider, width: float) -> float
+```
+
+Where the thumb's left edge sits, in points from the start of the track.
+
+**One function, read by the widget and by every gesture** -- `thumb_of`'s rule, for the reason
+it keeps being restated: a thumb drawn by one calculation and dragged by another jumps under
+the pointer.
+
+### `SliderStep`
+
+```
+pub struct SliderStep {
+    slider: Slider
+    moved: bool
+}
+```
+
+### `slider_input`
+
+```
+pub fn slider_input(s: Slider, input: Input, bounds: Rect) -> SliderStep
+```
+
+What an input does to a slider.
+
+**A press anywhere on the track takes the value under it**, rather than paging towards it as a
+scroll bar does. The two look alike and mean different things: a scroll bar moves a view and a
+page is the unit a reader moves by, where a slider *is* the value and a user pressing at the
+three-quarter mark is asking for three quarters. It takes hold at the same time, so a press and
+a drag are one gesture.
+
+### `slider_widget`
+
+```
+pub fn slider_widget(s: Slider, style: Style, width: float) -> widget.Widget
+```
+
+The slider as a widget: a track with a thumb on it.
+
+**The thumb is a fixed box after a gap**, which places it without arithmetic the hit test would
+have to repeat -- the gap is `slider_at`'s answer, so the layout and `slider_input` are reading
+one calculation.
+
+## The link
+
+### `Link`
+
+```
+pub struct Link {
+    name: string
+    // What it says.
+    label: string
+    // Where it goes, which this layer never reads. It is handed back on activation so an
+    // application does not have to keep a second table from names to destinations.
+    href: string
+    held: bool
+    disabled: bool
+}
+```
+
+Text that goes somewhere.
+
+**A control, not a label**, which is the point: a link has to be reachable by Tab, operable by
+Enter, and announced as a link, and a coloured label is none of those. What it does *not* do is
+go anywhere -- this layer has no browser and no idea what a URL means -- so it answers that it
+was activated and the application decides.
+
+### `underline_width`
+
+```
+pub val underline_width = 1.0
+```
+
+How thick the underline is and how far under the words it sits. **Two numbers shared by the
+widget and by the height it asks for**, which is the only way the box can be exactly as tall as
+what goes in it.
+
+### `underline_gap`
+
+```
+pub val underline_gap = 1.0
+```
+
+### `link_of`
+
+```
+pub fn link_of(name: string, label: string, href: string) -> Link
+```
+
+### `LinkStep`
+
+```
+pub struct LinkStep {
+    link: Link
+    // **Followed, not clicked**: a press that drags off and releases elsewhere is not a follow,
+    // which is `ButtonStep.activated`'s rule and the reason this is built on a button.
+    followed: bool
+}
+```
+
+### `link_input`
+
+```
+pub fn link_input(l: Link, input: Input, bounds: Rect) -> LinkStep
+```
+
+### `link_widget`
+
+```
+pub fn link_widget(l: Link, style: Style, m: widget.Metrics) -> widget.Widget
+```
+
+The link as a widget: its text, underlined.
+
+**The underline is the signal, not the colour.** A link told apart from body text by hue alone
+is a link a colour-blind reader cannot find, and `Style` has no link colour to set -- which is
+the right way round: the underline works in every theme and on every display, where a blue that
+reads on white is a blue that vanishes on navy. A theme that wants a coloured link is the
+argument for a `Style.link` field, and nothing has made that argument yet.
+
+**It measures its own text, which is why it takes a `Metrics`.** The first version put the
+label and the rule in a stretched column and said in a comment that the column would be as wide
+as its widest child -- and a column is as wide as the box it is *given*, which at the root of a
+layout is the whole window. So the underline ran the width of the pane with the words at one
+end of it. A control that wants to be the size of its text has to ask how wide its text is;
+`check_box_widget` takes a `Metrics` to make a square for the same kind of reason.
+
 ## The style
 
 ### `Style`

@@ -1,0 +1,58 @@
+// A slider: a number chosen by dragging, and a number chosen in steps.
+//
+// **The range and the step belong to the control.** A slider that took a fraction and left the
+// arithmetic to its caller would make every caller write the same three lines and get the clamp
+// wrong in at least one of them.
+//
+// **A press takes the value under it** rather than paging towards it as a scroll bar does. The
+// two look alike and mean different things: a scroll bar moves a view, where a slider *is* the
+// value -- so pressing at the three-quarter mark is asking for three quarters.
+use boxes
+use controls
+use demos/slider_ui
+use math.floor
+use widget
+
+// The width the sliders are laid out in, which `slider_widget` is told rather than measuring: the
+// thumb's position is a fraction of the track and the track is whatever the row left it.
+val track_width = 320.0
+
+pub struct Demo {
+    volume: controls.Slider
+    quarters: controls.Slider
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        volume: controls.slider_of("slider-volume", "Volume", 0.0, 100.0, 60.0),
+        // A step of 25 can only ever land on a quarter, which is what `snapped_value` is for.
+        quarters: with controls.slider_of("slider-quarters", "Quarters", 0.0, 100.0, 50.0) { step: 25.0 }
+    }
+}
+
+pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+    return slider_ui.screen(slider_ui.Screen {
+        volume: controls.slider_widget(d.volume, style, track_width),
+        volume_said: str(floor(d.volume.value)),
+        steps: controls.slider_widget(d.quarters, style, track_width),
+        steps_said: str(floor(d.quarters.value)),
+        said: "Arrows move by one step, PageUp and PageDown by a tenth of the range, Home and End to the ends."
+    }, style, m)
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    style: controls.Style,
+    m: widget.Metrics
+) -> Demo {
+    if name == "slider-volume" {
+        return with d { volume: controls.slider_input(d.volume, input, boxes.bounds_of(laid, name)).slider }
+    }
+    if name == "slider-quarters" {
+        return with d { quarters: controls.slider_input(d.quarters, input, boxes.bounds_of(laid, name)).slider }
+    }
+    return d
+}
