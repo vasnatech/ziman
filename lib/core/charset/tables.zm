@@ -13,7 +13,7 @@
 // **Latin-1 and CP1252 are not here.** They are `Charset.Latin1` and `Charset.WinAnsi`, written
 // by hand because one is arithmetic and the other is Latin-1 plus a 32-entry block; a table of
 // either would be a second answer to a question that already has one.
-// Produced by Python 3.14.8.
+// Produced by Python 3.14.10.
 
 // ISO-8859-2: central European.
 val iso_8859_2_upper = [
