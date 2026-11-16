@@ -422,8 +422,8 @@ fn nested_in(inner: Ctx, outer: Ctx) -> Ctx {
 // `memdb_test.zm` now holds three, because an equivalence argument about an untested rule is an
 // assertion rather than an argument.
 fn resolve_column(cx: Ctx, ref: sql.ColRef) -> int {
-    val want = sql.fold_name(ref.name)
-    val qualifier = sql.fold_name(ref.table)
+    val want = ref.folded_name
+    val qualifier = ref.folded_table
     var found = 0 - 1
     var count = 0
     var first_source = ""
@@ -3748,8 +3748,8 @@ fn using_condition(using: [string], left: sql.TableRef, right: sql.TableRef) -> 
     for name in using {
         val one = Expr.Bin(BinNode {
             op: "=",
-            left: Expr.Col(sql.ColRef { table: left_name, name: name }),
-            right: Expr.Col(sql.ColRef { table: right_name, name: name })
+            left: Expr.Col(sql.col_ref(left_name, name)),
+            right: Expr.Col(sql.col_ref(right_name, name))
         })
         built = switch built {
             Some(previous) { Option<Expr>.Some(Expr.Bin(BinNode { op: "AND", left: previous, right: one })) }

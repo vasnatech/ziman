@@ -3300,7 +3300,22 @@ pub struct NullNode {
 pub struct ColRef {
     table: string
     name: string
+    // `table` and `name` folded once, by `fold_name`, for a resolver to compare against.
+    //
+    // **The same bargain `Token.upper` makes one layer down, and for the same measured reason.**
+    // A name is *resolved* far more often than it is written: `memdb`'s `resolve_column` runs per
+    // column reference per row, and it folded both of these on every call -- `sql::fold_name` was
+    // **14.3%** of tests/bench/memdb_ops.zm, which is `to_lower` allocating a string to throw away.
+    // Folding here turns that from a per-resolution cost into a per-reference one.
+    //
+    // **The written spelling stays in `table` and `name`**, because an error message quotes what
+    // the user typed: "no such column: Ada" names the column they wrote, not the one we matched on.
+    // That is the whole reason this is two more fields rather than folding in place.
+    folded_table: string
+    folded_name: string
 }
+
+pub fn col_ref(table: string, name: string) -> ColRef
 
 pub struct CallNode {
     name: string
