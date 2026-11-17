@@ -1935,6 +1935,47 @@ pub fn paint(l: Laid, m: Metrics) -> scene.Scene {
 // kind of thing -- painting that depends on who has the focus -- and this is the only seam that
 // knows, so putting one here and the other in the widget tree is what let every field in a window
 // draw a caret at once.
+// A tint over the control the pointer is on.
+//
+// **A translucent overlay, not a second face colour**, which is what Material calls a state layer
+// and what makes hover cost nothing structural: there is no `hovered` flag on any control, no
+// enter and leave events to deliver, and no way for a control to be left lit after the pointer has
+// gone. The application holds one name -- exactly as it holds `focused`, and for the same reason:
+// hover is a fact about the pointer, not about the widget, so storing it in the tree would be a
+// second copy free to disagree with the first.
+//
+// **It takes a scene and adds to it**, as `controls.paint_scroll_bars` does, because the overlay
+// has to go over the control it tints and the tree has already been painted by then.
+//
+// **A part is a control too**, which is what makes a menu item and a list row light up for free:
+// the name an application gets from `focus.control_at` is the innermost one under the pointer, and
+// that is the row rather than the list.
+//
+// An unknown name draws nothing, for `paint_focused`'s reason: a pointer naming a control this
+// tree no longer holds is an ordinary moment between two frames.
+pub fn paint_hovered(l: Laid, over: scene.Scene, hovered: string, tint: Color) -> scene.Scene {
+    if hovered == "" {
+        return over
+    }
+    switch focus_node(l, hovered) {
+        Some(node) {
+            val ops = mutable_array_new<Op>()
+            for op in over.ops {
+                push(ops, op)
+            }
+            // The control's own radius, not a theme's: a check box caps its own, so a themed
+            // number would be the one the control did not use. `paint_focused`'s ring asks the
+            // same question of the same function.
+            push(ops, scene.fill(
+                shape.round_rect_path(node.bounds, radius_of(node)),
+                paint.Paint.Solid(tint)
+            ))
+            return scene.with_ops(over, snapshot(ops))
+        }
+        None { return over }
+    }
+}
+
 pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: float) -> scene.Scene {
     val ops = mutable_array_new<Op>()
     collect(l, m, ops, focused, false)

@@ -1745,10 +1745,10 @@ Before that rule existed every field drew one at once, which is what a window fu
 fields each carrying a blinking-looking bar turns out to be: `curly gui` showed eight carets in
 one frame with the focus on a tree.
 
-### `paint_focused`
+### `paint_hovered`
 
 ```
-pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: float) -> scene.Scene
+pub fn paint_hovered(l: Laid, over: scene.Scene, hovered: string, tint: Color) -> scene.Scene
 ```
 
 The tree as a `Scene`, with a ring around whichever control has the focus.
@@ -1770,6 +1770,30 @@ holds is an ordinary moment between two frames, not an error.
 kind of thing -- painting that depends on who has the focus -- and this is the only seam that
 knows, so putting one here and the other in the widget tree is what let every field in a window
 draw a caret at once.
+A tint over the control the pointer is on.
+
+**A translucent overlay, not a second face colour**, which is what Material calls a state layer
+and what makes hover cost nothing structural: there is no `hovered` flag on any control, no
+enter and leave events to deliver, and no way for a control to be left lit after the pointer has
+gone. The application holds one name -- exactly as it holds `focused`, and for the same reason:
+hover is a fact about the pointer, not about the widget, so storing it in the tree would be a
+second copy free to disagree with the first.
+
+**It takes a scene and adds to it**, as `controls.paint_scroll_bars` does, because the overlay
+has to go over the control it tints and the tree has already been painted by then.
+
+**A part is a control too**, which is what makes a menu item and a list row light up for free:
+the name an application gets from `focus.control_at` is the innermost one under the pointer, and
+that is the row rather than the list.
+
+An unknown name draws nothing, for `paint_focused`'s reason: a pointer naming a control this
+tree no longer holds is an ordinary moment between two frames.
+
+### `paint_focused`
+
+```
+pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: float) -> scene.Scene
+```
 
 ### `paint_ops`
 

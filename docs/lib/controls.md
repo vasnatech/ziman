@@ -2294,6 +2294,17 @@ pub struct Style {
     // in front of that", so a window where every control had one would be saying nothing at all --
     // and would pay eight extra fills per control to say it. `None` turns it off for a flat look
     // and feel, which is what a theme following GNOME's Adwaita would want.
+    // What is laid over the control the pointer is on.
+    //
+    // **Translucent, and that is the whole design.** A second face colour per control would mean a
+    // `hovered` flag on every one of them, enter and leave events to deliver, and a control left
+    // lit after the pointer had gone. An overlay is a property of the pointer rather than of the
+    // widget, so it is painted from the one name the application already holds -- which is what
+    // Material calls a state layer, and what `widget.paint_hovered` does with it.
+    //
+    // **Dark rather than light, so one number serves both themes.** A white veil disappears on a
+    // white face; black at a tenth darkens a light face and a dark one alike.
+    hover_tint: Color
     raised: Option<widget.Shadow>
     face_border: Option<widget.Border>
     // One rounding, shared by every control's face and by a list's and a tree's selected row -- the

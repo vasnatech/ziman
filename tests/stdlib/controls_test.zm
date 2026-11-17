@@ -4418,3 +4418,60 @@ fn a_tree_row_is_inset_from_its_own_edge() {
     // Two points is the ring's width; the inset has to clear it.
     test.assert(leftmost >= 2.0)
 }
+
+// ---------------------------------------------------- the hover overlay
+
+fn hover_fills(l: widget.Laid, name: string) -> [geom.Rect] {
+    val base = widget.paint(l, metrics())
+    val over = widget.paint_hovered(l, base, name, paint.rgba(0.0, 0.0, 0.0, 0.1))
+    val out = mutable_array_new<geom.Rect>()
+    var i = len(base.ops)
+    while i < len(over.ops) {
+        if Fill(f) = over.ops[i] {
+            push(out, shape.path_bounds(f.path))
+        }
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
+// **Hover is painted from one name, not stored in the tree.** A `hovered` flag on every control
+// would mean enter and leave events to deliver and a control left lit after the pointer had gone;
+// an overlay is a fact about the pointer, which is why it is painted the way the focus ring is.
+#[test]
+fn the_hovered_control_gets_one_overlay_over_its_own_box() {
+    val l = widget.layout(
+        controls.button_widget(controls.button_of("go", "Send"), controls.default_style()),
+        geom.rect_of(10.0, 20.0, 120.0, 30.0),
+        metrics()
+    )
+    val painted = hover_fills(l, "go")
+    test.assert_len(1, painted)
+    test.assert_eq(painted[0].x, 10.0)
+    test.assert_eq(painted[0].y, 20.0)
+    test.assert_eq(painted[0].width, 120.0)
+}
+
+// **A part is a control too**, which is what lights a list's row and a menu's item for nothing: the
+// name an application reads from `focus.control_at` is the innermost one under the pointer.
+#[test]
+fn a_row_can_be_hovered_as_well_as_its_list() {
+    val l = widget.layout(controls.list_widget(five(), controls.default_style()), list_box(), metrics())
+    val row = hover_fills(l, controls.row_name(five(), 1))
+    test.assert_len(1, row)
+    test.assert_eq(row[0].height, five().row_height)
+    test.assert_eq(row[0].y, five().row_height)
+}
+
+// A name this tree does not hold draws nothing rather than refusing: a pointer naming a control
+// that has gone is an ordinary moment between two frames.
+#[test]
+fn an_unknown_or_empty_hover_draws_nothing() {
+    val l = widget.layout(
+        controls.button_widget(controls.button_of("go", "Send"), controls.default_style()),
+        geom.rect_of(0.0, 0.0, 120.0, 30.0),
+        metrics()
+    )
+    test.assert_len(0, hover_fills(l, "nobody"))
+    test.assert_len(0, hover_fills(l, ""))
+}

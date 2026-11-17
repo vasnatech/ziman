@@ -57,6 +57,13 @@ pub struct State {
     at: int
     status: string
     focused: string
+    // The control the pointer is on, or "" for none.
+    //
+    // **Held beside the focus and for the same reason.** Hover is a fact about the pointer rather
+    // than about any widget, so a `hovered` flag inside the tree would be a second copy of it,
+    // free to disagree -- and a control left lit after the pointer had gone is exactly how that
+    // disagreement shows. One name, painted by `widget.paint_hovered`.
+    hovered: string
 }
 
 // **Takes the style, because the Code tab's colours are computed against it.** A colourer that
@@ -86,7 +93,8 @@ pub fn opening_state(style: controls.Style) -> State {
         demos: demos,
         at: 0,
         status: "",
-        focused: "catalogue"
+        focused: "catalogue",
+        hovered: ""
     }
     return showing(begin, 0, style)
 }
@@ -240,7 +248,7 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.
         Paste(_) { s.focused }
     }
     val name = controls.target(laid, input, focused_now)
-    val here = with s { focused: focused_now }
+    val here = with s { focused: focused_now, hovered: hovered_now(s, laid, input) }
     if name == "layout/divider" {
         return with here { split: controls.split_pane_input(here.split, input, boxes.bounds_of(laid, "layout")).split }
     }
@@ -307,6 +315,21 @@ fn demo_set(demos: [all.Demo], at: int, one: all.Demo) -> [all.Demo] {
         i = i + 1
     }
     return snapshot(out)
+}
+
+// What the pointer is on after this input.
+//
+// **Only a move changes it**, which is the whole of the rule: a press, a key or a wheel leaves the
+// pointer exactly where it was, and recomputing it would be asking the same question for the same
+// answer on every keystroke.
+fn hovered_now(s: State, laid: widget.Laid, input: controls.Input) -> string {
+    if Move(at) = input {
+        return switch focus.control_at(laid, at) {
+            Some(one) { one.name }
+            None { "" }
+        }
+    }
+    return s.hovered
 }
 
 fn is_tab(input: controls.Input) -> bool {

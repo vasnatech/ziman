@@ -263,7 +263,16 @@ fn run() -> Result<unit, string> {
                     }
                     // The focus is drawn: Tab moves it and every control takes its keys, so a
                     // window that looked identical either way would make the focus invisible.
-                    val with_focus = widget.paint_focused(laid, m, st.focused, paint.rgb(0.15, 0.4, 0.85), 2.0)
+                    // **The hover tint over the painted tree, then the focus ring.** Both are
+                    // facts about something outside the widget -- the pointer and the keyboard --
+                    // and both are painted from a name the window holds rather than from a flag in
+                    // the tree.
+                    val with_focus = widget.paint_hovered(
+                        laid,
+                        widget.paint_focused(laid, m, st.focused, paint.rgb(0.15, 0.4, 0.85), 2.0),
+                        st.hovered,
+                        style.hover_tint
+                    )
                     // Painted after the layout, because only the layout knows how tall a viewport
                     // turned out to be -- and a thumb's length is the view's share of the content.
                     val painted = try desktop.repaint(
