@@ -22,7 +22,7 @@ pub struct Demo {
 
 pub fn demo() -> Demo {
     return Demo {
-        picker: controls.combo_box_of("look-picker", "Look", ["Plain", "Soft", "Outlined"], 0),
+        picker: controls.combo_box_of("look-picker", "Look", ["Plain", "Soft", "Outlined", "Modern"], 3),
         press: controls.button_of("look-press", "Send"),
         notify: controls.check_box_of("look-notify", "Notify me", Toggle.On),
         field: controls.entry_of("look-field", "Your name", "Ada Lovelace")
@@ -32,15 +32,23 @@ pub fn demo() -> Demo {
 // **Absent and zero in `default_style`, on purpose**: the default look is what it always was, and
 // a look and feel is what you get by setting the two fields that are shape rather than colour.
 fn look_of(d: Demo, style: controls.Style) -> controls.Style {
+    // **Built from `default_style` and not from the window's own**, which the first version got
+    // wrong: the gallery wears `modern_style` now, so a demo that started from the style it was
+    // handed would show four variations of modern and call the first one "Plain". A demo
+    // comparing looks has to name the look it starts from.
+    val plain = controls.default_style()
+    if d.picker.items.selected == 3 {
+        return controls.modern_style()
+    }
     if d.picker.items.selected == 1 {
-        return with style {
+        return with plain {
             corner: widget.Radius.Points(6.0),
             face: paint.rgb(0.91, 0.93, 0.97),
             pressed_face: paint.rgb(0.80, 0.85, 0.95)
         }
     }
     if d.picker.items.selected == 2 {
-        return with style {
+        return with plain {
             corner: widget.Radius.Points(3.0),
             face: paint.rgb(1.0, 1.0, 1.0),
             face_border: Option<widget.Border>.Some(widget.Border {
@@ -49,7 +57,7 @@ fn look_of(d: Demo, style: controls.Style) -> controls.Style {
             })
         }
     }
-    return style
+    return plain
 }
 
 pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
@@ -67,6 +75,9 @@ pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget 
 }
 
 fn said(d: Demo) -> string {
+    if d.picker.items.selected == 3 {
+        return "Modern: every token at once -- edged near-white faces, an accent that the selection and the focus ring both come from, a shadow under what is in front, and a hover veil."
+    }
     if d.picker.items.selected == 1 {
         return "Soft: rounded corners and a tinted face. A palette plus one shape field."
     }

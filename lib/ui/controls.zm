@@ -1504,7 +1504,7 @@ pub fn list_widget(l: List, style: Style) -> widget.Widget {
     var i = 0
     while i < len(l.items) {
         val chosen = i == l.selected
-        val face = if chosen { style.pressed_face } else { style.face }
+        val face = if chosen { style.selection } else { style.face }
         val row = widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: 0.0,
@@ -1667,7 +1667,12 @@ pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget {
     var i = 0
     while i < len(t.items) {
         val chosen = i == t.selected
-        val face = if chosen { style.pressed_face } else { style.face }
+        // **The selection colour, not the pressed one.** A chosen tab is a selection in exactly
+        // the sense a chosen row is, and sharing `pressed_face` with a button meant that the
+        // moment a theme made a press a *slightly* darker face -- which is what a light theme
+        // wants -- the selected tab became invisible. Found by putting `modern_style` on and
+        // looking at the strip.
+        val face = if chosen { style.selection } else { style.face }
         val cell = widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: 0.0,
@@ -2122,7 +2127,7 @@ fn tree_level(t: Tree, shown: [int], from: int, depth: int, style: Style) -> Tre
 // column the mark was drawn in whatever the parts do around it.
 fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style) -> widget.Widget {
     val ink = if t.disabled { style.disabled_ink } else { style.ink }
-    val face = if which == t.selected { style.pressed_face } else { style.face }
+    val face = if which == t.selected { style.selection } else { style.face }
     val mark = if row.expandable {
         if row.expanded { style.expanded_mark } else { style.collapsed_mark }
     } else {
@@ -3988,7 +3993,7 @@ pub fn table_widget(t: Table, style: Style) -> widget.Widget {
                 spacing: 0.0,
                 padding: widget.no_insets(),
                 surface: if chosen {
-                    highlight_of(style, style.pressed_face)
+                    highlight_of(style, style.selection)
                 } else {
                     widget.no_surface()
                 },
@@ -4763,6 +4768,37 @@ pub struct Style {
     //
     // **Dark rather than light, so one number serves both themes.** A white veil disappears on a
     // white face; black at a tenth darkens a light face and a dark one alike.
+    // The one colour a look and feel is recognised by: a focus ring, a selected row, whatever a
+    // theme wants to say is *this application's*.
+    //
+    // **`Style` had none, which is why the gallery hard-coded a blue into its own paint call.**
+    // Every system has this token and calls it something different -- primary, accent, brand --
+    // and the thing they agree on is that it is one colour, named once, and that everything
+    // identifying belongs to it. Without it a theme can be a different grey and nothing more.
+    accent: Color
+    // What reads **on** the accent: a primary button's words, a selected row's text. Not derived,
+    // because a light accent wants dark text and a dark one wants light, and guessing from
+    // luminance is how a theme ends up with grey-on-grey at exactly one value.
+    on_accent: Color
+    // The face of a chosen row in a list, a tree or a table.
+    //
+    // **Separate from `pressed_face`**, which it used to be: pressing a button and selecting a row
+    // are different events and every system colours them differently -- a selection is usually a
+    // tint of the accent, where a press is a darkening of the face. Sharing one colour meant a
+    // theme could not say so.
+    selection: Color
+    // The unit a theme's spacing is counted in.
+    //
+    // **Four points, and the reason it is a token is that it was eleven numbers.** Every control
+    // here invented its own insets -- the tree 4 and 2, the table 6 and 2, a radio 4 and 2, a cell
+    // 6 and 2 -- so a theme asking for more room had nothing to set. A spacing *scale* is what
+    // every system has instead, and this is the step of it.
+    space: float
+    // Larger than the body, for a heading. The gallery had one of these as a local constant, which
+    // is where a type scale goes to hide.
+    heading_size: float
+    // Smaller than the body, for a caption or a hint.
+    small_size: float
     hover_tint: Color
     raised: Option<widget.Shadow>
     face_border: Option<widget.Border>
@@ -4826,6 +4862,18 @@ pub fn default_style() -> Style {
         // `$shadow16` and deeper than its `$shadow2`**, which is the range its own table puts a
         // menu and a dialog in; the exact numbers are a theme's to set and these are the ones that
         // read on a light window without turning the corner of a popup into a smudge.
+        // **The blue the gallery was hard-coding into its own focus ring**, which is what
+        // naming the token is for: the one place it lived was a call site in an application.
+        accent: paint.rgb(0.15, 0.4, 0.85),
+        on_accent: paint.rgb(1.0, 1.0, 1.0),
+        // The same grey a press has used all along, so a default window's pixels do not move.
+        // A theme that wants an accented selection says so; see `modern_style`.
+        selection: paint.rgb(0.75, 0.75, 0.78),
+        space: 4.0,
+        // A third larger and a tenth smaller, which is the smallest scale worth having: enough
+        // that a heading reads as one, little enough that nothing reflows.
+        heading_size: 16.0,
+        small_size: 11.0,
         // A tenth of black: enough that a row lights under the pointer, little enough that a
         // button does not look pressed when it is only being passed over.
         hover_tint: paint.rgba(0.0, 0.0, 0.0, 0.10),
@@ -4838,6 +4886,56 @@ pub fn default_style() -> Style {
         // rather than as a gap. Scaling with the text keeps it right at any size, the way the
         // icon's own square does.
         icon_gap: 6.0
+    }
+}
+
+// A look and feel built from every token this layer has, rather than the fewest.
+//
+// **`default_style` is the reference and this is the demonstration.** The default is deliberately
+// the plainest thing that is legible -- square, filled, unedged, one grey -- because an
+// application replacing it should not have to undo anything. This one is what the vocabulary is
+// *for*: a surface that is nearly white and edged rather than grey and flat, a corner radius, an
+// accent that the focus ring and the selection are both drawn from, a shadow under the things
+// that are in front, and a hover veil light enough to read on white.
+//
+// **The numbers come from the systems that publish theirs.** Fluent 2's shape scale puts a button
+// at 4 points of radius and its large components at 8, so 6 sits between them and `Radius.Points`
+// caps it on anything small enough to need it; its stroke scale starts at 1. Its shadow table
+// puts a menu between `$shadow8` and `$shadow16`, which in its own units is a blur of 8 to 16 and
+// an opacity of 14 to 24 per cent -- 14 and 16 here. The accent is this project's own.
+//
+// **What it does not do is a gradient**, and that is a choice rather than a limit: `Surface.fill`
+// takes a colour where `scene` has had `LinearGradient` since it existed, and widening it would
+// be a morning's work. Flat surfaces with elevation and a state layer is what every current
+// system does, and a gradient on a control face is the one thing that would date this on sight.
+pub fn modern_style() -> Style {
+    return with default_style() {
+        // **Room, which is the token nothing had.** Eight by four is a button of twenty-two
+        // points; every system draws one at about thirty-two, and the difference is entirely
+        // padding.
+        padding: widget.insets_of(14.0, 8.0, 14.0, 8.0),
+        ink: paint.rgb8(26, 29, 33),
+        // Nearly white and edged, rather than grey and flat: on a white window the border is what
+        // says "this is a control", and it costs no layout because a border is stroked inside.
+        face: paint.rgb8(252, 252, 253),
+        pressed_face: paint.rgb8(236, 238, 241),
+        panel: paint.rgb8(255, 255, 255),
+        grid: paint.rgb8(232, 234, 237),
+        disabled_ink: paint.rgb8(154, 160, 166),
+        accent: paint.rgb8(37, 99, 235),
+        on_accent: paint.rgb8(255, 255, 255),
+        // A tint of the accent rather than a darker grey, which is what makes a selected row look
+        // chosen rather than pressed. Light enough that `ink` still reads on it.
+        selection: paint.rgb8(219, 228, 251),
+        // Lighter than the default's tenth, because these faces are nearly white and a tenth of
+        // black on white reads as pressed.
+        hover_tint: paint.rgba(0.0, 0.0, 0.0, 0.06),
+        face_border: Option<widget.Border>.Some(widget.Border {
+            colour: paint.rgb8(208, 212, 218),
+            width: 1.0
+        }),
+        corner: widget.Radius.Points(6.0),
+        raised: Option<widget.Shadow>.Some(widget.shadow_of(3.0, 14.0, 0.16))
     }
 }
 

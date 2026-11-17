@@ -2304,6 +2304,37 @@ pub struct Style {
     //
     // **Dark rather than light, so one number serves both themes.** A white veil disappears on a
     // white face; black at a tenth darkens a light face and a dark one alike.
+    // The one colour a look and feel is recognised by: a focus ring, a selected row, whatever a
+    // theme wants to say is *this application's*.
+    //
+    // **`Style` had none, which is why the gallery hard-coded a blue into its own paint call.**
+    // Every system has this token and calls it something different -- primary, accent, brand --
+    // and the thing they agree on is that it is one colour, named once, and that everything
+    // identifying belongs to it. Without it a theme can be a different grey and nothing more.
+    accent: Color
+    // What reads **on** the accent: a primary button's words, a selected row's text. Not derived,
+    // because a light accent wants dark text and a dark one wants light, and guessing from
+    // luminance is how a theme ends up with grey-on-grey at exactly one value.
+    on_accent: Color
+    // The face of a chosen row in a list, a tree or a table.
+    //
+    // **Separate from `pressed_face`**, which it used to be: pressing a button and selecting a row
+    // are different events and every system colours them differently -- a selection is usually a
+    // tint of the accent, where a press is a darkening of the face. Sharing one colour meant a
+    // theme could not say so.
+    selection: Color
+    // The unit a theme's spacing is counted in.
+    //
+    // **Four points, and the reason it is a token is that it was eleven numbers.** Every control
+    // here invented its own insets -- the tree 4 and 2, the table 6 and 2, a radio 4 and 2, a cell
+    // 6 and 2 -- so a theme asking for more room had nothing to set. A spacing *scale* is what
+    // every system has instead, and this is the step of it.
+    space: float
+    // Larger than the body, for a heading. The gallery had one of these as a local constant, which
+    // is where a type scale goes to hide.
+    heading_size: float
+    // Smaller than the body, for a caption or a hint.
+    small_size: float
     hover_tint: Color
     raised: Option<widget.Shadow>
     face_border: Option<widget.Border>
@@ -2357,6 +2388,32 @@ pub fn default_style() -> Style
 A plain light style. **Not a theme and not a design** -- F277 says in as many words that pixel
 parity with a platform's widgets is not a goal, so this is a legible default and the thing an
 application replaces.
+
+### `modern_style`
+
+```
+pub fn modern_style() -> Style
+```
+
+A look and feel built from every token this layer has, rather than the fewest.
+
+**`default_style` is the reference and this is the demonstration.** The default is deliberately
+the plainest thing that is legible -- square, filled, unedged, one grey -- because an
+application replacing it should not have to undo anything. This one is what the vocabulary is
+*for*: a surface that is nearly white and edged rather than grey and flat, a corner radius, an
+accent that the focus ring and the selection are both drawn from, a shadow under the things
+that are in front, and a hover veil light enough to read on white.
+
+**The numbers come from the systems that publish theirs.** Fluent 2's shape scale puts a button
+at 4 points of radius and its large components at 8, so 6 sits between them and `Radius.Points`
+caps it on anything small enough to need it; its stroke scale starts at 1. Its shadow table
+puts a menu between `$shadow8` and `$shadow16`, which in its own units is a blur of 8 to 16 and
+an opacity of 14 to 24 per cent -- 14 and 16 here. The accent is this project's own.
+
+**What it does not do is a gradient**, and that is a choice rather than a limit: `Surface.fill`
+takes a colour where `scene` has had `LinearGradient` since it existed, and widening it would
+be a morning's work. Flat surfaces with elevation and a state layer is what every current
+system does, and a gradient on a control face is the one thing that would date this on sight.
 
 ## The keys
 

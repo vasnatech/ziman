@@ -195,7 +195,10 @@ fn run() -> Result<unit, string> {
     // The tree's marks have to be characters the face actually has: `lib/ui` defaults to
     // triangles, which is right for a toolkit and wrong for whatever font a machine happens to
     // have. A face without U+25B8 would draw `.notdef` and every branch would look alike.
-    val style = with controls.default_style() { collapsed_mark: ">", expanded_mark: "v" }
+    // **The gallery wears the look the library is proudest of**, which is also the only way
+    // anyone finds out that `modern_style` is wrong about something. The two marks are replaced
+    // for the reason they always were: the faces a desktop ships have no triangles.
+    val style = with controls.modern_style() { collapsed_mark: ">", expanded_mark: "v" }
     val density = chosen_density().density
     val scale = density.px_per_pt
     val options = with raster.options() {
@@ -203,7 +206,10 @@ fn run() -> Result<unit, string> {
         // The demo's own picture, made rather than loaded. See `pictures`.
         images: images,
         samples: 1,
-        background: Option<paint.Color>.Some(paint.rgb(0.98, 0.98, 0.99)),
+        // **The window's own colour, which is the renderer's and not the theme's**: `Style`
+        // describes controls, and what is behind them is what the window was cleared to. A
+        // slightly cool white, so a white panel in front of it still reads as in front.
+        background: Option<paint.Color>.Some(paint.rgb8(246, 247, 249)),
         max_pixels: ((8000000 as float) * scale * scale) as int,
         px_per_pt: scale
     }
@@ -269,7 +275,10 @@ fn run() -> Result<unit, string> {
                     // the tree.
                     val with_focus = widget.paint_hovered(
                         laid,
-                        widget.paint_focused(laid, m, st.focused, paint.rgb(0.15, 0.4, 0.85), 2.0),
+                        // **The theme's accent, not a blue written here.** This call site was
+                        // the only place the identity colour lived, which is what made it worth
+                        // a token.
+                        widget.paint_focused(laid, m, st.focused, style.accent, 2.0),
                         st.hovered,
                         style.hover_tint
                     )
