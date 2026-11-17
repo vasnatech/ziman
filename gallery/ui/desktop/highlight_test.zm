@@ -5,13 +5,14 @@
 // deliberate. They are only visible in the spans.
 use controls
 use highlight
+use looknfeel
 use paint
 use test
 
 // A span as "from-to", so an assertion reads as the run it describes rather than as two numbers.
 fn spans_of(source: string) -> [string] {
     val out = mutable_array_new<string>()
-    for ink in highlight.inks_of(source, controls.default_style()) {
+    for ink in highlight.inks_of(source, looknfeel.plain()) {
         push(out, concat(substring(source, ink.from, ink.to), "=", kind_of(ink.colour)))
     }
     return snapshot(out)
@@ -21,7 +22,7 @@ fn spans_of(source: string) -> [string] {
 // than against a hex: they are computed from the style now, so a literal here is whatever
 // `literal_ink` says a literal is.
 fn kind_of(c: paint.Color) -> string {
-    val style = controls.default_style()
+    val style = looknfeel.plain()
     if same(c, highlight.keyword_ink(style)) {
         return "keyword"
     }
@@ -105,7 +106,7 @@ fn an_unterminated_string_ends_with_the_text() {
 // whoever builds them: `inked_run` walks them once and trusts both.
 #[test]
 fn the_spans_are_in_order_and_do_not_overlap() {
-    val inks = highlight.inks_of("// a\nval x = \"s\" // b\nfn go() { return 1 }", controls.default_style())
+    val inks = highlight.inks_of("// a\nval x = \"s\" // b\nfn go() { return 1 }", looknfeel.plain())
     var i = 1
     while i < len(inks) {
         test.assert(inks[i].from >= inks[i - 1].to)
@@ -124,16 +125,16 @@ fn the_spans_are_in_order_and_do_not_overlap() {
 // is the measurement, kept.
 #[test]
 fn every_colour_is_legible_on_the_face_it_is_drawn_on() {
-    val style = controls.default_style()
+    val style = looknfeel.plain()
     for ink in [
         highlight.keyword_ink(style),
         highlight.literal_ink(style),
         highlight.comment_ink(style),
         highlight.attribute_ink(style)
     ] {
-        test.assert(highlight.contrast(ink, style.face) >= 4.5)
+        test.assert(paint.contrast_ratio(ink, style.face) >= 4.5)
         // And on the two other surfaces a pane can sit on, which are lighter still.
-        test.assert(highlight.contrast(ink, style.panel) >= 4.5)
+        test.assert(paint.contrast_ratio(ink, style.panel) >= 4.5)
     }
 }
 
@@ -143,7 +144,7 @@ fn every_colour_is_legible_on_the_face_it_is_drawn_on() {
 // here is special-cased for it.
 #[test]
 fn a_dark_theme_gets_legible_colours_without_a_second_palette() {
-    val dark = with controls.default_style() {
+    val dark = with looknfeel.plain() {
         ink: paint.rgb(0.93, 0.94, 0.93),
         face: paint.rgb(0.16, 0.18, 0.17),
         panel: paint.rgb(0.12, 0.14, 0.13)
@@ -154,7 +155,7 @@ fn a_dark_theme_gets_legible_colours_without_a_second_palette() {
         highlight.comment_ink(dark),
         highlight.attribute_ink(dark)
     ] {
-        test.assert(highlight.contrast(ink, dark.face) >= 4.5)
+        test.assert(paint.contrast_ratio(ink, dark.face) >= 4.5)
     }
 }
 
@@ -162,7 +163,7 @@ fn a_dark_theme_gets_legible_colours_without_a_second_palette() {
 // have to be two colours. The site separates them by weight; this separates them by hue.
 #[test]
 fn an_attribute_does_not_look_like_a_comment() {
-    val style = controls.default_style()
+    val style = looknfeel.plain()
     test.assert_false(same(highlight.comment_ink(style), highlight.attribute_ink(style)))
 }
 

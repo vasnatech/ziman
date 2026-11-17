@@ -1,0 +1,95 @@
+// plain.zm -- the look the control set is read in: the plainest thing that is legible.
+//
+// **Not a theme and not a design.** F277 says in as many words that pixel parity with a platform's
+// widgets is not a goal, so this is the legible default and the thing an application replaces. It
+// is deliberately the smallest answer to each of the six decisions in `looknfeel.zm`'s header --
+// square, filled, unedged, one grey, one size of padding -- because an application replacing it
+// should not have to undo anything first. `modern.zm` is the demonstration of what the vocabulary
+// can say; this is the reference.
+
+pub fn plain() -> controls.Style {
+    return controls.Style {
+        text_size: 12.0,
+        padding: widget.insets_of(8.0, 4.0, 8.0, 4.0),
+        ink: paint.rgb(0.1, 0.1, 0.1),
+        face: paint.rgb(0.9, 0.9, 0.9),
+        pressed_face: paint.rgb(0.75, 0.75, 0.78),
+        // Lighter than a face and darker than the white a window is painted on, so a panel reads
+        // as a raised surface and a control on it still reads as a control.
+        panel: paint.rgb(0.96, 0.96, 0.97),
+        // The colour curly wrote into its own `raster.Options` before `Style` could hold it, kept
+        // exactly so that moving this token changed no application's pixels.
+        window: paint.rgb(0.98, 0.98, 0.99),
+        grid: paint.rgb(0.80, 0.80, 0.82),
+        disabled_ink: paint.rgb(0.6, 0.6, 0.6),
+        composing_face: paint.rgb(0.88, 0.91, 0.97),
+        converting_face: paint.rgb(0.70, 0.78, 0.93),
+        collapsed_mark: "▸",
+        expanded_mark: "▾",
+        scrim: paint.rgba(0.0, 0.0, 0.0, 0.35),
+        // **The blue the gallery was hard-coding into its own focus ring**, which is what naming
+        // the token is for: the one place it lived was a call site in an application.
+        accent: paint.rgb(0.15, 0.4, 0.85),
+        on_accent: paint.rgb(1.0, 1.0, 1.0),
+        // The same grey a press has used all along, so a plain window's pixels do not move. A look
+        // that wants an accented selection says so; see `modern`.
+        selection: paint.rgb(0.75, 0.75, 0.78),
+        space: 4.0,
+        // A third larger and a tenth smaller, which is the smallest scale worth having: enough
+        // that a heading reads as one, little enough that nothing reflows.
+        heading_size: 16.0,
+        small_size: 11.0,
+        // A tenth of black: enough that a row lights under the pointer, little enough that a
+        // button does not look pressed when it is only being passed over.
+        hover_tint: paint.rgba(0.0, 0.0, 0.0, 0.10),
+        // Two points down and ten of spread, at just over a fifth. **Shallower than Fluent's
+        // `$shadow16` and deeper than its `$shadow2`**, which is the range its own table puts a
+        // menu and a dialog in; the exact numbers are a look's to set and these are the ones that
+        // read on a light window without turning the corner of a popup into a smudge.
+        raised: Option<widget.Shadow>.Some(widget.shadow_of(2.0, 10.0, 0.22)),
+        face_border: Option<widget.Border>.None,
+        corner: widget.Radius.Square,
+        text_font: 0,
+        icon_font: 0,
+        // Half the text size: at 12 points that is 6, which reads as a space between two things
+        // rather than as a gap. Scaling with the text keeps it right at any size, the way the
+        // icon's own square does.
+        icon_gap: 6.0
+    }
+}
+
+// The same look on a dark window.
+//
+// **Three things change that a palette inversion would get wrong**, and they are the reason a
+// variation lives beside the thing it varies rather than being computed from it:
+//
+//   * **the hover veil is white.** `hover_tint` is painted over a face, and a tenth of black over
+//     a dark grey is invisible -- the state layer has to come from the other end. Material says
+//     the same in its own words: the overlay is `on-surface`, which flips with the surface;
+//   * **a shadow has to be deeper.** Depth is read as a darkening, and there is less room to
+//     darken below a dark window, so the same geometry at the same opacity reads as nothing. This
+//     is a half rather than a fifth;
+//   * **`on_accent` goes dark.** A dark look wants a lighter accent so it reads against the
+//     window -- and dark text is what reads on a light blue, where white text on it does not.
+//     Checked rather than chosen: `looknfeel_test` asserts both ends of every pair.
+pub fn plain_dark() -> controls.Style {
+    return with plain() {
+        ink: paint.rgb(0.92, 0.92, 0.93),
+        face: paint.rgb(0.25, 0.25, 0.27),
+        pressed_face: paint.rgb(0.34, 0.34, 0.37),
+        panel: paint.rgb(0.18, 0.18, 0.19),
+        window: paint.rgb(0.12, 0.12, 0.13),
+        grid: paint.rgb(0.33, 0.33, 0.36),
+        disabled_ink: paint.rgb(0.58, 0.58, 0.61),
+        composing_face: paint.rgb(0.20, 0.24, 0.33),
+        converting_face: paint.rgb(0.26, 0.33, 0.47),
+        // Deeper than the light look's, because a dark window shows less through a scrim and the
+        // point of one is that the window behind is plainly unavailable.
+        scrim: paint.rgba(0.0, 0.0, 0.0, 0.55),
+        accent: paint.rgb(0.45, 0.65, 1.0),
+        on_accent: paint.rgb(0.08, 0.09, 0.11),
+        selection: paint.rgb(0.28, 0.34, 0.46),
+        hover_tint: paint.rgba(1.0, 1.0, 1.0, 0.08),
+        raised: Option<widget.Shadow>.Some(widget.shadow_of(2.0, 10.0, 0.5))
+    }
+}

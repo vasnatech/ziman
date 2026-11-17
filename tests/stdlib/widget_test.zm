@@ -424,7 +424,7 @@ fn focusable_with(radius: float) -> widget.Laid {
 }
 
 // **A square ring across the corners of a rounded button**, which is what this drew until
-// 2026-11-13. It was indistinguishable from right while `default_style` left `corner_radius` at
+// 2026-11-13. It was indistinguishable from right while the plain look left `corner_radius` at
 // zero, and wrong from the moment F286 made a rounded look possible.
 #[test]
 fn the_focus_ring_curves_when_the_control_does() {

@@ -1,0 +1,95 @@
+// looknfeel.zm -- the looks the control set ships with, and the register of them.
+//
+// **A look and feel is not a colour theme**, which is the whole reason this is a module and not a
+// palette. A `controls.Style` carries six kinds of decision at once: colour (ink, faces, accent,
+// selection), *space* (padding and the spacing step), *type* (three sizes and which face each
+// draws in), *shape* (one corner radius and whether a face is edged), *depth* (what casts a shadow
+// and how deep), and *state* (how a hover and a press read). A look that changes only the colours
+// is a recolour; every system that publishes a design language -- Fluent, Material, Adwaita --
+// changes all six together, and a file here is expected to as well.
+//
+// **Why this is not in `controls`.** It was, as `default_style` and `modern_style` at the foot of
+// a 5,000-line file, which made the control set the home of both the vocabulary and every word
+// spoken in it. They are different things with different readers: someone adding a control reads
+// `controls`, someone dressing an application reads this. The dependency only points one way --
+// `controls` defines `Style` and never builds one -- so splitting cost nothing and the circularity
+// that would have forced the opposite split does not exist.
+//
+// **One file per look, and a file holds every variation of its own look.** `plain.zm` has
+// `plain` and `plain_dark`; `modern.zm` has `modern` and `modern_dark`. A variation is the same
+// design decisions answered for a different surround, so it belongs beside the thing it varies --
+// and splitting light from dark across two files is how the two drift until only one of them is
+// really maintained.
+//
+// **Parts of one module.** Every file here is `use looknfeel`, exactly as `lib/core/charset` is
+// one module in two files: a caller says `looknfeel.plain()` and `looknfeel.modern_dark()` without
+// knowing which file either lives in. Function names therefore carry their look's name, which they
+// would want to anyway.
+//
+// **Adding one** takes a file here, its name in `LOOKNFEEL_PARTS` and `src/corelib.c`, and an
+// entry in `all` below -- the last being what makes it show up in an application's theme list and
+// in `looknfeel_test`'s contrast gate, which every shipped look passes.
+//
+// **One token has a caller-side obligation**: `Style.window` is the colour behind everything, and
+// no control draws it. An application passes it to `raster.Options.background`. A look and feel
+// that could not say what colour the window was is why dark variations could not be written here
+// before.
+use controls
+use paint
+use widget
+
+// A look and feel under the name an application offers it by.
+//
+// **A name and a style, not a constructor**, because the list is what a theme picker wants and a
+// list of functions is not one -- and because `named` would otherwise be a switch that every new
+// look has to be added to twice.
+pub struct Theme {
+    // What to put in a menu. Capitalised as a title, because it is one.
+    name: string
+    style: controls.Style
+}
+
+// Every look and feel here, each variation as its own entry.
+//
+// **The register is a list and not a map** so that the order is the one an application shows: a
+// map would sort by name and put "Modern dark" before "Plain". `named` searches it; nothing needs
+// the lookup to be fast, because a theme is chosen by a person.
+pub fn all() -> [Theme] {
+    return [
+        Theme { name: "Plain", style: plain() },
+        Theme { name: "Plain dark", style: plain_dark() },
+        Theme { name: "Modern", style: modern() },
+        Theme { name: "Modern dark", style: modern_dark() }
+    ]
+}
+
+// The look and feel of that name, or nothing.
+//
+// **Case-sensitive and exact.** A near-match would be a guess, and an application that gets a
+// stored preference wrong should show the default rather than something close to what was asked
+// for.
+pub fn named(name: string) -> Option<controls.Style> {
+    for one in all() {
+        if one.name == name {
+            return Option<controls.Style>.Some(one.style)
+        }
+    }
+    return Option<controls.Style>.None
+}
+
+// What an application gets if it expresses no preference: `plain`.
+//
+// **A function rather than a constant**, so that what the default *is* can change without every
+// caller changing -- which is the whole reason the name exists beside `plain()`.
+pub fn default_style() -> controls.Style {
+    return plain()
+}
+
+// How legible a look's body text is on its own control faces, as a WCAG contrast ratio.
+//
+// **Here rather than only in the test**, because an application building a style of its own wants
+// the same question answered, and a number a test knows how to compute is a number the library
+// should be able to answer. `paint.contrast_ratio` has the formula; AA wants 4.5.
+pub fn ink_contrast(style: controls.Style) -> float {
+    return paint.contrast_ratio(style.ink, style.face)
+}

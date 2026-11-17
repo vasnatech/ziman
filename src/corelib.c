@@ -88,6 +88,9 @@
 #include "encoding_source.h"
 #include "charset_charset_source.h"
 #include "charset_tables_source.h"
+#include "looknfeel_looknfeel_source.h"
+#include "looknfeel_plain_source.h"
+#include "looknfeel_modern_source.h"
 #include "test_source.h"
 #include "geom_source.h"
 #include "shape_source.h"
@@ -201,6 +204,7 @@ static const CoreModule CORE_MODULES[] = {
     {"otp", OTP_SOURCE, OTP_SOURCE_PATH},
     {"encoding", ENCODING_SOURCE, ENCODING_SOURCE_PATH},
     {"charset", NULL, "lib/core/charset/charset.zm"},
+    {"looknfeel", NULL, "lib/ui/looknfeel/looknfeel.zm"},
     {"test", TEST_SOURCE, TEST_SOURCE_PATH},
     {"geom", GEOM_SOURCE, GEOM_SOURCE_PATH},
     {"shape", SHAPE_SOURCE, SHAPE_SOURCE_PATH},
@@ -285,6 +289,9 @@ static const struct {
     {"rest", "lib/http/rest/dispatch.zm", REST_DISPATCH_SOURCE},
     {"charset", "lib/core/charset/charset.zm", CHARSET_CHARSET_SOURCE},
     {"charset", "lib/core/charset/tables.zm", CHARSET_TABLES_SOURCE},
+    {"looknfeel", "lib/ui/looknfeel/looknfeel.zm", LOOKNFEEL_LOOKNFEEL_SOURCE},
+    {"looknfeel", "lib/ui/looknfeel/plain.zm", LOOKNFEEL_PLAIN_SOURCE},
+    {"looknfeel", "lib/ui/looknfeel/modern.zm", LOOKNFEEL_MODERN_SOURCE},
 };
 #pragma GCC diagnostic pop
 

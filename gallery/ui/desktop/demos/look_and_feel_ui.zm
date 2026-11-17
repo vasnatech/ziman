@@ -6,7 +6,7 @@ val gap = 8.0
 val row_height = 30.0
 val label_width = 110.0
 val picker_width = 160.0
-val band_height = 40.0
+val band_height = 58.0
 val field_width = 220.0
 val button_width = 120.0
 val said_height = 20.0
@@ -18,6 +18,34 @@ pub struct Screen {
     check: widget.Widget
     field: widget.Widget
     said: string
+    // The chosen look, for the band's own background. **A demo of a dark look on a light window
+    // is not a demo of a dark look**: a button and a field carry their own faces and read fine,
+    // but a check box's *label* has no face under it, so it was drawn in the dark look's near
+    // white ink straight onto the gallery's near white window and disappeared. `Style.window` is
+    // the token that fixes it, which is a fair demonstration of why that token exists.
+    look: controls.Style
+}
+
+// The controls under the chosen look, on that look's own window colour.
+pub fn band(it: Screen) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: gap,
+        padding: widget.insets_of(gap, gap, gap, gap),
+        surface: widget.filled(it.look.window),
+        // **Stretched, not centred**, which is what `widget.row_of` uses and why the controls
+        // vanished the first time this band had a surface: every child here is
+        // `fixed_of(width, 0.0, ..)`, and a height of zero across an axis nothing stretches stays
+        // zero. Same trap as the table's header band, the link, the slider's thumb and the check
+        // box's mark -- nothing drawn, no error, every test green.
+        align: widget.stretched(),
+        children: [
+            widget.fixed_of(button_width, 0.0, it.button),
+            widget.fixed_of(field_width, 0.0, it.field),
+            widget.expand(it.check)
+        ],
+        name: ""
+    })
 }
 
 pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
@@ -27,11 +55,7 @@ pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Wi
             widget.fixed_of(picker_width, 0.0, it.picker),
             widget.expand(widget.flex())
         ])),
-        widget.fixed_of(0.0, band_height, widget.row_of(gap, [
-            widget.fixed_of(button_width, 0.0, it.button),
-            widget.fixed_of(field_width, 0.0, it.field),
-            widget.expand(it.check)
-        ])),
+        widget.fixed_of(0.0, band_height, band(it)),
         widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
     ])
 }

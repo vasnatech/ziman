@@ -18,6 +18,7 @@ use desktop
 use font
 use fs
 use geom
+use looknfeel
 use os
 use paint
 use pictures.images
@@ -198,7 +199,7 @@ fn run() -> Result<unit, string> {
     // **The gallery wears the look the library is proudest of**, which is also the only way
     // anyone finds out that `modern_style` is wrong about something. The two marks are replaced
     // for the reason they always were: the faces a desktop ships have no triangles.
-    val style = with controls.modern_style() { collapsed_mark: ">", expanded_mark: "v" }
+    val style = with looknfeel.modern() { collapsed_mark: ">", expanded_mark: "v" }
     val density = chosen_density().density
     val scale = density.px_per_pt
     val options = with raster.options() {
@@ -206,10 +207,13 @@ fn run() -> Result<unit, string> {
         // The demo's own picture, made rather than loaded. See `pictures`.
         images: images,
         samples: 1,
-        // **The window's own colour, which is the renderer's and not the theme's**: `Style`
-        // describes controls, and what is behind them is what the window was cleared to. A
-        // slightly cool white, so a white panel in front of it still reads as in front.
-        background: Option<paint.Color>.Some(paint.rgb8(246, 247, 249)),
+        // **The look's own colour, which this file used to argue was the renderer's.** The
+        // comment here said `Style` describes controls and what is behind them is what the window
+        // was cleared to -- and it was wrong for one reason: the window is the largest area in the
+        // window, so a look and feel that cannot name it cannot be dark. `Style.window` holds it
+        // now and the clearing is still the application's, which is the part the old argument had
+        // right. Same pixels: `modern()` carries the cool white that was written here.
+        background: Option<paint.Color>.Some(style.window),
         max_pixels: ((8000000 as float) * scale * scale) as int,
         px_per_pt: scale
     }

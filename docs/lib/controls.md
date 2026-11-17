@@ -30,6 +30,7 @@ use a11y
 use controls
 use focus
 use geom
+use looknfeel
 use widget
 
 // A fake metrics, so the example needs no font: ten units per character.
@@ -56,7 +57,7 @@ struct Window {
 }
 
 fn view(w: Window) -> widget.Widget {
-    val style = controls.default_style()
+    val style = looknfeel.plain()
     return widget.column_of(
         6.0,
         [
@@ -76,7 +77,7 @@ fn step(w: Window, input: controls.Input) -> Window {
         None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
     }
     if name == "email" {
-        val done = controls.entry_input(w.email, input, bounds, controls.default_style(), metrics())
+        val done = controls.entry_input(w.email, input, bounds, looknfeel.plain(), metrics())
         val board = if done.copied == "" { w.clipboard } else { done.copied }
         return with w { email: done.entry, focused: name, clipboard: board }
     }
@@ -2244,9 +2245,22 @@ pub struct Style {
     // a control in `face`. Two colours for two things is what every other widget set has, and one
     // colour for both is a default that hides controls.
     //
-    // **So `default_style` does not keep its pixels here**, where F286 deliberately did: a look
+    // **So the plain look does not keep its pixels here**, where F286 deliberately did: a look
     // that cannot show a button on a panel is not a look to preserve.
     panel: Color
+    // What the window itself is painted, behind every control.
+    //
+    // **A look and feel could not say what colour the window was**, which is the same gap
+    // `accent` had: the gallery wrote `rgb8(246, 247, 249)` into its own `raster.Options` and
+    // curly wrote `rgb(0.98, 0.98, 0.99)` into its own, so the one colour with the largest area in
+    // the window was the one the theme did not own. It is the reason a dark look and feel was not
+    // expressible here before -- dark controls on a white window is not a dark theme, it is a
+    // mistake.
+    //
+    // **Not drawn by any control**, because no control owns the window: an application passes this
+    // to `raster.Options.background` (or fills with it) and the controls sit on top. That is the
+    // one token here with a caller-side obligation, and `lib/ui/looknfeel`'s header says so too.
+    window: Color
     // The lines between a table's cells.
     //
     // **A table without them is a list with gaps in it.** Rows of numbers in columns need
@@ -2378,42 +2392,6 @@ pub struct Style {
 How a control is drawn. Injected rather than global, for the reason `widget.Metrics` is: a module
 that reads a theme from somewhere cannot be tested against two themes, and an application with
 two panels cannot style them differently.
-
-### `default_style`
-
-```
-pub fn default_style() -> Style
-```
-
-A plain light style. **Not a theme and not a design** -- F277 says in as many words that pixel
-parity with a platform's widgets is not a goal, so this is a legible default and the thing an
-application replaces.
-
-### `modern_style`
-
-```
-pub fn modern_style() -> Style
-```
-
-A look and feel built from every token this layer has, rather than the fewest.
-
-**`default_style` is the reference and this is the demonstration.** The default is deliberately
-the plainest thing that is legible -- square, filled, unedged, one grey -- because an
-application replacing it should not have to undo anything. This one is what the vocabulary is
-*for*: a surface that is nearly white and edged rather than grey and flat, a corner radius, an
-accent that the focus ring and the selection are both drawn from, a shadow under the things
-that are in front, and a hover veil light enough to read on white.
-
-**The numbers come from the systems that publish theirs.** Fluent 2's shape scale puts a button
-at 4 points of radius and its large components at 8, so 6 sits between them and `Radius.Points`
-caps it on anything small enough to need it; its stroke scale starts at 1. Its shadow table
-puts a menu between `$shadow8` and `$shadow16`, which in its own units is a blur of 8 to 16 and
-an opacity of 14 to 24 per cent -- 14 and 16 here. The accent is this project's own.
-
-**What it does not do is a gradient**, and that is a choice rather than a limit: `Surface.fill`
-takes a colour where `scene` has had `LinearGradient` since it existed, and widening it would
-be a morning's work. Flat surfaces with elevation and a state layer is what every current
-system does, and a gradient on a control face is the one thing that would date this on sight.
 
 ## The keys
 

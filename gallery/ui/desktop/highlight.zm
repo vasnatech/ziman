@@ -62,28 +62,6 @@ fn attribute_hue() -> Color {
     return paint.rgb8(132, 148, 170)
 }
 
-// One channel of sRGB, linearised -- the first half of WCAG's relative luminance.
-fn linear(c: float) -> float {
-    if c <= 0.03928 {
-        return c / 12.92
-    }
-    return math.pow((c + 0.055) / 1.055, 2.4)
-}
-
-pub fn luminance(c: Color) -> float {
-    return 0.2126 * linear(c.red) + 0.7152 * linear(c.green) + 0.0722 * linear(c.blue)
-}
-
-// WCAG's contrast ratio, which is symmetric: the lighter of the two over the darker.
-pub fn contrast(a: Color, b: Color) -> float {
-    val la = luminance(a)
-    val lb = luminance(b)
-    if la > lb {
-        return (la + 0.05) / (lb + 0.05)
-    }
-    return (lb + 0.05) / (la + 0.05)
-}
-
 fn mixed(a: Color, b: Color, t: float) -> Color {
     return paint.rgba(
         a.red + (b.red - a.red) * t,
@@ -105,7 +83,7 @@ pub fn legible(hue: Color, on: Color, ink: Color) -> Color {
     var t = 0.0
     while t < 1.0 {
         val tried = mixed(hue, ink, t)
-        if contrast(tried, on) >= least_contrast {
+        if paint.contrast_ratio(tried, on) >= least_contrast {
             return tried
         }
         t = t + 0.05

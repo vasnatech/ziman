@@ -4775,9 +4775,22 @@ pub struct Style {
     // a control in `face`. Two colours for two things is what every other widget set has, and one
     // colour for both is a default that hides controls.
     //
-    // **So `default_style` does not keep its pixels here**, where F286 deliberately did: a look
+    // **So the plain look does not keep its pixels here**, where F286 deliberately did: a look
     // that cannot show a button on a panel is not a look to preserve.
     panel: Color
+    // What the window itself is painted, behind every control.
+    //
+    // **A look and feel could not say what colour the window was**, which is the same gap
+    // `accent` had: the gallery wrote `rgb8(246, 247, 249)` into its own `raster.Options` and
+    // curly wrote `rgb(0.98, 0.98, 0.99)` into its own, so the one colour with the largest area in
+    // the window was the one the theme did not own. It is the reason a dark look and feel was not
+    // expressible here before -- dark controls on a white window is not a dark theme, it is a
+    // mistake.
+    //
+    // **Not drawn by any control**, because no control owns the window: an application passes this
+    // to `raster.Options.background` (or fills with it) and the controls sit on top. That is the
+    // one token here with a caller-side obligation, and `lib/ui/looknfeel`'s header says so too.
+    window: Color
     // The lines between a table's cells.
     //
     // **A table without them is a list with gaps in it.** Rows of numbers in columns need
@@ -4905,106 +4918,12 @@ pub struct Style {
     icon_gap: float
 }
 
-// A plain light style. **Not a theme and not a design** -- F277 says in as many words that pixel
-// parity with a platform's widgets is not a goal, so this is a legible default and the thing an
-// application replaces.
-pub fn default_style() -> Style {
-    return Style {
-        text_size: 12.0,
-        padding: widget.insets_of(8.0, 4.0, 8.0, 4.0),
-        ink: paint.rgb(0.1, 0.1, 0.1),
-        face: paint.rgb(0.9, 0.9, 0.9),
-        pressed_face: paint.rgb(0.75, 0.75, 0.78),
-        // Lighter than a face and darker than the white a window is painted on, so a panel reads
-        // as a raised surface and a control on it still reads as a control.
-        panel: paint.rgb(0.96, 0.96, 0.97),
-        grid: paint.rgb(0.80, 0.80, 0.82),
-        disabled_ink: paint.rgb(0.6, 0.6, 0.6),
-        composing_face: paint.rgb(0.88, 0.91, 0.97),
-        converting_face: paint.rgb(0.70, 0.78, 0.93),
-        collapsed_mark: "▸",
-        expanded_mark: "▾",
-        scrim: paint.rgba(0.0, 0.0, 0.0, 0.35),
-        // Two points down and ten of spread, at just over a fifth. **Shallower than Fluent's
-        // `$shadow16` and deeper than its `$shadow2`**, which is the range its own table puts a
-        // menu and a dialog in; the exact numbers are a theme's to set and these are the ones that
-        // read on a light window without turning the corner of a popup into a smudge.
-        // **The blue the gallery was hard-coding into its own focus ring**, which is what
-        // naming the token is for: the one place it lived was a call site in an application.
-        accent: paint.rgb(0.15, 0.4, 0.85),
-        on_accent: paint.rgb(1.0, 1.0, 1.0),
-        // The same grey a press has used all along, so a default window's pixels do not move.
-        // A theme that wants an accented selection says so; see `modern_style`.
-        selection: paint.rgb(0.75, 0.75, 0.78),
-        space: 4.0,
-        // A third larger and a tenth smaller, which is the smallest scale worth having: enough
-        // that a heading reads as one, little enough that nothing reflows.
-        heading_size: 16.0,
-        small_size: 11.0,
-        // A tenth of black: enough that a row lights under the pointer, little enough that a
-        // button does not look pressed when it is only being passed over.
-        hover_tint: paint.rgba(0.0, 0.0, 0.0, 0.10),
-        raised: Option<widget.Shadow>.Some(widget.shadow_of(2.0, 10.0, 0.22)),
-        face_border: Option<widget.Border>.None,
-        corner: widget.Radius.Square,
-        text_font: 0,
-        icon_font: 0,
-        // Half the text size: at 12 points that is 6, which reads as a space between two things
-        // rather than as a gap. Scaling with the text keeps it right at any size, the way the
-        // icon's own square does.
-        icon_gap: 6.0
-    }
-}
-
-// A look and feel built from every token this layer has, rather than the fewest.
-//
-// **`default_style` is the reference and this is the demonstration.** The default is deliberately
-// the plainest thing that is legible -- square, filled, unedged, one grey -- because an
-// application replacing it should not have to undo anything. This one is what the vocabulary is
-// *for*: a surface that is nearly white and edged rather than grey and flat, a corner radius, an
-// accent that the focus ring and the selection are both drawn from, a shadow under the things
-// that are in front, and a hover veil light enough to read on white.
-//
-// **The numbers come from the systems that publish theirs.** Fluent 2's shape scale puts a button
-// at 4 points of radius and its large components at 8, so 6 sits between them and `Radius.Points`
-// caps it on anything small enough to need it; its stroke scale starts at 1. Its shadow table
-// puts a menu between `$shadow8` and `$shadow16`, which in its own units is a blur of 8 to 16 and
-// an opacity of 14 to 24 per cent -- 14 and 16 here. The accent is this project's own.
-//
-// **What it does not do is a gradient**, and that is a choice rather than a limit: `Surface.fill`
-// takes a colour where `scene` has had `LinearGradient` since it existed, and widening it would
-// be a morning's work. Flat surfaces with elevation and a state layer is what every current
-// system does, and a gradient on a control face is the one thing that would date this on sight.
-pub fn modern_style() -> Style {
-    return with default_style() {
-        // **Room, which is the token nothing had.** Eight by four is a button of twenty-two
-        // points; every system draws one at about thirty-two, and the difference is entirely
-        // padding.
-        padding: widget.insets_of(14.0, 8.0, 14.0, 8.0),
-        ink: paint.rgb8(26, 29, 33),
-        // Nearly white and edged, rather than grey and flat: on a white window the border is what
-        // says "this is a control", and it costs no layout because a border is stroked inside.
-        face: paint.rgb8(252, 252, 253),
-        pressed_face: paint.rgb8(236, 238, 241),
-        panel: paint.rgb8(255, 255, 255),
-        grid: paint.rgb8(232, 234, 237),
-        disabled_ink: paint.rgb8(154, 160, 166),
-        accent: paint.rgb8(37, 99, 235),
-        on_accent: paint.rgb8(255, 255, 255),
-        // A tint of the accent rather than a darker grey, which is what makes a selected row look
-        // chosen rather than pressed. Light enough that `ink` still reads on it.
-        selection: paint.rgb8(219, 228, 251),
-        // Lighter than the default's tenth, because these faces are nearly white and a tenth of
-        // black on white reads as pressed.
-        hover_tint: paint.rgba(0.0, 0.0, 0.0, 0.06),
-        face_border: Option<widget.Border>.Some(widget.Border {
-            colour: paint.rgb8(208, 212, 218),
-            width: 1.0
-        }),
-        corner: widget.Radius.Points(6.0),
-        raised: Option<widget.Shadow>.Some(widget.shadow_of(3.0, 14.0, 0.16))
-    }
-}
+// **The looks themselves live in `lib/ui/looknfeel`**, not here. `default_style` and
+// `modern_style` were at this point in the file until 2026-11-17, which made the control set the
+// home of both the vocabulary above and every word spoken in it -- two things with different
+// readers, in one 5,000-line file. `controls` defines `Style` and never builds one, so the
+// dependency points one way and the split cost nothing: `looknfeel.plain()` is what the one
+// called `default_style` was, and `looknfeel.modern()` what `modern_style` was.
 
 // A control's own face: its fill, edged and rounded as the style asks.
 //

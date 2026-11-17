@@ -370,7 +370,7 @@ pub struct Border {
 // **This is the vocabulary a second look and feel needs, and until 2026-11-12 it was one colour
 // wide.** `Stack` carried a `background: Option<Color>` and nothing else, so every container in
 // every theme was a flat rectangle: an application could already replace the whole palette --
-// `controls.default_style()` exists to be replaced -- and still could not draw a button that
+// `looknfeel.plain()` exists to be replaced -- and still could not draw a button that
 // looked different, because what distinguishes one look and feel from another is *shape*. The
 // capability was always one layer down (`shape.round_rect_path`, and `paint_focused` has stroked a
 // path in this very module since F270); only the way to ask for it was missing.
@@ -1959,6 +1959,22 @@ pub fn paint_hovered(l: Laid, over: scene.Scene, hovered: string, tint: Color) -
     }
     switch focus_node(l, hovered) {
         Some(node) {
+            // **Only a control with no control inside it**, which is the difference between a
+            // state layer and a stain over the window. `focus.control_at` answers with the
+            // innermost *named* node under the pointer, and over the empty part of a pane that is
+            // the pane -- so a 6 per cent veil was painted across everything below it, and stayed
+            // there, because the container is a perfectly good answer to "what is under the
+            // pointer" and a nonsensical answer to "what is the pointer on". Measured as the
+            // gallery's window going from 246,247,249 to 231,232,234 -- the tint's own alpha,
+            // over the whole frame.
+            //
+            // A button, a row, a menu item and a tab hold no further control and light up; a
+            // pane, a split, a list and a tree hold their own and do not. The test is the node's
+            // own shape rather than where the pointer is, so it cannot change between two frames
+            // of the pointer standing still.
+            if holds_a_control(node) {
+                return over
+            }
             val ops = mutable_array_new<Op>()
             for op in over.ops {
                 push(ops, op)
@@ -2039,6 +2055,34 @@ fn radius_of(l: Laid) -> float {
 
 // The laid-out node a name belongs to, or `None`. The same walk `focus.node_of` does, repeated here
 // because `focus` depends on this module and cannot be depended on back.
+// Whether anything inside this node is itself a control. See `paint_hovered`, which is the only
+// caller and carries the argument.
+//
+// **The node itself does not count**, only what is under it: every node this is asked about is a
+// control, so counting itself would answer `true` always.
+fn holds_a_control(l: Laid) -> bool {
+    for child in l.children {
+        if control_inside(child) {
+            return true
+        }
+    }
+    return false
+}
+
+// `is_control` for the node **or anything under it** -- a button wrapped in a box of its own is
+// still a control to the node holding the box.
+fn control_inside(l: Laid) -> bool {
+    if is_control(l) {
+        return true
+    }
+    for child in l.children {
+        if control_inside(child) {
+            return true
+        }
+    }
+    return false
+}
+
 fn focus_node(l: Laid, name: string) -> Option<Laid> {
     if Control(it) = l.widget {
         if it.name == name {

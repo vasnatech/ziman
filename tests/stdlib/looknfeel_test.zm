@@ -1,0 +1,219 @@
+// `lib/ui/looknfeel`: the looks the control set ships with.
+//
+// **These are a gate on the colours, not a snapshot of them.** A test that asserted what grey a
+// face is would fail every time anyone improved one and would catch nothing -- the thing worth
+// holding a look to is whether it can be *read*, which is a ratio between two of its own tokens
+// and stays true however the colours move. WCAG AA asks 4.5 for body text and 3.0 for a large
+// one or a control's edge; `paint.contrast_ratio` has the formula.
+//
+// **Every look in `all` is checked, so adding one to the register opts it in.** That is the whole
+// reason the register exists as a list rather than as a switch in `named`: a look that is only
+// reachable by calling its own function is a look nothing tests and no application offers.
+use controls
+use looknfeel
+use paint
+use paint.Color
+use test
+use widget
+
+// ---- the register
+
+#[test]
+fn the_register_names_every_look_once() {
+    val seen = mutable_map_new<string, bool>()
+    for one in looknfeel.all() {
+        test.assert(!contains(seen, one.name))
+        set(seen, one.name, true)
+    }
+    test.assert(len(looknfeel.all()) >= 4)
+}
+
+#[test]
+fn every_name_in_the_register_is_findable() {
+    for one in looknfeel.all() {
+        test.assert(switch looknfeel.named(one.name) {
+            Some(_) { true }
+            None { false }
+        })
+    }
+}
+
+#[test]
+fn a_name_that_is_not_a_look_is_nothing_rather_than_the_default() {
+    // A near-match would be a guess. An application with a stale stored preference should fall
+    // back deliberately rather than be handed something close to what it asked for.
+    test.assert(switch looknfeel.named("plain") {
+        Some(_) { false }
+        None { true }
+    })
+    test.assert(switch looknfeel.named("Solarized") {
+        Some(_) { false }
+        None { true }
+    })
+}
+
+#[test]
+fn the_default_is_plain() {
+    test.assert(same_colour(looknfeel.default_style().face, looknfeel.plain().face))
+    test.assert(same_colour(looknfeel.default_style().window, looknfeel.plain().window))
+}
+
+// ---- every shipped look is legible
+
+#[test]
+fn body_text_reads_on_every_surface_of_every_look() {
+    for one in looknfeel.all() {
+        val s = one.style
+        // The four surfaces `ink` is drawn on. A look that passes on a face and fails on a
+        // selected row is a look whose list is unreadable exactly while you are using it.
+        test.assert(paint.contrast_ratio(s.ink, s.face) >= 4.5)
+        test.assert(paint.contrast_ratio(s.ink, s.panel) >= 4.5)
+        test.assert(paint.contrast_ratio(s.ink, s.window) >= 4.5)
+        test.assert(paint.contrast_ratio(s.ink, s.selection) >= 4.5)
+        test.assert(paint.contrast_ratio(s.ink, s.pressed_face) >= 4.5)
+    }
+}
+
+#[test]
+fn a_primary_surface_reads_in_its_own_text_colour() {
+    // **Both ends of the pair**, which is the one a dark look gets wrong by inheriting: a dark
+    // theme wants a lighter accent so it shows against the window, and white text stops reading
+    // on it well before the accent stops looking right.
+    for one in looknfeel.all() {
+        test.assert(paint.contrast_ratio(one.style.on_accent, one.style.accent) >= 4.5)
+    }
+}
+
+#[test]
+fn an_accent_and_a_grid_line_show_against_the_surfaces_they_mark() {
+    // 3.0 rather than 4.5: a focus ring and a rule are large-scale graphics, which is the lower
+    // of WCAG's two thresholds and the right one for a line.
+    for one in looknfeel.all() {
+        test.assert(paint.contrast_ratio(one.style.accent, one.style.face) >= 3.0)
+        test.assert(paint.contrast_ratio(one.style.grid, one.style.face) >= 1.1)
+    }
+}
+
+#[test]
+fn a_selected_row_is_visibly_not_an_unselected_one() {
+    // Low on purpose: a selection is a tint, not a contrast. This catches a look that forgot to
+    // set it and left it equal to the face, which is the failure that makes a list look broken.
+    for one in looknfeel.all() {
+        test.assert(paint.contrast_ratio(one.style.selection, one.style.face) >= 1.08)
+    }
+}
+
+#[test]
+fn ink_contrast_is_the_ratio_it_says_it_is() {
+    for one in looknfeel.all() {
+        test.assert(
+            looknfeel.ink_contrast(one.style) ==
+                paint.contrast_ratio(one.style.ink, one.style.face)
+        )
+    }
+}
+
+// ---- what makes a dark look dark
+
+#[test]
+fn a_dark_look_is_darker_than_its_light_one_everywhere_it_counts() {
+    test.assert(
+        paint.relative_luminance(looknfeel.plain_dark().window) <
+            paint.relative_luminance(looknfeel.plain().window)
+    )
+    test.assert(
+        paint.relative_luminance(looknfeel.modern_dark().window) <
+            paint.relative_luminance(looknfeel.modern().window)
+    )
+    // The ink goes the other way, which is the half an inversion gets right.
+    test.assert(
+        paint.relative_luminance(looknfeel.plain().ink) <
+            paint.relative_luminance(looknfeel.plain_dark().ink)
+    )
+}
+
+#[test]
+fn a_dark_look_lights_its_hover_rather_than_darkening_it() {
+    // **The trap this module's header names.** `hover_tint` is painted over a face, and a tenth of
+    // black over a dark grey is invisible -- the state layer has to come from the other end. A
+    // dark look whose hover veil is black is a dark look with no hover at all.
+    for one in looknfeel.all() {
+        val dark = paint.relative_luminance(one.style.window) < 0.2
+        if dark {
+            test.assert(paint.relative_luminance(one.style.hover_tint) > 0.5)
+        }
+    }
+}
+
+#[test]
+fn a_dark_look_raises_its_surfaces_instead_of_sinking_them() {
+    // On white a control is paler than its surround; flipping that literally would put a
+    // near-black control on a dark grey window. Every dark theme worth copying does the opposite:
+    // the further forward a thing is, the lighter it gets.
+    for one in looknfeel.all() {
+        if paint.relative_luminance(one.style.window) < 0.2 {
+            test.assert(
+                paint.relative_luminance(one.style.window) <
+                    paint.relative_luminance(one.style.face)
+            )
+            test.assert(
+                paint.relative_luminance(one.style.window) <=
+                    paint.relative_luminance(one.style.panel)
+            )
+        }
+    }
+}
+
+#[test]
+fn a_dark_look_casts_a_deeper_shadow_than_its_light_one() {
+    // Depth is read as a darkening and there is less room to darken below a dark window, so the
+    // same geometry at the same opacity reads as nothing.
+    test.assert(shadow_opacity(looknfeel.plain_dark()) > shadow_opacity(looknfeel.plain()))
+    test.assert(shadow_opacity(looknfeel.modern_dark()) > shadow_opacity(looknfeel.modern()))
+}
+
+// ---- a variation keeps its own look's shape
+
+#[test]
+fn a_dark_variation_varies_the_surround_and_not_the_shape() {
+    // **What stops a dark look from being a second design.** `modern_dark` is built from `modern`
+    // and not from `plain_dark`, so it keeps the radius, the padding and the shadow geometry that
+    // make it the modern look at all -- and `plain_dark` stays square for the same reason.
+    test.assert(same_corner(looknfeel.modern_dark().corner, looknfeel.modern().corner))
+    test.assert(same_corner(looknfeel.plain_dark().corner, looknfeel.plain().corner))
+    test.assert(looknfeel.modern_dark().padding.left == looknfeel.modern().padding.left)
+    test.assert(edged(looknfeel.modern_dark()))
+    test.assert(!edged(looknfeel.plain_dark()))
+}
+
+// ---- helpers
+
+fn same_colour(a: Color, b: Color) -> bool {
+    return a.red == b.red && a.green == b.green && a.blue == b.blue && a.alpha == b.alpha
+}
+
+fn shadow_opacity(s: controls.Style) -> float {
+    return switch s.raised {
+        Some(cast) { cast.opacity }
+        None { 0.0 }
+    }
+}
+
+fn edged(s: controls.Style) -> bool {
+    return switch s.face_border {
+        Some(_) { true }
+        None { false }
+    }
+}
+
+fn corner_points(c: widget.Radius) -> float {
+    return switch c {
+        Square { 0.0 }
+        Points(r) { r }
+        Fraction(f) { -f }
+    }
+}
+
+fn same_corner(a: widget.Radius, b: widget.Radius) -> bool {
+    return corner_points(a) == corner_points(b)
+}

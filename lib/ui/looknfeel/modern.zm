@@ -1,0 +1,94 @@
+// modern.zm -- a look built from every token this layer has, rather than the fewest.
+//
+// **`plain` is the reference and this is the demonstration.** The default is deliberately the
+// plainest thing that is legible; this one is what the vocabulary is *for*: a surface that is
+// nearly white and edged rather than grey and flat, a corner radius, an accent that the focus ring
+// and the selection are both drawn from, a shadow under the things that are in front, and a hover
+// veil light enough to read on white.
+//
+// **The numbers come from the systems that publish theirs.** Fluent 2's shape scale puts a button
+// at 4 points of radius and its large components at 8, so 6 sits between them and `Radius.Points`
+// caps it on anything small enough to need it; its stroke scale starts at 1. Its shadow table puts
+// a menu between `$shadow8` and `$shadow16`, which in its own units is a blur of 8 to 16 and an
+// opacity of 14 to 24 per cent -- 14 and 16 here. The accent is this project's own.
+//
+// **What it does not do is a gradient**, and that is a choice rather than a limit: `Surface.fill`
+// takes a colour where `scene` has had `LinearGradient` since it existed, and widening it would be
+// a morning's work. Flat surfaces with elevation and a state layer is what every current system
+// does, and a gradient on a control face is the one thing that would date this on sight.
+
+pub fn modern() -> controls.Style {
+    return with plain() {
+        // **Room, which is the token nothing had.** Eight by four is a button of twenty-two
+        // points; every system draws one at about thirty-two, and the difference is entirely
+        // padding.
+        padding: widget.insets_of(14.0, 8.0, 14.0, 8.0),
+        ink: paint.rgb8(26, 29, 33),
+        // Nearly white and edged, rather than grey and flat: on a white window the border is what
+        // says "this is a control", and it costs no layout because a border is stroked inside.
+        face: paint.rgb8(252, 252, 253),
+        pressed_face: paint.rgb8(236, 238, 241),
+        panel: paint.rgb8(255, 255, 255),
+        // Barely grey, so that a white panel and a nearly white face both read as something laid
+        // *on* the window. The colour the gallery wrote into its own `raster.Options` before
+        // `Style` could hold it.
+        window: paint.rgb8(246, 247, 249),
+        grid: paint.rgb8(232, 234, 237),
+        disabled_ink: paint.rgb8(154, 160, 166),
+        accent: paint.rgb8(37, 99, 235),
+        on_accent: paint.rgb8(255, 255, 255),
+        // A tint of the accent rather than a darker grey, which is what makes a selected row look
+        // chosen rather than pressed. Light enough that `ink` still reads on it.
+        selection: paint.rgb8(219, 228, 251),
+        // Lighter than the plain look's tenth, because these faces are nearly white and a tenth of
+        // black on white reads as pressed.
+        hover_tint: paint.rgba(0.0, 0.0, 0.0, 0.06),
+        face_border: Option<widget.Border>.Some(widget.Border {
+            colour: paint.rgb8(208, 212, 218),
+            width: 1.0
+        }),
+        corner: widget.Radius.Points(6.0),
+        raised: Option<widget.Shadow>.Some(widget.shadow_of(3.0, 14.0, 0.16))
+    }
+}
+
+// The same look on a dark window.
+//
+// **Built from `modern` and not from `plain_dark`**, which is the question a second dark variation
+// raises: inheriting the dark colours would have given this look the plain one's shape, and shape
+// is what distinguishes it. A variation varies the *surround*, so it starts from its own look and
+// answers the colour decisions again -- the radius, the border, the padding and the shadow
+// geometry are all `modern`'s and are not repeated here.
+//
+// The three traps `plain_dark`'s comment lists apply unchanged: a white hover veil, a deeper
+// shadow, and dark text on a light accent.
+//
+// **The faces are lighter than the window rather than darker**, which is the one place a dark look
+// is not an inversion of a light one. On white, a control is *paler* than its surround and a panel
+// paler still; flipping that literally would put a near-black control on a dark grey window, where
+// the edge does all the work and the fill says nothing. Every dark theme worth copying raises the
+// surface instead -- the further forward a thing is, the lighter it gets -- which is Material's
+// elevation overlay stated as colour.
+pub fn modern_dark() -> controls.Style {
+    return with modern() {
+        ink: paint.rgb8(226, 229, 233),
+        face: paint.rgb8(38, 41, 46),
+        pressed_face: paint.rgb8(52, 56, 62),
+        panel: paint.rgb8(30, 33, 37),
+        window: paint.rgb8(24, 26, 29),
+        grid: paint.rgb8(56, 60, 66),
+        disabled_ink: paint.rgb8(130, 136, 144),
+        composing_face: paint.rgb8(32, 42, 60),
+        converting_face: paint.rgb8(44, 58, 86),
+        scrim: paint.rgba(0.0, 0.0, 0.0, 0.6),
+        accent: paint.rgb8(96, 150, 255),
+        on_accent: paint.rgb8(16, 18, 22),
+        selection: paint.rgb8(38, 60, 104),
+        hover_tint: paint.rgba(1.0, 1.0, 1.0, 0.07),
+        face_border: Option<widget.Border>.Some(widget.Border {
+            colour: paint.rgb8(62, 67, 74),
+            width: 1.0
+        }),
+        raised: Option<widget.Shadow>.Some(widget.shadow_of(3.0, 14.0, 0.45))
+    }
+}

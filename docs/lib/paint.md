@@ -161,6 +161,37 @@ does: a reader that rejects `rgb(300, 0, 0)` rejects a file everything else draw
 pub fn rgba8(r: int, g: int, b: int, a: int) -> Color
 ```
 
+### `relative_luminance`
+
+```
+pub fn relative_luminance(c: Color) -> float
+```
+
+How light a colour is to the eye, between 0 and 1.
+
+**Not the average of the channels, and not `gray`'s level.** Green carries nearly three quarters
+of perceived lightness and blue under a fourteenth, which is why a pure blue on black fails a
+contrast check that a pure green passes -- and why a palette chosen by eye from hex digits
+drifts. Alpha is ignored: a translucent colour has no luminance until it is over something, and
+the caller is the only one who knows what.
+
+### `contrast_ratio`
+
+```
+pub fn contrast_ratio(a: Color, b: Color) -> float
+```
+
+WCAG's contrast ratio between two colours: 1.0 for a colour against itself, 21.0 for black
+against white.
+
+**Symmetric by construction** -- the lighter over the darker -- so there is no "foreground" and
+"background" argument to get the wrong way round. AA wants 4.5 for body text and 3.0 for large
+text or a control's edge; AAA wants 7.0.
+
+Here rather than in the one application that needed it: `gallery/ui/desktop/highlight.zm` had
+this and `relative_luminance` written out, which is a general fact about colour sitting in a
+program about syntax colouring. `lib/ui/looknfeel` now asserts every shipped look against it.
+
 ### `named`
 
 ```

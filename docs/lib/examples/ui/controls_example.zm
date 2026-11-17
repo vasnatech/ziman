@@ -2,6 +2,7 @@ use a11y
 use controls
 use focus
 use geom
+use looknfeel
 use widget
 
 // A fake metrics, so the example needs no font: ten units per character.
@@ -28,7 +29,7 @@ struct Window {
 }
 
 fn view(w: Window) -> widget.Widget {
-    val style = controls.default_style()
+    val style = looknfeel.plain()
     return widget.column_of(
         6.0,
         [
@@ -48,7 +49,7 @@ fn step(w: Window, input: controls.Input) -> Window {
         None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
     }
     if name == "email" {
-        val done = controls.entry_input(w.email, input, bounds, controls.default_style(), metrics())
+        val done = controls.entry_input(w.email, input, bounds, looknfeel.plain(), metrics())
         val board = if done.copied == "" { w.clipboard } else { done.copied }
         return with w { email: done.entry, focused: name, clipboard: board }
     }

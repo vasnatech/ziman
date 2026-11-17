@@ -11,6 +11,8 @@ use demos/all
 use focus
 use geom
 use highlight
+use looknfeel
+use paint
 use state
 use test
 use widget
@@ -25,7 +27,7 @@ fn metrics() -> widget.Metrics {
 }
 
 fn style() -> controls.Style {
-    return controls.default_style()
+    return looknfeel.plain()
 }
 
 val window = geom.rect_of(0.0, 0.0, 1100.0, 720.0)
@@ -252,14 +254,14 @@ fn kind_of(w: widget.Widget) -> string {
 // allowance.
 #[test]
 fn the_modern_theme_is_legible_everywhere_it_puts_text() {
-    val look = controls.modern_style()
+    val look = looknfeel.modern()
     // Body text on each surface it is drawn on.
-    test.assert(highlight.contrast(look.ink, look.face) >= 4.5)
-    test.assert(highlight.contrast(look.ink, look.panel) >= 4.5)
-    test.assert(highlight.contrast(look.ink, look.selection) >= 4.5)
-    test.assert(highlight.contrast(look.ink, look.pressed_face) >= 4.5)
+    test.assert(paint.contrast_ratio(look.ink, look.face) >= 4.5)
+    test.assert(paint.contrast_ratio(look.ink, look.panel) >= 4.5)
+    test.assert(paint.contrast_ratio(look.ink, look.selection) >= 4.5)
+    test.assert(paint.contrast_ratio(look.ink, look.pressed_face) >= 4.5)
     // And whatever a theme says reads on its accent.
-    test.assert(highlight.contrast(look.on_accent, look.accent) >= 4.5)
+    test.assert(paint.contrast_ratio(look.on_accent, look.accent) >= 4.5)
 }
 
 // **A selection is not a press and a border is not a face.** Each of these was one colour doing
@@ -268,11 +270,11 @@ fn the_modern_theme_is_legible_everywhere_it_puts_text() {
 // the press colour to mean "chosen" disappears.
 #[test]
 fn the_modern_theme_tells_its_states_apart() {
-    val look = controls.modern_style()
-    test.assert(highlight.contrast(look.selection, look.face) >= 1.08)
-    test.assert(highlight.contrast(look.accent, look.face) >= 3.0)
+    val look = looknfeel.modern()
+    test.assert(paint.contrast_ratio(look.selection, look.face) >= 1.08)
+    test.assert(paint.contrast_ratio(look.accent, look.face) >= 3.0)
     switch look.face_border {
-        Some(edge) { test.assert(highlight.contrast(edge.colour, look.face) >= 1.3) }
+        Some(edge) { test.assert(paint.contrast_ratio(edge.colour, look.face) >= 1.3) }
         None { test.fail("the modern theme has no border, which is what tells a face from a window") }
     }
 }
@@ -281,8 +283,8 @@ fn the_modern_theme_tells_its_states_apart() {
 // application replaces rather than undoes.
 #[test]
 fn the_default_theme_stays_plain() {
-    val plain = controls.default_style()
+    val plain = looknfeel.plain()
     test.assert(Option.is_None(plain.face_border))
     test.assert(widget.Radius.is_Square(plain.corner))
-    test.assert(highlight.contrast(plain.ink, plain.face) >= 4.5)
+    test.assert(paint.contrast_ratio(plain.ink, plain.face) >= 4.5)
 }

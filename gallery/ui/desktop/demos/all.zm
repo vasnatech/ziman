@@ -106,7 +106,7 @@ pub fn title_of(d: Demo) -> string {
         Dialog(_) { "Dialog" }
         Layout(_) { "Rows and columns" }
         Picture(_) { "Pictures and paths" }
-        LookAndFeel(_) { "Three looks" }
+        LookAndFeel(_) { "Every look" }
         Accessibility(_) { "What a reader says" }
         Composing(_) { "An input method" }
     }

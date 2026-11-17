@@ -2329,7 +2329,7 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   answer, and the measurement is here so the next pass does not have to re-take it.
 
 - **`lib/ui` supports one look and feel, and the thing in the way is not the palette.** Asked for
-  2026-11-12. A control's colours are already replaceable: `controls.Style` is 11 fields and
+  2026-11-12. **Resolved 2026-11-17 -- see the two DONE notes below.** A control's colours are already replaceable: `controls.Style` is 11 fields and
   `controls.default_style()` says in its own comment that it is "a legible default and the thing an
   application replaces", so an application can ship a dark palette today without a line changing
   here. **What it cannot ship is a different-looking button.**
@@ -2364,6 +2364,21 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   and radii add painting, which is the cheap half, but they also add stroking per box, and a
   rounded rectangle is a path where a rectangle is a span fill. **The number to take before
   shipping a second look and feel, not after.**
+
+  **DONE (2026-11-17): `lib/ui/looknfeel` ships four looks.** `plain`, `plain_dark`, `modern` and
+  `modern_dark`, one module in a file per look, each file holding its own variations -- split out
+  of `controls.zm`, where the two that existed sat at the foot of a 5,000-line file and made the
+  control set the home of both the vocabulary and every word spoken in it. `controls` defines
+  `Style` and never builds one, so the dependency points one way.
+
+  Two tokens had to be added for a look to be sayable at all: `Style.accent`, because the gallery
+  was hard-coding a blue into its own focus ring, and `Style.window`, because the colour behind
+  every control -- the largest area in the window -- was written into each application's
+  `raster.Options` and not into the theme. **That second one is why a dark look could not be
+  expressed here before**: dark controls on a white window is not a dark theme.
+  `tests/stdlib/looknfeel_test.zm` holds every shipped look to WCAG AA on five surfaces and checks
+  the three things a dark variation gets wrong by inheriting -- a black hover veil, a shadow too
+  shallow to read, and white text on a light accent.
 
   **The box widening is DONE (2026-11-12, F286) -- see docs/reviews/tasks/f286.md.**
   `widget.Border`, `widget.Surface`, `Stack.surface`, and `Style.face_border` /
