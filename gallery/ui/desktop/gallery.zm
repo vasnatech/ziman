@@ -325,6 +325,19 @@ fn run() -> Result<unit, string> {
                         dirty = true
                     }
                     if Some(input) = desktop.input_of(e, density) {
+                        // **The pointer's shape, on every move.** `controls.cursor_at` reads it
+                        // off the laid tree by role, so this is the whole of the wiring an
+                        // application needs -- and without it the window showed an arrow over the
+                        // split pane's divider, which is the one control whose entire affordance
+                        // is the cursor. `set_cursor` compares against the shape the window is
+                        // already showing, so a move that changes nothing costs an X round trip
+                        // of nothing.
+                        if Move(at) = input {
+                            switch desktop.set_cursor(w, controls.cursor_at(laid, at)) {
+                                Ok(_) { unit }
+                                Err(_) { unit }
+                            }
+                        }
                         // Every input marks the frame dirty rather than each branch deciding: a
                         // control that changed nothing is the cheap wrong answer, and one that
                         // changed something and did not say so is a window that stops repainting.

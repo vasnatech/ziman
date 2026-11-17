@@ -3,10 +3,8 @@ use controls
 use widget
 
 val gap = 8.0
-val row_height = 30.0
 val label_width = 110.0
 val picker_width = 200.0
-val said_height = 20.0
 val small_size = 11.0
 
 pub struct Screen {
@@ -16,11 +14,11 @@ pub struct Screen {
 
 pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return widget.column_of(gap, [
-        widget.fixed_of(0.0, row_height, widget.row_of(gap, [
-            widget.fixed_of(label_width, 0.0, widget.label_of("Environment", small_size, style.ink)),
-            widget.fixed_of(picker_width, 0.0, it.picker),
+        widget.row_of(gap, [
+            widget.wide_of(label_width, widget.label_of("Environment", small_size, style.ink)),
+            widget.wide_of(picker_width, it.picker),
             widget.expand(widget.flex())
-        ])),
-        widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
+        ]),
+        widget.label_of(it.said, small_size, style.ink)
     ])
 }

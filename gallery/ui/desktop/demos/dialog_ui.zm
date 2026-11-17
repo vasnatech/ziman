@@ -3,9 +3,7 @@ use controls
 use widget
 
 val gap = 8.0
-val row_height = 30.0
 val button_width = 150.0
-val said_height = 20.0
 val small_size = 11.0
 val dialog_width = 360.0
 val dialog_height = 120.0
@@ -17,11 +15,11 @@ pub struct Screen {
 
 pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return widget.column_of(gap, [
-        widget.fixed_of(0.0, row_height, widget.row_of(gap, [
-            widget.fixed_of(button_width, 0.0, it.open),
+        widget.row_of(gap, [
+            widget.wide_of(button_width, it.open),
             widget.expand(widget.flex())
-        ])),
-        widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
+        ]),
+        widget.label_of(it.said, small_size, style.ink)
     ])
 }
 
@@ -30,10 +28,10 @@ pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Wi
 // while the box is asking the child.
 pub fn body(message: string, confirm: widget.Widget, cancel: widget.Widget, style: controls.Style) -> widget.Widget {
     return widget.fixed_of(dialog_width, dialog_height, widget.column_of(gap, [
-        widget.fixed_of(0.0, row_height, widget.label_of(message, small_size, style.ink)),
-        widget.fixed_of(0.0, row_height, widget.row_of(gap, [
-            widget.fixed_of(button_width, 0.0, confirm),
-            widget.fixed_of(button_width, 0.0, cancel)
-        ]))
+        widget.label_of(message, small_size, style.ink),
+        widget.row_of(gap, [
+            widget.wide_of(button_width, confirm),
+            widget.wide_of(button_width, cancel)
+        ])
     ]))
 }

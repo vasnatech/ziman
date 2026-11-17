@@ -3,13 +3,10 @@ use controls
 use widget
 
 val gap = 8.0
-val row_height = 30.0
 val label_width = 110.0
 val picker_width = 160.0
-val band_height = 58.0
 val field_width = 220.0
 val button_width = 120.0
-val said_height = 20.0
 val small_size = 11.0
 
 pub struct Screen {
@@ -40,8 +37,8 @@ pub fn band(it: Screen) -> widget.Widget {
         // box's mark -- nothing drawn, no error, every test green.
         align: widget.stretched(),
         children: [
-            widget.fixed_of(button_width, 0.0, it.button),
-            widget.fixed_of(field_width, 0.0, it.field),
+            widget.wide_of(button_width, it.button),
+            widget.wide_of(field_width, it.field),
             widget.expand(it.check)
         ],
         name: ""
@@ -50,12 +47,12 @@ pub fn band(it: Screen) -> widget.Widget {
 
 pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return widget.column_of(gap, [
-        widget.fixed_of(0.0, row_height, widget.row_of(gap, [
-            widget.fixed_of(label_width, 0.0, widget.label_of("Look and feel", small_size, style.ink)),
-            widget.fixed_of(picker_width, 0.0, it.picker),
+        widget.row_of(gap, [
+            widget.wide_of(label_width, widget.label_of("Look and feel", small_size, style.ink)),
+            widget.wide_of(picker_width, it.picker),
             widget.expand(widget.flex())
-        ])),
-        widget.fixed_of(0.0, band_height, band(it)),
-        widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
+        ]),
+        band(it),
+        widget.label_of(it.said, small_size, style.ink)
     ])
 }

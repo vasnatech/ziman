@@ -5,7 +5,6 @@ use widget
 val gap = 8.0
 val group_height = 110.0
 val group_width = 240.0
-val said_height = 20.0
 val small_size = 11.0
 
 pub struct Screen {
@@ -15,10 +14,10 @@ pub struct Screen {
 
 pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return widget.column_of(gap, [
-        widget.fixed_of(0.0, group_height, widget.row_of(gap, [
-            widget.fixed_of(group_width, 0.0, it.group),
+        widget.tall_of(group_height, widget.row_of(gap, [
+            widget.wide_of(group_width, it.group),
             widget.expand(widget.flex())
         ])),
-        widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
+        widget.label_of(it.said, small_size, style.ink)
     ])
 }

@@ -45,16 +45,16 @@ pub fn label(text: string, size: float, style: controls.Style) -> widget.Widget 
 // The leading pane: a heading and the tree of everything the gallery knows how to show.
 pub fn catalogue(tree: controls.Tree, style: controls.Style) -> widget.Widget {
     return widget.column_of(gap, [
-        widget.fixed_of(0.0, gap, widget.flex()),
-        widget.fixed_of(0.0, heading_height, label("Controls", heading_size, style)),
+        widget.tall_of(gap, widget.flex()),
+        widget.tall_of(heading_height, label("Controls", heading_size, style)),
         widget.expand(controls.tree_widget(tree, style))
     ])
 }
 
 // A tab strip that takes its own width and leaves the rest of the line alone.
 pub fn strip(tabs: controls.Tabs, width: float, style: controls.Style) -> widget.Widget {
-    return widget.fixed_of(0.0, row_height, widget.row_of(gap, [
-        widget.fixed_of(width, 0.0, controls.tabs_widget(tabs, style)),
+    return widget.tall_of(row_height, widget.row_of(gap, [
+        widget.wide_of(width, controls.tabs_widget(tabs, style)),
         widget.expand(widget.flex())
     ]))
 }
@@ -81,7 +81,7 @@ pub struct Screen {
 
 pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return widget.row_of(gap, [
-        widget.fixed_of(gap, 0.0, widget.flex()),
+        widget.wide_of(gap, widget.flex()),
         widget.expand(controls.split_pane_widget(
             it.split,
             style,
@@ -89,18 +89,18 @@ pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Wi
             catalogue(it.tree, style),
             demo_pane(it, style, m)
         )),
-        widget.fixed_of(gap, 0.0, widget.flex())
+        widget.wide_of(gap, widget.flex())
     ])
 }
 
 // The trailing pane: the two tabs, whatever they chose, and a line saying what is selected.
 pub fn demo_pane(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return widget.column_of(gap, [
-        widget.fixed_of(0.0, gap, widget.flex()),
+        widget.tall_of(gap, widget.flex()),
         strip(it.tabs, demo_strip_width, style),
         widget.expand(it.body),
-        widget.fixed_of(0.0, status_height, label(it.status, small_size, style)),
-        widget.fixed_of(0.0, gap, widget.flex())
+        widget.tall_of(status_height, label(it.status, small_size, style)),
+        widget.tall_of(gap, widget.flex())
     ])
 }
 

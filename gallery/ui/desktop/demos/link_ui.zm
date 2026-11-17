@@ -3,7 +3,6 @@ use controls
 use widget
 
 val gap = 8.0
-val said_height = 20.0
 val small_size = 11.0
 
 // **No fixed row height.** Each link was wrapped in one, and the moment a theme gave a control
@@ -21,6 +20,6 @@ pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Wi
         it.syntax,
         it.library,
         it.off,
-        widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
+        widget.label_of(it.said, small_size, style.ink)
     ])
 }
