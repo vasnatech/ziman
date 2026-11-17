@@ -704,6 +704,40 @@ remembering to. D4's reasoning holds -- nothing colour-identical is duplicated a
 of the register -- and **F7 is absorbed**: `Theme`'s scheme is read off the register rather than set
 by hand.
 
+**D9 (F5) -- a five-role type scale of composites, and a clamped face index. 2026-11-17.**
+
+    pub struct Type {
+        face: int        // index into widget.Metrics.faces
+        size: float
+        line: float      // line height
+    }
+
+    pub struct TypeScale { heading: Type, body: Type, label: Type, caption: Type, code: Type }
+
+Five roles, each a complete answer, with `controls.zm` assigning each control a role -- the D1
+pattern again. This replaces three loose sizes and one shared face index.
+
+**Weight comes from the face index, and the index is clamped.** A look says which face each role
+uses, exactly as `text_font` and `icon_font` already do; the application supplies the files. The
+library **clamps an out-of-range index to face 0** rather than failing to draw. That matters because
+`gallery.zm` records that the renderer "refuses a run naming a face the options do not hold", and
+works around it by loading the text face twice so index 1 is always real. With a clamp, a
+single-face application renders a look that wants bold -- it simply renders it regular.
+
+Teaching `font.zm` about family and weight is the better long-run answer and was declined here as
+scope: it is a font-matching layer with its own fallback policy, not part of a type scale. Synthetic
+bold was declined outright -- stroking a glyph changes its advances, so measured text and drawn text
+would disagree, which is precisely the defect `Style.text_font` already caused once when a caret was
+positioned by one face's metrics and drawn in another's.
+
+**Two knock-ons.** The clamp retires the gallery's load-it-twice workaround. And a `code` role
+retires `gallery/ui/desktop/state.zm:211`'s `with style { text_font: code_face }` -- **the only
+per-call style override in the tree**, and the one case that looked like a counterexample to D1.
+
+**One consequence to settle when it is built**: `Type.line` is new, and `widget.Metrics` already
+carries a line-height function per face which the caret arithmetic reads. Two sources of line height
+is one too many, and the caret is exactly where that goes wrong.
+
 ## 14. Sources
 
 Swing and third-party look and feels: [LookAndFeel](https://www.cs.unb.ca/programmingclub/docs/java/javax/swing/LookAndFeel.html),
