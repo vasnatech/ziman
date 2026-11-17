@@ -49,6 +49,9 @@ struct Window {
     save: controls.Button
     notify: controls.CheckBox
     focused: string
+    // What the last press went to, until the release. See `controls.pressed_after`: a move during
+    // a drag belongs to the control that took the press, not to whatever has the keyboard.
+    pressed: string
     saves: int
     // The clipboard, which this layer cannot reach: a control asks for text to be put somewhere and
     // the application is what has somewhere to put it. On a desktop this is the X11 selection, which
@@ -71,7 +74,8 @@ fn view(w: Window) -> widget.Widget {
 // One input, applied: route it, hand it to the control it was for, and keep what came back.
 fn step(w: Window, input: controls.Input) -> Window {
     val laid = widget.layout(view(w), geom.rect_of(0.0, 0.0, 200.0, 110.0), metrics())
-    val name = controls.target(laid, input, w.focused)
+    val name = controls.target(laid, input, w.focused, w.pressed)
+    val held = controls.pressed_after(w.pressed, input, name)
     val bounds = switch focus.node_of(laid, name) {
         Some(one) { one.bounds }
         None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
@@ -79,18 +83,18 @@ fn step(w: Window, input: controls.Input) -> Window {
     if name == "email" {
         val done = controls.entry_input(w.email, input, bounds, looknfeel.plain(), metrics())
         val board = if done.copied == "" { w.clipboard } else { done.copied }
-        return with w { email: done.entry, focused: name, clipboard: board }
+        return with w { email: done.entry, focused: name, pressed: held, clipboard: board }
     }
     if name == "save" {
         val done = controls.button_input(w.save, input, bounds)
         val saves = if done.activated { w.saves + 1 } else { w.saves }
-        return with w { save: done.button, focused: name, saves: saves }
+        return with w { save: done.button, focused: name, pressed: held, saves: saves }
     }
     if name == "notify" {
         val done = controls.check_box_input(w.notify, input, bounds)
-        return with w { notify: done.check_box, focused: name }
+        return with w { notify: done.check_box, focused: name, pressed: held }
     }
-    return with w { focused: name }
+    return with w { focused: name, pressed: held }
 }
 
 // The middle of a control, found rather than guessed: the layout decides where a row lands, so an
@@ -125,6 +129,7 @@ fn main() {
         save: controls.button_of("save", "Save"),
         notify: controls.check_box_of("notify", "Notify me", widget.Toggle.Off),
         focused: "",
+        pressed: "",
         saves: 0,
         clipboard: ""
     }
@@ -300,7 +305,7 @@ One thing the user did.
 ### `target`
 
 ```
-pub fn target(l: Laid, input: Input, focused: string) -> string
+pub fn target(l: Laid, input: Input, focused: string, pressed: string) -> string
 ```
 
 Which control an input is for: the name, or "" for nobody.
@@ -312,11 +317,21 @@ A key goes to the focus, which is the easy one.
 A press goes to whatever is under the pointer *and moves the focus there* -- `focus.clicked`
 already decides that, including leaving the focus alone when the press landed on nothing.
 
-**A release goes to the focus, not to what is under the pointer**, which looks wrong and is
-right: the press moved the focus to the control being pressed, so routing the release to the
-focus delivers it to the control that was pressed even when the pointer has since moved off. A
-release routed by position instead would never reach a button the user dragged off, and the
-button would stay drawn pressed for ever. The same reasoning covers a move.
+**A release and a move go to whatever took the press** -- the pointer grab -- and to the focus
+only when no button is down. Routing them by position instead would never reach a button the
+user dragged off, and the button would stay drawn pressed for ever.
+
+**This used to route them to the focus alone, and that silently broke every control Tab cannot
+reach.** The reasoning was that a press moves the focus to the control being pressed, so the
+focus *is* what was pressed -- true only for a tab stop. A scroll bar is not one (`focus.clicked`
+leaves the focus where it was), so the bar took the press, set `grabbed`, and then every move
+went to some control elsewhere on screen: the thumb could be grabbed and not dragged, measured
+in the gallery as a thumb that stayed at pixel 126 through a 230-pixel drag. The split pane's
+divider is in the same position. Both are exactly the controls a pointer works and a keyboard
+does not, which is the set this rule was least able to serve.
+
+`pressed` is the name this function last answered for a `Press`, which the application holds
+between frames -- `pressed_after` is the one-liner that maintains it.
 
 **A wheel goes to the control under the pointer and ignores the focus entirely**, because that is
 what a user means: scrolling the list they are pointing at, not the one that happens to have the
@@ -328,6 +343,58 @@ tree's item -- a `part_of`, something a click and a reader can reach and that no
 holds a state for -- so a wheel routed that way named a control nobody could handle and was
 dropped on the floor. **The wheel had never scrolled a list or a tree in any application.**
 Found by painting a scroll bar: the indicator sat still while the window said it should move.
+
+### `pressed_after`
+
+```
+pub fn pressed_after(pressed: string, input: Input, name: string) -> string
+```
+
+The pointer grab after this input: the name `target` answered for a press, held until the
+release.
+
+**Held by the application, because a control cannot act.** Nothing in this module remembers
+anything between two inputs; an application already keeps `focused` for the same reason, and
+this is its twin for the pointer. `name` is what `target` just answered, so the pair is always
+used together:
+
+
+```
+val name = controls.target(laid, input, focused, s.pressed)
+val next = with s { pressed: controls.pressed_after(s.pressed, input, name) }
+```
+
+**A release clears it even when it lands on nothing**, which is what stops a grab from outliving
+the gesture that made it -- a bar left grabbed would swallow every later move in the window.
+
+### `cursor_at`
+
+```
+pub fn cursor_at(l: Laid, at: Point) -> widget.Cursor
+```
+
+The pointer's shape over this point, from whatever control is under it.
+
+**A window-wide question answered from the tree, so every application gets it without wiring
+one.** An application calls this on each move and hands the answer to `desktop.set_cursor`; the
+gallery showed an arrow over everything until it did, including over a split pane's divider,
+which is the one control whose whole affordance *is* the cursor -- a line you cannot tell is
+draggable until you are already dragging it.
+
+**Decided by the control's role**, which is the same table accessibility reads, so a control
+that declares itself properly gets a cursor for nothing and one that does not is visibly
+ordinary. That is the right pressure: `a11y` and the pointer should not disagree about what a
+thing is.
+
+**A separator's direction comes from its own box, not from a second field.** A divider between
+two columns is tall and thin and moves sideways; one between two rows is wide and short and
+moves up and down. The box is the fact, already laid out and exact -- where an orientation flag
+would be a second copy of it, free to disagree, which is the mistake `thumb_of` and `split_at`
+exist to avoid.
+
+**A column header is left to `table_cursor`.** Its shape depends on *where in the header* the
+pointer is -- an edge resizes, the middle sorts -- which is a question about one control's
+geometry rather than about which control is under the pointer, so it does not belong here.
 
 ## The button
 

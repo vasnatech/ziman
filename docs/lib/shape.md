@@ -253,7 +253,7 @@ refused, because that is what every other drawing API does with it and the alter
 error for something with an obvious meaning.
 
 ```
-pub fn round_rect_path(r: Rect, rx: float, ry: float) -> Path
+pub fn round_rect_path(r: Rect, tl: float, tr: float, br: float, bl: float) -> Path
 ```
 
 **Corners that are elliptical rather than circular**, which is the general form and the one a
@@ -265,6 +265,25 @@ the circular form has to refuse those or quietly pick one.
 Each radius is clamped to half of **its own** axis, as the specification says: `rx` to half the
 width and `ry` to half the height. A zero in either axis means square corners, because a corner
 with no height is not a corner.
+A rounded rectangle whose **four corners are given one at a time**, clockwise from the top
+left, each circular.
+
+**Written for a tab, which is the shape one radius cannot make.** An index card is rounded along
+its top and square along the bottom, where it meets the page; drawn with one radius it is a
+button with a gap under it, which is exactly what `lib/ui`'s tab strip looked like. Every other
+asymmetric box has the same shape -- the first and last segment of a segmented control, a pane
+that rounds only away from the edge it is docked to.
+
+**Four floats rather than a `Corners` kind**, because this layer has no opinions about meaning:
+`widget.Corners` says *which corners a look rounds* and resolves to these numbers, the same way
+`widget.Radius` resolves to the single radius above. Geometry takes numbers.
+
+Each radius is clamped to half the box on both axes independently, so a corner can never eat
+more than its own half and two adjacent ones cannot overlap.
+
+```
+pub fn round_rect_path(r: Rect, rx: float, ry: float) -> Path
+```
 
 ### `ring_path`
 

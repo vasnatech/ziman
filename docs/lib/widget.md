@@ -564,23 +564,25 @@ pub struct Surface {
     border: Option<Border>
     // Rounds the fill and the border alike. `Radius.Square` is the common case.
     //
-    // **One radius for all four corners**, not four. Four is what a design tool offers and what no
-    // application here has yet wanted; the day one does, this is the place it widens, and a single
-    // number cannot disagree with itself in the meantime.
+    // **One radius for all four corners**, with `corners` saying which of them it applies to.
+    // Four independent radii is what a design tool offers and what no application here has wanted:
+    // the asymmetric box that does occur is a tab, and a tab wants one radius on two corners.
     corner: Radius
+    // Which corners `corner` rounds. `Corners.All` for everything that is not a tab.
+    corners: Corners
     // What falls behind it, if anything. `None` for every surface that is not in front of
     // something, which is nearly all of them.
     shadow: Option<Shadow>
 }
 ```
 
-### `Radius`
+### `Corners`
 
 ```
-pub enum Radius {
-    Square
-    Points(float)
-    Fraction(float)
+pub enum Corners {
+    All
+    Top
+    Bottom
 }
 ```
 
@@ -606,6 +608,28 @@ exactly this, which was a patch on one control rather than a rule.
 **Resolved against the box being painted, not when the surface is built**, because a widget tree
 is built before it is laid out: a control knows its look and the layout knows its size, and this
 is where the two meet -- the same seam `paint_focused` uses for the focus ring.
+**Which** corners a rounding applies to, where `Radius` says how round they are.
+
+**Two kinds rather than four numbers**, for `Radius`'s reason: a look and feel names a shape and
+the painter resolves it against the box. A tab is the control that needed this -- an index card
+is rounded along its top and square where it meets the page, and with one rounding for all four
+corners a tab strip is a row of buttons with a gap under it, which is what `lib/ui` drew until
+2026-11-17.
+
+`Bottom` is here because a strip docked to the bottom of a pane is the same control upside down,
+and leaving it out would have made the first such strip a change to this enum rather than a line
+in a theme. `Left` and `Right` -- the ends of a segmented control -- are not, and adding one is a
+compile error at every switch, which is the point.
+
+### `Radius`
+
+```
+pub enum Radius {
+    Square
+    Points(float)
+    Fraction(float)
+}
+```
 
 ### `radius_in`
 
@@ -808,6 +832,19 @@ should not need its reader to know the shape of a struct.
 pub struct Fixed {
     width: float
     height: float
+    // Which of the two numbers above actually constrains. A `false` means **ask the child**, which
+    // is what `wide_of` and `tall_of` are for.
+    //
+    // **This exists because `fixed_of(w, 0.0, child)` means a height of zero**, and it was being
+    // written where "no opinion about the height" was meant. It worked only while a parent
+    // stretched the box back out -- `widget.row_of` does, `Across.Centre` does not -- so the same
+    // expression drew correctly in one container and vanished in another. That has cost nine
+    // separate defects in this library: the table's header band, a link, the slider's thumb and
+    // its track, a star, a popup's rows, a check box's mark, a demo band, and the tab strip, which
+    // measured zero the moment the design file that happened to be forcing its height stopped.
+    // Each presents identically -- nothing drawn, no error, every test green.
+    fixes_width: bool
+    fixes_height: bool
     child: Widget
     name: string
 }
@@ -826,6 +863,29 @@ rather than here.
 ```
 pub fn fixed_of(width: float, height: float, child: Widget) -> Widget
 ```
+
+A child given **both** of its sizes, whatever it would have measured.
+
+### `wide_of`
+
+```
+pub fn wide_of(width: float, child: Widget) -> Widget
+```
+
+A child given a width, measuring its own height.
+
+**The spelling that was missing.** A tab is a column of this shape -- a stated width so the
+strip divides evenly, and whatever height its label and padding come to -- and written as
+`fixed_of(width, 0.0, ..)` it is a tab of no height that only looks right inside a parent that
+stretches it.
+
+### `tall_of`
+
+```
+pub fn tall_of(height: float, child: Widget) -> Widget
+```
+
+A child given a height, measuring its own width.
 
 ### `Expanded`
 
@@ -1692,6 +1752,19 @@ pub fn contains(r: Rect, p: Point) -> bool
 point on it -- a click on the boundary between two list rows must select one of them, and which
 one it is should not depend on which was searched first.
 
+### `role_of`
+
+```
+pub fn role_of(l: Laid) -> Role
+```
+
+What a laid node declares itself to be, or `Unknown` for anything that is not a control.
+
+**The same table `a11y` reads**, which is the point: `controls.cursor_at` decides the pointer's
+shape from it, so a control that declares its role properly gets a cursor for nothing and one
+that does not is visibly ordinary. The pointer and the screen reader should not be able to
+disagree about what a thing is.
+
 ### `is_tab_stop`
 
 ```
@@ -1802,3 +1875,16 @@ pub fn paint_ops(l: Laid, m: Metrics) -> [Op]
 ```
 
 The ops alone, for a caller composing a scene of its own. **No focus, so no caret**, as `paint`.
+
+### `box_path`
+
+```
+pub fn box_path(c: Corners, bounds: Rect, radius: float) -> shape.Path
+```
+
+A surface's outline: the box, rounded where this look rounds it.
+
+**One function, because the fill and the border have to be the same shape.** They are two fills
+in `paint_surface` and a border drawn around a different outline than its fill is a hairline of
+background showing through one edge -- the kind of thing that looks like an anti-aliasing bug
+and is not.

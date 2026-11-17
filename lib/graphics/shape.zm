@@ -213,6 +213,88 @@ pub fn round_rect_path(r: Rect, radius: float) -> Path {
 // Each radius is clamped to half of **its own** axis, as the specification says: `rx` to half the
 // width and `ry` to half the height. A zero in either axis means square corners, because a corner
 // with no height is not a corner.
+// A rounded rectangle whose **four corners are given one at a time**, clockwise from the top
+// left, each circular.
+//
+// **Written for a tab, which is the shape one radius cannot make.** An index card is rounded along
+// its top and square along the bottom, where it meets the page; drawn with one radius it is a
+// button with a gap under it, which is exactly what `lib/ui`'s tab strip looked like. Every other
+// asymmetric box has the same shape -- the first and last segment of a segmented control, a pane
+// that rounds only away from the edge it is docked to.
+//
+// **Four floats rather than a `Corners` kind**, because this layer has no opinions about meaning:
+// `widget.Corners` says *which corners a look rounds* and resolves to these numbers, the same way
+// `widget.Radius` resolves to the single radius above. Geometry takes numbers.
+//
+// Each radius is clamped to half the box on both axes independently, so a corner can never eat
+// more than its own half and two adjacent ones cannot overlap.
+pub fn round_rect_path(r: Rect, tl: float, tr: float, br: float, bl: float) -> Path {
+    val n = normalized(r)
+    val half_w = n.width / 2.0
+    val half_h = n.height / 2.0
+    val a = clamped_corner(tl, half_w, half_h)
+    val b2 = clamped_corner(tr, half_w, half_h)
+    val c = clamped_corner(br, half_w, half_h)
+    val d = clamped_corner(bl, half_w, half_h)
+    if a <= 0.0 && b2 <= 0.0 && c <= 0.0 && d <= 0.0 {
+        return rect_path(n)
+    }
+    val p = path_builder()
+    move_to(p, point_of(n.x + a, n.y))
+    line_to(p, point_of(right(n) - b2, n.y))
+    if b2 > 0.0 {
+        cubic_to(
+            p,
+            point_of(right(n) - b2 + b2 * kappa, n.y),
+            point_of(right(n), n.y + b2 - b2 * kappa),
+            point_of(right(n), n.y + b2)
+        )
+    }
+    line_to(p, point_of(right(n), bottom(n) - c))
+    if c > 0.0 {
+        cubic_to(
+            p,
+            point_of(right(n), bottom(n) - c + c * kappa),
+            point_of(right(n) - c + c * kappa, bottom(n)),
+            point_of(right(n) - c, bottom(n))
+        )
+    }
+    line_to(p, point_of(n.x + d, bottom(n)))
+    if d > 0.0 {
+        cubic_to(
+            p,
+            point_of(n.x + d - d * kappa, bottom(n)),
+            point_of(n.x, bottom(n) - d + d * kappa),
+            point_of(n.x, bottom(n) - d)
+        )
+    }
+    line_to(p, point_of(n.x, n.y + a))
+    if a > 0.0 {
+        cubic_to(
+            p,
+            point_of(n.x, n.y + a - a * kappa),
+            point_of(n.x + a - a * kappa, n.y),
+            point_of(n.x + a, n.y)
+        )
+    }
+    close_path(p)
+    return built(p, Winding.NonZero)
+}
+
+fn clamped_corner(v: float, half_w: float, half_h: float) -> float {
+    var out = v
+    if out > half_w {
+        out = half_w
+    }
+    if out > half_h {
+        out = half_h
+    }
+    if out < 0.0 {
+        return 0.0
+    }
+    return out
+}
+
 pub fn round_rect_path(r: Rect, rx: float, ry: float) -> Path {
     val n = normalized(r)
     var hx = rx

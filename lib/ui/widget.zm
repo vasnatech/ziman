@@ -429,10 +429,12 @@ pub struct Surface {
     border: Option<Border>
     // Rounds the fill and the border alike. `Radius.Square` is the common case.
     //
-    // **One radius for all four corners**, not four. Four is what a design tool offers and what no
-    // application here has yet wanted; the day one does, this is the place it widens, and a single
-    // number cannot disagree with itself in the meantime.
+    // **One radius for all four corners**, with `corners` saying which of them it applies to.
+    // Four independent radii is what a design tool offers and what no application here has wanted:
+    // the asymmetric box that does occur is a tab, and a tab wants one radius on two corners.
     corner: Radius
+    // Which corners `corner` rounds. `Corners.All` for everything that is not a tab.
+    corners: Corners
     // What falls behind it, if anything. `None` for every surface that is not in front of
     // something, which is nearly all of them.
     shadow: Option<Shadow>
@@ -460,6 +462,24 @@ pub struct Surface {
 // **Resolved against the box being painted, not when the surface is built**, because a widget tree
 // is built before it is laid out: a control knows its look and the layout knows its size, and this
 // is where the two meet -- the same seam `paint_focused` uses for the focus ring.
+// **Which** corners a rounding applies to, where `Radius` says how round they are.
+//
+// **Two kinds rather than four numbers**, for `Radius`'s reason: a look and feel names a shape and
+// the painter resolves it against the box. A tab is the control that needed this -- an index card
+// is rounded along its top and square where it meets the page, and with one rounding for all four
+// corners a tab strip is a row of buttons with a gap under it, which is what `lib/ui` drew until
+// 2026-11-17.
+//
+// `Bottom` is here because a strip docked to the bottom of a pane is the same control upside down,
+// and leaving it out would have made the first such strip a change to this enum rather than a line
+// in a theme. `Left` and `Right` -- the ends of a segmented control -- are not, and adding one is a
+// compile error at every switch, which is the point.
+pub enum Corners {
+    All
+    Top
+    Bottom
+}
+
 pub enum Radius {
     Square
     Points(float)
@@ -490,6 +510,7 @@ pub fn no_surface() -> Surface {
         fill: Option<Color>.None,
         border: Option<Border>.None,
         corner: Radius.Square,
+        corners: Corners.All,
         shadow: Option<Shadow>.None
     }
 }
@@ -501,6 +522,7 @@ pub fn filled(colour: Color) -> Surface {
         fill: Option<Color>.Some(colour),
         border: Option<Border>.None,
         corner: Radius.Square,
+        corners: Corners.All,
         shadow: Option<Shadow>.None
     }
 }
@@ -532,6 +554,7 @@ pub fn rounded(fill: Color, corner: Radius) -> Surface {
         fill: Option<Color>.Some(fill),
         border: Option<Border>.None,
         corner: corner,
+        corners: Corners.All,
         shadow: Option<Shadow>.None
     }
 }
@@ -546,6 +569,7 @@ pub fn outlined(border: Color, width: float, corner: Radius) -> Surface {
         fill: Option<Color>.None,
         border: Option<Border>.Some(border_of(border, width)),
         corner: corner,
+        corners: Corners.All,
         shadow: Option<Shadow>.None
     }
 }
@@ -559,6 +583,7 @@ pub fn edged(fill: Color, border: Color, width: float, corner: Radius) -> Surfac
         fill: Option<Color>.Some(fill),
         border: Option<Border>.Some(border_of(border, width)),
         corner: corner,
+        corners: Corners.All,
         shadow: Option<Shadow>.None
     }
 }
@@ -678,12 +703,62 @@ pub fn padded_of(padding: Insets, child: Widget) -> Widget {
 pub struct Fixed {
     width: float
     height: float
+    // Which of the two numbers above actually constrains. A `false` means **ask the child**, which
+    // is what `wide_of` and `tall_of` are for.
+    //
+    // **This exists because `fixed_of(w, 0.0, child)` means a height of zero**, and it was being
+    // written where "no opinion about the height" was meant. It worked only while a parent
+    // stretched the box back out -- `widget.row_of` does, `Across.Centre` does not -- so the same
+    // expression drew correctly in one container and vanished in another. That has cost nine
+    // separate defects in this library: the table's header band, a link, the slider's thumb and
+    // its track, a star, a popup's rows, a check box's mark, a demo band, and the tab strip, which
+    // measured zero the moment the design file that happened to be forcing its height stopped.
+    // Each presents identically -- nothing drawn, no error, every test green.
+    fixes_width: bool
+    fixes_height: bool
     child: Widget
     name: string
 }
 
+// A child given **both** of its sizes, whatever it would have measured.
 pub fn fixed_of(width: float, height: float, child: Widget) -> Widget {
-    return Widget.Sized(Fixed { width: width, height: height, child: child, name: "" })
+    return Widget.Sized(Fixed {
+        width: width,
+        height: height,
+        fixes_width: true,
+        fixes_height: true,
+        child: child,
+        name: ""
+    })
+}
+
+// A child given a width, measuring its own height.
+//
+// **The spelling that was missing.** A tab is a column of this shape -- a stated width so the
+// strip divides evenly, and whatever height its label and padding come to -- and written as
+// `fixed_of(width, 0.0, ..)` it is a tab of no height that only looks right inside a parent that
+// stretches it.
+pub fn wide_of(width: float, child: Widget) -> Widget {
+    return Widget.Sized(Fixed {
+        width: width,
+        height: 0.0,
+        fixes_width: true,
+        fixes_height: false,
+        child: child,
+        name: ""
+    })
+}
+
+// A child given a height, measuring its own width.
+pub fn tall_of(height: float, child: Widget) -> Widget {
+    return Widget.Sized(Fixed {
+        width: 0.0,
+        height: height,
+        fixes_width: false,
+        fixes_height: true,
+        child: child,
+        name: ""
+    })
 }
 
 // A child made flexible: it takes a share of the leftover space along its parent's direction, and
@@ -1402,7 +1477,20 @@ pub fn measure(w: Widget, m: Metrics) -> Size {
         Picture(it) { size_of(it.width, it.height) }
         Flex(_) { size_of(0.0, 0.0) }
         Text(it) { size_of(width_in(m, it.font, it.text, it.size), height_in(m, it.font, it.size)) }
-        Sized(it) { size_of(it.width, it.height) }
+        // **Measured only on the axis it does not fix**, so the common case where both are
+        // stated still costs nothing: a `Fixed` is the node a caller reaches for precisely when it
+        // does not want its child's opinion.
+        Sized(it) {
+            if it.fixes_width && it.fixes_height {
+                size_of(it.width, it.height)
+            } else {
+                val natural = measure(it.child, m)
+                size_of(
+                    if it.fixes_width { it.width } else { natural.width },
+                    if it.fixes_height { it.height } else { natural.height }
+                )
+            }
+        }
         Group(it) { measure_stack(it, m) }
         // Its child's natural size: the *cross* axis still comes from here, and only the axis its
         // parent distributes along is replaced by the share it is given.
@@ -1848,6 +1936,28 @@ pub fn contains(r: Rect, p: Point) -> bool {
     return p.x >= r.x && p.x < r.x + r.width && p.y >= r.y && p.y < r.y + r.height
 }
 
+// What a laid node declares itself to be, or `Unknown` for anything that is not a control.
+//
+// **The same table `a11y` reads**, which is the point: `controls.cursor_at` decides the pointer's
+// shape from it, so a control that declares its role properly gets a cursor for nothing and one
+// that does not is visibly ordinary. The pointer and the screen reader should not be able to
+// disagree about what a thing is.
+pub fn role_of(l: Laid) -> Role {
+    return switch l.widget {
+        Control(it) { it.role }
+        Drawing(_) { Role.Unknown }
+        Picture(_) { Role.Unknown }
+        Layered(_) { Role.Unknown }
+        Nothing { Role.Unknown }
+        Flex(_) { Role.Unknown }
+        Expand(_) { Role.Unknown }
+        Text(_) { Role.Unknown }
+        Group(_) { Role.Unknown }
+        Sized(_) { Role.Unknown }
+        Scroll(_) { Role.Unknown }
+    }
+}
+
 // Whether a laid node is a control **Tab can land on**. See `Focusable.tab_stop`: a list row is a
 // control and not a tab stop.
 pub fn is_tab_stop(l: Laid) -> bool {
@@ -2179,6 +2289,20 @@ fn paint_shadow(cast: Shadow, bounds: Rect, radius: float, ops: MutableArray<Op>
     }
 }
 
+// A surface's outline: the box, rounded where this look rounds it.
+//
+// **One function, because the fill and the border have to be the same shape.** They are two fills
+// in `paint_surface` and a border drawn around a different outline than its fill is a hairline of
+// background showing through one edge -- the kind of thing that looks like an anti-aliasing bug
+// and is not.
+pub fn box_path(c: Corners, bounds: Rect, radius: float) -> shape.Path {
+    return switch c {
+        All { shape.round_rect_path(bounds, radius) }
+        Top { shape.round_rect_path(bounds, radius, radius, 0.0, 0.0) }
+        Bottom { shape.round_rect_path(bounds, 0.0, 0.0, radius, radius) }
+    }
+}
+
 fn paint_surface(s: Surface, bounds: Rect, ops: MutableArray<Op>) {
     // **Resolved here, once, against the box actually being painted** -- which is the point of
     // `Radius` being a kind rather than a number: the tree was built before anything knew how big
@@ -2190,7 +2314,7 @@ fn paint_surface(s: Surface, bounds: Rect, ops: MutableArray<Op>) {
         paint_shadow(cast, bounds, radius, ops)
     }
     if Some(colour) = s.fill {
-        push(ops, scene.fill(shape.round_rect_path(bounds, radius), Paint.Solid(colour)))
+        push(ops, scene.fill(box_path(s.corners, bounds, radius), Paint.Solid(colour)))
     }
     if Some(edge) = s.border {
         val hole = geom.rect_of(
@@ -2200,12 +2324,12 @@ fn paint_surface(s: Surface, bounds: Rect, ops: MutableArray<Op>) {
             bounds.height - edge.width * 2.0
         )
         val inner = if hole.width > 0.0 && hole.height > 0.0 {
-            shape.round_rect_path(hole, radius - edge.width)
+            box_path(s.corners, hole, radius - edge.width)
         } else {
             shape.empty_path()
         }
         push(ops, scene.fill(
-            shape.ring_path(shape.round_rect_path(bounds, radius), inner),
+            shape.ring_path(box_path(s.corners, bounds, radius), inner),
             Paint.Solid(edge.colour)
         ))
     }

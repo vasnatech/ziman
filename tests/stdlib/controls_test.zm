@@ -6,6 +6,7 @@
 // are only visible in what the state becomes.
 use a11y
 use controls
+use controls.divider_thickness
 use focus
 use geom
 use looknfeel
@@ -206,13 +207,13 @@ fn laid_pair() -> widget.Laid {
 
 #[test]
 fn a_key_goes_to_the_focus() {
-    test.assert_eq(controls.target(laid_pair(), controls.Input.KeyDown(key(space)), "b"), "b")
-    test.assert_eq(controls.target(laid_pair(), controls.Input.Text("x"), "b"), "b")
+    test.assert_eq(controls.target(laid_pair(), controls.Input.KeyDown(key(space)), "b", ""), "b")
+    test.assert_eq(controls.target(laid_pair(), controls.Input.Text("x"), "b", ""), "b")
 }
 
 #[test]
 fn a_press_goes_to_what_is_under_the_pointer() {
-    test.assert_eq(controls.target(laid_pair(), controls.Input.Press(geom.point_of(70.0, 10.0)), "a"), "b")
+    test.assert_eq(controls.target(laid_pair(), controls.Input.Press(geom.point_of(70.0, 10.0)), "a", ""), "b")
 }
 
 // **A release goes to the focus, not to what is under the pointer**, which looks wrong and is what
@@ -223,9 +224,45 @@ fn a_press_goes_to_what_is_under_the_pointer() {
 #[test]
 fn a_release_follows_the_focus_so_a_cancelled_drag_still_arrives() {
     val l = laid_pair()
-    val focused = controls.target(l, controls.Input.Press(geom.point_of(70.0, 10.0)), "a")
+    val focused = controls.target(l, controls.Input.Press(geom.point_of(70.0, 10.0)), "a", "")
     test.assert_eq(focused, "b")
-    test.assert_eq(controls.target(l, controls.Input.Release(geom.point_of(300.0, 300.0)), focused), "b")
+    test.assert_eq(controls.target(l, controls.Input.Release(geom.point_of(300.0, 300.0)), focused, ""), "b")
+}
+
+// **The grab, which is what the focus could not stand in for.** A control the keyboard cannot
+// reach never becomes the focus, so routing a move to the focus delivered a drag to some control
+// elsewhere on screen -- the scroll bar could be grabbed and not dragged, measured in the gallery
+// as a thumb that stayed at pixel 126 through a 230-pixel drag. These say the rule from both ends:
+// with a grab it wins, without one the focus still does.
+#[test]
+fn a_move_during_a_press_goes_to_whatever_took_the_press() {
+    val l = laid_pair()
+    val away = controls.Input.Move(geom.point_of(300.0, 300.0))
+    test.assert_eq(controls.target(l, away, "a", "b"), "b")
+    test.assert_eq(
+        controls.target(l, controls.Input.Release(geom.point_of(300.0, 300.0)), "a", "b"),
+        "b"
+    )
+}
+
+#[test]
+fn a_move_with_no_button_down_still_goes_to_the_focus() {
+    val l = laid_pair()
+    test.assert_eq(controls.target(l, controls.Input.Move(geom.point_of(300.0, 300.0)), "a", ""), "a")
+}
+
+// **A release clears the grab even when it lands on nothing**, which is what stops a grabbed bar
+// from swallowing every later move in the window.
+#[test]
+fn the_grab_lasts_exactly_from_the_press_to_the_release() {
+    val press = controls.Input.Press(geom.point_of(70.0, 10.0))
+    val moved = controls.Input.Move(geom.point_of(300.0, 300.0))
+    val gone = controls.Input.Release(geom.point_of(300.0, 300.0))
+    test.assert_eq(controls.pressed_after("", press, "bar"), "bar")
+    test.assert_eq(controls.pressed_after("bar", moved, ""), "bar")
+    test.assert_eq(controls.pressed_after("bar", gone, ""), "")
+    // A key or a wheel in the middle of a drag leaves it alone.
+    test.assert_eq(controls.pressed_after("bar", controls.Input.Text("x"), ""), "bar")
 }
 
 // **A wheel goes to the control under the pointer and ignores the focus**, because that is what a
@@ -234,7 +271,7 @@ fn a_release_follows_the_focus_so_a_cancelled_drag_still_arrives() {
 fn a_wheel_goes_under_the_pointer_and_not_to_the_focus() {
     val l = laid_pair()
     val over_b = controls.Input.Wheel(controls.Wheel { at: geom.point_of(70.0, 10.0), vertical: 1, horizontal: 0 })
-    test.assert_eq(controls.target(l, over_b, "a"), "b")
+    test.assert_eq(controls.target(l, over_b, "a", ""), "b")
 }
 
 // Over nothing a wheel goes nowhere rather than to the focus, which is the same choice and the case
@@ -242,7 +279,7 @@ fn a_wheel_goes_under_the_pointer_and_not_to_the_focus() {
 #[test]
 fn a_wheel_over_nothing_goes_nowhere() {
     val away = controls.Input.Wheel(controls.Wheel { at: geom.point_of(500.0, 500.0), vertical: 1, horizontal: 0 })
-    test.assert_eq(controls.target(laid_pair(), away, "a"), "")
+    test.assert_eq(controls.target(laid_pair(), away, "a", ""), "")
 }
 
 // **A press on nothing leaves the focus where it was and is delivered to nobody**, which is two
@@ -257,7 +294,7 @@ fn a_wheel_over_nothing_goes_nowhere() {
 #[test]
 fn a_press_on_nothing_goes_nowhere_and_leaves_the_focus_alone() {
     val away = geom.point_of(500.0, 500.0)
-    test.assert_eq(controls.target(laid_pair(), controls.Input.Press(away), "a"), "")
+    test.assert_eq(controls.target(laid_pair(), controls.Input.Press(away), "a", ""), "")
     test.assert_eq(focus.clicked(laid_pair(), away, "a"), "a")
 }
 
@@ -271,7 +308,7 @@ fn a_press_on_a_row_routes_to_the_list_and_not_to_the_row() {
     val l = widget.layout(controls.list_widget(five(), looknfeel.plain()), list_box(), metrics())
     // The row is there, and it is a control.
     test.assert(Option.is_Some(widget.node_named(l, controls.row_name(five(), 1))))
-    test.assert_eq(controls.target(l, controls.Input.Press(geom.point_of(10.0, 30.0)), "elsewhere"), "people")
+    test.assert_eq(controls.target(l, controls.Input.Press(geom.point_of(10.0, 30.0)), "elsewhere", ""), "people")
 }
 
 // **A press reaches a control that is not a tab stop.** A scroll bar is the one control in the
@@ -285,7 +322,7 @@ fn a_press_reaches_a_control_the_keyboard_cannot() {
         metrics()
     )
     test.assert_len(0, focus.controls(bar))
-    test.assert_eq(controls.target(bar, controls.Input.Press(geom.point_of(6.0, 50.0)), "elsewhere"), "scroll")
+    test.assert_eq(controls.target(bar, controls.Input.Press(geom.point_of(6.0, 50.0)), "elsewhere", ""), "scroll")
 }
 
 // --- what a reader is told, which is the reason F275 came first
@@ -387,7 +424,6 @@ fn only_a_key_or_text_could_change_a_field() {
 
 use controls.bar_thickness
 use controls.divider_line
-use controls.divider_thickness
 use controls.min_column
 use controls.min_thumb
 use controls.thumb_height
@@ -2230,7 +2266,7 @@ fn a_wheel_over_a_row_is_routed_to_the_list() {
         Some(one) { one.name }
         None { "(nothing)" }
     }, controls.row_name(five(), 1))
-    test.assert_eq(controls.target(l, over_a_row, ""), "people")
+    test.assert_eq(controls.target(l, over_a_row, "", ""), "people")
 }
 
 // ---- dragging the bar a tree and a list draw
@@ -4418,6 +4454,137 @@ fn a_tree_row_is_inset_from_its_own_edge() {
     }
     // Two points is the ring's width; the inset has to clear it.
     test.assert(leftmost >= 2.0)
+}
+
+// ---------------------------------------------------- a press in a text area
+
+// The metrics here make a character ten points wide and a line twenty-four tall, so every number
+// below is arithmetic rather than a measurement of a real face.
+fn area() -> controls.Entry {
+    return controls.text_area_of("notes", "Notes", "alpha\nbeta\ngamma", 3)
+}
+
+fn area_box() -> geom.Rect {
+    return geom.rect_of(0.0, 0.0, 300.0, 120.0)
+}
+
+fn caret_after_press(e: controls.Entry, x: float, y: float) -> int {
+    val got = controls.entry_input(
+        e,
+        controls.Input.Press(geom.point_of(x, y)),
+        area_box(),
+        looknfeel.plain(),
+        metrics()
+    )
+    return got.entry.editor.caret
+}
+
+// **`y` decided nothing at all**: a press put the caret with `caret_at_x` over the whole text, so
+// a click on the third line landed in the first and typing appeared where nobody had clicked.
+#[test]
+fn a_press_in_a_text_area_lands_on_the_line_it_was_aimed_at() {
+    val style = looknfeel.plain()
+    val line = widget.height_in(metrics(), style.text_font, style.text_size)
+    val top = style.padding.top
+    val left = style.padding.left
+    // The first character of each line: "alpha" is 0, "beta" is 6, "gamma" is 11.
+    test.assert_eq(caret_after_press(area(), left, top + line * 0.5), 0)
+    test.assert_eq(caret_after_press(area(), left, top + line * 1.5), 6)
+    test.assert_eq(caret_after_press(area(), left, top + line * 2.5), 11)
+}
+
+#[test]
+fn a_press_in_a_text_area_lands_on_the_column_it_was_aimed_at() {
+    val style = looknfeel.plain()
+    val line = widget.height_in(metrics(), style.text_font, style.text_size)
+    // Two characters into the second line, which is index 6 + 2.
+    test.assert_eq(
+        caret_after_press(area(), style.padding.left + 20.0, style.padding.top + line * 1.5),
+        8
+    )
+}
+
+// Above the first line and below the last are the nearest line, not a refusal and not an index
+// outside the text: a press is a gesture and a gesture near the edge means the edge.
+#[test]
+fn a_press_outside_the_lines_clamps_to_the_nearest_one() {
+    val style = looknfeel.plain()
+    test.assert_eq(caret_after_press(area(), style.padding.left, -400.0), 0)
+    test.assert_eq(caret_after_press(area(), style.padding.left, 4000.0), 11)
+}
+
+// A one-line field is unchanged, which is the half that was already right -- and a masked field
+// takes the one-line path whatever `rows` says, exactly as `entry_widget` builds it.
+#[test]
+fn a_one_line_field_still_ignores_the_y_it_is_given() {
+    val e = controls.entry_of("email", "Email", "abcdef")
+    val style = looknfeel.plain()
+    val high = caret_after_press(e, style.padding.left + 20.0, 2.0)
+    val low = caret_after_press(e, style.padding.left + 20.0, 90.0)
+    test.assert_eq(high, low)
+    test.assert_eq(high, 2)
+}
+
+// ---------------------------------------------------- the pointer's shape
+
+fn cursor_word(c: widget.Cursor) -> string {
+    return switch c {
+        Arrow { "arrow" }
+        ResizeAcross { "across" }
+        ResizeDown { "down" }
+        Text { "text" }
+        Hand { "hand" }
+    }
+}
+
+fn cursor_over(l: widget.Laid, x: float, y: float) -> string {
+    return cursor_word(controls.cursor_at(l, geom.point_of(x, y)))
+}
+
+// **A divider's whole affordance is the cursor**: a line you cannot tell is draggable until you
+// are already dragging it. The gallery showed an arrow over its own for as long as it had one.
+#[test]
+fn a_vertical_divider_asks_for_the_sideways_resize() {
+    val l = laid_pane(pane(), pane_extent)
+    test.assert_eq(cursor_over(l, 100.0 + divider_thickness * 0.5, 50.0), "across")
+}
+
+// **The direction comes from the divider's own box**, not from a second field that could disagree
+// with it: one between two rows is wide and short, and moves the other way.
+#[test]
+fn a_horizontal_divider_asks_for_the_up_and_down_resize() {
+    val down = with controls.split_pane_of("rows", "", widget.Direction.Column, 30.0) {
+        first_min: 10.0,
+        second_min: 10.0
+    }
+    val l = widget.layout(
+        controls.split_pane_widget(down, looknfeel.plain(), 100.0, blank_pane("a"), blank_pane("b")),
+        geom.rect_of(0.0, 0.0, 200.0, 100.0),
+        metrics()
+    )
+    test.assert_eq(cursor_over(l, 100.0, 30.0 + divider_thickness * 0.5), "down")
+}
+
+#[test]
+fn a_text_field_asks_for_the_text_cursor_and_a_button_does_not() {
+    val field = widget.layout(
+        controls.entry_widget(controls.entry_of("email", "Email", "a@b"), looknfeel.plain(), metrics()),
+        geom.rect_of(0.0, 0.0, 200.0, 30.0),
+        metrics()
+    )
+    test.assert_eq(cursor_over(field, 100.0, 15.0), "text")
+    val go = widget.layout(
+        controls.button_widget(controls.button_of("go", "Go"), looknfeel.plain()),
+        geom.rect_of(0.0, 0.0, 80.0, 30.0),
+        metrics()
+    )
+    test.assert_eq(cursor_over(go, 40.0, 15.0), "arrow")
+}
+
+#[test]
+fn over_nothing_is_an_ordinary_arrow() {
+    val l = laid_pane(pane(), pane_extent)
+    test.assert_eq(cursor_over(l, 900.0, 900.0), "arrow")
 }
 
 // ---------------------------------------------------- the hover overlay

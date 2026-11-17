@@ -139,11 +139,21 @@ pub enum Input {
 // A press goes to whatever is under the pointer *and moves the focus there* -- `focus.clicked`
 // already decides that, including leaving the focus alone when the press landed on nothing.
 //
-// **A release goes to the focus, not to what is under the pointer**, which looks wrong and is
-// right: the press moved the focus to the control being pressed, so routing the release to the
-// focus delivers it to the control that was pressed even when the pointer has since moved off. A
-// release routed by position instead would never reach a button the user dragged off, and the
-// button would stay drawn pressed for ever. The same reasoning covers a move.
+// **A release and a move go to whatever took the press** -- the pointer grab -- and to the focus
+// only when no button is down. Routing them by position instead would never reach a button the
+// user dragged off, and the button would stay drawn pressed for ever.
+//
+// **This used to route them to the focus alone, and that silently broke every control Tab cannot
+// reach.** The reasoning was that a press moves the focus to the control being pressed, so the
+// focus *is* what was pressed -- true only for a tab stop. A scroll bar is not one (`focus.clicked`
+// leaves the focus where it was), so the bar took the press, set `grabbed`, and then every move
+// went to some control elsewhere on screen: the thumb could be grabbed and not dragged, measured
+// in the gallery as a thumb that stayed at pixel 126 through a 230-pixel drag. The split pane's
+// divider is in the same position. Both are exactly the controls a pointer works and a keyboard
+// does not, which is the set this rule was least able to serve.
+//
+// `pressed` is the name this function last answered for a `Press`, which the application holds
+// between frames -- `pressed_after` is the one-liner that maintains it.
 //
 // **A wheel goes to the control under the pointer and ignores the focus entirely**, because that is
 // what a user means: scrolling the list they are pointing at, not the one that happens to have the
@@ -155,7 +165,7 @@ pub enum Input {
 // holds a state for -- so a wheel routed that way named a control nobody could handle and was
 // dropped on the floor. **The wheel had never scrolled a list or a tree in any application.**
 // Found by painting a scroll bar: the indicator sat still while the window said it should move.
-pub fn target(l: Laid, input: Input, focused: string) -> string {
+pub fn target(l: Laid, input: Input, focused: string, pressed: string) -> string {
     return switch input {
         KeyDown(_) { focused }
         KeyUp(_) { focused }
@@ -188,11 +198,105 @@ pub fn target(l: Laid, input: Input, focused: string) -> string {
                 }
             }
         }
-        Release(_) { focused }
-        Move(_) { focused }
+        Release(_) { if pressed == "" { focused } else { pressed } }
+        Move(_) { if pressed == "" { focused } else { pressed } }
         // `""` as the fallback, which is what keeps "over nothing goes nowhere" true: `clicked`
         // answers its third argument when the point is over no tab stop at all.
         Wheel(w) { focus.clicked(l, w.at, "") }
+    }
+}
+
+// The pointer grab after this input: the name `target` answered for a press, held until the
+// release.
+//
+// **Held by the application, because a control cannot act.** Nothing in this module remembers
+// anything between two inputs; an application already keeps `focused` for the same reason, and
+// this is its twin for the pointer. `name` is what `target` just answered, so the pair is always
+// used together:
+//
+//     val name = controls.target(laid, input, focused, s.pressed)
+//     val next = with s { pressed: controls.pressed_after(s.pressed, input, name) }
+//
+// **A release clears it even when it lands on nothing**, which is what stops a grab from outliving
+// the gesture that made it -- a bar left grabbed would swallow every later move in the window.
+pub fn pressed_after(pressed: string, input: Input, name: string) -> string {
+    return switch input {
+        Press(_) { name }
+        Release(_) { "" }
+        Move(_) { pressed }
+        Wheel(_) { pressed }
+        KeyDown(_) { pressed }
+        KeyUp(_) { pressed }
+        Text(_) { pressed }
+        Paste(_) { pressed }
+    }
+}
+
+// The pointer's shape over this point, from whatever control is under it.
+//
+// **A window-wide question answered from the tree, so every application gets it without wiring
+// one.** An application calls this on each move and hands the answer to `desktop.set_cursor`; the
+// gallery showed an arrow over everything until it did, including over a split pane's divider,
+// which is the one control whose whole affordance *is* the cursor -- a line you cannot tell is
+// draggable until you are already dragging it.
+//
+// **Decided by the control's role**, which is the same table accessibility reads, so a control
+// that declares itself properly gets a cursor for nothing and one that does not is visibly
+// ordinary. That is the right pressure: `a11y` and the pointer should not disagree about what a
+// thing is.
+//
+// **A separator's direction comes from its own box, not from a second field.** A divider between
+// two columns is tall and thin and moves sideways; one between two rows is wide and short and
+// moves up and down. The box is the fact, already laid out and exact -- where an orientation flag
+// would be a second copy of it, free to disagree, which is the mistake `thumb_of` and `split_at`
+// exist to avoid.
+//
+// **A column header is left to `table_cursor`.** Its shape depends on *where in the header* the
+// pointer is -- an edge resizes, the middle sorts -- which is a question about one control's
+// geometry rather than about which control is under the pointer, so it does not belong here.
+pub fn cursor_at(l: Laid, at: Point) -> widget.Cursor {
+    return switch focus.control_at(l, at) {
+        Some(node) { cursor_for(node) }
+        None { widget.Cursor.Arrow }
+    }
+}
+
+fn cursor_for(node: Laid) -> widget.Cursor {
+    return switch widget.role_of(node) {
+        TextField { widget.Cursor.Text }
+        Password { widget.Cursor.Text }
+        Link { widget.Cursor.Hand }
+        Separator {
+            if node.bounds.height >= node.bounds.width {
+                widget.Cursor.ResizeAcross
+            } else {
+                widget.Cursor.ResizeDown
+            }
+        }
+        Button { widget.Cursor.Arrow }
+        CheckBox { widget.Cursor.Arrow }
+        RadioButton { widget.Cursor.Arrow }
+        Slider { widget.Cursor.Arrow }
+        List { widget.Cursor.Arrow }
+        ListItem { widget.Cursor.Arrow }
+        Tree { widget.Cursor.Arrow }
+        TreeItem { widget.Cursor.Arrow }
+        Tab { widget.Cursor.Arrow }
+        TabList { widget.Cursor.Arrow }
+        Menu { widget.Cursor.Arrow }
+        MenuItem { widget.Cursor.Arrow }
+        ComboBox { widget.Cursor.Arrow }
+        ScrollBar { widget.Cursor.Arrow }
+        Table { widget.Cursor.Arrow }
+        TableRow { widget.Cursor.Arrow }
+        ColumnHeader { widget.Cursor.Arrow }
+        SplitPane { widget.Cursor.Arrow }
+        Dialog { widget.Cursor.Arrow }
+        Group { widget.Cursor.Arrow }
+        Label { widget.Cursor.Arrow }
+        Image { widget.Cursor.Arrow }
+        Window { widget.Cursor.Arrow }
+        Unknown { widget.Cursor.Arrow }
     }
 }
 
@@ -824,14 +928,11 @@ fn entry_step(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metr
         KeyUp(_) { kept(e) }
         Press(p) {
             kept(with e {
-                editor: edit.place_caret(
-                    e.editor,
-                    // **`shown_text`, not `e.editor.text`** -- a click lands on the bullet the
-                    // user aimed at, which is only the same index if the thing measured is the
-                    // thing drawn.
-                    caret_at_x(shown_text(e), style.text_size, m, p.x - text_left(bounds, style), style.text_font),
-                    false
-                ),
+                // **`shown_text`, not `e.editor.text`** for a one-line field -- a click lands
+                // on the bullet the user aimed at, which is only the same index if the thing
+                // measured is the thing drawn. `caret_for` makes that choice and reads `y` when
+                // the field has lines.
+                editor: edit.place_caret(e.editor, caret_for(e, style, m, bounds, p), false),
                 dragging: true,
                 typing: false
             })
@@ -839,11 +940,7 @@ fn entry_step(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metr
         Move(p) {
             if e.dragging {
                 kept(with e {
-                    editor: edit.place_caret(
-                        e.editor,
-                        caret_at_x(shown_text(e), style.text_size, m, p.x - text_left(bounds, style), style.text_font),
-                        true
-                    )
+                    editor: edit.place_caret(e.editor, caret_for(e, style, m, bounds, p), true)
                 })
             } else {
                 kept(e)
@@ -1008,6 +1105,95 @@ fn redone(e: Entry) -> EntryStep {
 // Where the text starts inside the field, which is what a click's x has to be measured from.
 fn text_left(bounds: Rect, style: Style) -> float {
     return bounds.x + style.padding.left
+}
+
+// Where a press lands in a field: the caret index it means.
+//
+// **`y` was not read at all**, which is the defect this exists for. A press placed the caret with
+// `caret_at_x` over `shown_text` -- correct for one line and nonsense for a text area, where the
+// whole text was measured as if it were a single line, so a click on the third row put the caret
+// somewhere in the first. Typing then appeared where the user had not clicked.
+//
+// **The multi-line test is `entry_widget`'s own**, written the same way on purpose: the function
+// that decides which widget is built and the function that decides where a press lands must agree
+// about what kind of field this is, or a masked field with `rows: 3` would be drawn one way and
+// clicked the other.
+fn caret_for(e: Entry, style: Style, m: widget.Metrics, bounds: Rect, p: Point) -> int {
+    if e.rows > 1 && !e.masked {
+        return caret_at_point(e, style, m, bounds, p)
+    }
+    return caret_at_x(
+        shown_text(e),
+        style.text_size,
+        m,
+        p.x - text_left(bounds, style),
+        style.text_font
+    )
+}
+
+// The caret a point means in a multi-line field: the line from `y`, the column from `x`.
+//
+// **Every number here is `multi_line_widget`'s own** -- the same line height, the same top inset,
+// the same scroll offset -- because a hit test that computed the layout a second time is the bug
+// this module keeps designing against. The lines are walked rather than split for that function's
+// stated reason: a split throws away the one thing that relates a line to the whole string.
+fn caret_at_point(e: Entry, style: Style, m: widget.Metrics, bounds: Rect, p: Point) -> int {
+    val line = widget.height_in(m, style.text_font, style.text_size)
+    if line <= 0.0 {
+        return e.editor.caret
+    }
+    // The scroll offset, because the first line drawn is not the first line of the text once the
+    // field has been scrolled -- and a press is in window coordinates either way.
+    val top = bounds.y + style.padding.top - e.scroll
+    val text = e.editor.text
+    var which = if p.y <= top { 0 } else { ((p.y - top) / line) as int }
+    val last = line_count_of(text) - 1
+    if which > last {
+        which = last
+    }
+    val start = line_start_of(text, which)
+    val stop = edit.line_end(text, start)
+    return start +
+        caret_at_x(
+            substring(text, start, stop),
+            style.text_size,
+            m,
+            p.x - text_left(bounds, style),
+            style.text_font
+        )
+}
+
+// How many lines the text has: one more than the newlines in it, so an empty string is one line
+// and not none.
+fn line_count_of(text: string) -> int {
+    var at = 0
+    var count = 1
+    while true {
+        val stop = edit.line_end(text, at)
+        if stop >= len(text) {
+            return count
+        }
+        at = stop + 1
+        count = count + 1
+    }
+    return count
+}
+
+// The index the `which`th line starts at, counting from zero. Clamped to the last line's start
+// rather than refusing, because a caller that asked for a line past the end has already been
+// clamped by `caret_at_point` and anything else is a caller mistake this cannot repair.
+fn line_start_of(text: string, which: int) -> int {
+    var at = 0
+    var i = 0
+    while i < which {
+        val stop = edit.line_end(text, at)
+        if stop >= len(text) {
+            return at
+        }
+        at = stop + 1
+        i = i + 1
+    }
+    return at
 }
 
 // The caret index a pixel offset into the text means.
@@ -1726,24 +1912,32 @@ pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget {
     var i = 0
     while i < len(t.items) {
         val chosen = i == t.selected
-        // **The selection colour, not the pressed one.** A chosen tab is a selection in exactly
-        // the sense a chosen row is, and sharing `pressed_face` with a button meant that the
-        // moment a theme made a press a *slightly* darker face -- which is what a light theme
-        // wants -- the selected tab became invisible. Found by putting `modern_style` on and
-        // looking at the strip.
-        val face = if chosen { style.selection } else { style.face }
+        // **A card, not a face.** See `tab_face_of`: the chosen tab wears the body's own colour
+        // and is rounded along its top only, which is what makes a strip read as index cards
+        // instead of as a segmented button.
         val cell = widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: 0.0,
-            padding: style.padding,
-            surface: face_of(style, face),
+            // **Shallower than a button's**, by the spacing step: a tab is a label on a card and
+            // a button is a target, and a strip of button-sized tabs is a toolbar. The sides keep
+            // the theme's padding so the titles do not crowd each other.
+            padding: widget.insets_of(
+                style.padding.left,
+                style.padding.top - style.space,
+                style.padding.right,
+                style.padding.bottom - style.space
+            ),
+            surface: tab_face_of(style, chosen),
             align: widget.stretched(),
             children: [widget.label_in_face(t.items[i], style.text_size, ink, style.text_font)],
             name: ""
         })
-        push(cells, widget.fixed_of(
+        // **`wide_of`, not `fixed_of(width, 0)`.** A tab states its width so the strip divides
+        // evenly and measures its own height from its label and padding; written the other way it
+        // is a tab of no height that looks right only inside a parent that stretches it, which is
+        // how the strip vanished the moment a design file stopped forcing a row height.
+        push(cells, widget.wide_of(
             t.tab_width,
-            0.0,
             widget.part_of(
                 tab_name(t, i),
                 widget.Role.Tab,
@@ -4263,6 +4457,7 @@ pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widge
                 fill: Option<Color>.Some(if chosen { style.pressed_face } else { style.face }),
                 border: style.face_border,
                 corner: widget.Radius.Fraction(0.5),
+                corners: widget.Corners.All,
                 shadow: Option<widget.Shadow>.None
             },
             align: widget.centred(),
@@ -4937,6 +5132,7 @@ fn face_of(style: Style, colour: Color) -> widget.Surface {
         fill: Option<Color>.Some(colour),
         border: style.face_border,
         corner: style.corner,
+        corners: widget.Corners.All,
         shadow: Option<widget.Shadow>.None
     }
 }
@@ -4950,6 +5146,35 @@ fn raised_of(style: Style, colour: Color) -> widget.Surface {
     return with face_of(style, colour) { shadow: style.raised }
 }
 
+// A tab's face: a card, rounded along its top and square where it meets the page.
+//
+// **A tab is not a button, and drawing it as one is what it looked like.** Every tab was a face
+// with the theme's rounding on all four corners, in a row with no spacing, floating above the
+// content -- so a strip read as a segmented button and the selected tab as the one that was
+// pressed. What makes an index card is three things together, and this is all three:
+//
+//   * **rounded at the top only** (`widget.Corners.Top`), so the bottom edge is a straight line
+//     along the strip rather than two notches of background;
+//   * **the chosen tab wears the panel's colour**, not a selection tint, so it is the same surface
+//     as the body under it and the two read as one shape with a tab on top;
+//   * **the others are sunk**, a shade off the panel, so the strip has a front and a back.
+//
+// The body has to be `Style.panel` for the join to land, which is what `lib/ui` draws a tabbed
+// pane's body in -- an application that puts something else under a strip gets a card on a
+// different colour, which is a look rather than a defect.
+fn tab_face_of(style: Style, chosen: bool) -> widget.Surface {
+    return widget.Surface {
+        fill: Option<Color>.Some(if chosen { style.panel } else { style.face }),
+        // **No border on a chosen tab.** An edge all the way round it would draw a line between
+        // the tab and the body it is supposed to be continuous with, which is the one line that
+        // has to not be there.
+        border: if chosen { Option<widget.Border>.None } else { style.face_border },
+        corner: style.corner,
+        corners: widget.Corners.Top,
+        shadow: Option<widget.Shadow>.None
+    }
+}
+
 // A selected row's highlight: rounded like a face, but **never edged**.
 //
 // A border round a list's selected row is a box drawn inside a box, and in a list of twenty rows it
@@ -4961,6 +5186,7 @@ fn highlight_of(style: Style, colour: Color) -> widget.Surface {
         fill: Option<Color>.Some(colour),
         border: Option<widget.Border>.None,
         corner: style.corner,
+        corners: widget.Corners.All,
         shadow: Option<widget.Shadow>.None
     }
 }

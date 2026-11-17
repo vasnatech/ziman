@@ -119,16 +119,16 @@ fn ink_contrast_is_the_ratio_it_says_it_is() {
 fn a_dark_look_is_darker_than_its_light_one_everywhere_it_counts() {
     test.assert(
         paint.relative_luminance(looknfeel.plain_dark().window) <
-            paint.relative_luminance(looknfeel.plain().window)
+        paint.relative_luminance(looknfeel.plain().window)
     )
     test.assert(
         paint.relative_luminance(looknfeel.modern_dark().window) <
-            paint.relative_luminance(looknfeel.modern().window)
+        paint.relative_luminance(looknfeel.modern().window)
     )
     // The ink goes the other way, which is the half an inversion gets right.
     test.assert(
         paint.relative_luminance(looknfeel.plain().ink) <
-            paint.relative_luminance(looknfeel.plain_dark().ink)
+        paint.relative_luminance(looknfeel.plain_dark().ink)
     )
 }
 
@@ -154,7 +154,7 @@ fn a_dark_look_raises_its_surfaces_instead_of_sinking_them() {
         if paint.relative_luminance(one.style.window) < 0.2 {
             test.assert(
                 paint.relative_luminance(one.style.window) <
-                    paint.relative_luminance(one.style.face)
+                paint.relative_luminance(one.style.face)
             )
             test.assert(
                 paint.relative_luminance(one.style.window) <=
