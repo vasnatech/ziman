@@ -423,7 +423,7 @@ To be worked through one at a time. Nothing here is decided.
 | **F4** | States as a repeated row, after egui's `Widgets` -- including the missing `disabled_face` and emphasis | `Style` | §6.4, §10.1 |
 | **F5** | A type scale with a face per role, as a DTCG-style `Typography` composite | `Style` | §6.2, §11.1 |
 | **F6** | `Paint` where `Style` says `Color`, keeping `Color` as the contrast-bearing value | `Style` | §6.5 |
-| **F7** | `Theme.dark: bool` (and perhaps `Theme.id`) | `looknfeel.zm` | §6.6 |
+| **F7** | `Theme.dark: bool` (and perhaps `Theme.id`) | `looknfeel.zm` | **absorbed into D8** -- `Scheme` is a parameter, so this is read off the register rather than set |
 | **F8** | Follow the desktop's light/dark preference | `lib/ui/desktop` | platform work, after F7 |
 | **F9** | A look as a file -- Option B | new | after F1-F5 |
 
@@ -652,6 +652,57 @@ pinning those inside a gate that must stay green is a cost with no deadline atta
 bought a perceptual lightness: OKLab's L is uniform by construction, so "far enough apart" is
 answerable without a second model. That is also what Radix's scale *is* by construction, whatever
 its guarantee is quoted in. Revisit if WCAG 3 lands.
+
+**D8 (F3) -- the shipped looks are derived, from two 12-step ramps, with the scheme as a
+parameter. 2026-11-17.**
+
+    pub enum Scheme { Light, Dark }
+    pub fn ramp(seed: Color, s: Scheme) -> [Color]          // 12 steps, Radix's roles
+    pub fn derive(seeds: Seeds, s: Scheme) -> controls.Style
+
+    pub fn plain() -> controls.Style {
+        return with derive(seed_plain, Scheme.Light) {
+            scrim: ..., collapsed_mark: ">", expanded_mark: "v"
+        }
+    }
+
+Three decisions in one.
+
+**The shipped looks are derived, with overrides.** `plain()` becomes `derive(...)` plus a short list
+of deliberate exceptions. The derivation is then exercised by everything we ship, so it cannot rot
+-- the same argument that makes the register a list, so a new look opts into the gate. And **the
+override list is a measurement of the derivation**: if `plain()` needs twenty overrides the rule is
+wrong, and we find out rather than guess. The cost is that the four looks' exact colours move once,
+so any pixel baseline is re-blessed.
+
+**Two ramps of twelve steps, with Radix's published roles.** A neutral seed and an accent seed,
+each expanded to twelve steps whose meanings are §11.2's table. D1 already said the library indexes
+a scale; this is a scale whose steps have documented meanings, which **makes D5's rows stop being
+independent choices**: `hovered` is step 4 and `pressed` is step 5, not two more colours a dark
+variation can get wrong.
+
+    window = neutral[1]   panel = neutral[2]   rest = neutral[3]
+    hovered = neutral[4]  pressed = neutral[5] border = neutral[7]
+    ink = neutral[12]     accent = accent[9]   selection = accent[4]
+
+**The scheme is a parameter, not a second authored look.** `derive` indexes the ramp from one end or
+the other, and that produces all four of §6.3's dark rules mechanically rather than as rules: faces
+lighter than the window is simply what step 3 means on an inverted ramp, the hover veil reverses
+because the veil is another step, `on_accent` flips with the accent ramp, and the shadow deepens
+with the neutral one. This is why Material's `fromSeed` takes `brightness` and Radix ships each
+scale both ways.
+
+### The register is computed, not listed -- and the gate must not shrink
+
+D4 kept `all()` at four looks because density changes no colour. **A scheme does change colour**, so
+if `all()` dropped to two looks the AA gate would quietly stop testing the dark half -- a gate
+shrinking because a mechanism got better is the worst possible outcome here.
+
+So `all()` is **computed as looks times schemes**: two looks give four rows, the menu shows four, the
+gate tests four colour-distinct styles, and adding a fifth look adds two rows without anyone
+remembering to. D4's reasoning holds -- nothing colour-identical is duplicated and density stays out
+of the register -- and **F7 is absorbed**: `Theme`'s scheme is read off the register rather than set
+by hand.
 
 ## 14. Sources
 
