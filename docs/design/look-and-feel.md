@@ -431,9 +431,7 @@ To be worked through one at a time. Nothing here is decided.
 
 - **Q1 -- Is hot reload worth a file format?** It is the only thing Option B buys that A and D do
   not, and it is what Textual leads with. Decides F9.
-- **Q2 -- APCA or WCAG for the gate?** Radix's guarantees are APCA; `looknfeel_test` is WCAG.
-  Decides the shape of D and of F3's test. Still open; **D2 makes it cheaper either way**, since
-  OKLab lightness correlates with both.
+- **Q2 -- APCA or WCAG for the gate?** **DECIDED 2026-11-17 -- see §13.3/D7.**
 - **Q3 -- Does a theme ever need to name one control type** (`Button.arc`), or is passing a
   different `Style` to that call enough? **DECIDED 2026-11-17 -- see §13.3/D1.**
 - **Q4 -- Density as an axis or as entries in `all()`?** **DECIDED 2026-11-17 -- see §13.3/D4.**
@@ -632,6 +630,28 @@ costs. An unused scale entry is a decision a look author must make for no reason
 the sort of thing nothing notices: compare `gen_lib_map.py`, which raised `KeyError` for an unknown
 length of time because no target ran it. A test asserting each step has at least one caller would
 catch a dead step at the point it dies.
+
+**D7 (Q2) -- WCAG 2 gates, OKLab lightness derives. 2026-11-17.**
+
+`looknfeel_test` keeps holding every look in `all()` to **WCAG 2 AA** with `paint.contrast_ratio`,
+and F3's derivation picks tones by **distance in OKLab lightness**, the space D2 already chose.
+
+**Why the gate stays WCAG.** It is the claim the library makes to its users, and it is what
+accessibility law actually references -- EN 301 549, Section 508 and the ADA all point at WCAG 2.x
+AA. "We meet APCA Lc 75" is not an answer an auditor accepts today.
+
+**Why derivation is not WCAG.** Checking a pair and choosing a tone are different jobs. WCAG 2's
+ratio is a poor perceptual model and is **not polarity-aware** -- it scores dark-on-light and
+light-on-dark alike when they do not look alike -- and that is worst for the dark half of `all()`.
+Walking a tone until the ratio clears 4.5 would also make the derivation and the gate the same
+function, so the gate would stop being an independent check.
+
+**Why not APCA.** It is the better model and it is what Radix's published guarantees are quoted in
+(Lc 60 and Lc 90 on step 2), but it is a **draft whose constants have moved between revisions**, and
+pinning those inside a gate that must stay green is a cost with no deadline attached. D2 already
+bought a perceptual lightness: OKLab's L is uniform by construction, so "far enough apart" is
+answerable without a second model. That is also what Radix's scale *is* by construction, whatever
+its guarantee is quoted in. Revisit if WCAG 3 lands.
 
 ## 14. Sources
 
