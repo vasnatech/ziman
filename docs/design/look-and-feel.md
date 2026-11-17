@@ -434,12 +434,51 @@ To be worked through one at a time. Nothing here is decided.
 - **Q2 -- APCA or WCAG for the gate?** Radix's guarantees are APCA; `looknfeel_test` is WCAG.
   Decides the shape of D and of F3's test.
 - **Q3 -- Does a theme ever need to name one control type** (`Button.arc`), or is passing a
-  different `Style` to that call enough? This is most of the weight of Option B and all of Option C.
+  different `Style` to that call enough? **DECIDED 2026-11-17 -- see §13.3/D1.**
 - **Q4 -- Density as an axis or as entries in `all()`?** Material and Radix treat
   compact/comfortable as an axis; `all()` is a flat list and is also the contrast gate's input.
   Decides the shape of F1.
 - **Q5 -- Does `looknfeel` ever own the "feel"** (§6.7, key maps), or is the module's name
   aspirational and one key map the right answer?
+
+### 13.3 Decisions taken
+
+**D1 (Q3) -- a scale, with the library assigning the steps. 2026-11-17.**
+
+A theme never names a control type. `Style` carries a small *scale* per axis, and `controls.zm`
+says once, for all looks, which step each control sits on:
+
+    pub struct Shape {
+        none:   widget.Radius   // separator, grid line
+        small:  widget.Radius   // check box, text field
+        medium: widget.Radius   // button, tab, card
+        large:  widget.Radius   // popup, dialog
+        full:   widget.Radius   // pill, scroll thumb
+    }
+
+    fn button_radius(s: Style) -> widget.Radius { return s.shape.medium }
+    fn field_radius(s: Style)  -> widget.Radius { return s.shape.small }
+
+**Why.** `Style.corner`'s own comment already argued the flat case -- "A theme with four-point
+buttons and square selection is not a theme, it is two" -- and `icon_gap` repeats it. The practice
+agreed: across 21 gallery demos, the gallery shell and curly's whole GUI there is exactly **one**
+per-call override in the tree, `gallery/ui/desktop/state.zm:211`'s
+`with style { text_font: code_face }` for the monospaced code pane. But the comments overclaim by
+treating one number as the only alternative to twenty. A scale is the third thing, and it is what
+Material's shape scale and Radix's colour scale both are: the theme moves the scale, the design
+system owns the assignment. So a look can be squarer overall without being able to make buttons and
+selection disagree.
+
+**What it settles.**
+
+- **Option C is closed.** If a theme never names a control type there is nothing for a selector to
+  select, and §8.2's ten complaints are not worth buying.
+- **Option B (F9) shrinks** to a file that sets scale steps -- five numbers for shape, not twenty
+  keys -- so the string-keyed table of §12 is not needed either.
+- **F1, F4 and option D become one mechanism, not three.** Density is a space scale, states are a
+  state scale (§10.1's rows), colour is a tonal scale (§11.2). Each is "a scale the theme sets and
+  the library indexes".
+- Call-site override with `with style { ... }` stays, for the one case a year that wants it.
 
 ## 14. Sources
 
