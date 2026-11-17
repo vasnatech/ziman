@@ -52,4 +52,5 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F285 — the layout rewrite, declined on measurement](f285.md)
 - [F286 — the box widening](f286.md)
 - [F287 — the box model learns to centre](f287.md)
-- [F288 and F289 — the split pane and the table](f288-f289.md)
+- [F288 to F290 — the split pane, the table, and the three roles that had no control](f288-f289.md)
+- [F291 to F297 — the look and feel decisions, built](f291-f297.md)

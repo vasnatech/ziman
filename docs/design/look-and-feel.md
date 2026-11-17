@@ -855,8 +855,9 @@ This document keeps its own name, and its references to `looknfeel` before this 
 
 ### 13.4 Build order
 
-Derived from the dependencies above, not from the ranking in §13.1 -- which was written before any
-of these decisions existed.
+**Raised as F291 to F297** in [docs/reviews/tasks/f291-f297.md](../reviews/tasks/f291-f297.md), one
+task per step, each naming the traps that step will hit. Derived from the dependencies above, not
+from the ranking in §13.1 -- which was written before any of these decisions existed.
 
 0. **D13 -- the rename, first.** Cheapest now, purely mechanical, and doing it first means every
    diff below is written once rather than rewritten.
