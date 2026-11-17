@@ -432,7 +432,8 @@ To be worked through one at a time. Nothing here is decided.
 - **Q1 -- Is hot reload worth a file format?** It is the only thing Option B buys that A and D do
   not, and it is what Textual leads with. Decides F9.
 - **Q2 -- APCA or WCAG for the gate?** Radix's guarantees are APCA; `looknfeel_test` is WCAG.
-  Decides the shape of D and of F3's test.
+  Decides the shape of D and of F3's test. Still open; **D2 makes it cheaper either way**, since
+  OKLab lightness correlates with both.
 - **Q3 -- Does a theme ever need to name one control type** (`Button.arc`), or is passing a
   different `Style` to that call enough? **DECIDED 2026-11-17 -- see §13.3/D1.**
 - **Q4 -- Density as an axis or as entries in `all()`?** Material and Radix treat
@@ -479,6 +480,45 @@ selection disagree.
   state scale (§10.1's rows), colour is a tonal scale (§11.2). Each is "a scale the theme sets and
   the library indexes".
 - Call-site override with `with style { ... }` stays, for the one case a year that wants it.
+
+**D2 (F2) -- OKLab/OKLCH is the one working space, and derivation happens once. 2026-11-17.**
+
+`paint` gains a single colour algebra working in OKLab: `to_oklab`, `oklab`, `oklch`, and over them
+`lighten`, `darken`, `saturate`, `desaturate`, `fade`, `mix`, `tint`, `shade`, `change_hue`, and
+`contrast(c, dark, light)`. **No second space.** The functions keep plain names and their doc says
+which space they work in; two vocabularies for one operation is the thing `Style.corner`'s comment
+argues against for shape, and it is no better for colour.
+
+**Why OKLab and not HSL.** D1 made colour a tonal scale, and "even steps of lightness at constant
+hue and chroma" is OKLCH's definition and something HSL cannot do -- HSL's lightness is not
+perceptual, so even steps look uneven and drift in hue. The sharpest evidence is FlatLaf's own API:
+its `autoInverse` option "inverts the amount if lightness is above 65% (lighten) or below 35%
+(darken)", which is a workaround for HSL's non-uniformity and has nothing to correct in OKLab. GTK
+reached the same place from the other side -- its `shade()` and `mix()` are deprecated in favour of
+standard `oklch()` and `color-mix()` -- and Material's HCT exists precisely so that tone equals L*,
+which OKLCH gives for much less code.
+
+**What it costs.** Less than it looks: `relative_luminance` already contains `linear_channel`, the
+sRGB-to-linear step, so what is missing is a matrix and a cube root.
+
+**Derivation is computed once, when the look is built -- not at paint time.** FlatLaf has a
+`derived` mode that recomputes against a component's actual background; we already get that case by
+a different route, because `hover_tint` is a translucent overlay composited by
+`widget.paint_hovered` and adapts to whatever face it lands on without computing anything.
+Compositing answers the case the flag exists for, and a look that computes at paint time stops
+being data -- which §6.8 says is the one property not to trade.
+
+**D3 (F2) -- `paint.parse` reads notations; functions do expressions. 2026-11-17.**
+
+`parse` gains `hsl()`, `hsla()`, `oklch()` and `oklab()`, which are ways of *writing one colour* --
+exactly its existing contract, and forms that turn up in real SVG files and design-tool exports. It
+does **not** gain `color-mix()`, relative colours (`oklch(from X ...)`) or `light-dark()`: those are
+expressions over colours and belong in the typed algebra, where a mistake is a compile error rather
+than a load-time one.
+
+The line is: **parse denotes, functions compute.** Note that `parse` accepting `hsl()` does not
+reintroduce HSL as a working space -- it is a notation converted to a `Color` on the way in, and
+everything after is D2.
 
 ## 14. Sources
 
