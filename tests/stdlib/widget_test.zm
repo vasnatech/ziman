@@ -14,6 +14,7 @@ use scene
 use shape
 use test
 use widget
+use widget.shadow_steps
 
 fn fake_metrics() -> widget.Metrics {
     return widget.metrics_of(
@@ -1284,7 +1285,8 @@ fn a_zero_radius_builds_a_rectangle_rather_than_arcs() {
     val square = widget.Surface {
         fill: Option<paint.Color>.Some(paint.white()),
         border: Option<widget.Border>.None,
-        corner: widget.Radius.Square
+        corner: widget.Radius.Square,
+        shadow: Option<widget.Shadow>.None
     }
     val ops = ops_of(square)
     test.assert_len(1, ops)
@@ -1296,7 +1298,8 @@ fn a_corner_radius_rounds_the_fill() {
     val rounded = widget.Surface {
         fill: Option<paint.Color>.Some(paint.white()),
         border: Option<widget.Border>.None,
-        corner: widget.Radius.Points(6.0)
+        corner: widget.Radius.Points(6.0),
+        shadow: Option<widget.Shadow>.None
     }
     val ops = ops_of(rounded)
     test.assert_len(1, ops)
@@ -1314,7 +1317,8 @@ fn a_border_is_painted_after_the_fill() {
     val edged = widget.Surface {
         fill: Option<paint.Color>.Some(paint.white()),
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
-        corner: widget.Radius.Square
+        corner: widget.Radius.Square,
+        shadow: Option<widget.Shadow>.None
     }
     val ops = ops_of(edged)
     test.assert_len(2, ops)
@@ -1333,7 +1337,8 @@ fn a_border_is_a_ring_and_not_a_stroke() {
     val outline = widget.Surface {
         fill: Option<paint.Color>.None,
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
-        corner: widget.Radius.Points(4.0)
+        corner: widget.Radius.Points(4.0),
+        shadow: Option<widget.Shadow>.None
     }
     val ops = ops_of(outline)
     test.assert_len(1, ops)
@@ -1346,7 +1351,8 @@ fn a_border_without_a_fill_is_just_the_ring() {
     val outline = widget.Surface {
         fill: Option<paint.Color>.None,
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
-        corner: widget.Radius.Square
+        corner: widget.Radius.Square,
+        shadow: Option<widget.Shadow>.None
     }
     val ops = ops_of(outline)
     test.assert_len(1, ops)
@@ -1365,7 +1371,8 @@ fn a_border_is_inside_the_bounds() {
     val edged = widget.Surface {
         fill: Option<paint.Color>.None,
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 4.0)),
-        corner: widget.Radius.Square
+        corner: widget.Radius.Square,
+        shadow: Option<widget.Shadow>.None
     }
     val ops = ops_of(edged)
     test.assert_len(1, ops)
@@ -1386,7 +1393,8 @@ fn a_border_keeps_the_width_it_was_given() {
     val edged = widget.Surface {
         fill: Option<paint.Color>.None,
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 3.0)),
-        corner: widget.Radius.Square
+        corner: widget.Radius.Square,
+        shadow: Option<widget.Shadow>.None
     }
     val ops = ops_of(edged)
     val at = first_point(fill_path(ops[0]))
@@ -1400,7 +1408,8 @@ fn a_rounded_border_curves_too() {
     val edged = widget.Surface {
         fill: Option<paint.Color>.None,
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
-        corner: widget.Radius.Points(8.0)
+        corner: widget.Radius.Points(8.0),
+        shadow: Option<widget.Shadow>.None
     }
     val ops = ops_of(edged)
     test.assert(has_curve(fill_path(ops[0])))
@@ -1424,7 +1433,8 @@ fn a_border_thicker_than_the_radius_squares_off_its_hole_and_not_its_outer_curve
     val edged = widget.Surface {
         fill: Option<paint.Color>.None,
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 6.0)),
-        corner: widget.Radius.Points(1.0)
+        corner: widget.Radius.Points(1.0),
+        shadow: Option<widget.Shadow>.None
     }
     val ops = ops_of(edged)
     test.assert_len(1, ops)
@@ -1440,7 +1450,8 @@ fn the_squaring_off_is_the_holes_and_not_the_fills() {
     val edged = widget.Surface {
         fill: Option<paint.Color>.Some(paint.white()),
         border: Option<widget.Border>.Some(widget.border_of(paint.black(), 6.0)),
-        corner: widget.Radius.Points(1.0)
+        corner: widget.Radius.Points(1.0),
+        shadow: Option<widget.Shadow>.None
     }
     val ops = ops_of(edged)
     test.assert_len(2, ops)
@@ -1900,4 +1911,71 @@ fn a_face_can_state_its_own_ascent() {
         fn(size: float) -> float { return size * 1.5 }
     )
     test.assert_eq(widget.ascent_in(m, 0, 12.0), 18.0)
+}
+
+// ---------------------------------------------------------------- elevation
+
+fn shadowed(cast: Option<widget.Shadow>) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.Surface {
+            fill: Option<paint.Color>.Some(paint.rgb(1.0, 1.0, 1.0)),
+            border: Option<widget.Border>.None,
+            corner: widget.Radius.Points(6.0),
+            shadow: cast
+        },
+        align: widget.stretched(),
+        children: [],
+        name: ""
+    })
+}
+
+fn fills_of(w: widget.Widget) -> [geom.Rect] {
+    val m = widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+    val out = mutable_array_new<geom.Rect>()
+    for op in widget.paint_ops(widget.layout(w, geom.rect_of(20.0, 20.0, 100.0, 40.0), m), m) {
+        if Fill(f) = op {
+            push(out, shape.path_bounds(f.path))
+        }
+    }
+    return snapshot(out)
+}
+
+// **A surface with no shadow paints exactly what it always did**, which is what lets elevation be
+// added to `Surface` rather than beside it: one fill, and not a ring of nothing around it.
+#[test]
+fn a_surface_without_a_shadow_paints_one_fill() {
+    test.assert_len(1, fills_of(shadowed(Option<widget.Shadow>.None)))
+}
+
+// **A shadow is `shadow_steps` rings behind the fill, and they grow outwards.** There is no blur
+// in this renderer -- `raster` fills and strokes paths and has no convolution -- so a soft edge is
+// concentric rings of falling alpha, which is what every toolkit did before a blur was cheap.
+#[test]
+fn a_shadow_is_rings_behind_the_fill_and_they_grow_outward() {
+    val painted = fills_of(shadowed(Option<widget.Shadow>.Some(widget.shadow_of(2.0, 8.0, 0.3))))
+    test.assert_len(shadow_steps + 1, painted)
+    // The widest ring is first, so everything after it is painted on top.
+    test.assert(painted[0].width > painted[1].width)
+    // The last op is the surface's own fill, at the box it was given.
+    val own = painted[len(painted) - 1]
+    test.assert_eq(own.x, 20.0)
+    test.assert_eq(own.width, 100.0)
+    // The outermost ring reaches past the box by the whole blur.
+    test.assert_near(painted[0].x, 20.0 - 8.0, 0.001)
+    // And it falls downward: the shadow's box is offset below the surface's own.
+    test.assert(painted[0].y > 20.0 - 8.0)
+}
+
+// A blur of nothing, or an opacity of nothing, is no shadow at all rather than eight invisible
+// rings -- which is what a theme that switches elevation off is asking for.
+#[test]
+fn a_shadow_of_nothing_paints_nothing() {
+    test.assert_len(1, fills_of(shadowed(Option<widget.Shadow>.Some(widget.shadow_of(2.0, 0.0, 0.3)))))
+    test.assert_len(1, fills_of(shadowed(Option<widget.Shadow>.Some(widget.shadow_of(2.0, 8.0, 0.0)))))
 }

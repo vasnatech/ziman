@@ -374,6 +374,47 @@ pub struct Border {
 // looked different, because what distinguishes one look and feel from another is *shape*. The
 // capability was always one layer down (`shape.round_rect_path`, and `paint_focused` has stroked a
 // path in this very module since F270); only the way to ask for it was missing.
+// How far a surface stands off the one behind it.
+//
+// **Depth is the half of a look and feel that colour cannot carry.** Every system says the same
+// thing in its own units -- Fluent 2 has six shadow tokens from `$shadow2` to `$shadow64`, each a
+// sharp *key* shadow plus a soft *ambient* one; Material leans on a tonal overlay with a shadow
+// behind it -- and all of them mean one thing: a menu is in front of the window, and the eye
+// should not have to read a border to know it.
+//
+// **Three numbers rather than six tokens**, because a token set is a theme's business and this is
+// the vocabulary a theme is written in. `offset` is how far the light pushes it down, `blur` how
+// far it spreads, `opacity` how dark it gets against the thing behind.
+//
+// **There is no blur in this renderer, so the shadow is rings.** `raster` fills and strokes paths;
+// it has no convolution and adding one is a project. A soft edge is therefore approximated by
+// concentric rounded rings of falling alpha -- which is what every toolkit did before a blur was
+// cheap, and which costs `shadow_steps` fills on the things that have a shadow and nothing at all
+// on the things that do not. See `paint_surface`.
+pub struct Shadow {
+    // How far down it falls. **Down and not sideways**, which is the one thing every system agrees
+    // on: the light is above, so a shadow that moved horizontally would say the window is lit from
+    // a lamp the user cannot see.
+    offset: float
+    // How far it spreads past the box.
+    blur: float
+    // How dark it is at the box's own edge, where it is darkest.
+    opacity: float
+}
+
+// How many rings a shadow is drawn as.
+//
+// **Eight, which is a measurement rather than a taste.** The rings are what a blur would be, and
+// the eye stops counting them at about this many for the blurs a window actually uses (4 to 24
+// points); fewer reads as bands, and more costs fills for a difference nobody sees. A shadow is
+// only ever on the few surfaces that are in front of something -- a dialog, a menu, a popup -- so
+// this is eight fills per raised thing, not per control.
+pub val shadow_steps = 8
+
+pub fn shadow_of(offset: float, blur: float, opacity: float) -> Shadow {
+    return Shadow { offset: offset, blur: blur, opacity: opacity }
+}
+
 pub struct Surface {
     // Painted behind the children, before them. `None` draws nothing, which is what most
     // containers want -- a stack per level each painting a fill is how a UI ends up with twenty
@@ -392,6 +433,9 @@ pub struct Surface {
     // application here has yet wanted; the day one does, this is the place it widens, and a single
     // number cannot disagree with itself in the meantime.
     corner: Radius
+    // What falls behind it, if anything. `None` for every surface that is not in front of
+    // something, which is nearly all of them.
+    shadow: Option<Shadow>
 }
 
 // How far a surface's corners are rounded: a number of points, or a proportion of the box.
@@ -445,7 +489,8 @@ pub fn no_surface() -> Surface {
     return Surface {
         fill: Option<Color>.None,
         border: Option<Border>.None,
-        corner: Radius.Square
+        corner: Radius.Square,
+        shadow: Option<Shadow>.None
     }
 }
 
@@ -455,7 +500,8 @@ pub fn filled(colour: Color) -> Surface {
     return Surface {
         fill: Option<Color>.Some(colour),
         border: Option<Border>.None,
-        corner: Radius.Square
+        corner: Radius.Square,
+        shadow: Option<Shadow>.None
     }
 }
 
@@ -485,7 +531,8 @@ pub fn rounded(fill: Color, corner: Radius) -> Surface {
     return Surface {
         fill: Option<Color>.Some(fill),
         border: Option<Border>.None,
-        corner: corner
+        corner: corner,
+        shadow: Option<Shadow>.None
     }
 }
 
@@ -498,7 +545,8 @@ pub fn outlined(border: Color, width: float, corner: Radius) -> Surface {
     return Surface {
         fill: Option<Color>.None,
         border: Option<Border>.Some(border_of(border, width)),
-        corner: corner
+        corner: corner,
+        shadow: Option<Shadow>.None
     }
 }
 
@@ -510,7 +558,8 @@ pub fn edged(fill: Color, border: Color, width: float, corner: Radius) -> Surfac
     return Surface {
         fill: Option<Color>.Some(fill),
         border: Option<Border>.Some(border_of(border, width)),
-        corner: corner
+        corner: corner,
+        shadow: Option<Shadow>.None
     }
 }
 
@@ -2002,11 +2051,59 @@ pub fn paint_ops(l: Laid, m: Metrics) -> [Op] {
 // radius still needs no clamp, for the reason the first version learned by mutation testing --
 // `shape.round_rect_path` answers a plain rectangle for anything at or below zero, so two guards
 // written before that was checked were both unobservable.
+// A soft edge, approximated by concentric rings of falling alpha.
+//
+// **Rings and not filled rectangles**, which is the difference between this costing eight fills
+// and costing eight *overdraws of the whole box*: each step paints only the sliver between its
+// own outline and the one inside it, so the area painted is the shadow and not the control. F286
+// made a border a ring for the same reason and measured it: 302-342us against 974-1,008.
+//
+// **The alpha falls off as the square of the distance**, which is what makes it read as a blur
+// rather than as eight bands -- a linear ramp has a visible edge at every step, because the eye
+// is good at exactly that. The outermost ring is nearly clear; the innermost is `opacity`.
+fn paint_shadow(cast: Shadow, bounds: Rect, radius: float, ops: MutableArray<Op>) {
+    if cast.blur <= 0.0 || cast.opacity <= 0.0 {
+        return
+    }
+    val step = cast.blur / (shadow_steps as float)
+    var i = shadow_steps
+    while i >= 1 {
+        val out = (i as float) * step
+        val inside = out - step
+        val near = 1.0 - (i as float) / ((shadow_steps + 1) as float)
+        val outer = geom.rect_of(
+            bounds.x - out,
+            bounds.y - out + cast.offset,
+            bounds.width + out * 2.0,
+            bounds.height + out * 2.0
+        )
+        val inner = geom.rect_of(
+            bounds.x - inside,
+            bounds.y - inside + cast.offset,
+            bounds.width + inside * 2.0,
+            bounds.height + inside * 2.0
+        )
+        push(ops, scene.fill(
+            shape.ring_path(
+                shape.round_rect_path(outer, radius + out),
+                shape.round_rect_path(inner, radius + inside)
+            ),
+            Paint.Solid(paint.rgba(0.0, 0.0, 0.0, cast.opacity * near * near))
+        ))
+        i = i - 1
+    }
+}
+
 fn paint_surface(s: Surface, bounds: Rect, ops: MutableArray<Op>) {
     // **Resolved here, once, against the box actually being painted** -- which is the point of
     // `Radius` being a kind rather than a number: the tree was built before anything knew how big
     // this control would be.
     val radius = radius_in(s.corner, bounds)
+    // **The shadow first, because it is behind.** Ops are painted in order, so anything pushed
+    // here is under the fill and the border that follow.
+    if Some(cast) = s.shadow {
+        paint_shadow(cast, bounds, radius, ops)
+    }
     if Some(colour) = s.fill {
         push(ops, scene.fill(shape.round_rect_path(bounds, radius), Paint.Solid(colour)))
     }

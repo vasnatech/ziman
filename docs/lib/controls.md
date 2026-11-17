@@ -2287,6 +2287,14 @@ pub struct Style {
     // **Absent and zero in `default_style`, on purpose**: the default look is byte-for-byte what it
     // was before this widened, so nothing that compared pixels had to be re-blessed and nothing an
     // application already ships moved by a point. A look and feel is what you get by setting them.
+    // What falls behind a surface that is in front of the window: a menu's popup, a combo box's
+    // list, a dialog's panel.
+    //
+    // **Only those three, and that is the rule rather than an omission.** A shadow says "this is
+    // in front of that", so a window where every control had one would be saying nothing at all --
+    // and would pay eight extra fills per control to say it. `None` turns it off for a flat look
+    // and feel, which is what a theme following GNOME's Adwaita would want.
+    raised: Option<widget.Shadow>
     face_border: Option<widget.Border>
     // One rounding, shared by every control's face and by a list's and a tree's selected row -- the
     // same rule `tab_width` and `bar_thickness` follow. A theme with four-point buttons and

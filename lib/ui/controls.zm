@@ -2616,7 +2616,30 @@ pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget {
 
 // The popup, as a layer. The same one a menu uses -- a list is a list.
 pub fn combo_box_popup_layer(c: ComboBox, style: Style, at: Rect) -> widget.Layer {
-    return widget.layer_at(at, true, list_widget(c.items, style))
+    return widget.layer_at(at, true, popped(list_widget(c.items, style), style))
+}
+
+// A popup's own surface: a panel with the theme's shadow behind it.
+//
+// **A list had none**, which is the thing a shadow made visible rather than caused: a popup drew
+// its rows and nothing else, so what was behind it showed between them and at its edges. It read
+// as a popup only because the rows happened to be filled. Now it is a panel that is in front of
+// the window, which is what it always was.
+fn popped(inner: widget.Widget, style: Style) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: raised_of(style, style.panel),
+        align: widget.stretched(),
+        // **`expand`, because a list measures as nothing.** Its contents are a `Viewport`, which
+        // takes the box it is given rather than asking for one -- so as the plain child of a
+        // column it is laid out zero points tall and the popup draws a panel with no rows in it.
+        // The table's header band, the link, the slider's thumb and this have now all been the
+        // same sentence.
+        children: [widget.expand(inner)],
+        name: ""
+    })
 }
 
 fn combo_unchanged(c: ComboBox) -> ComboBoxStep {
@@ -2954,7 +2977,7 @@ pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
 //
 // Takes the keyboard while it is open, because an open menu owns the arrows.
 pub fn menu_popup_layer(m: Menu, style: Style, at: Rect) -> widget.Layer {
-    return widget.layer_at(at, true, list_widget(m.items, style))
+    return widget.layer_at(at, true, popped(list_widget(m.items, style), style))
 }
 
 // ------------------------------------------------------------------ dialogs
@@ -2998,8 +3021,10 @@ pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: 
         spacing: style.text_size * 0.5,
         padding: style.padding,
         // **The panel, not a face.** See `Style.panel`: a dialog whose panel is the colour of a
-        // button is a dialog whose buttons cannot be seen.
-        surface: face_of(style, style.panel),
+        // button is a dialog whose buttons cannot be seen. Raised, because a modal dialog is the
+        // thing in front of everything -- the scrim says the window is blocked and the shadow says
+        // which of the two layers you are looking at.
+        surface: raised_of(style, style.panel),
         align: widget.stretched(),
         children: [widget.label_in_face(title, style.text_size, style.ink, style.text_font), content],
         name: ""
@@ -4173,7 +4198,8 @@ pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widge
             surface: widget.Surface {
                 fill: Option<Color>.Some(if chosen { style.pressed_face } else { style.face }),
                 border: style.face_border,
-                corner: widget.Radius.Fraction(0.5)
+                corner: widget.Radius.Fraction(0.5),
+                shadow: Option<widget.Shadow>.None
             },
             align: widget.centred(),
             children: [widget.label_in_face(if chosen { "•" } else { " " }, style.text_size, ink, style.text_font)],
@@ -4720,6 +4746,14 @@ pub struct Style {
     // **Absent and zero in `default_style`, on purpose**: the default look is byte-for-byte what it
     // was before this widened, so nothing that compared pixels had to be re-blessed and nothing an
     // application already ships moved by a point. A look and feel is what you get by setting them.
+    // What falls behind a surface that is in front of the window: a menu's popup, a combo box's
+    // list, a dialog's panel.
+    //
+    // **Only those three, and that is the rule rather than an omission.** A shadow says "this is
+    // in front of that", so a window where every control had one would be saying nothing at all --
+    // and would pay eight extra fills per control to say it. `None` turns it off for a flat look
+    // and feel, which is what a theme following GNOME's Adwaita would want.
+    raised: Option<widget.Shadow>
     face_border: Option<widget.Border>
     // One rounding, shared by every control's face and by a list's and a tree's selected row -- the
     // same rule `tab_width` and `bar_thickness` follow. A theme with four-point buttons and
@@ -4777,6 +4811,11 @@ pub fn default_style() -> Style {
         collapsed_mark: "▸",
         expanded_mark: "▾",
         scrim: paint.rgba(0.0, 0.0, 0.0, 0.35),
+        // Two points down and ten of spread, at just over a fifth. **Shallower than Fluent's
+        // `$shadow16` and deeper than its `$shadow2`**, which is the range its own table puts a
+        // menu and a dialog in; the exact numbers are a theme's to set and these are the ones that
+        // read on a light window without turning the corner of a popup into a smudge.
+        raised: Option<widget.Shadow>.Some(widget.shadow_of(2.0, 10.0, 0.22)),
         face_border: Option<widget.Border>.None,
         corner: widget.Radius.Square,
         text_font: 0,
@@ -4799,8 +4838,18 @@ fn face_of(style: Style, colour: Color) -> widget.Surface {
     return widget.Surface {
         fill: Option<Color>.Some(colour),
         border: style.face_border,
-        corner: style.corner
+        corner: style.corner,
+        shadow: Option<widget.Shadow>.None
     }
+}
+
+// A surface that is in front of the window: a face, with whatever the theme casts behind it.
+//
+// **A third function beside `face_of` and `highlight_of` rather than a flag on the first**, for
+// the reason those two are separate: what makes a surface raised is not a property of its colour,
+// and a caller that had to remember to pass `false` everywhere would eventually not.
+fn raised_of(style: Style, colour: Color) -> widget.Surface {
+    return with face_of(style, colour) { shadow: style.raised }
 }
 
 // A selected row's highlight: rounded like a face, but **never edged**.
@@ -4813,7 +4862,8 @@ fn highlight_of(style: Style, colour: Color) -> widget.Surface {
     return widget.Surface {
         fill: Option<Color>.Some(colour),
         border: Option<widget.Border>.None,
-        corner: style.corner
+        corner: style.corner,
+        shadow: Option<widget.Shadow>.None
     }
 }
 

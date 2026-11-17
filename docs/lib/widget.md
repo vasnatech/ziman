@@ -485,6 +485,68 @@ struct that eventually will. Either there is a border and it has both its number
 none -- which is the same rule `ScrollBar` and `Tabs` follow for the one number they share with
 a hit test.
 
+### `Shadow`
+
+```
+pub struct Shadow {
+    // How far down it falls. **Down and not sideways**, which is the one thing every system agrees
+    // on: the light is above, so a shadow that moved horizontally would say the window is lit from
+    // a lamp the user cannot see.
+    offset: float
+    // How far it spreads past the box.
+    blur: float
+    // How dark it is at the box's own edge, where it is darkest.
+    opacity: float
+}
+```
+
+What a container paints behind and around its children.
+
+**This is the vocabulary a second look and feel needs, and until 2026-11-12 it was one colour
+wide.** `Stack` carried a `background: Option<Color>` and nothing else, so every container in
+every theme was a flat rectangle: an application could already replace the whole palette --
+`controls.default_style()` exists to be replaced -- and still could not draw a button that
+looked different, because what distinguishes one look and feel from another is *shape*. The
+capability was always one layer down (`shape.round_rect_path`, and `paint_focused` has stroked a
+path in this very module since F270); only the way to ask for it was missing.
+How far a surface stands off the one behind it.
+
+**Depth is the half of a look and feel that colour cannot carry.** Every system says the same
+thing in its own units -- Fluent 2 has six shadow tokens from `$shadow2` to `$shadow64`, each a
+sharp *key* shadow plus a soft *ambient* one; Material leans on a tonal overlay with a shadow
+behind it -- and all of them mean one thing: a menu is in front of the window, and the eye
+should not have to read a border to know it.
+
+**Three numbers rather than six tokens**, because a token set is a theme's business and this is
+the vocabulary a theme is written in. `offset` is how far the light pushes it down, `blur` how
+far it spreads, `opacity` how dark it gets against the thing behind.
+
+**There is no blur in this renderer, so the shadow is rings.** `raster` fills and strokes paths;
+it has no convolution and adding one is a project. A soft edge is therefore approximated by
+concentric rounded rings of falling alpha -- which is what every toolkit did before a blur was
+cheap, and which costs `shadow_steps` fills on the things that have a shadow and nothing at all
+on the things that do not. See `paint_surface`.
+
+### `shadow_steps`
+
+```
+pub val shadow_steps = 8
+```
+
+How many rings a shadow is drawn as.
+
+**Eight, which is a measurement rather than a taste.** The rings are what a blur would be, and
+the eye stops counting them at about this many for the blurs a window actually uses (4 to 24
+points); fewer reads as bands, and more costs fills for a difference nobody sees. A shadow is
+only ever on the few surfaces that are in front of something -- a dialog, a menu, a popup -- so
+this is eight fills per raised thing, not per control.
+
+### `shadow_of`
+
+```
+pub fn shadow_of(offset: float, blur: float, opacity: float) -> Shadow
+```
+
 ### `Surface`
 
 ```
@@ -506,18 +568,11 @@ pub struct Surface {
     // application here has yet wanted; the day one does, this is the place it widens, and a single
     // number cannot disagree with itself in the meantime.
     corner: Radius
+    // What falls behind it, if anything. `None` for every surface that is not in front of
+    // something, which is nearly all of them.
+    shadow: Option<Shadow>
 }
 ```
-
-What a container paints behind and around its children.
-
-**This is the vocabulary a second look and feel needs, and until 2026-11-12 it was one colour
-wide.** `Stack` carried a `background: Option<Color>` and nothing else, so every container in
-every theme was a flat rectangle: an application could already replace the whole palette --
-`controls.default_style()` exists to be replaced -- and still could not draw a button that
-looked different, because what distinguishes one look and feel from another is *shape*. The
-capability was always one layer down (`shape.round_rect_path`, and `paint_focused` has stroked a
-path in this very module since F270); only the way to ask for it was missing.
 
 ### `Radius`
 
