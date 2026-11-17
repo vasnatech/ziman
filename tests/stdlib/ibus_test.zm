@@ -9,9 +9,9 @@
 //
 // The kind numbers here mirror src/native_ibus.c by hand, which is the point: if C renumbers an
 // event, these fail rather than the decoder quietly producing the wrong change.
-use test
 use ibus
 use ibus.Change
+use test
 
 fn one(kinds: [int], texts: [string], numbers: [int]) -> Change {
     val changes = ibus.decode(kinds, texts, numbers)

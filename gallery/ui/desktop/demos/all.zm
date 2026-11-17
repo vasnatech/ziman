@@ -338,3 +338,34 @@ pub fn group_of(d: Demo) -> string {
 pub fn groups() -> [string] {
     return ["Controls", "Layout", "Drawing", "Look and feel", "Accessibility"]
 }
+
+// The shape the pointer should take over this demo, at a point in the demo's own box.
+//
+// **Only two demos have an answer and the rest say arrow**, which is the honest shape of it: a
+// cursor is a promise that something will happen if you drag, and only a divider and a column
+// edge make that promise. See `controls.split_pane_cursor`.
+pub fn cursor_of(d: Demo, laid: widget.Laid, at: geom.Point) -> widget.Cursor {
+    return switch d {
+        SplitPane(it) { split_pane.cursor(it, laid, at) }
+        Table(it) { table.cursor(it, laid, at) }
+        Button(_) { widget.Cursor.Arrow }
+        CheckBox(_) { widget.Cursor.Arrow }
+        Radios(_) { widget.Cursor.Arrow }
+        Slider(_) { widget.Cursor.Arrow }
+        Link(_) { widget.Cursor.Arrow }
+        TextField(_) { widget.Cursor.Arrow }
+        TextArea(_) { widget.Cursor.Arrow }
+        List(_) { widget.Cursor.Arrow }
+        Tabs(_) { widget.Cursor.Arrow }
+        Tree(_) { widget.Cursor.Arrow }
+        ScrollBar(_) { widget.Cursor.Arrow }
+        ComboBox(_) { widget.Cursor.Arrow }
+        Menu(_) { widget.Cursor.Arrow }
+        Dialog(_) { widget.Cursor.Arrow }
+        Layout(_) { widget.Cursor.Arrow }
+        Picture(_) { widget.Cursor.Arrow }
+        LookAndFeel(_) { widget.Cursor.Arrow }
+        Accessibility(_) { widget.Cursor.Arrow }
+        Composing(_) { widget.Cursor.Arrow }
+    }
+}

@@ -26,10 +26,10 @@ backend glue goes.
 
 `use desktop` -- or `use desktop.Name` to bring one item in bare.
 
-### `input_of`
+### `set_cursor`
 
 ```
-pub fn input_of(e: window.Event, d: Density) -> Option<controls.Input>
+pub fn set_cursor(w: window.Window, c: widget.Cursor) -> Result<unit, string>
 ```
 
 What a window event means to the control layer, or `None` for one it has no use for.
@@ -41,6 +41,18 @@ at the edge, for the reason `widget.Density` gives.
 `Resize`, `Close`, `FocusIn`, `FocusOut` and `Exposed` answer `None` -- not because they do not
 matter, but because they are the *application's* business: a control cannot decide whether a
 window should close.
+The pointer's shape over this window.
+
+**Both halves of this mapping live in one commit and must stay that way**, which is the note
+`atspi.code_of` carries for the same reason: `Cursor` is switched on without a default arm, so
+a new shape is a compile error that leads here, and the C answers the ordinary arrow for any
+number it does not know rather than guessing.
+
+### `input_of`
+
+```
+pub fn input_of(e: window.Event, d: Density) -> Option<controls.Input>
+```
 
 ### `stroke_of`
 

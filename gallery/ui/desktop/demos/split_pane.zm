@@ -7,6 +7,7 @@ use boxes
 use controls
 use controls.divider_thickness
 use demos/split_pane_ui
+use geom
 use math.floor
 use widget
 
@@ -50,6 +51,11 @@ fn said(d: Demo) -> string {
         str(floor(extent - divider_thickness - d.split.second_min)),
         "."
     )
+}
+
+// What the pointer is over, asked of the control so that the shape and the gesture cannot disagree about where the divider is.
+pub fn cursor(d: Demo, laid: widget.Laid, at: geom.Point) -> widget.Cursor {
+    return controls.split_pane_cursor(d.split, boxes.bounds_of(laid, "split-demo"), at)
 }
 
 pub fn input(

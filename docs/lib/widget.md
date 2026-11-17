@@ -1048,6 +1048,46 @@ this is a `max` of zero and not just a `min`.
 
 ## Semantics
 
+### `Cursor`
+
+```
+pub enum Cursor {
+    // The ordinary pointer, and the one anything that does not say otherwise gets.
+    Arrow
+    // Over something that resizes left and right: a column boundary, an upright divider.
+    ResizeAcross
+    // Over something that resizes up and down: a row boundary, a flat divider.
+    ResizeDown
+    // Over text that can be selected.
+    Text
+    // Over something that will be followed.
+    Hand
+}
+```
+
+What kind of control this is -- the first thing a screen reader says, before the name: "button,
+Save" and not "Save", because a user who cannot see it needs to know what pressing it would do.
+
+**The vocabulary lives here, on the widget, rather than in `lib/ui/a11y`**, and that is the whole
+of what F275 means by accessibility in the first widget rather than the fiftieth. A role declared
+where a widget is built is a field that F277's every widget must fill in; a role computed
+afterwards by an accessibility layer is a guess about a tree that was not designed to be guessed
+about, which is the retrofit this ordering exists to avoid. `a11y` is a projection of what is
+declared here, and owns no vocabulary of its own.
+
+The list is the roles that have a counterpart in **both** of the platform APIs this has to reach
+one day -- AT-SPI on Unix and UI Automation on Windows -- because a role only one of them knows
+becomes a lie on the other platform. `Unknown` is deliberate and is what `focusable_of` produces:
+while F277 does not exist, a control whose kind nothing has declared should say so rather than
+claim to be a button.
+What the pointer should look like over a given point.
+
+**Vocabulary, not a platform call** -- the same split `Role` makes. A widget set knows that the
+thing under the pointer is a column boundary; only the backend knows what an X11 cursor font
+calls the shape for that, and a window on another platform would answer differently. So this
+names the meanings and `desktop.set_cursor` does the mapping, exactly as `atspi.code_of` does
+for a role.
+
 ### `Role`
 
 ```
@@ -1114,22 +1154,6 @@ pub enum Role {
     Unknown
 }
 ```
-
-What kind of control this is -- the first thing a screen reader says, before the name: "button,
-Save" and not "Save", because a user who cannot see it needs to know what pressing it would do.
-
-**The vocabulary lives here, on the widget, rather than in `lib/ui/a11y`**, and that is the whole
-of what F275 means by accessibility in the first widget rather than the fiftieth. A role declared
-where a widget is built is a field that F277's every widget must fill in; a role computed
-afterwards by an accessibility layer is a guess about a tree that was not designed to be guessed
-about, which is the retrofit this ordering exists to avoid. `a11y` is a projection of what is
-declared here, and owns no vocabulary of its own.
-
-The list is the roles that have a counterpart in **both** of the platform APIs this has to reach
-one day -- AT-SPI on Unix and UI Automation on Windows -- because a role only one of them knows
-becomes a lie on the other platform. `Unknown` is deliberate and is what `focusable_of` produces:
-while F277 does not exist, a control whose kind nothing has declared should say so rather than
-claim to be a button.
 
 ### `Toggle`
 
@@ -1321,6 +1345,16 @@ pub fn flex_of(weight: float) -> Widget
 pub struct FaceMetrics {
     text_width: fn(string, float) -> float
     line_height: fn(float) -> float
+    // How far below the top of a line its baseline sits.
+    //
+    // **Added because a baseline cannot be guessed from a line height.** Every text op this layer
+    // emitted put its baseline a *whole line* below the top of its box -- which is where the next
+    // line begins, not where this one sits -- so every glyph in the widget set was drawn a
+    // descent too low, hanging out of the bottom of the box that was meant to centre it. A
+    // button's label sat low in its face and a check box's mark low in its square, and no
+    // assertion could see it: the boxes were right and only the ink was wrong. Found by someone
+    // looking at the gallery.
+    ascent: fn(float) -> float
 }
 ```
 
@@ -1360,6 +1394,20 @@ pub fn metrics_of(text_width: fn(string, float) -> float, line_height: fn(float)
 
 The measurements of one face, which is what most windows have.
 
+**The ascent is guessed here** -- see `face_metrics_of`, which says what the guess is and when
+it is wrong. A caller with a real font should take its metrics from `metrics_for`, which asks
+the file.
+
+```
+pub fn metrics_of(
+    text_width: fn(string, float) -> float,
+    line_height: fn(float) -> float,
+    ascent: fn(float) -> float
+) -> Metrics
+```
+
+One face whose three numbers are all given.
+
 ### `metrics_of_faces`
 
 ```
@@ -1376,6 +1424,24 @@ pub fn face_metrics_of(
     line_height: fn(float) -> float
 ) -> FaceMetrics
 ```
+
+A face whose ascent is **guessed** at four fifths of its line height.
+
+**A guess, and named as one.** This constructor is for callers with no font -- a test, a layout
+computed before any file is read -- and they have no ascent to give. Four fifths is close for
+the faces a desktop ships and wrong for one with unusual line spacing, so a caller holding a
+real font should use `face_metrics_for`, which asks it, and one that knows its own number
+should say so with the three-argument form below.
+
+```
+pub fn face_metrics_of(
+    text_width: fn(string, float) -> float,
+    line_height: fn(float) -> float,
+    ascent: fn(float) -> float
+) -> FaceMetrics
+```
+
+A face whose three numbers are all given.
 
 ### `face_at`
 
@@ -1404,6 +1470,14 @@ pub fn height_in(m: Metrics, which: int, size: float) -> float
 ```
 
 How tall a line is in the face a label names.
+
+### `ascent_in`
+
+```
+pub fn ascent_in(m: Metrics, which: int, size: float) -> float
+```
+
+How far below the top of a line its baseline sits, in the face a label names.
 
 ### `metrics_for`
 

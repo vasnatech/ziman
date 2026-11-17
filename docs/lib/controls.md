@@ -1646,6 +1646,15 @@ pub val min_column = 24.0
 The least a column may be dragged down to. Below this there is no room for even an ellipsis, and
 a column with nothing in it is a column a user cannot find again to drag back.
 
+### `grid_width`
+
+```
+pub val grid_width = 1.0
+```
+
+How thick a grid line is. **One point, shared by both directions**, which is what makes a table
+read as a grid rather than as two sets of lines that happen to cross.
+
 ### `column_grip`
 
 ```
@@ -2007,7 +2016,14 @@ pub struct Slider {
     // which is a continuous slider and a real thing to want -- a colour picker's hue has no
     // steps.
     step: float
-    grabbed: bool
+    // Where in the thumb the pointer took hold, measured from the thumb's start, or `None` when
+    // nothing is being dragged.
+    //
+    // **A distance and not a flag**, which is what makes a drag resume from where the thumb
+    // already is: a slider that recomputed the value from the pointer alone jumped the thumb's
+    // own width the instant it was touched, and then tracked the pointer from there. `ScrollBar`
+    // and `SplitPane` carry the same offset for the same reason.
+    grabbed: Option<float>
     disabled: bool
 }
 ```
@@ -2168,6 +2184,33 @@ layout is the whole window. So the underline ran the width of the pane with the 
 end of it. A control that wants to be the size of its text has to ask how wide its text is;
 `check_box_widget` takes a `Metrics` to make a square for the same kind of reason.
 
+## What the pointer is over
+
+### `split_pane_cursor`
+
+```
+pub fn split_pane_cursor(s: SplitPane, bounds: Rect, p: Point) -> widget.Cursor
+```
+
+The shape the pointer should take over a split pane's box.
+
+**Asked of the control rather than worked out by the application**, which is the whole reason
+it is here: where the divider is is `split_at`'s answer, and an application computing it a
+second time to decide a cursor would be the two-calculations bug this module keeps designing
+against -- a cursor that changes shape a few points away from the line it belongs to.
+
+### `table_cursor`
+
+```
+pub fn table_cursor(t: Table, bounds: Rect, p: Point) -> widget.Cursor
+```
+
+The shape the pointer should take over a table's box: the resize arrows over a column's
+trailing edge in the header, and nothing anywhere else.
+
+**`edge_at` is the same function the press uses**, so the shape and the gesture agree by
+construction: the pointer cannot show arrows where a drag would select a row.
+
 ## The style
 
 ### `Style`
@@ -2192,6 +2235,14 @@ pub struct Style {
     // **So `default_style` does not keep its pixels here**, where F286 deliberately did: a look
     // that cannot show a button on a panel is not a look to preserve.
     panel: Color
+    // The lines between a table's cells.
+    //
+    // **A table without them is a list with gaps in it.** Rows of numbers in columns need
+    // something to tell the eye which cell a figure belongs to -- which is what every spreadsheet
+    // and every table in every toolkit draws, and what this one was missing. Light enough to
+    // recede, dark enough to be a line: it has to read against both the row's own face and the
+    // window behind it.
+    grid: Color
     disabled_ink: Color
     // Under the text being composed through an input method, and under the run of it the method
     // is converting right now. **Two, because they mean different things to the person typing**:

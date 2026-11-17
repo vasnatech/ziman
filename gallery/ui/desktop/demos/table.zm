@@ -6,6 +6,7 @@
 use boxes
 use controls
 use demos/table_ui
+use geom
 use widget
 
 pub struct Demo {
@@ -63,6 +64,11 @@ fn said(d: Demo) -> string {
         return "Nothing selected."
     }
     return concat("Selected: ", controls.row_label(d.table, d.table.selected))
+}
+
+// What the pointer is over, asked of the control so the pointer cannot show arrows where a drag would select a row.
+pub fn cursor(d: Demo, laid: widget.Laid, at: geom.Point) -> widget.Cursor {
+    return controls.table_cursor(d.table, boxes.bounds_of(laid, "table-demo"), at)
 }
 
 pub fn input(

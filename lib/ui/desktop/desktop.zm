@@ -40,6 +40,22 @@ use window.KeyPress
 // `Resize`, `Close`, `FocusIn`, `FocusOut` and `Exposed` answer `None` -- not because they do not
 // matter, but because they are the *application's* business: a control cannot decide whether a
 // window should close.
+// The pointer's shape over this window.
+//
+// **Both halves of this mapping live in one commit and must stay that way**, which is the note
+// `atspi.code_of` carries for the same reason: `Cursor` is switched on without a default arm, so
+// a new shape is a compile error that leads here, and the C answers the ordinary arrow for any
+// number it does not know rather than guessing.
+pub fn set_cursor(w: window.Window, c: widget.Cursor) -> Result<unit, string> {
+    return window.set_cursor_code(w, switch c {
+        Arrow { 0 }
+        ResizeAcross { 1 }
+        ResizeDown { 2 }
+        Text { 3 }
+        Hand { 4 }
+    })
+}
+
 pub fn input_of(e: window.Event, d: Density) -> Option<controls.Input> {
     return switch e {
         KeyDown(k) { Option<controls.Input>.Some(controls.Input.KeyDown(stroke_of(k))) }

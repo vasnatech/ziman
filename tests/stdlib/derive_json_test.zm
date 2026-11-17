@@ -6,9 +6,9 @@
 // `tests/lang/derive_json_in_ziman`, and the shapes of the conversion are tested through that. All
 // this file adds is the attribute: a renamed key, and the three shapes of `skip`.
 
-use test
 use json
 use json.Json
+use test
 
 #[derive(Json)]
 struct Account {

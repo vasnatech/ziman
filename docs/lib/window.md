@@ -374,10 +374,10 @@ pub fn size(w: Window) -> Result<Size, string>
 The window's size as the display server last reported it, which is not necessarily what was
 asked for: a window manager may have resized it on the way to the screen.
 
-### `set_icon`
+### `set_cursor_code`
 
 ```
-pub fn set_icon(w: Window, pixels: [byte], width: int, height: int) -> Result<unit, string>
+pub fn set_cursor_code(w: Window, kind: int) -> Result<unit, string>
 ```
 
 The picture a task bar, an alt-tab switcher and a window list draw for this window: straight
@@ -396,6 +396,21 @@ image; the raw door below takes whatever a caller has packed.)
 
 X11 only, like the rest of this module: a build without a window backend answers the same `Err`
 every other call here does.
+The pointer's shape over this window, as the number `native_window.c` reads.
+
+**A number here and a meaning in `widget.Cursor`**, which is `atspi.code_of`'s arrangement and
+the same reasoning: the mapping is a private protocol between this file and that one, and the
+vocabulary belongs where the widgets are. `desktop.set_cursor` is what an application calls.
+
+**A window-wide cursor, because that is what X has.** A shape per control would need a
+subwindow per control, which is an architecture this renderer does not have -- it paints one
+image per frame. So the application works out what the pointer is over and says so.
+
+### `set_icon`
+
+```
+pub fn set_icon(w: Window, pixels: [byte], width: int, height: int) -> Result<unit, string>
+```
 
 ### `id`
 

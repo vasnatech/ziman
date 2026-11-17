@@ -97,6 +97,7 @@ static Value window_ok(Type ok, Value v) {
 #include <sys/shm.h>
 
 #include <X11/Xatom.h>
+#include <X11/cursorfont.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/XShm.h>
@@ -114,6 +115,11 @@ typedef struct {
     int image_height;
     int width;
     int height;
+    /* The cursor shape this window is currently showing, so that setting it again on every
+     * pointer motion is free: X round-trips on `XDefineCursor`, and a window that called it sixty
+     * times a second would be asking the server to do nothing, over and over, at the one moment
+     * the user is dragging something. */
+    int cursor_kind;
 } Slot;
 
 static Display *g_display = NULL;
@@ -169,6 +175,38 @@ static const char *ensure_display(void) {
     g_green_shift = shift_of(visual->green_mask);
     g_blue_shift = shift_of(visual->blue_mask);
     return NULL;
+}
+
+/* The X cursor for each kind this layer names, created once and kept.
+ *
+ * **Created on demand and never freed**, which is right for a handful of shapes: `XCreateFontCursor`
+ * allocates a server-side resource, and a program that made one per motion event would leak one per
+ * motion event. There are five, they live as long as the display does, and the display outlives
+ * every window that could be using them. */
+#define CURSOR_KINDS 5
+static Cursor g_cursors[CURSOR_KINDS];
+static int g_cursor_made[CURSOR_KINDS];
+
+/* The numbers in `X11/cursorfont.h`, in the order `window.Cursor` declares them. `XC_xterm` is the
+ * I-beam, `XC_sb_h_double_arrow` the left-right arrows every toolkit shows over a column boundary,
+ * and `XC_sb_v_double_arrow` its vertical twin. */
+static unsigned int cursor_shape_for(int kind) {
+    switch (kind) {
+        case 1: return XC_sb_h_double_arrow;
+        case 2: return XC_sb_v_double_arrow;
+        case 3: return XC_xterm;
+        case 4: return XC_hand2;
+        default: return XC_left_ptr;
+    }
+}
+
+static Cursor cursor_for(int kind) {
+    if (kind < 0 || kind >= CURSOR_KINDS) kind = 0;
+    if (!g_cursor_made[kind]) {
+        g_cursors[kind] = XCreateFontCursor(g_display, cursor_shape_for(kind));
+        g_cursor_made[kind] = 1;
+    }
+    return g_cursors[kind];
 }
 
 static Slot *slot_of(int64_t handle) {
@@ -741,6 +779,34 @@ static Value native_window_id_raw(Value *args, int argc, int line, int col) {
  * **Straight alpha, not premultiplied**, which is what `image.Image` carries and what every tool
  * writing this property does. A premultiplied icon reads as a darker one wherever it is
  * translucent, which looks like a theme problem rather than a format mistake. */
+/* The pointer's shape over this window.
+ *
+ * **A window-wide cursor, not a per-region one.** X attaches a cursor to a window, and a widget set
+ * that wanted one per control would need a subwindow per control -- which is the architecture this
+ * renderer deliberately does not have, since it paints one image per frame. So the application
+ * decides what the pointer is over and says so; `lib/ui` answers what a point is over and
+ * `desktop` maps that answer onto these numbers. */
+static Value native_window_set_cursor_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Type ok = type_scalar(TY_UNIT);
+#ifndef ZIMAN_X11
+    (void)args;
+    return window_err(ok, "this build of ziman has no window backend (build with `make gui`)");
+#else
+    Slot *s = slot_of(args[0].as.i);
+    if (s == NULL) return window_err(ok, "no such window (already closed?)");
+    int kind = (int)args[1].as.i;
+    if (kind < 0 || kind >= CURSOR_KINDS) kind = 0;
+    if (s->cursor_kind == kind) return window_ok(ok, value_unit());
+    XDefineCursor(g_display, s->win, cursor_for(kind));
+    XFlush(g_display);
+    s->cursor_kind = kind;
+    return window_ok(ok, value_unit());
+#endif
+}
+
 static Value native_window_set_icon_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -962,6 +1028,7 @@ void native_window_register(void) {
     native_register("window::id_raw", native_window_id_raw);
     native_register("window::origin_raw", native_window_origin_raw);
     native_register("window::set_icon_raw", native_window_set_icon_raw);
+    native_register("window::set_cursor_raw", native_window_set_cursor_raw);
     native_register("window::close_raw", native_window_close_raw);
     native_register("window::display_scale_raw", native_window_display_scale_raw);
 }

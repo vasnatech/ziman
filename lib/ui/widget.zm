@@ -902,6 +902,26 @@ pub fn clamp_offset(offset: float, view_extent: float, content_extent: float) ->
 // becomes a lie on the other platform. `Unknown` is deliberate and is what `focusable_of` produces:
 // while F277 does not exist, a control whose kind nothing has declared should say so rather than
 // claim to be a button.
+// What the pointer should look like over a given point.
+//
+// **Vocabulary, not a platform call** -- the same split `Role` makes. A widget set knows that the
+// thing under the pointer is a column boundary; only the backend knows what an X11 cursor font
+// calls the shape for that, and a window on another platform would answer differently. So this
+// names the meanings and `desktop.set_cursor` does the mapping, exactly as `atspi.code_of` does
+// for a role.
+pub enum Cursor {
+    // The ordinary pointer, and the one anything that does not say otherwise gets.
+    Arrow
+    // Over something that resizes left and right: a column boundary, an upright divider.
+    ResizeAcross
+    // Over something that resizes up and down: a row boundary, a flat divider.
+    ResizeDown
+    // Over text that can be selected.
+    Text
+    // Over something that will be followed.
+    Hand
+}
+
 pub enum Role {
     Button
     CheckBox
@@ -1162,6 +1182,16 @@ pub fn flex_of(weight: float) -> Widget {
 pub struct FaceMetrics {
     text_width: fn(string, float) -> float
     line_height: fn(float) -> float
+    // How far below the top of a line its baseline sits.
+    //
+    // **Added because a baseline cannot be guessed from a line height.** Every text op this layer
+    // emitted put its baseline a *whole line* below the top of its box -- which is where the next
+    // line begins, not where this one sits -- so every glyph in the widget set was drawn a
+    // descent too low, hanging out of the bottom of the box that was meant to centre it. A
+    // button's label sat low in its face and a check box's mark low in its square, and no
+    // assertion could see it: the boxes were right and only the ink was wrong. Found by someone
+    // looking at the gallery.
+    ascent: fn(float) -> float
 }
 
 // The faces a window can draw text in.
@@ -1181,8 +1211,21 @@ pub struct Metrics {
 }
 
 // The measurements of one face, which is what most windows have.
+//
+// **The ascent is guessed here** -- see `face_metrics_of`, which says what the guess is and when
+// it is wrong. A caller with a real font should take its metrics from `metrics_for`, which asks
+// the file.
 pub fn metrics_of(text_width: fn(string, float) -> float, line_height: fn(float) -> float) -> Metrics {
-    return Metrics { faces: [FaceMetrics { text_width: text_width, line_height: line_height }] }
+    return Metrics { faces: [face_metrics_of(text_width, line_height)] }
+}
+
+// One face whose three numbers are all given.
+pub fn metrics_of(
+    text_width: fn(string, float) -> float,
+    line_height: fn(float) -> float,
+    ascent: fn(float) -> float
+) -> Metrics {
+    return Metrics { faces: [face_metrics_of(text_width, line_height, ascent)] }
 }
 
 // Several faces, in the order `raster.Options.fonts` holds them.
@@ -1190,11 +1233,32 @@ pub fn metrics_of_faces(faces: [FaceMetrics]) -> Metrics {
     return Metrics { faces: faces }
 }
 
+// A face whose ascent is **guessed** at four fifths of its line height.
+//
+// **A guess, and named as one.** This constructor is for callers with no font -- a test, a layout
+// computed before any file is read -- and they have no ascent to give. Four fifths is close for
+// the faces a desktop ships and wrong for one with unusual line spacing, so a caller holding a
+// real font should use `face_metrics_for`, which asks it, and one that knows its own number
+// should say so with the three-argument form below.
 pub fn face_metrics_of(
     text_width: fn(string, float) -> float,
     line_height: fn(float) -> float
 ) -> FaceMetrics {
-    return FaceMetrics { text_width: text_width, line_height: line_height }
+    val guessed = line_height
+    return FaceMetrics {
+        text_width: text_width,
+        line_height: line_height,
+        ascent: fn(size: float) -> float { return guessed(size) * 0.8 }
+    }
+}
+
+// A face whose three numbers are all given.
+pub fn face_metrics_of(
+    text_width: fn(string, float) -> float,
+    line_height: fn(float) -> float,
+    ascent: fn(float) -> float
+) -> FaceMetrics {
+    return FaceMetrics { text_width: text_width, line_height: line_height, ascent: ascent }
 }
 
 // The face at `which`, or face 0 when the tree names one this window was not given.
@@ -1221,6 +1285,13 @@ pub fn height_in(m: Metrics, which: int, size: float) -> float {
     val f = face_at(m, which)
     val measure_height = f.line_height
     return measure_height(size)
+}
+
+// How far below the top of a line its baseline sits, in the face a label names.
+pub fn ascent_in(m: Metrics, which: int, size: float) -> float {
+    val f = face_at(m, which)
+    val measure_ascent = f.ascent
+    return measure_ascent(size)
 }
 
 // The real metrics of a face.
@@ -1261,7 +1332,8 @@ pub fn face_metrics_for(f: font.FontRef) -> Result<FaceMetrics, string> {
                 Err(_) { 0.0 }
             }
         },
-        line_height: fn(size: float) -> float { return font.line_height(face, size) }
+        line_height: fn(size: float) -> float { return font.line_height(face, size) },
+        ascent: fn(size: float) -> float { return font.ascent(face, size) }
     })
 }
 
@@ -1999,7 +2071,9 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: 
             ops,
             scene.text_of(
                 it.text,
-                geom.point_of(l.bounds.x, l.bounds.y + height_in(m, it.font, it.size)),
+                // **One ascent below the top, not one line.** A line height is where the next
+                // line begins; a baseline is where this one sits. See `FaceMetrics.ascent`.
+                geom.point_of(l.bounds.x, l.bounds.y + ascent_in(m, it.font, it.size)),
                 it.size,
                 // **The label's own face, which was a literal 0 until 2026-11-14.** The renderer
                 // has taken an index since it existed; this layer simply never offered one, so a

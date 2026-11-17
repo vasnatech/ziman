@@ -161,7 +161,33 @@ pub fn target(l: Laid, input: Input, focused: string) -> string {
         KeyUp(_) { focused }
         Text(_) { focused }
         Paste(_) { focused }
-        Press(p) { focus.clicked(l, p, focused) }
+        // **The control under the pointer, or nobody.** This asked `focus.clicked`, which
+        // answers the *current focus* when a press lands on no tab stop -- right for deciding
+        // where the focus goes, and wrong for deciding who gets the press: a press on a bare
+        // scroll bar, or on the background, was delivered to whatever happened to be focused
+        // somewhere else on screen. In the gallery that meant clicking a scroll bar changed the
+        // selection in the catalogue tree, which is a control the pointer was nowhere near.
+        //
+        // **The tab stop first and the control only if there is none**, which is the part a
+        // first attempt got wrong by asking `control_at` alone: a list's rows and a tree's rows
+        // are controls too -- parts, declared for a reader and a click -- so the innermost
+        // control under a row is the *row*, and routing to it meant the list never heard the
+        // press at all. A tab stop is the thing that owns its parts' input. Falling through to
+        // `control_at` is what keeps a bare scroll bar reachable, since it is the one control
+        // here that a pointer can work and Tab cannot reach.
+        //
+        // Where the focus goes is still `focus.clicked`'s answer, which a caller asks separately.
+        Press(p) {
+            switch focus.tab_stop_at(l, p) {
+                Some(one) { one.name }
+                None {
+                    switch focus.control_at(l, p) {
+                        Some(one) { one.name }
+                        None { "" }
+                    }
+                }
+            }
+        }
         Release(_) { focused }
         Move(_) { focused }
         // `""` as the fallback, which is what keeps "over nothing goes nowhere" true: `clicked`
@@ -2105,7 +2131,11 @@ fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style) -> widget.Widge
     return widget.fixed_of(0.0, t.row_height, widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
-        padding: widget.insets_of(0.0, 2.0, 4.0, 2.0),
+        // **A left inset, because the focus ring is drawn inside the control's own box.** With
+        // none, a row at depth zero put its mark at the very first point of the tree -- under the
+        // two-point ring, which paints after the rows and so over them. The arrow was there and
+        // the ring was on top of it.
+        padding: widget.insets_of(4.0, 2.0, 4.0, 2.0),
         surface: highlight_of(style, face),
         align: widget.stretched(),
         children: [
@@ -2546,13 +2576,25 @@ pub fn combo_box_text(c: ComboBox) -> string {
 // The collapsed control: what it shows, and the same face every other control wears.
 pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget {
     val ink = if c.disabled { style.disabled_ink } else { style.ink }
+    // **A mark at the trailing edge, which says the box opens.** A collapsed combo box drawn as a
+    // plain filled rectangle is a disabled text field to anyone who has not been told otherwise --
+    // the arrow is the only thing on screen that says this one can be opened, and it was missing.
+    //
+    // **`style.expanded_mark`, the downward one**, and not a third glyph in `Style`: it means "this
+    // opens downward" in a tree and it means the same thing here, so a theme that replaced the
+    // tree's triangles has replaced this too rather than leaving one control drawing a character
+    // its face may not have.
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: style.padding,
         surface: face_of(style, style.face),
-        align: widget.stretched(),
-        children: [widget.label_in_face(combo_box_text(c), style.text_size, ink, style.text_font)],
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+        children: [
+            widget.label_in_face(combo_box_text(c), style.text_size, ink, style.text_font),
+            widget.flex(),
+            widget.label_in_face(style.expanded_mark, style.text_size, ink, style.text_font)
+        ],
         name: ""
     })
     return widget.Widget.Control(widget.Focusable {
@@ -3369,6 +3411,10 @@ pub fn split_pane_widget(
 // a column with nothing in it is a column a user cannot find again to drag back.
 pub val min_column = 24.0
 
+// How thick a grid line is. **One point, shared by both directions**, which is what makes a table
+// read as a grid rather than as two sets of lines that happen to cross.
+pub val grid_width = 1.0
+
 // How close to a column's trailing edge a press has to be to take hold of it.
 //
 // **Both sides of the edge, so the grip is twice this wide.** A one-point target is a target
@@ -3799,15 +3845,41 @@ fn down_clamped(t: Table, offset: float, body: Rect) -> float {
     return widget.clamp_offset(offset, body.height, table_content(t))
 }
 
-// One cell, drawn where its column says.
+// A line of the grid, a point thick, filling whatever box it is given.
+fn rule(style: Style) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.filled(style.grid),
+        align: widget.stretched(),
+        children: [],
+        name: ""
+    })
+}
+
+// One cell, drawn where its column says, with the grid line at its trailing edge.
+//
+// **The line is inside the column's width, not beside it.** A line added outside would make every
+// column a point wider than the width it was dragged to, so the number a user set and the number
+// the table used would differ by one -- and by one more every time a column was added.
 fn cell_widget(t: Table, style: Style, column: int, text: string, ink: Color) -> widget.Widget {
-    return widget.fixed_of(t.columns[column].width, 0.0, widget.Widget.Group(widget.Stack {
+    val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.insets_of(6.0, 2.0, 6.0, 2.0),
         surface: widget.no_surface(),
         align: widget.Alignment { across: widget.Across.Centre, along: t.columns[column].align },
         children: [widget.label_in_face(text, style.text_size, ink, style.text_font)],
+        name: ""
+    })
+    return widget.fixed_of(t.columns[column].width, 0.0, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        children: [widget.expand(inside), widget.fixed_of(grid_width, 0.0, rule(style))],
         name: ""
     }))
 }
@@ -3831,23 +3903,34 @@ fn header_widget(t: Table, style: Style, ink: Color) -> widget.Widget {
     // the columns -- and a table narrower than its pane then draws a header band that stops in the
     // middle of the window while the rows below it run to the edge. The band is the strip; the
     // cells scroll inside it.
-    return widget.fixed_of(0.0, t.header_height, widget.Widget.Group(widget.Stack {
+    // **`expand`, because a viewport measures as nothing.** A `Scroll` is a window onto something
+    // larger and takes the box it is given rather than asking for one -- so as the plain child of
+    // a row it is laid out zero points wide and the whole header disappears, band and titles
+    // alike. It was the Fixed's job to give it a width before the band existed; now it has to ask
+    // for the leftover.
+    val titles = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.no_insets(),
-        surface: face_of(style, style.face),
+        surface: widget.no_surface(),
         align: widget.stretched(),
-        // **`expand`, because a viewport measures as nothing.** A `Scroll` is a window onto
-        // something larger and takes the box it is given rather than asking for one -- so as the
-        // plain child of a row it is laid out zero points wide and the whole header disappears,
-        // band and titles alike. It was the Fixed's job to give it a width before the band
-        // existed; now it has to ask for the leftover.
         children: [widget.expand(widget.named_scroll(
             concat(t.name, "/header"),
             t.offset_x,
             0.0,
             widget.row_of(0.0, snapshot(cells))
         ))],
+        name: ""
+    })
+    return widget.fixed_of(0.0, t.header_height, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: face_of(style, style.face),
+        align: widget.stretched(),
+        // The band, then the line that separates it from the rows -- which is the one grid line a
+        // table must have even when the others are too quiet to see.
+        children: [widget.expand(titles), widget.fixed_of(0.0, grid_width, rule(style))],
         name: ""
     }))
 }
@@ -3870,7 +3953,7 @@ pub fn table_widget(t: Table, style: Style) -> widget.Widget {
             push(cells, cell_widget(t, style, c, cell_at(t, r, c), ink))
             c = c + 1
         }
-        push(rows, widget.fixed_of(0.0, t.row_height, widget.part_of(
+        val body = widget.part_of(
             table_row_name(t, r),
             widget.Role.TableRow,
             row_label(t, r),
@@ -3888,7 +3971,19 @@ pub fn table_widget(t: Table, style: Style) -> widget.Widget {
                 children: snapshot(cells),
                 name: ""
             })
-        )))
+        )
+        // **The line is under the row and inside its height**, for the reason the cell's is inside
+        // its width: a row that grew a point would make `row_height` a lie, and every press that
+        // divides by it would land a row lower further down the table.
+        push(rows, widget.fixed_of(0.0, t.row_height, widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Column,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            surface: widget.no_surface(),
+            align: widget.stretched(),
+            children: [widget.expand(body), widget.fixed_of(0.0, grid_width, rule(style))],
+            name: ""
+        })))
         r = r + 1
     }
     val body = widget.expand(widget.named_scroll(
@@ -4151,7 +4246,14 @@ pub struct Slider {
     // which is a continuous slider and a real thing to want -- a colour picker's hue has no
     // steps.
     step: float
-    grabbed: bool
+    // Where in the thumb the pointer took hold, measured from the thumb's start, or `None` when
+    // nothing is being dragged.
+    //
+    // **A distance and not a flag**, which is what makes a drag resume from where the thumb
+    // already is: a slider that recomputed the value from the pointer alone jumped the thumb's
+    // own width the instant it was touched, and then tracked the pointer from there. `ScrollBar`
+    // and `SplitPane` carry the same offset for the same reason.
+    grabbed: Option<float>
     disabled: bool
 }
 
@@ -4163,7 +4265,7 @@ pub fn slider_of(name: string, label: string, least: float, most: float, value: 
         least: least,
         most: if most < least { least } else { most },
         step: 1.0,
-        grabbed: false,
+        grabbed: Option<float>.None,
         disabled: false
     } {
         value: snapped_value(least, if most < least { least } else { most }, 1.0, value)
@@ -4199,16 +4301,17 @@ pub fn slider_at(s: Slider, width: float) -> float {
     return room * (s.value - s.least) / (s.most - s.least)
 }
 
-// The value a point along the track asks for, before it is snapped.
-fn value_at(s: Slider, bounds: Rect, x: float) -> float {
+// The value a thumb whose left edge is at `left` would be showing, before it is snapped.
+//
+// **The thumb's edge and not the pointer**, which is what `grabbed` is subtracted for: every
+// gesture turns a pointer into a thumb position first, so a drag that took hold two points into
+// the thumb keeps those two points for as long as it is held.
+fn value_for_thumb(s: Slider, bounds: Rect, left: float) -> float {
     val room = bounds.width - thumb_width
     if room <= 0.0 {
         return s.least
     }
-    // Measured from the thumb's centre, so that pressing the middle of the track asks for the
-    // middle of the range rather than for a value half a thumb low.
-    val along = x - bounds.x - thumb_width / 2.0
-    return s.least + (s.most - s.least) * along / room
+    return s.least + (s.most - s.least) * (left - bounds.x) / room
 }
 
 pub struct SliderStep {
@@ -4237,22 +4340,35 @@ pub fn slider_input(s: Slider, input: Input, bounds: Rect) -> SliderStep {
         return slider_still(s)
     }
     return switch input {
+        // **A press on the thumb takes hold of it where it was pressed; a press on the track
+        // jumps.** Both end up dragging, and the difference is the one a hand feels: dragging the
+        // thumb must not move it before the hand does, where pressing the track at the
+        // three-quarter mark is asking for three quarters and should go there at once.
         Press(p) {
             if !widget.contains(bounds, p) {
                 slider_still(s)
             } else {
-                val taken = slider_to(s, value_at(s, bounds, p.x))
-                SliderStep { slider: with taken.slider { grabbed: true }, moved: taken.moved }
+                val at = bounds.x + slider_at(s, bounds.width)
+                if p.x >= at && p.x < at + thumb_width {
+                    SliderStep { slider: with s { grabbed: Option<float>.Some(p.x - at) }, moved: false }
+                } else {
+                    // Taken by its middle, so the thumb lands centred under the pointer and the
+                    // drag that follows is relative from there like any other.
+                    val taken = slider_to(s, value_for_thumb(s, bounds, p.x - thumb_width / 2.0))
+                    SliderStep {
+                        slider: with taken.slider { grabbed: Option<float>.Some(thumb_width / 2.0) },
+                        moved: taken.moved
+                    }
+                }
             }
         }
         Move(p) {
-            if s.grabbed {
-                slider_to(s, value_at(s, bounds, p.x))
-            } else {
-                slider_still(s)
+            switch s.grabbed {
+                Some(held) { slider_to(s, value_for_thumb(s, bounds, p.x - held)) }
+                None { slider_still(s) }
             }
         }
-        Release(_) { SliderStep { slider: with s { grabbed: false }, moved: false } }
+        Release(_) { SliderStep { slider: with s { grabbed: Option<float>.None }, moved: false } }
         KeyDown(k) { slider_key(s, k) }
         KeyUp(_) { slider_still(s) }
         Text(_) { slider_still(s) }
@@ -4305,7 +4421,11 @@ fn slider_key(s: Slider, k: Keystroke) -> SliderStep {
 // have to repeat -- the gap is `slider_at`'s answer, so the layout and `slider_input` are reading
 // one calculation.
 pub fn slider_widget(s: Slider, style: Style, width: float) -> widget.Widget {
-    val face = if s.grabbed { style.pressed_face } else { style.face }
+    val held = switch s.grabbed {
+        Some(_) { true }
+        None { false }
+    }
+    val face = if held { style.pressed_face } else { style.face }
     val track = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
@@ -4483,6 +4603,36 @@ pub fn link_widget(l: Link, style: Style, m: widget.Metrics) -> widget.Widget {
     })
 }
 
+// --------------------------------------------------------- what the pointer is over
+
+// The shape the pointer should take over a split pane's box.
+//
+// **Asked of the control rather than worked out by the application**, which is the whole reason
+// it is here: where the divider is is `split_at`'s answer, and an application computing it a
+// second time to decide a cursor would be the two-calculations bug this module keeps designing
+// against -- a cursor that changes shape a few points away from the line it belongs to.
+pub fn split_pane_cursor(s: SplitPane, bounds: Rect, p: Point) -> widget.Cursor {
+    if s.disabled || !widget.contains(divider_rect(s, bounds), p) {
+        return widget.Cursor.Arrow
+    }
+    return switch s.direction {
+        Row { widget.Cursor.ResizeAcross }
+        Column { widget.Cursor.ResizeDown }
+    }
+}
+
+// The shape the pointer should take over a table's box: the resize arrows over a column's
+// trailing edge in the header, and nothing anywhere else.
+//
+// **`edge_at` is the same function the press uses**, so the shape and the gesture agree by
+// construction: the pointer cannot show arrows where a drag would select a row.
+pub fn table_cursor(t: Table, bounds: Rect, p: Point) -> widget.Cursor {
+    if t.disabled || edge_at(t, bounds, p) < 0 {
+        return widget.Cursor.Arrow
+    }
+    return widget.Cursor.ResizeAcross
+}
+
 // ------------------------------------------------------------------- the style
 
 // How a control is drawn. Injected rather than global, for the reason `widget.Metrics` is: a module
@@ -4507,6 +4657,14 @@ pub struct Style {
     // **So `default_style` does not keep its pixels here**, where F286 deliberately did: a look
     // that cannot show a button on a panel is not a look to preserve.
     panel: Color
+    // The lines between a table's cells.
+    //
+    // **A table without them is a list with gaps in it.** Rows of numbers in columns need
+    // something to tell the eye which cell a figure belongs to -- which is what every spreadsheet
+    // and every table in every toolkit draws, and what this one was missing. Light enough to
+    // recede, dark enough to be a line: it has to read against both the row's own face and the
+    // window behind it.
+    grid: Color
     disabled_ink: Color
     // Under the text being composed through an input method, and under the run of it the method
     // is converting right now. **Two, because they mean different things to the person typing**:
@@ -4589,6 +4747,7 @@ pub fn default_style() -> Style {
         // Lighter than a face and darker than the white a window is painted on, so a panel reads
         // as a raised surface and a control on it still reads as a control.
         panel: paint.rgb(0.96, 0.96, 0.97),
+        grid: paint.rgb(0.80, 0.80, 0.82),
         disabled_ink: paint.rgb(0.6, 0.6, 0.6),
         composing_face: paint.rgb(0.88, 0.91, 0.97),
         converting_face: paint.rgb(0.70, 0.78, 0.93),

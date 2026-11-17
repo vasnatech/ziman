@@ -244,9 +244,47 @@ fn a_wheel_over_nothing_goes_nowhere() {
     test.assert_eq(controls.target(laid_pair(), away, "a"), "")
 }
 
+// **A press on nothing leaves the focus where it was and is delivered to nobody**, which is two
+// facts and was one function's answer to both. `target` asked `focus.clicked`, which answers the
+// *current focus* for a point over no tab stop -- correct for "where does the focus go" and wrong
+// for "who gets this press", so a press on the background, or on a bare scroll bar, was handed to
+// whatever happened to be focused elsewhere on screen. In the gallery that meant clicking a
+// scroll bar changed the selection in a tree the pointer was nowhere near.
+//
+// This test used to assert the defect, under a name about focus. Both halves now, from the two
+// functions that answer them.
 #[test]
-fn a_press_on_nothing_leaves_the_focus_where_it_was() {
-    test.assert_eq(controls.target(laid_pair(), controls.Input.Press(geom.point_of(500.0, 500.0)), "a"), "a")
+fn a_press_on_nothing_goes_nowhere_and_leaves_the_focus_alone() {
+    val away = geom.point_of(500.0, 500.0)
+    test.assert_eq(controls.target(laid_pair(), controls.Input.Press(away), "a"), "")
+    test.assert_eq(focus.clicked(laid_pair(), away, "a"), "a")
+}
+
+// **A part routes to the control that owns it, not to itself.** A list's rows and a tree's rows
+// are controls -- declared so a reader and a click can reach them -- so "the innermost control
+// under the pointer" is the *row*, and a router that answered it would leave the list never
+// hearing the press. A first attempt at the fix above did exactly that and broke every list,
+// tree, tab strip and table in the window at once.
+#[test]
+fn a_press_on_a_row_routes_to_the_list_and_not_to_the_row() {
+    val l = widget.layout(controls.list_widget(five(), controls.default_style()), list_box(), metrics())
+    // The row is there, and it is a control.
+    test.assert(Option.is_Some(widget.node_named(l, controls.row_name(five(), 1))))
+    test.assert_eq(controls.target(l, controls.Input.Press(geom.point_of(10.0, 30.0)), "elsewhere"), "people")
+}
+
+// **A press reaches a control that is not a tab stop.** A scroll bar is the one control in the
+// set that a pointer can work and Tab cannot reach, so a router that looked for tab stops would
+// leave it dead to the mouse -- and hand its press to someone else.
+#[test]
+fn a_press_reaches_a_control_the_keyboard_cannot() {
+    val bar = widget.layout(
+        controls.scroll_bar_widget(bar(), controls.default_style(), 12.0, 100.0, bar_content, bar_view, 0.0),
+        bar_box,
+        metrics()
+    )
+    test.assert_len(0, focus.controls(bar))
+    test.assert_eq(controls.target(bar, controls.Input.Press(geom.point_of(6.0, 50.0)), "elsewhere"), "scroll")
 }
 
 // --- what a reader is told, which is the reason F275 came first
@@ -4088,11 +4126,28 @@ fn a_value_is_clamped_and_snapped() {
 fn a_press_takes_the_value_under_it_and_grabs() {
     val taken = to_slider(slider(), controls.Input.Press(geom.point_of(82.0, 12.0)))
     test.assert_eq(taken.slider.value, 75.0)
-    test.assert(taken.slider.grabbed)
+    test.assert(Option.is_Some(taken.slider.grabbed))
     test.assert(taken.moved)
     val dragged = to_slider(taken.slider, controls.Input.Move(geom.point_of(7.0, 12.0)))
     test.assert_eq(dragged.slider.value, 0.0)
-    test.assert_false(to_slider(dragged.slider, controls.Input.Release(geom.point_of(7.0, 12.0))).slider.grabbed)
+    test.assert(Option.is_None(to_slider(
+        dragged.slider,
+        controls.Input.Release(geom.point_of(7.0, 12.0))
+    ).slider.grabbed))
+}
+
+// **Dragging the thumb resumes from where it is**, which is the half a flag cannot carry: taking
+// hold two points into the thumb and moving ten points moves the thumb ten, not twelve, and the
+// thumb does not jump under the hand at the moment it is grabbed. Reported from the gallery as
+// "the slider does not resume from the current value when dragged".
+#[test]
+fn taking_hold_of_the_thumb_does_not_move_it() {
+    // The thumb is at 50 and fourteen wide, so 52 is two points into it.
+    val held = to_slider(slider(), controls.Input.Press(geom.point_of(52.0, 12.0)))
+    test.assert_eq(held.slider.value, 50.0)
+    test.assert_false(held.moved)
+    // Ten points to the right moves it ten, keeping those two points of grip.
+    test.assert_eq(to_slider(held.slider, controls.Input.Move(geom.point_of(62.0, 12.0))).slider.value, 60.0)
 }
 
 // A move with nothing held does nothing: the pointer crossing a slider on its way elsewhere is
@@ -4148,7 +4203,7 @@ fn a_slider_announces_its_value() {
 fn a_disabled_slider_ignores_everything() {
     val off = with slider() { disabled: true }
     test.assert_false(to_slider(off, controls.Input.KeyDown(key(controls.Key.Right))).moved)
-    test.assert_false(to_slider(off, controls.Input.Press(geom.point_of(82.0, 12.0))).slider.grabbed)
+    test.assert(Option.is_None(to_slider(off, controls.Input.Press(geom.point_of(82.0, 12.0))).slider.grabbed))
 }
 
 // **The thumb is drawn, where the value says, at a size of its own.** The first version put it in
@@ -4234,4 +4289,94 @@ fn the_underline_is_as_wide_as_the_text() {
     }
     // The fake metrics are ten points a character, and the label is 21 characters.
     test.assert_eq(rule, 210.0)
+}
+
+// ---------------------------------------------------- what the pointer is over
+
+// **The shape and the gesture read one function.** A cursor is a promise that a drag will do
+// something, so it has to come from the same arithmetic the drag does -- an application that
+// computed the divider's position a second time to decide a cursor would show arrows a few points
+// from the line they belong to.
+#[test]
+fn the_pointer_is_a_resize_over_a_divider_and_an_arrow_elsewhere() {
+    val at = controls.split_at(pane(), pane_extent)
+    test.assert(widget.Cursor.is_ResizeAcross(
+        controls.split_pane_cursor(pane(), pane_box, geom.point_of(at + 2.0, 50.0))
+    ))
+    test.assert(widget.Cursor.is_Arrow(
+        controls.split_pane_cursor(pane(), pane_box, geom.point_of(at + 40.0, 50.0))
+    ))
+    // A column pane resizes the other way, and says so.
+    val down = with controls.split_pane_of("rows", "", widget.Direction.Column, 30.0) { second_min: 20.0 }
+    val tall = geom.rect_of(0.0, 0.0, 300.0, 100.0)
+    test.assert(widget.Cursor.is_ResizeDown(controls.split_pane_cursor(down, tall, geom.point_of(50.0, 32.0))))
+    // And a pane nobody can drag promises nothing.
+    test.assert(widget.Cursor.is_Arrow(
+        controls.split_pane_cursor(with pane() { disabled: true }, pane_box, geom.point_of(at + 2.0, 50.0))
+    ))
+}
+
+// The same rule for a column's edge: `edge_at` answers both the cursor and the press, so the
+// pointer cannot show arrows where a drag would select a row.
+#[test]
+fn the_pointer_is_a_resize_over_a_column_edge_only_in_the_header() {
+    test.assert(widget.Cursor.is_ResizeAcross(
+        controls.table_cursor(table(), table_box, geom.point_of(100.0, 10.0))
+    ))
+    // The same x, in the body.
+    test.assert(widget.Cursor.is_Arrow(controls.table_cursor(table(), table_box, geom.point_of(100.0, 45.0))))
+    // The last column has no edge to drag, so no promise is made over it.
+    test.assert(widget.Cursor.is_Arrow(controls.table_cursor(table(), table_box, geom.point_of(240.0, 10.0))))
+}
+
+// **A collapsed combo box says it opens.** Drawn as a plain filled rectangle it is a disabled
+// text field to anyone who has not been told otherwise: the mark at the trailing edge is the only
+// thing on screen that says this one can be opened, and it was missing.
+#[test]
+fn a_collapsed_combo_box_draws_its_mark() {
+    val style = controls.default_style()
+    val laid = widget.layout(
+        controls.combo_box_widget(combo(), style),
+        geom.rect_of(0.0, 0.0, 200.0, 30.0),
+        metrics()
+    )
+    var marks = 0
+    var mark_x = 0.0
+    var value_x = 0.0
+    for op in widget.paint_ops(laid, metrics()) {
+        if Text(t) = op {
+            if t.text == style.expanded_mark {
+                marks = marks + 1
+                mark_x = t.at.x
+            }
+            if t.text == controls.combo_box_value(combo()) {
+                value_x = t.at.x
+            }
+        }
+    }
+    test.assert_eq(marks, 1)
+    // At the trailing edge, which is what makes it a combo box and not a label with a mark in it.
+    test.assert(mark_x > value_x)
+}
+
+// **A tree's mark is clear of its own focus ring.** With no left inset a row at depth zero put its
+// arrow at the very first point of the control -- under the ring, which paints after the rows and
+// so over them. The arrow was there and the ring was on top of it.
+#[test]
+fn a_tree_row_is_inset_from_its_own_edge() {
+    val laid = widget.layout(
+        controls.tree_widget(forest(), controls.default_style()),
+        geom.rect_of(0.0, 0.0, 200.0, 200.0),
+        metrics()
+    )
+    var leftmost = 1000.0
+    for op in widget.paint_ops(laid, metrics()) {
+        if Text(t) = op {
+            if t.at.x < leftmost {
+                leftmost = t.at.x
+            }
+        }
+    }
+    // Two points is the ring's width; the inset has to clear it.
+    test.assert(leftmost >= 2.0)
 }

@@ -3,8 +3,8 @@
 // **These are the checks a rendered scene cannot make.** A window whose Tab order skips a field, or
 // whose button is one pixel short on its right edge, renders identically to one that is correct --
 // so every assertion here is about a name or a position, and none is about pixels.
-use geom
 use focus
+use geom
 use paint
 use test
 use widget
@@ -34,7 +34,11 @@ fn names_of(l: widget.Laid) -> string {
 
 // A row of three buttons, 20 wide each, no spacing: 0..20, 20..40, 40..60.
 fn three() -> widget.Laid {
-    return laid(widget.row_of(0.0, [button("a", 20.0, 10.0), button("b", 20.0, 10.0), button("c", 20.0, 10.0)]), 60.0, 10.0)
+    return laid(
+        widget.row_of(0.0, [button("a", 20.0, 10.0), button("b", 20.0, 10.0), button("c", 20.0, 10.0)]),
+        60.0,
+        10.0
+    )
 }
 
 // --- the control list

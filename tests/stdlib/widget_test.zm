@@ -1859,3 +1859,45 @@ fn close(a: float, b: float) -> bool {
     val d = a - b
     return if d < 0.0 { 0.0 - d < 0.001 } else { d < 0.001 }
 }
+
+// **A baseline is one ascent below the top of its box, not one line.** It was a whole line, which
+// is where the *next* line begins -- so every glyph in the widget set was drawn a descent too low
+// and hung out of the bottom of the box meant to centre it. Nothing could see it: the boxes were
+// right and only the ink was wrong, which is why it survived until someone looked at a gallery.
+#[test]
+fn a_label_sits_on_its_baseline_and_not_below_its_box() {
+    val m = widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+    val laid = widget.layout(
+        widget.label_of("Send", 12.0, paint.rgb(0.0, 0.0, 0.0)),
+        geom.rect_of(0.0, 40.0, 200.0, 24.0),
+        m
+    )
+    var baseline = 0.0 - 1.0
+    for op in widget.paint_ops(laid, m) {
+        if Text(t) = op {
+            baseline = t.at.y
+        }
+    }
+    // The guessed ascent is four fifths of the line height: 24 * 0.8 = 19.2 below the box's top.
+    // **The box's top plus the ascent, written as the sum the painter computes** rather than as
+    // 59.2: four fifths of 24 is not exactly 19.2 in binary, and a test that rounded it by hand
+    // would be asserting against its own arithmetic instead of the layer's.
+    test.assert_eq(baseline, 40.0 + widget.ascent_in(m, 0, 12.0))
+    test.assert(widget.ascent_in(m, 0, 12.0) > 19.1 && widget.ascent_in(m, 0, 12.0) < 19.3)
+    // And the box itself is still a whole line tall, which is what stacks it against the next one.
+    test.assert_eq(widget.height_in(m, 0, 12.0), 24.0)
+}
+
+// A face that knows its own ascent says so, and nothing guesses for it.
+#[test]
+fn a_face_can_state_its_own_ascent() {
+    val m = widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 },
+        fn(size: float) -> float { return size * 1.5 }
+    )
+    test.assert_eq(widget.ascent_in(m, 0, 12.0), 18.0)
+}

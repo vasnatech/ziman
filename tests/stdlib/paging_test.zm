@@ -9,9 +9,9 @@ use json
 use json.Json
 use paging
 use paging.Listing
+use paging.PageRequest
 use paging.default_page_size
 use paging.max_page_size
-use paging.PageRequest
 use test
 
 fn item(x: int) -> Json {

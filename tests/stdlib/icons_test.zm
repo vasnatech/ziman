@@ -82,15 +82,21 @@ fn tree() -> string {
     write(concat(root, "/zchild/16x16/apps/both.png"), "png")
 
     // Inheritance that points back at itself, which is a file on disk saying so.
-    write(concat(root, "/zloop/index.theme"),
-        "[Icon Theme]\nName=Loop\nInherits=zloop2\nDirectories=\n")
-    write(concat(root, "/zloop2/index.theme"),
-        "[Icon Theme]\nName=Loop2\nInherits=zloop\nDirectories=\n")
+    write(
+        concat(root, "/zloop/index.theme"),
+        "[Icon Theme]\nName=Loop\nInherits=zloop2\nDirectories=\n"
+    )
+    write(
+        concat(root, "/zloop2/index.theme"),
+        "[Icon Theme]\nName=Loop2\nInherits=zloop\nDirectories=\n"
+    )
 
     // A duplicate key, which `ini` refuses -- so this theme has no index as far as a reader is
     // concerned.
-    write(concat(root, "/zbroken/index.theme"),
-        "[Icon Theme]\nName=Broken\nInherits=a\nInherits=b\nDirectories=16x16/apps\n")
+    write(
+        concat(root, "/zbroken/index.theme"),
+        "[Icon Theme]\nName=Broken\nInherits=a\nInherits=b\nDirectories=16x16/apps\n"
+    )
     write(concat(root, "/zbroken/16x16/apps/hidden.png"), "png")
 
     // A file sitting directly in a base directory, which is what /usr/share/pixmaps is.
