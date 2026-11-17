@@ -13,10 +13,6 @@ use demos/slider_ui
 use math.floor
 use widget
 
-// The width the sliders are laid out in, which `slider_widget` is told rather than measuring: the
-// thumb's position is a fraction of the track and the track is whatever the row left it.
-val track_width = 320.0
-
 pub struct Demo {
     volume: controls.Slider
     quarters: controls.Slider
@@ -32,9 +28,9 @@ pub fn demo() -> Demo {
 
 pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return slider_ui.screen(slider_ui.Screen {
-        volume: controls.slider_widget(d.volume, style, track_width),
+        volume: controls.slider_widget(d.volume, style),
         volume_said: str(floor(d.volume.value)),
-        steps: controls.slider_widget(d.quarters, style, track_width),
+        steps: controls.slider_widget(d.quarters, style),
         steps_said: str(floor(d.quarters.value)),
         said: "Arrows move by one step, PageUp and PageDown by a tenth of the range, Home and End to the ends."
     }, style, m)

@@ -4182,7 +4182,11 @@ pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widge
         val row = widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: style.text_size * 0.5,
-            padding: widget.insets_of(0.0, 2.0, 0.0, 2.0),
+            // **A left inset, because the focus ring is drawn inside the control's own box.** With
+            // none, the first option's circle sat at the very first point of the group -- under
+            // the two-point ring, which paints after the options and so over them. The tree had
+            // exactly this and for exactly this reason.
+            padding: widget.insets_of(4.0, 2.0, 0.0, 2.0),
             surface: widget.no_surface(),
             align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
             children: [dot, widget.label_in_face(r.items[i], style.text_size, ink, style.text_font)],
@@ -4417,10 +4421,22 @@ fn slider_key(s: Slider, k: Keystroke) -> SliderStep {
 
 // The slider as a widget: a track with a thumb on it.
 //
-// **The thumb is a fixed box after a gap**, which places it without arithmetic the hit test would
-// have to repeat -- the gap is `slider_at`'s answer, so the layout and `slider_input` are reading
-// one calculation.
-pub fn slider_widget(s: Slider, style: Style, width: float) -> widget.Widget {
+// **It is not told how wide it is, and that is the fix for a real defect.** This took a `width`
+// and placed the thumb at `slider_at(s, width)` -- while `slider_input` computed the same
+// position from the `bounds` the layout actually gave the control. Two numbers for one thing, and
+// they agreed only while a caller passed the width it then laid the slider out in. The gallery
+// put one in a `widget.expand`, so the drawn thumb and the one the press looked for were hundreds
+// of points apart: taking hold of the thumb you could see was a press on the track, and the
+// slider jumped. This module keeps relearning the same rule -- `thumb_of` states it, `split_at`
+// states it -- and this time the answer is to remove the second number rather than to document
+// it.
+//
+// **The thumb is placed by two flexible spaces instead**, whose weights are the value's share of
+// the range and the rest of it. A stack divides its leftover room in the ratio of its flexible
+// children, and the leftover room here is exactly the track less the thumb -- so the thumb lands
+// where `slider_at` says in whatever box the layout gives it, by construction, with no width for
+// anyone to pass wrongly.
+pub fn slider_widget(s: Slider, style: Style) -> widget.Widget {
     val held = switch s.grabbed {
         Some(_) { true }
         None { false }
@@ -4444,11 +4460,18 @@ pub fn slider_widget(s: Slider, style: Style, width: float) -> widget.Widget {
         children: [],
         name: ""
     })
-    // **The thumb is placed by a gap, not by a rectangle.** `layer_at` takes an absolute box and
-    // the only thing a slider knows absolutely is how far along the thumb goes -- its height comes
-    // from the lane it is in, which this function is not told. A row of [gap, thumb, the rest]
-    // says the position with the one number there is and leaves the height to `thumb_height`,
-    // centred across.
+    // How far along the range the value sits, as a fraction: the first weight. **Clamped and
+    // guarded**, because a range of nothing is a slider with one value and a weight of zero over
+    // zero is not a number.
+    val along = if s.most <= s.least {
+        0.0
+    } else {
+        val share = (s.value - s.least) / (s.most - s.least)
+        if share < 0.0 { 0.0 } else { if share > 1.0 { 1.0 } else { share } }
+    }
+    // **The thumb's height is still stated, because a row does not know it.** `Across.Centre` does
+    // not stretch, so a `Fixed` of height zero here would be zero -- which is how this drew a
+    // track and nothing to drag the first time.
     val over = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
@@ -4456,9 +4479,9 @@ pub fn slider_widget(s: Slider, style: Style, width: float) -> widget.Widget {
         surface: widget.no_surface(),
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
         children: [
-            widget.fixed_of(slider_at(s, width), 0.0, widget.Widget.Nothing),
+            widget.flex_of(along),
             widget.fixed_of(thumb_width, thumb_height, thumb),
-            widget.flex()
+            widget.flex_of(1.0 - along)
         ],
         name: ""
     })

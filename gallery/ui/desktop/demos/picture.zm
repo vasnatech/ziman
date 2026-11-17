@@ -16,8 +16,6 @@ use pictures.images
 use pictures.star
 use widget
 
-val track_width = 300.0
-
 pub struct Demo {
     size: controls.Slider
 }
@@ -58,7 +56,7 @@ fn drawing(side: float, style: controls.Style) -> widget.Widget {
 
 pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return picture_ui.screen(picture_ui.Screen {
-        size: controls.slider_widget(d.size, style, track_width),
+        size: controls.slider_widget(d.size, style),
         size_said: concat(str(floor(d.size.value)), " points"),
         picture: picture(d.size.value),
         drawing: drawing(d.size.value, style),

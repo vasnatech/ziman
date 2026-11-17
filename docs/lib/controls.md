@@ -2091,14 +2091,26 @@ a drag are one gesture.
 ### `slider_widget`
 
 ```
-pub fn slider_widget(s: Slider, style: Style, width: float) -> widget.Widget
+pub fn slider_widget(s: Slider, style: Style) -> widget.Widget
 ```
 
 The slider as a widget: a track with a thumb on it.
 
-**The thumb is a fixed box after a gap**, which places it without arithmetic the hit test would
-have to repeat -- the gap is `slider_at`'s answer, so the layout and `slider_input` are reading
-one calculation.
+**It is not told how wide it is, and that is the fix for a real defect.** This took a `width`
+and placed the thumb at `slider_at(s, width)` -- while `slider_input` computed the same
+position from the `bounds` the layout actually gave the control. Two numbers for one thing, and
+they agreed only while a caller passed the width it then laid the slider out in. The gallery
+put one in a `widget.expand`, so the drawn thumb and the one the press looked for were hundreds
+of points apart: taking hold of the thumb you could see was a press on the track, and the
+slider jumped. This module keeps relearning the same rule -- `thumb_of` states it, `split_at`
+states it -- and this time the answer is to remove the second number rather than to document
+it.
+
+**The thumb is placed by two flexible spaces instead**, whose weights are the value's share of
+the range and the rest of it. A stack divides its leftover room in the ratio of its flexible
+children, and the leftover room here is exactly the track less the thumb -- so the thumb lands
+where `slider_at` says in whatever box the layout gives it, by construction, with no width for
+anyone to pass wrongly.
 
 ## The link
 

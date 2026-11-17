@@ -4191,7 +4191,7 @@ fn the_drawn_thumb_is_where_the_value_says() {
 #[test]
 fn a_slider_announces_its_value() {
     val l = widget.layout(
-        controls.slider_widget(slider(), controls.default_style(), 114.0),
+        controls.slider_widget(slider(), controls.default_style()),
         slider_box,
         metrics()
     )
@@ -4214,7 +4214,7 @@ fn a_disabled_slider_ignores_everything() {
 #[test]
 fn the_thumb_is_drawn_where_the_value_says() {
     val laid = widget.layout(
-        controls.slider_widget(slider(), controls.default_style(), 114.0),
+        controls.slider_widget(slider(), controls.default_style()),
         geom.rect_of(0.0, 0.0, 114.0, 30.0),
         metrics()
     )
@@ -4231,6 +4231,44 @@ fn the_thumb_is_drawn_where_the_value_says() {
     }
     test.assert_eq(thumb_x, controls.slider_at(slider(), 114.0))
     test.assert_eq(thumb_h, thumb_height)
+}
+
+// **The thumb lands where the press looks for it in a box nobody stated.** `slider_widget` used to
+// take a width and place the thumb from it, while `slider_input` computed the same position from
+// the bounds the layout actually gave -- so the two agreed only while a caller passed the width it
+// then laid the slider out in. The gallery put one inside a `widget.expand` and the drawn thumb
+// and the hit-tested one were hundreds of points apart: grabbing the thumb you could see was a
+// press on the track, and the slider jumped. The widget is placed by weights now, so there is no
+// second number to get wrong.
+#[test]
+fn the_thumb_lands_where_the_press_looks_for_it_at_any_width() {
+    for width in [60.0, 114.0, 300.0, 801.0] {
+        val box_of = geom.rect_of(0.0, 0.0, width, 30.0)
+        val laid = widget.layout(
+            controls.slider_widget(slider(), controls.default_style()),
+            box_of,
+            metrics()
+        )
+        var drawn = 0.0 - 1.0
+        for op in widget.paint_ops(laid, metrics()) {
+            if Fill(f) = op {
+                val painted = shape.path_bounds(f.path)
+                if painted.width == thumb_width {
+                    drawn = painted.x
+                }
+            }
+        }
+        // Where the layout drew it, and where the gesture believes it is, for this box.
+        test.assert_eq(drawn, controls.slider_at(slider(), width))
+        // And a press at the drawn thumb's own middle grabs rather than jumping.
+        val held = controls.slider_input(
+            slider(),
+            controls.Input.Press(geom.point_of(drawn + thumb_width / 2.0, 15.0)),
+            box_of
+        )
+        test.assert_eq(held.slider.value, 50.0)
+        test.assert_false(held.moved)
+    }
 }
 
 // ---------------------------------------------------- the link
