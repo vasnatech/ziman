@@ -761,7 +761,43 @@ ramp can be checked once instead of extracting stops per look.
 consequence worth having: **`from == to` is a flat fill**, so solid and gradient are one form with no
 `Option` and no second field.
 
-**D11 (F8) -- placeholder, see below.**
+**D11 (F8) -- the window layer reports the preference, the application decides, and it is
+followed live. 2026-11-17.**
+
+    // lib/ui/desktop, beside display_scale()
+    pub enum Preference { NoPreference, Dark, Light }
+    pub fn color_scheme() -> Preference
+    // and a scheme change arrives like a resize
+
+**This is much cheaper than §13.1 claimed.** F8 was listed as "platform work", but GIO's D-Bus is
+**already linked into `ziman-gui`**: `src/native_ibus.c` calls `g_dbus_connection_call_sync` and
+`g_dbus_connection_signal_subscribe`, and the Makefile says why -- "it costs nothing, because
+at-spi2-atk already brought it. That is the whole reason ibus is a binding and not a second
+backend." The portal call is a pattern already in the tree, not a new dependency.
+
+**The split.** Platform code stays with the platform, policy stays with the application, and
+`looknfeel` stays pure data -- which is what lets its tests be tests, and what keeps it working on a
+machine with no portal running. Same split as `Style.window`, which the library names and the
+application hands to `raster.Options`.
+
+**Followed live, not read once.** GNOME's automatic dark mode switches **at sunset**, so a
+startup-only read goes stale during an ordinary session and the application reads as ignoring the
+user's setting.
+
+### The portal, and the two traps in it
+
+`org.freedesktop.portal.Settings`, namespace `org.freedesktop.appearance`, key `color-scheme` (type
+`u`):
+
+    0 = no preference     1 = DARK     2 = LIGHT
+
+**1 is dark and 2 is light** -- not alphabetical, and easy to invert. Unknown values are to be
+treated as 0.
+
+1. **`ReadOne` is current and `Read` is deprecated, but older portals answer `ReadOne` with "No such
+   method"** -- so the fallback to `Read` is required, not optional. Ghostty hit exactly this.
+2. **Some desktops historically never emitted `SettingChanged`** (a KDE bug fixed around Plasma
+   5.24), so a stale value must degrade to "no preference" and must never hang.
 
 ## 14. Sources
 
