@@ -3,10 +3,12 @@ use controls
 use widget
 
 val gap = 8.0
-val row_height = 26.0
 val said_height = 20.0
 val small_size = 11.0
 
+// **No fixed row height.** Each link was wrapped in one, and the moment a theme gave a control
+// more padding than the number guessed -- which `modern_style` does -- the box clipped its own
+// underline off the bottom. A control knows how tall it is; a column asks it.
 pub struct Screen {
     syntax: widget.Widget
     library: widget.Widget
@@ -16,9 +18,9 @@ pub struct Screen {
 
 pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return widget.column_of(gap, [
-        widget.fixed_of(0.0, row_height, it.syntax),
-        widget.fixed_of(0.0, row_height, it.library),
-        widget.fixed_of(0.0, row_height, it.off),
+        it.syntax,
+        it.library,
+        it.off,
         widget.fixed_of(0.0, said_height, widget.label_of(it.said, small_size, style.ink))
     ])
 }

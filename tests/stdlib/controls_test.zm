@@ -4475,3 +4475,67 @@ fn an_unknown_or_empty_hover_draws_nothing() {
     test.assert_len(0, hover_fills(l, "nobody"))
     test.assert_len(0, hover_fills(l, ""))
 }
+
+// ---------------------------------------------------- the marks are drawn
+
+fn drawings_in(l: widget.Laid) -> [geom.Rect] {
+    val out = mutable_array_new<geom.Rect>()
+    gather_drawings(l, out)
+    return snapshot(out)
+}
+
+fn gather_drawings(l: widget.Laid, out: MutableArray<geom.Rect>) {
+    if Drawing(_) = l.widget {
+        push(out, l.bounds)
+    }
+    for child in l.children {
+        gather_drawings(child, out)
+    }
+}
+
+fn laid_check(t: widget.Toggle) -> widget.Laid {
+    return widget.layout(
+        controls.check_box_widget(
+            controls.check_box_of("notify", "Notify me", t),
+            controls.default_style(),
+            metrics()
+        ),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+}
+
+// **A mark is a path, not a glyph, and that is two fixes.** As a glyph it was placed on a
+// baseline -- a font puts its ink between the baseline and the x-height and leaves the descender
+// empty, so a tick centred as a *box* sat visibly low in a square. And a glyph has to exist: a
+// face without the character draws `.notdef`, which is why every application here replaces the
+// tree's marks with ASCII before it opens a window.
+#[test]
+fn a_checked_box_draws_a_mark_with_a_box_of_its_own() {
+    val marks = drawings_in(laid_check(widget.Toggle.On))
+    test.assert_len(1, marks)
+    // **Square and not empty**, which is the half a `Drawing` cannot provide for itself: it
+    // measures nothing on purpose, so a mark handed to a stack that centres rather than stretches
+    // is laid out zero by zero and draws nothing at all.
+    test.assert(marks[0].width > 0.0)
+    test.assert_eq(marks[0].width, marks[0].height)
+    test.assert_len(1, drawings_in(laid_check(widget.Toggle.Mixed)))
+}
+
+// An unchecked box draws no mark at all rather than an empty one: `Nothing` is the honest answer
+// for "there is no mark here".
+#[test]
+fn an_unchecked_box_draws_no_mark() {
+    test.assert_len(0, drawings_in(laid_check(widget.Toggle.Off)))
+}
+
+// A radio's dot is the same story, and a group draws exactly one of them.
+#[test]
+fn a_radio_group_draws_one_dot() {
+    val l = widget.layout(
+        controls.radios_widget(radios(), controls.default_style(), metrics()),
+        radio_box,
+        metrics()
+    )
+    test.assert_len(1, drawings_in(l))
+}

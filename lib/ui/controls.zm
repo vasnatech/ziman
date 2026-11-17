@@ -468,7 +468,10 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
         // Centred both ways inside the square -- which is the thing F287 existed to make possible
         // and the reason this could not be fixed before it.
         align: widget.centred(),
-        children: [widget.label_in_face(mark(c.checked), style.text_size, ink, style.text_font)],
+        // **Centred by geometry.** A `Drawn` is scaled into the box it is given, so the mark is
+        // in the middle of the square because the square is what it was given -- where a glyph
+        // was in the middle of a *line*, which is a different thing and sits lower.
+        children: [mark_widget(c.checked, ink, side)],
         name: ""
     }))
     val inside = widget.Widget.Group(widget.Stack {
@@ -503,12 +506,68 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
 
 // What the box draws. Text rather than a drawn glyph, so that a check box needs no icon set and no
 // second rendering path -- F277's later instalments can replace it without the model changing.
-fn mark(t: Toggle) -> string {
-    return switch t {
-        Off { " " }
-        On { "x" }
-        Mixed { "-" }
+// A check box's mark, as a path in the unit box `widget.Drawn` scales into.
+//
+// **Drawn and not typed, which is two problems at once.** As a glyph it was placed on a baseline:
+// a font puts its ink between the baseline and the x-height and leaves the descender empty, so a
+// tick centred as a *box* sits visibly low in a square. Geometry has no such opinion -- a path
+// given the box is centred in the box. And a glyph has to exist: a check box drawing "✓" on a
+// face that lacks it draws `.notdef`, which is why the gallery and curly both replace the tree's
+// marks with ASCII before they open a window. A path needs no font at all.
+//
+// The tree's arrows are still strings, and this is the argument that they should not be.
+// The mark, or nothing at all for an unchecked box -- which draws no node rather than an empty
+// one, since `Nothing` is the honest answer for "there is no mark here".
+// **It has to be given a size, because a drawing measures nothing.** `Drawn`'s own comment says
+// so -- a mark is sized by the control it belongs to -- which means a path handed to a stack that
+// centres rather than stretches is laid out zero by zero and draws nothing at all. The box is a
+// square of `side`, so the mark is too, and the path's own margins inside the unit box keep it
+// off the edges.
+fn mark_widget(t: Toggle, ink: Color, side: float) -> widget.Widget {
+    return switch mark_path(t) {
+        Some(path) { widget.fixed_of(side, side, widget.drawn_of(path, ink)) }
+        None { widget.Widget.Nothing }
     }
+}
+
+fn mark_path(t: Toggle) -> Option<shape.Path> {
+    return switch t {
+        Off { Option<shape.Path>.None }
+        On { Option<shape.Path>.Some(tick()) }
+        Mixed { Option<shape.Path>.Some(dash()) }
+    }
+}
+
+// How thick a mark's stroke is, as a fraction of the box it is drawn in. **A fraction, so it
+// scales**: the same mark at eleven points and at twenty-two is the same shape, which a stroke
+// width in points would not be.
+val mark_weight = 0.14
+
+// A tick, as a stroked polyline turned into an area: down to the left foot, up to the right
+// shoulder. **Built as an outline rather than stroked**, because `scene` strokes a path with a
+// pen and this layer wants a filled shape it can hand to `Drawn` -- which takes a path and a
+// colour and nothing about a pen.
+fn tick() -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(0.22, 0.52))
+    shape.line_to(b, geom.point_of(0.42, 0.72))
+    shape.line_to(b, geom.point_of(0.78, 0.30))
+    shape.line_to(b, geom.point_of(0.78 - mark_weight * 0.4, 0.30 - mark_weight))
+    shape.line_to(b, geom.point_of(0.42, 0.72 - mark_weight * 1.4))
+    shape.line_to(b, geom.point_of(0.22 + mark_weight, 0.52 - mark_weight))
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+// The third state: a bar across the middle, which is what every platform draws for "some of the
+// things under this are on".
+fn dash() -> shape.Path {
+    return shape.rect_path(geom.rect_of(0.22, 0.5 - mark_weight * 0.5, 0.56, mark_weight))
+}
+
+// A radio's dot: a circle, because a radio is a circle and the thing inside it is too.
+fn dot() -> shape.Path {
+    return shape.ellipse_path(geom.rect_of(0.3, 0.3, 0.4, 0.4))
 }
 
 // ------------------------------------------------------------------ the entry
@@ -4207,7 +4266,15 @@ pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widge
                 shadow: Option<widget.Shadow>.None
             },
             align: widget.centred(),
-            children: [widget.label_in_face(if chosen { "•" } else { " " }, style.text_size, ink, style.text_font)],
+            // A path, for the check box's reasons: centred by geometry rather than by a
+            // baseline, and needing no glyph to exist in whatever face the window loaded.
+            children: [
+                if chosen {
+                    widget.fixed_of(side, side, widget.drawn_of(dot(), ink))
+                } else {
+                    widget.Widget.Nothing
+                }
+            ],
             name: ""
         }))
         val row = widget.Widget.Group(widget.Stack {
