@@ -542,6 +542,56 @@ minimum. That catches a class of defect twelve colour-identical rows never would
 `Style` to `Style`**, not another entry in the register. D1 gave the library the scales; D4 gives
 the application the axes over them. `emphasised`, below, is the third instance.
 
+**D5 (F4) -- five state rows, each carrying colour, border and geometry. 2026-11-17.**
+
+    pub struct Parts {
+        face: Color
+        ink: Color
+        border: Option<widget.Border>
+        expansion: float                  // paint-time only -- see the invariant below
+        corner: Option<widget.Radius>     // overrides the shape scale for this state
+    }
+
+    pub struct States {
+        rest:     Parts
+        hovered:  Parts
+        pressed:  Parts
+        disabled: Parts
+        selected: Parts
+    }
+
+**Five rows, one mechanism.** Every control's paint function asks one question -- what are this
+control's parts in this state -- so a state cannot be half-implemented and a look cannot forget one.
+This retires `pressed_face`, `disabled_ink`, `selection`, and `hover_tint` with the generic overlay
+in `widget.paint_hovered`; roughly twenty paint functions start selecting their own row, and the
+gallery's pixels move.
+
+**Focus and emphasis are deliberately not rows.** Focus is additive -- a control can be focused
+*and* hovered *and* pressed at once, so it cannot be one of N exclusive rows; it stays a ring over
+whatever state applies, drawn from `accent`. egui agrees and has no focused row among its five.
+Emphasis (Synth's `DEFAULT`, a primary button) is an **axis**, since a primary button is emphasised
+while at rest, hovered, pressed and disabled alike: it is `looknfeel.emphasised(style)`, the third
+instance of D4's pattern.
+
+### The expansion invariant
+
+**No state may change a control's bounds.** `expansion` is a paint-time outset and is never an
+input to layout or to hit testing.
+
+This matters because `expansion` is the only field here that could break the one-function rule -- a
+hit test must read the same calculation the widget laid out with. egui's own documentation concedes
+the wart, saying `expansion` "makes hovered things misaligned"; it gets away with it by re-laying
+out every frame, which we do not do. If expansion grew the box, a control would be hovered at a
+pixel its layout never claimed, two neighbours could both claim the boundary, and the result is
+flicker at every edge.
+
+So: **the rest state draws its frame inset from its bounds, and a hovered state spends that inset.**
+Layout and hit testing use the resting geometry always; expansion is bounded by the resting inset.
+The drawn frame grows, the box never does, nothing overlaps a neighbour, and the invariant holds by
+construction rather than by care.
+
+`corner` needs no such rule -- a radius affects neither bounds nor a rectangular hit test.
+
 ## 14. Sources
 
 Swing and third-party look and feels: [LookAndFeel](https://www.cs.unb.ca/programmingclub/docs/java/javax/swing/LookAndFeel.html),
