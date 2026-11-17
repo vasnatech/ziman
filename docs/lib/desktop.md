@@ -113,6 +113,27 @@ What one `repaint` did.
 pub fn painter_of(width_pt: float, height_pt: float, px_per_pt: float) -> Result<Painter, string>
 ```
 
+### `painter_fitting`
+
+```
+pub fn painter_fitting(
+    p: Painter,
+    width_pt: float,
+    height_pt: float,
+    px_per_pt: float
+) -> Result<Painter, string>
+```
+
+The painter at a new size, **over the pixels it already has** where they are big enough.
+
+This is `painter_of` for a window that is already running, and the difference is the canvas:
+`raster.surface_fitting` keeps the buffer when the new frame fits in it, where `surface_of`
+allocates four floats a pixel every time. A drag of a window's edge passes through a new size
+every few milliseconds and each one used to throw 25 MB away -- see `surface_fitting`, which
+carries the measurement and the two bounds it grows and shrinks by.
+
+What is *not* kept is `shown`: the frame has a new shape, so the next repaint draws all of it.
+
 ### `forget`
 
 ```

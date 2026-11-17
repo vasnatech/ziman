@@ -1,0 +1,138 @@
+// `lib/graphics/raster`: the canvas a window draws into, and when it is thrown away.
+//
+// **The pixels are asserted elsewhere.** `tests/lang/graphics_raster.zm` is the oracle for what the
+// rasteriser draws -- byte-identical across the move of two loops into C -- and nothing here looks
+// at a pixel's colour. These are about the *buffer*: a window being resized asks for a canvas tens
+// of times a second, and whether the old one is reused is invisible to every other test in the
+// repository, which is why `raster.surface_pixels_held` exists at all.
+use geom
+use image
+use paint
+use raster
+use scene
+use shape
+use test
+
+fn surface(width: float, height: float) -> raster.Surface {
+    return unwrap(raster.surface_of(width, height, 1.0))
+}
+
+fn fitted(c: raster.Surface, width: float, height: float) -> raster.Surface {
+    return unwrap(raster.surface_fitting(c, width, height, 1.0))
+}
+
+fn refused(r: Result<raster.Surface, string>) -> bool {
+    return switch r {
+        Ok(_) { false }
+        Err(_) { true }
+    }
+}
+
+// ---- what a surface allocates
+
+#[test]
+fn a_new_surface_holds_exactly_its_own_pixels() {
+    // No slack on the first one: a surface that is never resized should not carry a grid's worth of
+    // floats it will never write. The grid is `surface_fitting`'s, and only for growing.
+    test.assert_eq(raster.surface_pixels_held(surface(100.0, 50.0)), 5000)
+}
+
+#[test]
+fn a_surface_counts_pixels_and_not_floats() {
+    // Four floats a pixel, which is the arithmetic the warning in `surface_fitting` is quoting.
+    val c = surface(64.0, 64.0)
+    test.assert_eq(raster.surface_pixels_held(c), 4096)
+    test.assert_eq(raster.surface_width(c) * raster.surface_height(c), 4096)
+}
+
+// ---- resizing
+
+#[test]
+fn a_smaller_frame_keeps_the_pixels_it_has() {
+    // **The whole point.** A drag inwards reallocated per frame before this; now the canvas is the
+    // same buffer with a shorter stride.
+    val held = fitted(surface(100.0, 50.0), 90.0, 40.0)
+    test.assert_eq(raster.surface_pixels_held(held), 5000)
+    test.assert_eq(raster.surface_width(held), 90)
+    test.assert_eq(raster.surface_height(held), 40)
+}
+
+#[test]
+fn a_larger_frame_grows_to_the_grid() {
+    // 200x100 needs 20,000 pixels and gets 256x128, so the next 55 pixels of a drag outwards are
+    // free. Asserted as the exact number rather than "more than enough", because the grid is the
+    // behaviour and a slack of one page would not be.
+    val grown = fitted(surface(100.0, 50.0), 200.0, 100.0)
+    test.assert_eq(raster.surface_pixels_held(grown), 32768)
+    test.assert_eq(raster.surface_width(grown), 200)
+    test.assert_eq(raster.surface_height(grown), 100)
+}
+
+#[test]
+fn a_drag_outwards_reallocates_once_per_grid_cell_and_not_once_per_frame() {
+    // The measurement the fix is for, as a test: 64 one-pixel steps and the buffer changes at most
+    // twice -- where `surface_of` would have allocated 64 canvases.
+    var c = surface(200.0, 200.0)
+    val first = raster.surface_pixels_held(c)
+    var changes = 0
+    var i = 1
+    while i <= 64 {
+        val next = fitted(c, 200.0 + (i as float), 200.0)
+        if raster.surface_pixels_held(next) != raster.surface_pixels_held(c) {
+            changes = changes + 1
+        }
+        c = next
+        i = i + 1
+    }
+    test.assert(changes <= 2)
+    test.assert(raster.surface_pixels_held(c) >= first)
+}
+
+#[test]
+fn a_much_smaller_frame_gives_the_pixels_back() {
+    // A window restored from full screen should not keep the screen. The threshold is a quarter:
+    // 5,000 pixels in a buffer of 307,200 is well past it, so this reallocates -- to the grid.
+    val small = fitted(surface(640.0, 480.0), 100.0, 50.0)
+    test.assert_eq(raster.surface_pixels_held(small), 8192)
+}
+
+#[test]
+fn a_frame_of_three_quarters_keeps_its_buffer() {
+    // Just inside the threshold, which is what stops a drag back and forth over one size from
+    // reallocating in both directions.
+    val c = surface(200.0, 200.0)
+    test.assert_eq(raster.surface_pixels_held(fitted(c, 100.0, 200.0)), 40000)
+}
+
+#[test]
+fn a_surface_cannot_be_fitted_to_nothing() {
+    // The refusals are `surface_of`'s, because the arithmetic is shared: one function decides what
+    // a surface may be, so the two cannot drift.
+    test.assert(refused(raster.surface_fitting(surface(10.0, 10.0), 0.0, 10.0, 1.0)))
+    test.assert(refused(raster.surface_fitting(surface(10.0, 10.0), 10.0, 10.0, 0.0)))
+    test.assert(refused(raster.surface_fitting(surface(10.0, 10.0), 20000.0, 10.0, 1.0)))
+}
+
+// ---- a canvas in a buffer bigger than itself still renders
+
+#[test]
+fn a_kept_buffer_renders_the_new_size_and_not_the_old() {
+    // **The one that would have broken.** `finish` measured the *array* to find the pixel count, so
+    // a canvas in a longer buffer answered an image with pixels that are not in the frame --
+    // `image.image_of` would have refused it, and a looser one would have returned a picture with a
+    // tail of black. The count now comes from the canvas.
+    val scene_ = scene.scene_of(90.0, 40.0)
+    val painted = scene.with_ops(scene_, [
+        scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 90.0, 40.0)), paint.Paint.Solid(paint.rgb(1.0, 0.0, 0.0)))
+    ])
+    val c = fitted(surface(100.0, 50.0), 90.0, 40.0)
+    val img = unwrap(raster.render_into(c, painted, raster.options()))
+    test.assert_eq(img.width, 90)
+    test.assert_eq(img.height, 40)
+    test.assert_eq(len(img.data), 90 * 40 * 4)
+    // Red where it was asked for, which proves the stride moved with the width rather than staying
+    // at the buffer's.
+    val px = unwrap(image.pixel_at(img, 89, 39))
+    test.assert(px.red > 0.9)
+    test.assert(px.alpha > 0.9)
+}

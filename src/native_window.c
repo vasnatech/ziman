@@ -971,7 +971,14 @@ static Value native_window_present_premul_raw(Value *args, int argc, int line, i
     size_t n = 0;
     const double *px = ziman_mutable_array_float_data(args[1], &n);
     size_t needed = (size_t)width * (size_t)height * 4u;
-    if (n != needed) {
+    /* **Too short is a mistake; longer is a canvas with room to spare.** This was an equality, and
+     * it refused every frame once `raster.surface_fitting` started keeping a buffer across a
+     * resize: a canvas is a stride and a window into a buffer, so a window of 1102x740 drawn in a
+     * buffer grown for 1152x768 is correct and the 277,024 floats past the end are simply not
+     * read -- the pack loop below indexes `row * width + cx`, which cannot reach them. The window
+     * exited with "the pixel buffer is 3538944 floats but 1102x740 premultiplied RGBA needs
+     * 3261920" on the first drag of its edge, which is how this was found. */
+    if (n < needed) {
         char message[176];
         snprintf(message, sizeof message,
                  "the pixel buffer is %zu floats but %lldx%lld premultiplied RGBA needs %zu", n,

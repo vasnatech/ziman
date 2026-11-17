@@ -86,7 +86,8 @@ static Value native_raster_clear_premul(Value *args, int argc, int line, int col
     return value_unit();
 }
 
-/* raster.to_bytes_premul(data, channels) -> [byte]: the canvas as the bytes an `image.Image` holds.
+/* raster.to_bytes_premul(data, channels, pixels) -> [byte]: the canvas as the bytes an
+ * `image.Image` holds.
  *
  * `finish`'s loop, with its three cases kept separate as they are there:
  *
@@ -110,7 +111,20 @@ static Value native_raster_to_bytes_premul(Value *args, int argc, int line, int 
                             result_obj_new(0, value_string(ziman_xstrdup(
                                 "raster: an image has 1, 3 or 4 channels"))));
     }
-    size_t pixels = data == NULL ? 0 : n / CHANNELS;
+    /* **The frame's pixels, not the buffer's.** `raster.surface_fitting` keeps a canvas in a
+     * buffer that may be longer than it needs, so `n / CHANNELS` is the room and not the picture;
+     * measuring the array here would answer bytes for pixels outside the frame. Refused rather
+     * than clamped, because a caller asking for more than is there has computed a size wrongly and
+     * a short image would hide it. */
+    int64_t want = args[2].as.i;
+    size_t room = data == NULL ? 0 : n / CHANNELS;
+    if (want < 0 || (size_t)want > room) {
+        Type bt = type_array(type_scalar(TY_BYTE));
+        return value_result(type_ref(type_result(bt, type_scalar(TY_STRING))),
+                            result_obj_new(0, value_string(ziman_xstrdup(
+                                "raster: asked for more pixels than the canvas holds"))));
+    }
+    size_t pixels = (size_t)want;
     size_t out_len = pixels * (size_t)channels;
     uint8_t *out = out_len == 0 ? NULL : ziman_xmalloc(out_len);
 

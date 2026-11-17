@@ -209,13 +209,64 @@ pub fn surface_of(width_pt: float, height_pt: float, px_per_pt: float) -> Result
 ```
 
 A surface of a fixed pixel size. Reused by `render_into` for as many frames as the window keeps
-that size; a resize makes a new one, which is the right trade because a resize is rare and a
-repaint is not.
+that size; a resize asks `surface_fitting`, which keeps these pixels when the new frame fits in
+them. **A resize is not rare** -- a drag of a window's edge is a hundred of them -- which is why
+that function exists and why this one is called once.
 Takes **scene units and the ratio, not pixels, so that a surface and a scene cannot disagree.**
 An application sizes its window in points; the surface has to be however many pixels those points
 come to. Given pixels directly, one number would be derived in two places, and the first caller
 to set a ratio other than 1.0 would meet `render_into`'s size refusal -- a correct error about a
 mistake that did not need to be possible.
+
+### `surface_fitting`
+
+```
+pub fn surface_fitting(
+    c: Surface,
+    width_pt: float,
+    height_pt: float,
+    px_per_pt: float
+) -> Result<Surface, string>
+```
+
+The same surface at a different size, **keeping the pixels it already holds when they are big
+enough to draw the new frame into.**
+
+**A window being dragged by its edge reports a new size every few milliseconds**, and
+`surface_of` answers each one with a fresh canvas: four floats a pixel, 25 MB at 1100x720. The
+collector says so out loud -- `Repeated allocation of very large block (appr. size 29904 KiB)`,
+which is `width * height * 4` doubles for a window of 1209x791, observed fifteen times in one
+session of dragging a window about. `draw_into`'s comment describes the same warning from the
+same cause one layer up, where it has already been fixed once.
+
+**A canvas is a buffer with a stride, not a shape**, which is what makes this sound: every
+function in this module addresses a pixel as `(y * t.width + x) * 4`, so a buffer *longer* than
+`width * height * 4` is a canvas with room to spare and nothing more. Nothing reads outside the
+window, and a resize redraws the whole frame anyway -- `repaint` drops what it was showing, so
+the damage is everything and the stale pixels in their old arrangement are all overwritten.
+
+Two bounds, both deliberate:
+
+
+```
+* **grown to a 64-pixel grid**, so a drag outwards reallocates once every 64 pixels instead of
+  once a frame. The slack is at most 63 pixels on a side;
+* **shrunk only when the new frame is under a quarter of what is held**, so dragging back and
+  forth across one size reallocates in neither direction, while a window restored from full
+  screen does not keep the whole screen's worth of floats for the rest of the session.
+```
+
+### `surface_pixels_held`
+
+```
+pub fn surface_pixels_held(c: Surface) -> int
+```
+
+How many pixels the surface's canvas can hold -- at least its own size, and more after a
+`surface_fitting` that kept a larger buffer.
+
+**Here so that the reuse can be tested.** Nothing else about a surface says whether its pixels
+were kept or thrown away, and a reuse that cannot be observed is a reuse nothing can assert.
 
 ### `surface_width`
 

@@ -236,14 +236,25 @@ pub struct Surface {
 pub val glyph_cache_limit = 8192
 
 // A surface of a fixed pixel size. Reused by `render_into` for as many frames as the window keeps
-// that size; a resize makes a new one, which is the right trade because a resize is rare and a
-// repaint is not.
+// that size; a resize asks `surface_fitting`, which keeps these pixels when the new frame fits in
+// them. **A resize is not rare** -- a drag of a window's edge is a hundred of them -- which is why
+// that function exists and why this one is called once.
 // Takes **scene units and the ratio, not pixels, so that a surface and a scene cannot disagree.**
 // An application sizes its window in points; the surface has to be however many pixels those points
 // come to. Given pixels directly, one number would be derived in two places, and the first caller
 // to set a ratio other than 1.0 would meet `render_into`'s size refusal -- a correct error about a
 // mistake that did not need to be possible.
 pub fn surface_of(width_pt: float, height_pt: float, px_per_pt: float) -> Result<Surface, string> {
+    val frame = try surface_frame(width_pt, height_pt, px_per_pt)
+    return ok(Surface {
+        target: new_target(frame.width, frame.height, frame.width * frame.height * 4),
+        glyph_limit: glyph_cache_limit
+    })
+}
+
+// The pixel size a surface of this many points comes to, with everything refused that a surface
+// refuses. **Shared, so that `surface_of` and `surface_fitting` cannot drift in what they accept.**
+fn surface_frame(width_pt: float, height_pt: float, px_per_pt: float) -> Result<Frame, string> {
     if px_per_pt <= 0.0 || px_per_pt > 64.0 {
         return err(format("raster: px_per_pt must be above 0 and at most 64, got {}", px_per_pt))
     }
@@ -267,7 +278,71 @@ pub fn surface_of(width_pt: float, height_pt: float, px_per_pt: float) -> Result
             str(height)
         ))
     }
-    return ok(Surface { target: new_target(width, height), glyph_limit: glyph_cache_limit })
+    return ok(Frame { width: width, height: height })
+}
+
+// The same surface at a different size, **keeping the pixels it already holds when they are big
+// enough to draw the new frame into.**
+//
+// **A window being dragged by its edge reports a new size every few milliseconds**, and
+// `surface_of` answers each one with a fresh canvas: four floats a pixel, 25 MB at 1100x720. The
+// collector says so out loud -- `Repeated allocation of very large block (appr. size 29904 KiB)`,
+// which is `width * height * 4` doubles for a window of 1209x791, observed fifteen times in one
+// session of dragging a window about. `draw_into`'s comment describes the same warning from the
+// same cause one layer up, where it has already been fixed once.
+//
+// **A canvas is a buffer with a stride, not a shape**, which is what makes this sound: every
+// function in this module addresses a pixel as `(y * t.width + x) * 4`, so a buffer *longer* than
+// `width * height * 4` is a canvas with room to spare and nothing more. Nothing reads outside the
+// window, and a resize redraws the whole frame anyway -- `repaint` drops what it was showing, so
+// the damage is everything and the stale pixels in their old arrangement are all overwritten.
+//
+// Two bounds, both deliberate:
+//
+//   * **grown to a 64-pixel grid**, so a drag outwards reallocates once every 64 pixels instead of
+//     once a frame. The slack is at most 63 pixels on a side;
+//   * **shrunk only when the new frame is under a quarter of what is held**, so dragging back and
+//     forth across one size reallocates in neither direction, while a window restored from full
+//     screen does not keep the whole screen's worth of floats for the rest of the session.
+pub fn surface_fitting(
+    c: Surface,
+    width_pt: float,
+    height_pt: float,
+    px_per_pt: float
+) -> Result<Surface, string> {
+    val frame = try surface_frame(width_pt, height_pt, px_per_pt)
+    val needed = frame.width * frame.height * 4
+    val held = len(c.target.data)
+    if needed <= held && held <= needed * 4 {
+        // The glyph cache comes with it. A resize does not change a face or a size, so every glyph
+        // in it is still wanted -- and at a *new* `px_per_pt` they simply miss, because a glyph is
+        // keyed by its transform.
+        val fitted = with c.target {
+            width: frame.width,
+            height: frame.height,
+            win_x0: 0,
+            win_y0: 0,
+            win_x1: frame.width - 1,
+            win_y1: frame.height - 1
+        }
+        return ok(with c { target: fitted })
+    }
+    val room = on_grid(frame.width) * on_grid(frame.height) * 4
+    return ok(with c { target: new_target(frame.width, frame.height, room) })
+}
+
+// Rounded up to a 64-pixel grid, which is the slack `surface_fitting` grows by.
+fn on_grid(v: int) -> int {
+    return (v + 63) / 64 * 64
+}
+
+// How many pixels the surface's canvas can hold -- at least its own size, and more after a
+// `surface_fitting` that kept a larger buffer.
+//
+// **Here so that the reuse can be tested.** Nothing else about a surface says whether its pixels
+// were kept or thrown away, and a reuse that cannot be observed is a reuse nothing can assert.
+pub fn surface_pixels_held(c: Surface) -> int {
+    return len(c.target.data) / 4
 }
 
 pub fn surface_width(c: Surface) -> int {
@@ -918,7 +993,7 @@ pub fn premultiplied_of(c: Surface) -> Premultiplied {
 
 pub fn render(s: Scene, o: Options) -> Result<image.Image, string> {
     val frame = try frame_size(s, o)
-    val t = new_target(frame.width, frame.height)
+    val t = new_target(frame.width, frame.height, frame.width * frame.height * 4)
     try draw_frame(t, s, o)
     return finish(t, o.format)
 }
@@ -998,11 +1073,17 @@ fn draw_frame(t: Target, s: Scene, o: Options) -> Result<unit, string> {
     return unit
 }
 
-fn new_target(width: int, height: int) -> Target {
-    val total = width * height * 4
+// A canvas of `width` by `height`, over a buffer of `floats`.
+//
+// **The buffer's length is stated rather than derived**, because `surface_fitting` allocates with
+// room to spare: a canvas is a stride and a window into a buffer, and the buffer may be longer
+// than the canvas needs. It may not be *shorter*, which is the one thing worth refusing -- except
+// that there is no caller who can get it wrong, both of them computing it from the same two
+// numbers, so this takes it on trust rather than returning a `Result` nobody would read.
+fn new_target(width: int, height: int, floats: int) -> Target {
     // Asked for in one go rather than grown: a 600x800 canvas is 1.9 million floats, and a builder
     // that starts at 20 and doubles copies the whole thing twenty times on the way up.
-    val data = mutable_array_filled<float>(total, 0.0)
+    val data = mutable_array_filled<float>(floats, 0.0)
     return Target {
         win_x0: 0,
         win_y0: 0,
@@ -1039,7 +1120,14 @@ native fn clear_premul(
     a: float
 )
 
-native fn to_bytes_premul(data: MutableArray<float>, channels: int) -> Result<[byte], string>
+// **`pixels` rather than the whole buffer**, which `surface_fitting` made necessary: a canvas may
+// now sit in a buffer longer than it needs, and a conversion that measured the *array* would answer
+// bytes for pixels that are not in the frame.
+native fn to_bytes_premul(
+    data: MutableArray<float>,
+    channels: int,
+    pixels: int
+) -> Result<[byte], string>
 
 // One scanline of a **solid** fill. The third per-pixel loop, and the one `fill_shape` spends its
 // time in: a shape's bounding box, once per pixel, with a coverage read, a clip read and a blend.
@@ -2519,7 +2607,7 @@ fn push_edge(xy: MutableArray<float>, x0: float, y0: float, x1: float, y1: float
 // on a value that cannot change. Measured at 12.5% of a page before this, with `to_byte` another
 // 7.8% on top.
 fn finish(t: Target, format: image.Pixels) -> Result<image.Image, string> {
-    val bytes = try to_bytes_premul(t.data, image.channels_of(format))
+    val bytes = try to_bytes_premul(t.data, image.channels_of(format), t.width * t.height)
     return image.image_of(t.width, t.height, format, bytes)
 }
 
