@@ -405,9 +405,13 @@ below -- over five HCT tonal palettes of thirteen tones each, from one or two se
 - **Option D -- a structural palette.** Radix's scale or Material's tiers, replacing
   individually-named colours. Orthogonal to A-C and best combined with A.
 
-**The recommendation on the table is A + D now, B when hot reload is worth paying for, and not C.**
-The first thing to borrow is not CSS at all: it is egui's `Widgets` (§10.1) -- states as a repeated
-row.
+**Superseded by §13.3.** Every question in §13.2 was answered on 2026-11-17 and the outcome is: **A
+and D taken, C closed, B declined in favour of a live editor.** Option A is D2 and D3; option D is
+D8's two twelve-step ramps; option C died with D1, because a theme that never names a control type
+leaves nothing for a selector to select; and option B lost to the gallery editor in D12, because the
+same decisions that would have made a file cheap also made a format unnecessary. The first thing
+borrowed was not CSS at all: it was egui's `Widgets` (§10.1) -- states as a repeated row, which is
+D5.
 
 ## 13. Agenda
 
@@ -429,14 +433,13 @@ To be worked through one at a time. Nothing here is decided.
 
 ### 13.2 Questions that decide the features
 
-- **Q1 -- Is hot reload worth a file format?** It is the only thing Option B buys that A and D do
-  not, and it is what Textual leads with. Decides F9.
+- **Q1 -- Is hot reload worth a file format?** **DECIDED 2026-11-17 -- see §13.3/D12.**
 - **Q2 -- APCA or WCAG for the gate?** **DECIDED 2026-11-17 -- see §13.3/D7.**
 - **Q3 -- Does a theme ever need to name one control type** (`Button.arc`), or is passing a
   different `Style` to that call enough? **DECIDED 2026-11-17 -- see §13.3/D1.**
 - **Q4 -- Density as an axis or as entries in `all()`?** **DECIDED 2026-11-17 -- see §13.3/D4.**
-- **Q5 -- Does `looknfeel` ever own the "feel"** (§6.7, key maps), or is the module's name
-  aspirational and one key map the right answer?
+- **Q5 -- Does `looknfeel` ever own the "feel"** (§6.7, key maps)? **DECIDED 2026-11-17 -- see
+  §13.3/D13.**
 
 ### 13.3 Decisions taken
 
@@ -798,6 +801,79 @@ treated as 0.
    method"** -- so the fallback to `Read` is required, not optional. Ghostty hit exactly this.
 2. **Some desktops historically never emitted `SettingChanged`** (a KDE bug fixed around Plasma
    5.24), so a stale value must degrade to "no preference" and must never hang.
+
+**D12 (Q1, F9) -- a live editor in the gallery, and no file format. 2026-11-17.**
+
+The gallery's look-and-feel demo gains controls over the seeds and the scale steps, repainting every
+demo live; a look is then designed with instant feedback and the result pasted into a `.zm` file as
+two seeds. **F9 is closed, not deferred to a date.**
+
+**The arithmetic changed while this document was being written.** F9 was ranked thirteenth on the
+assumption that a look is thirty-five literals, which a file could carry and a slider could not.
+After D6, D8 and D9 a look is **two seeds, a scheme, six scale steps and a short override list** --
+so the thing that made a format necessary is gone. You cannot put a slider on thirty-five literals;
+you can put one on two seeds and six numbers.
+
+What a file would uniquely have bought is an end user theming an application they did not compile,
+and there is no such caller. §13.1's own history is the argument: `Style.window` and `Style.accent`
+were found **by an application needing them**, not by guessing, and a format designed against an
+imagined requirement is the kind of thing this repository has learned to wait on. If an outside
+caller ever appears, D8 is what will make a file safe -- because a look is derived, a loader can run
+the AA check and **refuse** a file, which was never possible for hand-written literals.
+
+The pain Q1 was really about is the loop: `rm -f ziman-gui && make gui` is mandatory and easy to
+forget. The editor answers that without a schema, a validator, or a new way for a look to be invalid
+at run time.
+
+**D13 (Q5) -- the module is renamed `theme`, and the "feel" stays out of it. 2026-11-17.**
+
+`lib/ui/looknfeel/` becomes `lib/ui/theme/`; `looknfeel.plain()` becomes `theme.plain()`. One key
+map stays wired into `controls.zm`, and the module stops implying otherwise.
+
+**Why rename rather than park the question.** The module carries a name describing something it does
+not do and is not going to do: key bindings belong with the controls that read them, and a user
+picking "Modern dark" from a menu must not silently change what Home does -- which is exactly what
+Swing shipped, and why the same Swing application answers keys differently on Windows and on macOS.
+
+**Why now.** The rename is at its cheapest today. The module was created on 2026-11-17 with four
+looks and a handful of callers; it touches `LOOKNFEEL_PARTS` in the Makefile, the header rule in
+`make/c.mk`, three includes and four registry rows in `src/corelib.c`, `GROUPS` in
+`tools/gen_lib_manual.py`, and the callers in `gallery/` and `curly/`. Every week it waits, that list
+grows.
+
+**Attached recommendation: `Theme` becomes `Look`.** `theme.Theme` stutters, and D8 already made
+"look" the word that carries meaning -- the register is two *looks* across two schemes. So `all()`
+returns `[Look]`, and `Look { name, style }`.
+
+**A real gap this question surfaced, which is not a look.** Dialog button order, Home/End versus
+Cmd-arrow, and the double-click interval are **platform conventions**, not theme choices -- Swing
+put them in `UIDefaults` and `LayoutStyle` and so conflated them with the look. They belong in their
+own value, chosen by the platform rather than from a theme menu, and they are **not** tracked by this
+document.
+
+This document keeps its own name, and its references to `looknfeel` before this line are historical.
+
+### 13.4 Build order
+
+Derived from the dependencies above, not from the ranking in §13.1 -- which was written before any
+of these decisions existed.
+
+0. **D13 -- the rename, first.** Cheapest now, purely mechanical, and doing it first means every
+   diff below is written once rather than rewritten.
+1. **D2 and D3 -- `paint`.** OKLab and OKLCH, the algebra over them, `contrast`, and `parse`'s two
+   new notations. Self-contained in one file with no callers to break, and everything after needs it.
+2. **The `Style` restructure -- D1, D5, D6, D9, D10 together.** The shape scale, the space scale
+   with its minimum and stroke groups, the five-role type scale, the five state rows and the fills
+   all touch one struct, so they are one change rather than five. The fifteen constants and four
+   instance defaults of §6.1 go here. Largest diff, and the gallery's pixels move.
+3. **D8 -- `derive`, the ramps, and the computed register.** The four looks become derived; the AA
+   gate is re-blessed once; the override lists are the measurement of whether the derivation is
+   right.
+4. **D11 -- following the scheme.** `window.color_scheme()` and the live signal, with both
+   compatibility paths.
+5. **D12 -- the gallery editor.**
+6. **The two recommendations attached but not decided**: the test that every scale step has at least
+   one caller (D6), and resolving the two sources of line height (D9).
 
 ## 14. Sources
 
