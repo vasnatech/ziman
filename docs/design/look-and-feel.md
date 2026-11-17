@@ -592,6 +592,47 @@ construction rather than by care.
 
 `corner` needs no such rule -- a radius affects neither bounds nor a rectangular hit test.
 
+**D6 (F1) -- a six-step space scale, and minimums that density cannot touch. 2026-11-17.**
+
+    pub struct Space {
+        none: float   // 0
+        xs:   float   // 2
+        s:    float   // 4   -- today's `space`
+        m:    float   // 8
+        l:    float   // 12
+        xl:   float   // 16  -- a tree's indent, a section gap
+    }
+
+    pub struct Minimum {
+        target: float   // 24.0 -- WCAG 2.2 SC 2.5.8
+        thumb:  float   // 20.0
+    }
+
+Six steps, as Material and most design systems ship, so the scale maps one-to-one onto design-tool
+output. `at_density` (D4) moves `Space` and **does not touch `Minimum`**.
+
+**Why minimums are a separate group.** Three of the nineteen numbers are not spacing at all but
+minimum targets -- `min_thumb 20.0`, `min_column 24.0`, `radio_height 24.0` -- and two of them are
+exactly **24**, which is also WCAG 2.2's minimum target size (SC 2.5.8). If a Compact density scaled
+them, the library's densest mode would be the one that fails an accessibility criterion, and the
+gate would have to be told to permit it. Compact tightens padding and gaps; a scroll thumb and a
+radio stay grabbable. This also gives the new geometry test something **absolute** to assert at
+every density rather than a ratio: every interactive control at least `minimum.target` on its
+smaller axis.
+
+**The fourth group.** Four of the nineteen are **stroke widths**, not spacing: `grid_width 1.0`,
+`divider_line 2.0`, `underline_width 1.0`, `mark_weight 0.14`. A hairline is a hairline at every
+density, so these do not belong on the space scale either -- they want their own small group, and
+`mark_weight` is a *ratio* rather than a length and should stay one.
+
+**Recommendation attached, not decided: assert that every step is used.** Six steps for a widget set
+with about thirty inset sites means `xs` and `l` start life with no caller, and today's stray 6s
+(table padding, radio insets) normalise to `s` or `m` -- pixels move, which is what removing the 6
+costs. An unused scale entry is a decision a look author must make for no reason, and it is exactly
+the sort of thing nothing notices: compare `gen_lib_map.py`, which raised `KeyError` for an unknown
+length of time because no target ran it. A test asserting each step has at least one caller would
+catch a dead step at the point it dies.
+
 ## 14. Sources
 
 Swing and third-party look and feels: [LookAndFeel](https://www.cs.unb.ca/programmingclub/docs/java/javax/swing/LookAndFeel.html),
