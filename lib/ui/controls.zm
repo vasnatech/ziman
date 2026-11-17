@@ -480,6 +480,7 @@ pub fn button_widget(b: Button, style: Style) -> widget.Widget {
         description: "",
         value: "",
         state: with widget.no_state() { disabled: b.disabled },
+        focus_part: "",
         tab_stop: true,
         child: inside
     })
@@ -603,6 +604,7 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
             disabled: c.disabled,
             checked: Option<Toggle>.Some(c.checked)
         },
+        focus_part: "",
         tab_stop: true,
         child: inside
     })
@@ -1513,6 +1515,7 @@ fn multi_line_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget
         description: "",
         value: text,
         state: with widget.no_state() { disabled: e.disabled, readonly: e.readonly, multiline: true },
+        focus_part: "",
         tab_stop: true,
         child: widget.named_scroll(concat(e.name, "-scroll"), 0.0, e.scroll, inside)
     })
@@ -1558,6 +1561,7 @@ pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget 
         // there is no second place to remember.
         value: text,
         state: with widget.no_state() { disabled: e.disabled, readonly: e.readonly },
+        focus_part: "",
         tab_stop: true,
         child: inside
     })
@@ -1779,6 +1783,7 @@ pub fn list_widget(l: List, style: Style) -> widget.Widget {
         description: "",
         value: "",
         state: with widget.no_state() { disabled: l.disabled },
+        focus_part: "",
         tab_stop: true,
         child: widget.named_scroll("", 0.0, l.offset, widget.column_of(0.0, snapshot(rows)))
     })
@@ -1955,6 +1960,10 @@ pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget {
         description: "",
         value: "",
         state: with widget.no_state() { disabled: t.disabled },
+        // **The chosen tab, not the strip.** One control takes the focus and Left and Right move
+        // along it, so a ring around the whole strip says all four tabs are focused when one of
+        // them is.
+        focus_part: tab_name(t, t.selected),
         tab_stop: true,
         // **No spacing between the tabs**, because the hit test divides the strip by `tab_width`
         // and a gap would put a dead stripe between two tabs that the arithmetic here cannot see.
@@ -2321,6 +2330,7 @@ pub fn tree_widget(t: Tree, style: Style) -> widget.Widget {
         description: "",
         value: "",
         state: with widget.no_state() { disabled: t.disabled },
+        focus_part: "",
         tab_stop: true,
         child: widget.named_scroll("", 0.0, t.offset, widget.column_of(0.0, built.rows))
     })
@@ -2623,6 +2633,7 @@ pub fn scroll_bar_widget(
         value: "",
         state: with widget.no_state() { disabled: b.disabled },
         // See the type's own note: the content takes the focus, and a stop here would do nothing.
+        focus_part: "",
         tab_stop: false,
         child: widget.fixed_of(width, track, widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Column,
@@ -2867,6 +2878,7 @@ pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget {
             disabled: c.disabled,
             expanded: Option<bool>.Some(c.open)
         },
+        focus_part: "",
         tab_stop: true,
         child: inside
     })
@@ -3222,6 +3234,7 @@ pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
             disabled: m.disabled,
             expanded: Option<bool>.Some(m.open)
         },
+        focus_part: "",
         tab_stop: true,
         child: inside
     })
@@ -3294,6 +3307,7 @@ pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: 
         description: "",
         value: "",
         state: widget.no_state(),
+        focus_part: "",
         tab_stop: false,
         child: framed
     })
@@ -3636,6 +3650,7 @@ pub fn split_pane_widget(
         // thing a reader can say about a divider that is worth hearing.
         value: str(floor(at)),
         state: with widget.no_state() { disabled: s.disabled },
+        focus_part: "",
         tab_stop: true,
         // **The grab area paints nothing and the line inside it does.** Filling the whole six
         // points makes a divider that disappears against any control drawn in the same face, which
@@ -4287,6 +4302,7 @@ pub fn table_widget(t: Table, style: Style) -> widget.Widget {
         description: "",
         value: "",
         state: with widget.no_state() { disabled: t.disabled },
+        focus_part: "",
         tab_stop: true,
         child: widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Column,
@@ -4507,6 +4523,7 @@ pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widge
         description: "",
         value: "",
         state: with widget.no_state() { disabled: r.disabled },
+        focus_part: "",
         tab_stop: true,
         child: widget.column_of(0.0, snapshot(rows))
     })
@@ -4799,6 +4816,7 @@ pub fn slider_widget(s: Slider, style: Style) -> widget.Widget {
         // slider" and stopped would have told the user nothing they could not have guessed.
         value: str(floor(s.value)),
         state: with widget.no_state() { disabled: s.disabled },
+        focus_part: "",
         tab_stop: true,
         child: lane
     })
@@ -4914,6 +4932,7 @@ pub fn link_widget(l: Link, style: Style, m: widget.Metrics) -> widget.Widget {
         description: "",
         value: "",
         state: with widget.no_state() { disabled: l.disabled },
+        focus_part: "",
         tab_stop: true,
         child: inside
     })

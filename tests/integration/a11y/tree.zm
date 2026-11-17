@@ -74,6 +74,7 @@ fn main() {
             description: "nothing to undo yet",
             value: "",
             state: with widget.no_state() { disabled: true },
+            focus_part: "",
             tab_stop: true,
             child: widget.fixed_of(60.0, 20.0, widget.label_of("Revert", 11.0, paint.black()))
         }),

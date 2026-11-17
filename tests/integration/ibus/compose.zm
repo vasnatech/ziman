@@ -5,14 +5,18 @@
 // -- so this says that a key was taken, that a pre-edit arrived, that a commit arrived and where
 // it landed, and the script checks those. Asserting "かな" would gate the engine rather than the
 // binding.
+use edit
 use ibus
 use window
-use edit
 
 fn key(keysym: int, keycode: int) -> window.KeyPress {
     return window.KeyPress {
-        keysym: keysym, keycode: keycode,
-        shift: false, control: false, alt: false, meta: false
+        keysym: keysym,
+        keycode: keycode,
+        shift: false,
+        control: false,
+        alt: false,
+        meta: false
     }
 }
 
@@ -55,13 +59,22 @@ fn main() {
                 switch change {
                     Composing(c) {
                         val composing = edit.compose_marked(
-                            editor, c.text, c.caret, c.marked_start, c.marked_end
+                            editor,
+                            c.text,
+                            c.caret,
+                            c.marked_start,
+                            c.marked_end
                         )
                         editor = composing.editor
                         held = Option<edit.Preedit>.Some(composing.preedit)
-                        print(format("PREEDIT \"{}\" caret={} marked=[{},{}) shown=\"{}\"",
-                            c.text, str(c.caret), str(c.marked_start), str(c.marked_end),
-                            edit.shown(editor, held)))
+                        print(format(
+                            "PREEDIT \"{}\" caret={} marked=[{},{}) shown=\"{}\"",
+                            c.text,
+                            str(c.caret),
+                            str(c.marked_start),
+                            str(c.marked_end),
+                            edit.shown(editor, held)
+                        ))
                         switch edit.shown_highlight(editor, held) {
                             Some(span) {
                                 print(format("HIGHLIGHT [{},{})", str(span.start), str(span.end)))

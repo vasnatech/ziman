@@ -1179,6 +1179,23 @@ pub struct Focusable {
     // The control's content: a field's text, a slider's reading. Not its label.
     value: string
     state: State
+    // Which **part** of this control the focus ring is drawn around, or `""` for the control
+    // itself.
+    //
+    // **A tab strip is why.** One control takes the focus and Left and Right move along it, so
+    // the ring went around the whole strip -- which says every tab is focused, when one of them
+    // is. ARIA's tab pattern puts the focus on the active tab for the same reason, and a reader
+    // already announces the selected one; this is the pointer's half of the same fact.
+    //
+    // **Opt-in rather than "ring whatever part is selected"**, which would have cost nothing to
+    // write and would have been wrong for the two controls that have selected parts and do not
+    // want this: a list and a tree are focused *as a whole* and show their selection by
+    // highlighting a row, which is what every platform does. A tab strip is the exception, so it
+    // is the one that says so.
+    //
+    // An unknown name rings the control, which is the same forgiving rule `paint_focused` and
+    // `paint_hovered` already follow for a name the tree no longer holds.
+    focus_part: string
     // Whether **Tab** can land here, as opposed to whether this is a control at all.
     //
     // **The two are not the same thing, and a list is what proves it.** A list of two hundred rows
@@ -1207,6 +1224,7 @@ pub fn focusable_of(name: string, child: Widget) -> Widget {
         description: "",
         value: "",
         state: no_state(),
+        focus_part: "",
         tab_stop: true,
         child: child
     })
@@ -1222,6 +1240,7 @@ pub fn control_of(name: string, role: Role, child: Widget) -> Widget {
         description: "",
         value: "",
         state: no_state(),
+        focus_part: "",
         tab_stop: true,
         child: child
     })
@@ -1237,6 +1256,7 @@ pub fn part_of(name: string, role: Role, label: string, state: State, child: Wid
         description: "",
         value: "",
         state: state,
+        focus_part: "",
         tab_stop: false,
         child: child
     })
@@ -1254,6 +1274,7 @@ pub fn labelled_control(name: string, role: Role, label: string, child: Widget) 
         description: "",
         value: "",
         state: no_state(),
+        focus_part: "",
         tab_stop: true,
         child: child
     })
@@ -2105,7 +2126,7 @@ pub fn paint_hovered(l: Laid, over: scene.Scene, hovered: string, tint: Color) -
 pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: float) -> scene.Scene {
     val ops = mutable_array_new<Op>()
     collect(l, m, ops, focused, false)
-    if Some(node) = focus_node(l, focused) {
+    if Some(node) = focus_node(l, ringed_name(l, focused)) {
         // Drawn **inside** the control's own box rather than around it: a ring outside overlaps
         // whatever is next to it, and in a dense form that is the neighbouring control.
         val half = width * 0.5
@@ -2122,7 +2143,11 @@ pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: f
         // also why the shrink below is not clamped.
         val radius = radius_of(node)
         push(ops, scene.stroke(
-            shape.round_rect_path(
+            // **The corners the control is drawn with**, not four of them: a tab is rounded along
+            // its top only, and a ring that closed round the bottom would draw a line between the
+            // tab and the body it is joined to -- the one line `tab_face_of` exists to leave out.
+            box_path(
+                corners_of(node),
                 geom.rect_of(box.x + half, box.y + half, box.width - width, box.height - width),
                 radius - half
             ),
@@ -2145,6 +2170,49 @@ pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: f
 // follow: a control is a `Focusable` wrapping the group that carries the face, and anything
 // rounded deeper -- a check box's mark inside its label row -- is a part of the control rather
 // than its edge.
+// The part a control asks its focus ring to be drawn around, or the control itself.
+//
+// **The part has to exist in this frame.** A control naming one that is not there -- a tab index
+// past the end of a strip that just lost its last tab -- gets its own ring rather than none, which
+// is the rule `paint_focused` already follows for a name the tree no longer holds at all.
+fn ringed_name(l: Laid, focused: string) -> string {
+    if Some(node) = focus_node(l, focused) {
+        if Control(it) = node.widget {
+            if it.focus_part != "" {
+                if Option.is_Some(focus_node(l, it.focus_part)) {
+                    return it.focus_part
+                }
+            }
+        }
+    }
+    return focused
+}
+
+// The corners the outermost surface in this subtree rounds. `radius_of`'s walk, for the same
+// reason and over the same nodes -- a ring has to follow the outline it is drawn around, and the
+// radius alone does not say which corners carry it.
+fn corners_of(l: Laid) -> Corners {
+    if Group(it) = l.widget {
+        if radius_in(it.surface.corner, l.bounds) > 0.0 {
+            return it.surface.corners
+        }
+    }
+    var i = 0
+    while i < prelude.len(l.children) {
+        if Group(it) = l.children[i].widget {
+            if radius_in(it.surface.corner, l.children[i].bounds) > 0.0 {
+                return it.surface.corners
+            }
+        }
+        val deeper = corners_of(l.children[i])
+        if !Corners.is_All(deeper) {
+            return deeper
+        }
+        i = i + 1
+    }
+    return Corners.All
+}
+
 fn radius_of(l: Laid) -> float {
     if Group(it) = l.widget {
         val radius = radius_in(it.surface.corner, l.bounds)

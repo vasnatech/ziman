@@ -1331,6 +1331,23 @@ pub struct Focusable {
     // The control's content: a field's text, a slider's reading. Not its label.
     value: string
     state: State
+    // Which **part** of this control the focus ring is drawn around, or `""` for the control
+    // itself.
+    //
+    // **A tab strip is why.** One control takes the focus and Left and Right move along it, so
+    // the ring went around the whole strip -- which says every tab is focused, when one of them
+    // is. ARIA's tab pattern puts the focus on the active tab for the same reason, and a reader
+    // already announces the selected one; this is the pointer's half of the same fact.
+    //
+    // **Opt-in rather than "ring whatever part is selected"**, which would have cost nothing to
+    // write and would have been wrong for the two controls that have selected parts and do not
+    // want this: a list and a tree are focused *as a whole* and show their selection by
+    // highlighting a row, which is what every platform does. A tab strip is the exception, so it
+    // is the one that says so.
+    //
+    // An unknown name rings the control, which is the same forgiving rule `paint_focused` and
+    // `paint_hovered` already follow for a name the tree no longer holds.
+    focus_part: string
     // Whether **Tab** can land here, as opposed to whether this is a control at all.
     //
     // **The two are not the same thing, and a list is what proves it.** A list of two hundred rows

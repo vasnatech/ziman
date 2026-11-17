@@ -388,6 +388,7 @@ fn a_check_box_does_not_read_its_own_mark_aloud() {
         description: "",
         value: "",
         state: widget.no_state(),
+        focus_part: "",
         tab_stop: true,
         child: widget.row_of(2.0, [words("x"), words("Notify me")])
     })
@@ -4523,6 +4524,68 @@ fn a_one_line_field_still_ignores_the_y_it_is_given() {
     val low = caret_after_press(e, style.padding.left + 20.0, 90.0)
     test.assert_eq(high, low)
     test.assert_eq(high, 2)
+}
+
+// ---------------------------------------------------- where the focus ring goes
+
+fn ring_box(l: widget.Laid, focused: string) -> geom.Rect {
+    val painted = widget.paint_focused(l, metrics(), focused, paint.rgb(0.0, 0.0, 1.0), 2.0)
+    var found = geom.rect_of(0.0, 0.0, 0.0, 0.0)
+    for op in painted.ops {
+        if StrokePath(st) = op {
+            found = shape.path_bounds(st.path)
+        }
+    }
+    return found
+}
+
+fn four_tabs() -> controls.Tabs {
+    return with controls.tabs_of("views", "Views", ["One", "Two", "Three", "Four"]) {
+        selected: 2
+    }
+}
+
+fn laid_tabs(t: controls.Tabs) -> widget.Laid {
+    return widget.layout(
+        controls.tabs_widget(t, looknfeel.plain()),
+        geom.rect_of(0.0, 0.0, 400.0, 40.0),
+        metrics()
+    )
+}
+
+// **A ring round the whole strip says every tab is focused.** One control takes the focus and Left
+// and Right move along it, so the ring was as wide as all four tabs together -- which is what a
+// user reads as "all of them are highlighted". ARIA's tab pattern puts the focus on the active
+// tab, and this is the same fact drawn.
+#[test]
+fn a_focused_tab_strip_rings_the_chosen_tab_and_not_the_strip() {
+    val t = four_tabs()
+    val l = laid_tabs(t)
+    val ring = ring_box(l, t.name)
+    // One tab wide, where it used to be four: the whole of the complaint.
+    test.assert(ring.width < t.tab_width + 2.0)
+    // And over the tab that is actually selected -- the third of four, so two widths along --
+    // rather than at the strip's own corner.
+    test.assert(ring.x > t.tab_width * 2.0 - 3.0)
+    test.assert(ring.x < t.tab_width * 2.0 + 3.0)
+}
+
+#[test]
+fn the_ring_follows_the_selection_as_it_moves() {
+    val first = ring_box(laid_tabs(with four_tabs() { selected: 0 }), "views")
+    val last = ring_box(laid_tabs(with four_tabs() { selected: 3 }), "views")
+    test.assert(last.x > first.x)
+}
+
+// **A list is focused as a whole and shows its selection by highlighting a row**, which is what
+// every platform does -- so the opt-in is a field on the control rather than a rule about any
+// control with a selected part.
+#[test]
+fn a_focused_list_still_rings_the_whole_list() {
+    val l = widget.layout(controls.list_widget(five(), looknfeel.plain()), list_box(), metrics())
+    val ring = ring_box(l, "people")
+    val whole = l.bounds
+    test.assert(ring.width > whole.width * 0.9)
 }
 
 // ---------------------------------------------------- the pointer's shape
