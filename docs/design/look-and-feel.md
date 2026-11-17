@@ -738,6 +738,31 @@ per-call style override in the tree**, and the one case that looked like a count
 carries a line-height function per face which the caret arithmetic reads. Two sources of line height
 is one too many, and the caret is exactly where that goes wrong.
 
+**D10 (F6) -- fills carry a paint, marks stay flat, and a gradient is a span of ramp steps.
+2026-11-17.**
+
+    // What a look WRITES -- authoring:
+    pub struct Fill { from: int, to: int, angle: float }   // steps of this look's ramp
+
+    // What a control READS -- built by `derive`:
+    pub struct Parts { face: paint.Paint, ink: Color, ... }
+
+`face`, `panel`, `window` and `selection` become paints; `ink`, `border`, `grid` and the caret stay
+`Color`. **A fill is a thing a gradient makes sense for; a mark is not** -- a gradient buys a mark
+nothing and costs the gate its clarity.
+
+**The gate gets stricter, not vaguer.** §12 worried that a gradient face has no luminance and the
+gate would need "a representative colour". D8 removes the problem: a gradient is a span between two
+*known ramp steps*, so the ink must clear 4.5 against **every stop** and a gradient face passes only
+if it holds at both ends. Better still, every stop in a built style is provably a ramp step, so the
+ramp can be checked once instead of extracting stops per look.
+
+**`Fill` authors, `Paint` is drawn** -- the same two-layer shape as D8's seeds and derived style. One
+consequence worth having: **`from == to` is a flat fill**, so solid and gradient are one form with no
+`Option` and no second field.
+
+**D11 (F8) -- placeholder, see below.**
+
 ## 14. Sources
 
 Swing and third-party look and feels: [LookAndFeel](https://www.cs.unb.ca/programmingclub/docs/java/javax/swing/LookAndFeel.html),
