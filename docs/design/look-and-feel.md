@@ -436,9 +436,7 @@ To be worked through one at a time. Nothing here is decided.
   OKLab lightness correlates with both.
 - **Q3 -- Does a theme ever need to name one control type** (`Button.arc`), or is passing a
   different `Style` to that call enough? **DECIDED 2026-11-17 -- see §13.3/D1.**
-- **Q4 -- Density as an axis or as entries in `all()`?** Material and Radix treat
-  compact/comfortable as an axis; `all()` is a flat list and is also the contrast gate's input.
-  Decides the shape of F1.
+- **Q4 -- Density as an axis or as entries in `all()`?** **DECIDED 2026-11-17 -- see §13.3/D4.**
 - **Q5 -- Does `looknfeel` ever own the "feel"** (§6.7, key maps), or is the module's name
   aspirational and one key map the right answer?
 
@@ -519,6 +517,30 @@ than a load-time one.
 The line is: **parse denotes, functions compute.** Note that `parse` accepting `hsl()` does not
 reintroduce HSL as a working space -- it is a notation converted to a `Color` on the way in, and
 everything after is D2.
+
+**D4 (Q4) -- density is an axis, not entries in the register. 2026-11-17.**
+
+`all()` stays four looks. Density is a transform over a style:
+
+    pub enum Density { Compact, Comfortable, Spacious }
+    pub fn at_density(s: controls.Style, d: Density) -> controls.Style
+
+**Why.** The contrast gate decided it. `looknfeel_test` holds **every look in `all()`** to AA on
+five surfaces, and that gate is what makes adding a look safe -- but density changes no colour at
+all. Crossing four looks with three densities gives twelve entries of which eight are
+colour-identical to another, so the gate would do the same work three times and a theme menu would
+show twelve rows to offer four looks. An axis also composes for nothing: compact dark modern needs
+no entry and no name, and nobody has to remember to add it.
+
+**The objection, and the answer.** A transform can produce a combination nobody tested, where an
+entry in `all()` is tested by construction. The answer is to split the tests by what they actually
+test: the colour gate keeps holding four looks to AA, and a **geometry** test asserts invariants
+across all three densities -- no control shorter than its text plus padding, no target below the
+minimum. That catches a class of defect twelve colour-identical rows never would.
+
+**The pattern this sets, which now holds twice.** A variation on an axis is **a function from
+`Style` to `Style`**, not another entry in the register. D1 gave the library the scales; D4 gives
+the application the axes over them. `emphasised`, below, is the third instance.
 
 ## 14. Sources
 
