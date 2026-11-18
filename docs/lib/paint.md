@@ -192,6 +192,190 @@ Here rather than in the one application that needed it: `gallery/ui/desktop/high
 this and `relative_luminance` written out, which is a general fact about colour sitting in a
 program about syntax colouring. `lib/ui/theme` now asserts every shipped look against it.
 
+### `Oklab`
+
+```
+pub struct Oklab {
+    lightness: float
+    a: float
+    b: float
+    alpha: float
+}
+```
+
+A colour in OKLab: a lightness that matches the eye, and two opponent axes.
+
+**This is the space every derived colour in this library is computed in**, and the reason is that
+its lightness is perceptually uniform -- equal steps of `lightness` look like equal steps, which
+is what makes a tonal scale a scale rather than a list of numbers that happen to be ordered.
+HSL's lightness is not that: `lighten` in HSL barely moves a blue and blows out a yellow, and
+drifts the hue while doing it. FlatLaf's `autoInverse` option exists to paper over exactly that
+-- it reverses the direction of a lighten above 65% lightness -- and there is nothing here for
+such a flag to correct.
+
+Alpha is carried through so that a round trip loses nothing. The axes are roughly -0.4 to 0.4 for
+colours sRGB can show.
+
+### `Oklch`
+
+```
+pub struct Oklch {
+    lightness: float
+    chroma: float
+    hue: float
+    alpha: float
+}
+```
+
+The same colour with the two axes read as a distance from grey and an angle.
+
+**This is the form a palette is built in**: hold `hue` and `chroma` and step `lightness`, and the
+result is a ramp whose every entry belongs to the same colour. `hue` is in degrees, 0 to 360.
+
+### `to_oklab`
+
+```
+pub fn to_oklab(c: Color) -> Oklab
+```
+
+The matrices are Björn Ottosson's, who fitted OKLab in 2020 against a perceptual dataset: sRGB to
+linear, linear to a cone response, the cube root of that, and a final rotation.
+
+### `oklab`
+
+```
+pub fn oklab(lightness: float, a: float, b: float) -> Color
+```
+
+```
+pub fn oklab(lightness: float, a: float, b: float, alpha: float) -> Color
+```
+
+**Through polar coordinates, so that both notations get the same gamut treatment.** An OKLab
+triple outside sRGB has a hue just as an OKLCH one does, and fitting it by reducing chroma is
+the right answer whichever way the caller spelled the colour.
+
+### `to_oklch`
+
+```
+pub fn to_oklch(c: Color) -> Oklch
+```
+
+### `oklch`
+
+```
+pub fn oklch(lightness: float, chroma: float, hue: float) -> Color
+```
+
+```
+pub fn oklch(lightness: float, chroma: float, hue: float, alpha: float) -> Color
+```
+
+### `lighten`
+
+```
+pub fn lighten(c: Color, amount: float) -> Color
+```
+
+**`amount` is a distance in lightness, not a percentage of anything.** `lighten(c, 0.1)` raises
+the colour's lightness by a tenth of the full range, and because that range is perceptual the
+same tenth looks like the same step on a blue as on a yellow. A percentage of the *remaining*
+headroom -- which is what a naive implementation does -- gives a different visual step for every
+starting colour, so a theme written with it has to be re-tuned per colour.
+
+### `darken`
+
+```
+pub fn darken(c: Color, amount: float) -> Color
+```
+
+### `saturate`
+
+```
+pub fn saturate(c: Color, amount: float) -> Color
+```
+
+Chroma has no fixed ceiling -- how much a hue can hold depends on the hue -- so this floors at
+grey and lets `encoded` clip whatever sRGB cannot show.
+
+### `desaturate`
+
+```
+pub fn desaturate(c: Color, amount: float) -> Color
+```
+
+### `change_lightness`
+
+```
+pub fn change_lightness(c: Color, lightness: float) -> Color
+```
+
+The three absolute setters, for a palette that states its steps rather than nudging them: this is
+what a tonal ramp is built from, holding two coordinates and walking the third.
+
+### `change_chroma`
+
+```
+pub fn change_chroma(c: Color, chroma: float) -> Color
+```
+
+### `change_hue`
+
+```
+pub fn change_hue(c: Color, hue: float) -> Color
+```
+
+### `fade`
+
+```
+pub fn fade(c: Color, alpha: float) -> Color
+```
+
+Alpha set outright, in sRGB, because transparency is not a colour: putting it through OKLab and
+back would clip the colour's channels for no reason at all.
+
+### `mix`
+
+```
+pub fn mix(a: Color, b: Color, at: float) -> Color
+```
+
+`at` is 0.0 for `a` and 1.0 for `b`, an interpolation parameter and not a weight -- the reading
+`stop_of` already uses for a gradient's offset.
+
+**Mixed on the opponent axes rather than through hue and chroma.** Interpolating a hue angle
+between a grey and a colour means interpolating an angle that one end does not have, and taking
+the short way round two saturated colours swings the mixture through hues in neither of them.
+Rectangular mixing is also what CSS's `color-mix(in oklab, ...)` does, for the same reason.
+
+### `tint`
+
+```
+pub fn tint(c: Color, at: float) -> Color
+```
+
+### `shade`
+
+```
+pub fn shade(c: Color, at: float) -> Color
+```
+
+### `contrast`
+
+```
+pub fn contrast(c: Color, dark: Color, light: Color) -> Color
+```
+
+Whichever of two inks reads better on `c`.
+
+**Decided by `contrast_ratio`, which is the gate's own function**, so a colour chosen here cannot
+be one the contrast test then rejects in favour of the alternative -- the choice and the check
+agree by construction. Judging by lightness instead, which is the usual shortcut, picks the wrong
+ink at exactly the mid-tones where the two are closest and it matters most.
+
+Two candidates rather than a computed ink, because a theme's dark and light inks are decisions
+someone made: this answers which of them to use, not what they should be.
+
 ### `named`
 
 ```

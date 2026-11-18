@@ -163,6 +163,306 @@ pub fn contrast_ratio(a: Color, b: Color) -> float {
     return (lb + 0.05) / (la + 0.05)
 }
 
+// Radians to degrees, hoisted for the reason `invariant` above is: `to_oklch` and `oklch` are the
+// two ends of one conversion and a literal written twice is a literal that can disagree with
+// itself. `math` has no pi.
+val degrees_per_radian: float = 57.295779513082320876798154814105
+
+// A colour in OKLab: a lightness that matches the eye, and two opponent axes.
+//
+// **This is the space every derived colour in this library is computed in**, and the reason is that
+// its lightness is perceptually uniform -- equal steps of `lightness` look like equal steps, which
+// is what makes a tonal scale a scale rather than a list of numbers that happen to be ordered.
+// HSL's lightness is not that: `lighten` in HSL barely moves a blue and blows out a yellow, and
+// drifts the hue while doing it. FlatLaf's `autoInverse` option exists to paper over exactly that
+// -- it reverses the direction of a lighten above 65% lightness -- and there is nothing here for
+// such a flag to correct.
+//
+// Alpha is carried through so that a round trip loses nothing. The axes are roughly -0.4 to 0.4 for
+// colours sRGB can show.
+pub struct Oklab {
+    lightness: float
+    a: float
+    b: float
+    alpha: float
+}
+
+// The same colour with the two axes read as a distance from grey and an angle.
+//
+// **This is the form a palette is built in**: hold `hue` and `chroma` and step `lightness`, and the
+// result is a ramp whose every entry belongs to the same colour. `hue` is in degrees, 0 to 360.
+pub struct Oklch {
+    lightness: float
+    chroma: float
+    hue: float
+    alpha: float
+}
+
+// **Signed, because the matrices below produce negative values for colours outside sRGB** and
+// `math.pow` of a negative base is not a number. A cube root is defined there and a power is not.
+fn cube_root(x: float) -> float {
+    if x < 0.0 {
+        return -math.pow(-x, 1.0 / 3.0)
+    }
+    return math.pow(x, 1.0 / 3.0)
+}
+
+// sRGB's own transfer function, which is **not quite `linear_channel` above** -- that one is
+// WCAG's, whose threshold the specification states as 0.03928 where sRGB's is 0.04045.
+//
+// **Two linearisations in one file is deliberate, not an oversight.** `relative_luminance` must
+// answer what WCAG says it answers, because a contrast ratio is a claim measured against that
+// document; OKLab must use sRGB's, because that is what the matrices were fitted to. The two differ
+// only below about 4% brightness and by less than a part in a thousand, and the right response to
+// that is to use each where it belongs rather than to pick a favourite.
+fn srgb_to_linear(v: float) -> float {
+    if v <= 0.04045 {
+        return v / 12.92
+    }
+    return math.pow((v + 0.055) / 1.055, 2.4)
+}
+
+// Back to sRGB.
+//
+// **A last guard, not the gamut strategy.** `fitted` below has already reduced the chroma until the
+// colour fits, so a channel arriving here is in range bar arithmetic error, and this clamp is for
+// that error. The first draft of this file clipped *instead* of fitting, and its own tests caught
+// what that costs -- `fitted` says what.
+fn encoded(v: float) -> float {
+    val linear = clamped(v)
+    if linear <= 0.0031308 {
+        return clamped(linear * 12.92)
+    }
+    return clamped(1.055 * math.pow(linear, 1.0 / 2.4) - 0.055)
+}
+
+// The three linear-light channels an OKLab triple asks for, before anything is clamped. Its own
+// type because the gamut search has to ask whether a colour fits **without** building it.
+//
+// Not `Linear`, which is already the gradient below.
+struct Channels {
+    red: float
+    green: float
+    blue: float
+}
+
+fn linear_of(lightness: float, a: float, b: float) -> Channels {
+    val long = lightness + 0.3963377774 * a + 0.2158037573 * b
+    val middle = lightness - 0.1055613458 * a - 0.0638541728 * b
+    val short = lightness - 0.0894841775 * a - 1.2914855480 * b
+    val l3 = long * long * long
+    val m3 = middle * middle * middle
+    val s3 = short * short * short
+    return Channels {
+        red: 4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3,
+        green: -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3,
+        blue: -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3
+    }
+}
+
+// A tenth of a byte's worth of slack, so a colour sRGB can just about show is not sent through the
+// search by arithmetic error alone.
+val gamut_slack: float = 0.0004
+
+fn shows(v: Channels) -> bool {
+    return v.red >= -gamut_slack && v.red <= 1.0 + gamut_slack && v.green >= -gamut_slack &&
+        v.green <= 1.0 + gamut_slack && v.blue >= -gamut_slack && v.blue <= 1.0 + gamut_slack
+}
+
+fn hue_of(a: float, b: float) -> float {
+    val degrees = math.atan2(b, a) * degrees_per_radian
+    if degrees < 0.0 {
+        return degrees + 360.0
+    }
+    return degrees
+}
+
+// A colour sRGB can show: the lightness and hue that were asked for, with **the chroma reduced
+// until it fits**.
+//
+// **Not a per-channel clip, and that difference is the whole predictability argument.** Clipping
+// each channel separately changes the lightness, because the channel that overflowed is pinned
+// while the others keep moving. Measured: ask a saturated blue to lighten by a tenth and a clip
+// answers with six hundredths -- `lighten` stops meaning the same thing on every hue, which is the
+// entire reason this library works in OKLab, and the clip takes it back without saying so. Holding
+// the two coordinates a theme cares about and giving way on the third is what keeps the promise.
+//
+// **This was found by a test, not by reading.** The first draft clipped, and
+// `an_equal_step_is_an_equal_step_whatever_the_hue` failed on pure blue -- the claim in `Oklab`'s
+// own comment, refuted by the implementation underneath it. The reasoning that let it through is
+// worth recording because it is plausible and wrong: *a ramp starts from a colour sRGB already
+// holds, so clipping cannot bite*. The start is in gamut; the steps need not be, and a ramp is made
+// of steps.
+//
+// CSS Color 4 gamut-maps the same way and for the same reason. Eighteen halvings take 0.4 to under
+// two millionths, far finer than a byte of colour.
+fn fitted(lightness: float, chroma: float, hue: float, alpha: float) -> Color {
+    val radians = hue / degrees_per_radian
+    val cosine = math.cos(radians)
+    val sine = math.sin(radians)
+    val wanted = math.max(0.0, chroma)
+    var low = 0.0
+    if shows(linear_of(lightness, wanted * cosine, wanted * sine)) {
+        low = wanted
+    } else {
+        var high = wanted
+        var left = 18
+        while left > 0 {
+            val mid = (low + high) / 2.0
+            if shows(linear_of(lightness, mid * cosine, mid * sine)) {
+                low = mid
+            } else {
+                high = mid
+            }
+            left = left - 1
+        }
+    }
+    val v = linear_of(lightness, low * cosine, low * sine)
+    return Color {
+        red: encoded(v.red),
+        green: encoded(v.green),
+        blue: encoded(v.blue),
+        alpha: clamped(alpha)
+    }
+}
+
+// The matrices are Björn Ottosson's, who fitted OKLab in 2020 against a perceptual dataset: sRGB to
+// linear, linear to a cone response, the cube root of that, and a final rotation.
+pub fn to_oklab(c: Color) -> Oklab {
+    val r = srgb_to_linear(clamped(c.red))
+    val g = srgb_to_linear(clamped(c.green))
+    val b = srgb_to_linear(clamped(c.blue))
+    val long = cube_root(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+    val middle = cube_root(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+    val short = cube_root(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+    return Oklab {
+        lightness: 0.2104542553 * long + 0.7936177850 * middle - 0.0040720468 * short,
+        a: 1.9779984951 * long - 2.4285922050 * middle + 0.4505937099 * short,
+        b: 0.0259040371 * long + 0.7827717662 * middle - 0.8086757660 * short,
+        alpha: c.alpha
+    }
+}
+
+pub fn oklab(lightness: float, a: float, b: float) -> Color {
+    return oklab(lightness, a, b, 1.0)
+}
+
+// **Through polar coordinates, so that both notations get the same gamut treatment.** An OKLab
+// triple outside sRGB has a hue just as an OKLCH one does, and fitting it by reducing chroma is
+// the right answer whichever way the caller spelled the colour.
+pub fn oklab(lightness: float, a: float, b: float, alpha: float) -> Color {
+    return fitted(lightness, math.sqrt(a * a + b * b), hue_of(a, b), alpha)
+}
+
+pub fn to_oklch(c: Color) -> Oklch {
+    val v = to_oklab(c)
+    return Oklch {
+        lightness: v.lightness,
+        chroma: math.sqrt(v.a * v.a + v.b * v.b),
+        hue: hue_of(v.a, v.b),
+        alpha: v.alpha
+    }
+}
+
+pub fn oklch(lightness: float, chroma: float, hue: float) -> Color {
+    return oklch(lightness, chroma, hue, 1.0)
+}
+
+pub fn oklch(lightness: float, chroma: float, hue: float, alpha: float) -> Color {
+    return fitted(lightness, chroma, hue, alpha)
+}
+
+// **`amount` is a distance in lightness, not a percentage of anything.** `lighten(c, 0.1)` raises
+// the colour's lightness by a tenth of the full range, and because that range is perceptual the
+// same tenth looks like the same step on a blue as on a yellow. A percentage of the *remaining*
+// headroom -- which is what a naive implementation does -- gives a different visual step for every
+// starting colour, so a theme written with it has to be re-tuned per colour.
+pub fn lighten(c: Color, amount: float) -> Color {
+    val v = to_oklch(c)
+    return oklch(clamped(v.lightness + amount), v.chroma, v.hue, v.alpha)
+}
+
+pub fn darken(c: Color, amount: float) -> Color {
+    return lighten(c, -amount)
+}
+
+// Chroma has no fixed ceiling -- how much a hue can hold depends on the hue -- so this floors at
+// grey and lets `encoded` clip whatever sRGB cannot show.
+pub fn saturate(c: Color, amount: float) -> Color {
+    val v = to_oklch(c)
+    return oklch(v.lightness, math.max(0.0, v.chroma + amount), v.hue, v.alpha)
+}
+
+pub fn desaturate(c: Color, amount: float) -> Color {
+    return saturate(c, -amount)
+}
+
+// The three absolute setters, for a palette that states its steps rather than nudging them: this is
+// what a tonal ramp is built from, holding two coordinates and walking the third.
+pub fn change_lightness(c: Color, lightness: float) -> Color {
+    val v = to_oklch(c)
+    return oklch(clamped(lightness), v.chroma, v.hue, v.alpha)
+}
+
+pub fn change_chroma(c: Color, chroma: float) -> Color {
+    val v = to_oklch(c)
+    return oklch(v.lightness, math.max(0.0, chroma), v.hue, v.alpha)
+}
+
+pub fn change_hue(c: Color, hue: float) -> Color {
+    val v = to_oklch(c)
+    return oklch(v.lightness, v.chroma, hue, v.alpha)
+}
+
+// Alpha set outright, in sRGB, because transparency is not a colour: putting it through OKLab and
+// back would clip the colour's channels for no reason at all.
+pub fn fade(c: Color, alpha: float) -> Color {
+    return rgba(c.red, c.green, c.blue, clamped(alpha))
+}
+
+// `at` is 0.0 for `a` and 1.0 for `b`, an interpolation parameter and not a weight -- the reading
+// `stop_of` already uses for a gradient's offset.
+//
+// **Mixed on the opponent axes rather than through hue and chroma.** Interpolating a hue angle
+// between a grey and a colour means interpolating an angle that one end does not have, and taking
+// the short way round two saturated colours swings the mixture through hues in neither of them.
+// Rectangular mixing is also what CSS's `color-mix(in oklab, ...)` does, for the same reason.
+pub fn mix(a: Color, b: Color, at: float) -> Color {
+    val t = clamped(at)
+    val from = to_oklab(a)
+    val to = to_oklab(b)
+    return oklab(
+        from.lightness + (to.lightness - from.lightness) * t,
+        from.a + (to.a - from.a) * t,
+        from.b + (to.b - from.b) * t,
+        from.alpha + (to.alpha - from.alpha) * t
+    )
+}
+
+pub fn tint(c: Color, at: float) -> Color {
+    return mix(c, white(), at)
+}
+
+pub fn shade(c: Color, at: float) -> Color {
+    return mix(c, black(), at)
+}
+
+// Whichever of two inks reads better on `c`.
+//
+// **Decided by `contrast_ratio`, which is the gate's own function**, so a colour chosen here cannot
+// be one the contrast test then rejects in favour of the alternative -- the choice and the check
+// agree by construction. Judging by lightness instead, which is the usual shortcut, picks the wrong
+// ink at exactly the mid-tones where the two are closest and it matters most.
+//
+// Two candidates rather than a computed ink, because a theme's dark and light inks are decisions
+// someone made: this answers which of them to use, not what they should be.
+pub fn contrast(c: Color, dark: Color, light: Color) -> Color {
+    if contrast_ratio(dark, c) >= contrast_ratio(light, c) {
+        return dark
+    }
+    return light
+}
+
 fn byte_fraction(v: int) -> float {
     if v <= 0 {
         return 0.0
@@ -435,13 +735,23 @@ pub fn parse(text: string) -> Result<Color, string> {
     if starts_with(key, "rgb(") || starts_with(key, "rgba(") {
         return functional(body, key)
     }
+    if starts_with(key, "hsl(") || starts_with(key, "hsla(") {
+        return hsl_colour(body, key)
+    }
+    if starts_with(key, "oklab(") {
+        return oklab_colour(body, key)
+    }
+    if starts_with(key, "oklch(") {
+        return oklch_colour(body, key)
+    }
     if Some(c) = named(key) {
         return ok(c)
     }
     return err(concat(
         "paint.parse: '",
         body,
-        "' is not a colour: expected #rgb, #rrggbb, rgb(..), rgba(..) or one of the 148 colour names"
+        "' is not a colour: expected #rgb, #rrggbb, rgb(..), rgba(..), hsl(..), oklab(..), ",
+        "oklch(..) or one of the 148 colour names"
     ))
 }
 
@@ -452,7 +762,14 @@ pub fn parse(text: string) -> Result<Color, string> {
 //
 // Components may be separated by commas or by spaces, and the alpha may follow a `/` -- the three
 // spellings that occur in files, from SVG 1.1 through CSS Color 4.
-fn functional(whole: string, key: string) -> Result<Color, string> {
+// The three components and an optional alpha of a functional notation, as text.
+//
+// **One grammar, four readers.** `rgb()`, `hsl()`, `oklab()` and `oklch()` differ in what their
+// components *mean* and not at all in how they are written: separated by commas or by spaces, with
+// the alpha given either as a fourth component or after a slash. Four copies of the splitting would
+// be four places for a space to stop being allowed in, which is how a reader ends up accepting
+// `rgb(1 2 3)` and refusing `hsl(1 2 3)`.
+fn three_and_alpha(whole: string, key: string, what: string) -> Result<[string], string> {
     if !ends_with(key, ")") {
         return err(concat("paint.parse: '", whole, "' never closes its '('"))
     }
@@ -476,7 +793,9 @@ fn functional(whole: string, key: string) -> Result<Color, string> {
             whole,
             "' has ",
             str(len(fields)),
-            " components, and rgb() takes three or four"
+            " components, and ",
+            what,
+            " takes three or four"
         ))
     }
     if len(fields) == 4 {
@@ -485,14 +804,145 @@ fn functional(whole: string, key: string) -> Result<Color, string> {
         }
         alpha_text = fields[3]
     }
+    return ok([fields[0], fields[1], fields[2], alpha_text])
+}
+
+fn plain_number(text: string, whole: string) -> Result<float, string> {
+    val body = trim(text)
+    val read = parse_float(body)
+    if Err(why) = read {
+        return err(concat("paint.parse: '", body, "' is not a number, in '", whole, "' (", why, ")"))
+    }
+    val v = try read
+    return ok(v)
+}
+
+// A number where `100%` means `full` and a bare number means itself: OKLab's lightness (full 1.0)
+// and its axes and chroma (full 0.4, which is about as far as sRGB reaches). CSS Color 4's rule.
+fn scaled_number(text: string, full: float, whole: string) -> Result<float, string> {
+    val body = trim(text)
+    if ends_with(body, "%") {
+        val v = try plain_number(substring(body, 0, len(body) - 1), whole)
+        return ok(v / 100.0 * full)
+    }
+    return plain_number(body, whole)
+}
+
+// A number that is a percentage **whether or not it carries the sign**, which is `hsl()`'s
+// saturation and lightness: CSS accepts `50%` and `50` there and means the same by both.
+fn percentage(text: string, whole: string) -> Result<float, string> {
+    val body = trim(text)
+    if ends_with(body, "%") {
+        val v = try plain_number(substring(body, 0, len(body) - 1), whole)
+        return ok(clamped(v / 100.0))
+    }
+    val v = try plain_number(body, whole)
+    return ok(clamped(v / 100.0))
+}
+
+// An angle in degrees, however it was written.
+//
+// **`grad` is tested before `rad` on purpose**: "grad" ends with "rad", so the obvious order reads
+// 400 gradians as 400 radians and lands 57 times round the wheel from where it meant to.
+fn angle(text: string, whole: string) -> Result<float, string> {
+    val body = trim(text)
+    if ends_with(body, "grad") {
+        val v = try plain_number(substring(body, 0, len(body) - 4), whole)
+        return ok(v * 0.9)
+    }
+    if ends_with(body, "turn") {
+        val v = try plain_number(substring(body, 0, len(body) - 4), whole)
+        return ok(v * 360.0)
+    }
+    if ends_with(body, "rad") {
+        val v = try plain_number(substring(body, 0, len(body) - 3), whole)
+        return ok(v * degrees_per_radian)
+    }
+    if ends_with(body, "deg") {
+        return plain_number(substring(body, 0, len(body) - 3), whole)
+    }
+    return plain_number(body, whole)
+}
+
+// HSL to sRGB, and **private on purpose**.
+//
+// `parse` reads `hsl()` because it is a way of *writing one colour* -- it turns up in SVG files and
+// in what design tools export -- and a notation is this function's whole reason to exist. HSL is
+// **not** a working space here and there is no `hsl()` constructor or `to_hsl`: the algebra above
+// is OKLab's, for the reasons `Oklab` gives, and a second space reachable from outside would invite
+// a theme to be written half in each.
+fn hsl_to_color(hue: float, saturation: float, lightness: float, alpha: float) -> Color {
+    val s = clamped(saturation)
+    val l = clamped(lightness)
+    val chroma = (1.0 - math.abs(2.0 * l - 1.0)) * s
+    val turned = hue - 360.0 * math.floor_float(hue / 360.0)
+    val sector = turned / 60.0
+    val second = chroma * (1.0 - math.abs(sector - 2.0 * math.floor_float(sector / 2.0) - 1.0))
+    val base = l - chroma / 2.0
+    if sector < 1.0 {
+        return rgba(chroma + base, second + base, base, alpha)
+    }
+    if sector < 2.0 {
+        return rgba(second + base, chroma + base, base, alpha)
+    }
+    if sector < 3.0 {
+        return rgba(base, chroma + base, second + base, alpha)
+    }
+    if sector < 4.0 {
+        return rgba(base, second + base, chroma + base, alpha)
+    }
+    if sector < 5.0 {
+        return rgba(second + base, base, chroma + base, alpha)
+    }
+    return rgba(chroma + base, base, second + base, alpha)
+}
+
+fn hsl_colour(whole: string, key: string) -> Result<Color, string> {
+    val parts = try three_and_alpha(whole, key, "hsl()")
+    val h = try angle(parts[0], whole)
+    val s = try percentage(parts[1], whole)
+    val l = try percentage(parts[2], whole)
+    var a = 1.0
+    if len(parts[3]) > 0 {
+        a = try component(parts[3], 1.0, whole)
+    }
+    return ok(hsl_to_color(h, s, l, a))
+}
+
+fn oklab_colour(whole: string, key: string) -> Result<Color, string> {
+    val parts = try three_and_alpha(whole, key, "oklab()")
+    val lightness = try scaled_number(parts[0], 1.0, whole)
+    val a_axis = try scaled_number(parts[1], 0.4, whole)
+    val b_axis = try scaled_number(parts[2], 0.4, whole)
+    var alpha = 1.0
+    if len(parts[3]) > 0 {
+        alpha = try component(parts[3], 1.0, whole)
+    }
+    return ok(oklab(clamped(lightness), a_axis, b_axis, alpha))
+}
+
+fn oklch_colour(whole: string, key: string) -> Result<Color, string> {
+    val parts = try three_and_alpha(whole, key, "oklch()")
+    val lightness = try scaled_number(parts[0], 1.0, whole)
+    val chroma = try scaled_number(parts[1], 0.4, whole)
+    val hue = try angle(parts[2], whole)
+    var alpha = 1.0
+    if len(parts[3]) > 0 {
+        alpha = try component(parts[3], 1.0, whole)
+    }
+    return ok(oklch(clamped(lightness), math.max(0.0, chroma), hue, alpha))
+}
+
+fn functional(whole: string, key: string) -> Result<Color, string> {
+    val parts = try three_and_alpha(whole, key, "rgb()")
     // Red, green and blue are bytes unless written as percentages; the alpha is a fraction unless
     // written as one. That asymmetry is CSS's, not this reader's.
-    val r = try component(fields[0], 255.0, whole)
-    val g = try component(fields[1], 255.0, whole)
-    val b = try component(fields[2], 255.0, whole)
+    val r = try component(parts[0], 255.0, whole)
+    val g = try component(parts[1], 255.0, whole)
+    val b = try component(parts[2], 255.0, whole)
     var a = 1.0
-    if len(alpha_text) > 0 {
-        a = try component(alpha_text, 1.0, whole)
+    if len(parts[3]) > 0 {
+        a = try component(parts[3], 1.0, whole)
     }
     return ok(rgba(r, g, b, a))
 }

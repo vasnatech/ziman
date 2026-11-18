@@ -5,6 +5,7 @@
 // out-of-range component CSS says to clamp rather than refuse. The 148-name table is checked at its
 // edges and at one value nobody could guess (`#ffefd5` is papayawhip).
 use locale
+use math
 use paint
 use test
 
@@ -155,9 +156,17 @@ fn the_keywords_that_are_not_colours_are_refused() {
     test.assert(refused("currentColor"))
     test.assert(refused("none"))
     test.assert(refused("inherit"))
-    // The rest of CSS Color is deliberately out.
-    test.assert(refused("hsl(0, 100%, 50%)"))
+    // **Notations are read; expressions are not.** `parse` answers text that *denotes one colour*,
+    // which is what `hsl()`, `oklab()` and `oklch()` are -- so those are below, not here. What
+    // stays out is anything that computes: an expression needs an interpolation space, a `calc()`
+    // and in `light-dark()`'s case a notion of which theme is being asked, and all three belong in
+    // the typed algebra where a mistake is a compile error rather than a load-time one.
+    test.assert(refused("color-mix(in oklab, #fff 20%, #06c)"))
+    test.assert(refused("oklch(from #06c l c h)"))
+    test.assert(refused("light-dark(#fff, #111)"))
+    // And two notations this reader still does not know, which is a gap rather than a decision.
     test.assert(refused("lab(50% 40 59)"))
+    test.assert(refused("color(display-p3 1 0 0)"))
 }
 
 #[test]
@@ -181,4 +190,194 @@ fn a_malformed_function_is_refused_by_shape() {
     test.assert(refused("rgb(1,2,3,0.5 / 0.5)"))
     test.assert(refused(""))
     test.assert(refused("   "))
+}
+
+// ---- hsl, oklab and oklch as notations
+
+#[test]
+fn hsl_names_the_three_primaries() {
+    test.assert(same(colour("hsl(0 100% 50%)"), paint.rgb(1.0, 0.0, 0.0)))
+    test.assert(same(colour("hsl(120, 100%, 50%)"), paint.rgb(0.0, 1.0, 0.0)))
+    test.assert(same(colour("hsl(240 100% 50%)"), paint.rgb(0.0, 0.0, 1.0)))
+    // Saturation and lightness mean the same with or without the sign, which is CSS's rule.
+    test.assert(same(colour("hsl(0 100 50)"), paint.rgb(1.0, 0.0, 0.0)))
+    // Grey has no hue, and every hue agrees about that.
+    test.assert(same(colour("hsl(0 0% 50%)"), colour("hsl(200 0% 50%)")))
+}
+
+#[test]
+fn an_hsl_alpha_arrives_either_way() {
+    test.assert_near(0.5, colour("hsl(0 100% 50% / 50%)").alpha, 0.002)
+    test.assert_near(0.5, colour("hsl(0, 100%, 50%, 0.5)").alpha, 0.002)
+}
+
+#[test]
+fn an_angle_carries_its_unit_and_grad_is_not_rad() {
+    // Half a turn from red is cyan, however the half turn is spelled.
+    val cyan = colour("hsl(180 100% 50%)")
+    test.assert(same(colour("hsl(0.5turn 100% 50%)"), cyan))
+    test.assert(same(colour("hsl(180deg 100% 50%)"), cyan))
+    test.assert(same(colour("hsl(200grad 100% 50%)"), cyan))
+    // **The ordering trap, pinned.** "grad" ends with "rad", so a reader that tests `rad` first
+    // reads 400 gradians as 400 radians -- which is 57 times round the wheel and lands on a hue
+    // nobody asked for. A full turn of gradians is 400, and a full turn is red again.
+    test.assert(same(colour("hsl(400grad 100% 50%)"), colour("hsl(0 100% 50%)")))
+}
+
+#[test]
+fn oklch_reads_the_coordinates_the_space_publishes() {
+    // sRGB red is L 0.628, C 0.258, h 29.23 in OKLCH -- the figure the space is usually introduced
+    // with, and a check that the matrices went in the right way round.
+    test.assert(same(colour("oklch(0.6279 0.2577 29.23)"), paint.rgb(1.0, 0.0, 0.0)))
+    test.assert(same(colour("oklab(1 0 0)"), paint.white()))
+    test.assert(same(colour("oklab(0 0 0)"), paint.black()))
+    // A percentage lightness means the same as the fraction.
+    test.assert(same(colour("oklch(100% 0 0)"), colour("oklch(1 0 0)")))
+}
+
+// ---- the algebra
+
+#[test]
+fn a_colour_survives_the_round_trip() {
+    for text in ["#06c", "#f0f", "#000", "#fff", "#8ac", "papayawhip"] {
+        val c = colour(text)
+        val lab = paint.to_oklab(c)
+        test.assert(same(paint.oklab(lab.lightness, lab.a, lab.b, lab.alpha), c))
+        val lch = paint.to_oklch(c)
+        test.assert(same(paint.oklch(lch.lightness, lch.chroma, lch.hue, lch.alpha), c))
+    }
+}
+
+#[test]
+fn an_equal_step_is_an_equal_step_whatever_the_hue() {
+    // **This is the whole reason the space is OKLab and not HSL.** The same nudge has to mean the
+    // same visible change on a blue as on a yellow; in HSL it does not, which is why FlatLaf needs
+    // an `autoInverse` flag to undo its own lighten near the ends of the range.
+    for text in ["#0000ff", "#ffff00", "#008080", "#808080", "#400020"] {
+        val c = colour(text)
+        val before = paint.to_oklab(c).lightness
+        val after = paint.to_oklab(paint.lighten(c, 0.1)).lightness
+        // **Exactly a tenth, or white, whichever comes first** -- which is the whole contract.
+        // Yellow sits at 0.968 and has no tenth left, and saying so here is better than choosing
+        // only colours with room: a step that silently became 0.03 would pass a test written
+        // without the ceiling in it.
+        test.assert_near(math.min(1.0, before + 0.1), after, 0.002)
+    }
+}
+
+#[test]
+fn lighten_and_darken_undo_each_other_where_there_is_room() {
+    // A grey has no chroma to lose, so the round trip is exact.
+    val grey = paint.gray(0.4)
+    test.assert(same(paint.darken(paint.lighten(grey, 0.15), 0.15), grey))
+    // They saturate at the ends rather than wrapping: white cannot get lighter.
+    test.assert(same(paint.lighten(paint.white(), 0.5), paint.white()))
+    test.assert(same(paint.darken(paint.black(), 0.5), paint.black()))
+}
+
+#[test]
+fn a_saturated_colour_pays_for_a_lighten_in_chroma() {
+    // **The round trip is NOT exact for a saturated colour, and that is the design.** Lightening a
+    // strong blue asks for a colour sRGB cannot show, so `fitted` keeps the lightness and the hue
+    // and reduces the chroma; darkening again restores the lightness, and the chroma it gave up is
+    // gone. The alternative -- clipping each channel -- keeps the chroma and loses the lightness
+    // instead, which is what makes a tenth stop being a tenth.
+    val blue = colour("#0000ff")
+    val back = paint.darken(paint.lighten(blue, 0.2), 0.2)
+    val before = paint.to_oklch(blue)
+    val after = paint.to_oklch(back)
+    test.assert_near(before.lightness, after.lightness, 0.002)
+    test.assert_near(before.hue, after.hue, 0.5)
+    test.assert(after.chroma < before.chroma)
+}
+
+#[test]
+fn mixing_holds_its_ends_and_meets_in_the_middle() {
+    val a = colour("#06c")
+    val b = colour("#fc3")
+    test.assert(same(paint.mix(a, b, 0.0), a))
+    test.assert(same(paint.mix(a, b, 1.0), b))
+    // Halfway between black and white is halfway in *lightness*, which is not halfway in sRGB --
+    // 0.5 here is about #bcbcbc, and a mix done on the raw channels would give #808080 and look
+    // too dark. That difference is the point of mixing in this space.
+    test.assert_near(0.5, paint.to_oklab(paint.mix(paint.black(), paint.white(), 0.5)).lightness, 0.002)
+}
+
+#[test]
+fn mixing_with_grey_keeps_the_hue() {
+    // **Why the mix is rectangular rather than through hue and chroma.** Grey has no hue to
+    // interpolate, so an angular mix has to invent one; on the opponent axes the grey end simply
+    // contributes nothing to the direction, and the result stays the hue it came from.
+    val blue = colour("#06c")
+    val faded = paint.mix(blue, paint.gray(0.5), 0.5)
+    test.assert_near(paint.to_oklch(blue).hue, paint.to_oklch(faded).hue, 0.5)
+    test.assert(paint.to_oklch(faded).chroma < paint.to_oklch(blue).chroma)
+}
+
+#[test]
+fn tint_and_shade_go_the_ways_they_say() {
+    val c = colour("#06c")
+    test.assert(paint.to_oklab(paint.tint(c, 0.3)).lightness > paint.to_oklab(c).lightness)
+    test.assert(paint.to_oklab(paint.shade(c, 0.3)).lightness < paint.to_oklab(c).lightness)
+    test.assert(same(paint.tint(c, 1.0), paint.white()))
+    test.assert(same(paint.shade(c, 1.0), paint.black()))
+}
+
+#[test]
+fn desaturating_all_the_way_leaves_a_grey() {
+    val grey = paint.desaturate(colour("#06c"), 1.0)
+    test.assert(paint.to_oklch(grey).chroma < 0.002)
+    test.assert(close(grey.red, grey.green) && close(grey.green, grey.blue))
+}
+
+#[test]
+fn fade_touches_the_alpha_and_nothing_else() {
+    // **Set in sRGB rather than through OKLab**, because a round trip would clip the channels of a
+    // colour that is merely being made translucent. These are equalities, not approximations.
+    val c = colour("#06c")
+    val half = paint.fade(c, 0.5)
+    test.assert_eq(c.red, half.red)
+    test.assert_eq(c.green, half.green)
+    test.assert_eq(c.blue, half.blue)
+    test.assert_eq(0.5, half.alpha)
+}
+
+#[test]
+fn the_setters_set_what_they_name() {
+    val c = colour("#06c")
+    test.assert_near(0.72, paint.to_oklch(paint.change_lightness(c, 0.72)).lightness, 0.002)
+    test.assert_near(0.1, paint.to_oklch(paint.change_chroma(c, 0.1)).chroma, 0.002)
+    test.assert_near(140.0, paint.to_oklch(paint.change_hue(c, 140.0)).hue, 0.5)
+    // A hue is kept while the other two move, which is what makes a ramp a ramp.
+    test.assert_near(
+        paint.to_oklch(c).hue,
+        paint.to_oklch(paint.change_lightness(c, 0.9)).hue,
+        0.5
+    )
+}
+
+#[test]
+fn contrast_picks_the_ink_the_gate_would_have_picked() {
+    test.assert(same(paint.contrast(paint.white(), paint.black(), paint.white()), paint.black()))
+    test.assert(same(paint.contrast(paint.black(), paint.black(), paint.white()), paint.white()))
+    // **The claim worth testing is the agreement, not the answer.** Whatever it returns must be the
+    // candidate with the higher WCAG ratio, because the gate measures with that same function -- so
+    // an ink chosen here can never be one the contrast test then rejects for the other candidate.
+    for text in ["#767676", "#808080", "#06c", "#fc3", "#8ac", "papayawhip"] {
+        val on = colour(text)
+        val chosen = paint.contrast(on, paint.black(), paint.white())
+        val other = if same(chosen, paint.black()) { paint.white() } else { paint.black() }
+        test.assert(paint.contrast_ratio(chosen, on) >= paint.contrast_ratio(other, on))
+    }
+}
+
+#[test]
+fn a_colour_the_screen_cannot_show_comes_back_inside_the_box() {
+    // An impossible chroma is clipped per channel rather than refused -- stated in `encoded`'s own
+    // comment as a limitation, and pinned here so it stays a clip and never becomes a NaN.
+    val wild = paint.oklch(0.6, 0.9, 150.0)
+    test.assert(wild.red >= 0.0 && wild.red <= 1.0)
+    test.assert(wild.green >= 0.0 && wild.green <= 1.0)
+    test.assert(wild.blue >= 0.0 && wild.blue <= 1.0)
+    test.assert(!math.is_nan(wild.red) && !math.is_nan(wild.green) && !math.is_nan(wild.blue))
 }
