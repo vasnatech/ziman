@@ -37,7 +37,7 @@ fn rows() -> [controls.TreeRow] {
 
 pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return tree_ui.screen(tree_ui.Screen {
-        tree: controls.tree_widget(d.tree, style),
+        tree: controls.tree_widget(d.tree, style, m),
         said: said(d)
     }, style, m)
 }
@@ -68,7 +68,7 @@ pub fn input(
     m: widget.Metrics
 ) -> Demo {
     if name == "tree-demo" {
-        return with d { tree: controls.tree_input(d.tree, input, style, boxes.bounds_of(laid, name)).tree }
+        return with d { tree: controls.tree_input(d.tree, input, style, boxes.bounds_of(laid, name), m).tree }
     }
     return d
 }

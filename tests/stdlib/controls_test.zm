@@ -304,7 +304,7 @@ fn a_press_on_nothing_goes_nowhere_and_leaves_the_focus_alone() {
 // tree, tab strip and table in the window at once.
 #[test]
 fn a_press_on_a_row_routes_to_the_list_and_not_to_the_row() {
-    val l = widget.layout(controls.list_widget(five(), theme.plain()), list_box(), metrics())
+    val l = widget.layout(controls.list_widget(five(), theme.plain(), metrics()), list_box(), metrics())
     // The row is there, and it is a control.
     test.assert(Option.is_Some(widget.node_named(l, controls.row_name(five(), 1))))
     test.assert_eq(controls.target(l, controls.Input.Press(geom.point_of(10.0, 30.0)), "elsewhere", ""), "people")
@@ -446,6 +446,42 @@ fn field() -> controls.Entry {
 
 fn style() -> controls.Style {
     return theme.plain()
+}
+
+// How tall one row of a list, a tree or a table is **here** -- in this file's metrics and style.
+//
+// **A function rather than the 20.0 these tests used to be written against.** A row is derived
+// from the body text and the space scale now (Q8), so a test that kept the number would be
+// asserting against a constant the library no longer has, and would go on passing while a theme
+// that changed its type silently stopped fitting its own rows. The metrics here make a line twice
+// the point size, so this is 24 + `space.s`.
+fn row_tall() -> float {
+    return controls.row_height(metrics(), style())
+}
+
+// The same for a table's header band: a line of label text and the medium step.
+fn header_tall() -> float {
+    return controls.header_height(metrics(), style())
+}
+
+// A point in the middle of row `n` of a list or a tree, `x` points in.
+//
+// **The middle of the row rather than a literal y**, which is what these tests meant all along:
+// `point_of(10.0, 30.0)` said "row one" only while a row was twenty points tall, and a test that
+// kept the literal would be asserting about an edge when what it is about is which row was
+// pressed.
+fn on_row(n: int, x: float) -> geom.Point {
+    return geom.point_of(x, row_tall() * ((n as float) + 0.5))
+}
+
+// The same for a table, whose rows start below the header band.
+fn in_body(n: int, x: float) -> geom.Point {
+    return geom.point_of(x, header_tall() + row_tall() * ((n as float) + 0.5))
+}
+
+// Where a list scrolled to reveal row `n` at the bottom of `list_box` comes to rest.
+fn creep_to(n: int) -> float {
+    return row_tall() * ((n + 1) as float) - list_box().height
 }
 
 fn entry_box() -> geom.Rect {
@@ -746,7 +782,7 @@ fn a_read_only_field_says_so() {
 
 // --- the list
 
-// Five rows of 20 in a box 60 tall: three rows visible, two below.
+// Five rows in a box 60 tall: two whole rows visible at this density, three below.
 fn five() -> controls.List {
     return controls.list_of("people", "People", ["Ada", "Grace", "Alan", "Edsger", "Barbara"])
 }
@@ -756,7 +792,7 @@ fn list_box() -> geom.Rect {
 }
 
 fn to_list(l: controls.List, input: controls.Input) -> controls.ListStep {
-    return controls.list_input(l, input, style(), list_box())
+    return controls.list_input(l, input, style(), list_box(), metrics())
 }
 
 fn arrow(l: controls.List, k: controls.Key) -> controls.ListStep {
@@ -786,33 +822,35 @@ fn the_arrows_move_the_selection_and_stop_at_both_ends() {
     test.assert_eq(arrow(with five() { selected: 4 }, key_down).list.selected, 4)
 }
 
-// **The view follows the selection by the least that works.** Three rows of 20 fit in 60, so the
-// first three arrows move the selection with the list still at the top, and only the fourth scrolls
-// -- by one row, not by a page.
+// **The view follows the selection by the least that works.** Two whole rows fit in 60, so the
+// first arrow moves the selection with the list still at the top, and every one after it scrolls
+// by what the row needs rather than by a page.
 #[test]
 fn arrowing_down_creeps_the_view_rather_than_jumping() {
     var l = five()
     l = arrow(l, key_down).list
-    l = arrow(l, key_down).list
-    test.assert_eq(l.selected, 2)
+    test.assert_eq(l.selected, 1)
     test.assert_eq(l.offset, 0.0)
     l = arrow(l, key_down).list
+    test.assert_eq(l.selected, 2)
+    test.assert_eq(l.offset, creep_to(2))
+    l = arrow(l, key_down).list
     test.assert_eq(l.selected, 3)
-    test.assert_eq(l.offset, 20.0)
+    test.assert_eq(l.offset, creep_to(3))
     l = arrow(l, key_down).list
     test.assert_eq(l.selected, 4)
-    test.assert_eq(l.offset, 40.0)
+    test.assert_eq(l.offset, creep_to(4))
 }
 
 #[test]
 fn end_and_page_down_also_bring_the_selection_into_view() {
     val ended = arrow(five(), key_end)
     test.assert_eq(ended.list.selected, 4)
-    test.assert_eq(ended.list.offset, 40.0)
-    // A page is three rows here, so one PageDown lands on row 3 and scrolls by one.
+    test.assert_eq(ended.list.offset, creep_to(4))
+    // A page is what fits whole, so one PageDown lands two rows down and scrolls to show it.
     val paged = arrow(five(), key_page_down)
-    test.assert_eq(paged.list.selected, 3)
-    test.assert_eq(paged.list.offset, 20.0)
+    test.assert_eq(paged.list.selected, 2)
+    test.assert_eq(paged.list.offset, creep_to(2))
 }
 
 // **The wheel scrolls and does not move the selection.** Routing a wheel to whatever has the
@@ -825,12 +863,13 @@ fn the_wheel_scrolls_without_moving_the_selection() {
         vertical: 0 - 1,
         horizontal: 0
     }))
-    test.assert_eq(step.list.offset, 20.0)
+    test.assert_eq(step.list.offset, row_tall())
     test.assert_eq(step.list.selected, 0)
     test.assert_false(step.moved)
 }
 
-// And it stops at both ends: 5 rows of 20 is 100, in a view of 60, so 40 is as far as it goes.
+// And it stops at both ends: five rows in a view of 60, so the last row's bottom edge is as far as
+// it goes.
 #[test]
 fn the_wheel_stops_at_both_ends() {
     var l = five()
@@ -843,7 +882,7 @@ fn the_wheel_stops_at_both_ends() {
         })).list
         i = i + 1
     }
-    test.assert_eq(l.offset, 40.0)
+    test.assert_eq(l.offset, creep_to(4))
     var j = 0
     while j < 20 {
         l = to_list(l, controls.Input.Wheel(controls.Wheel {
@@ -860,14 +899,14 @@ fn the_wheel_stops_at_both_ends() {
 // by two rows, the top of the box is row 2.
 #[test]
 fn a_click_selects_the_row_under_the_pointer_through_the_offset() {
-    test.assert_eq(to_list(five(), controls.Input.Press(geom.point_of(10.0, 30.0))).list.selected, 1)
-    val scrolled = with five() { offset: 40.0 }
+    test.assert_eq(to_list(five(), controls.Input.Press(on_row(1, 10.0))).list.selected, 1)
+    val scrolled = with five() { offset: row_tall() * 2.0 }
     test.assert_eq(to_list(scrolled, controls.Input.Press(geom.point_of(10.0, 10.0))).list.selected, 2)
 }
 
 #[test]
 fn a_click_past_the_last_row_changes_nothing() {
-    val step = to_list(with five() { items: ["Ada"] }, controls.Input.Press(geom.point_of(10.0, 50.0)))
+    val step = to_list(with five() { items: ["Ada"] }, controls.Input.Press(on_row(1, 10.0)))
     test.assert_eq(step.list.selected, 0)
     test.assert_false(step.moved)
 }
@@ -891,7 +930,7 @@ fn a_disabled_list_ignores_everything() {
 // --- one tab stop, five nodes
 
 fn laid_list(l: controls.List) -> widget.Laid {
-    return widget.layout(controls.list_widget(l, theme.plain()), list_box(), metrics())
+    return widget.layout(controls.list_widget(l, theme.plain(), metrics()), list_box(), metrics())
 }
 
 // **The whole reason `tab_stop` exists.** Tab sees one control; a reader sees the list and every
@@ -929,7 +968,7 @@ fn said_in(t: a11y.Tree, key: string) -> string {
 #[test]
 fn clicking_a_row_focuses_the_list_and_reports_the_row() {
     val l = laid_list(five())
-    val at = geom.point_of(10.0, 30.0)
+    val at = on_row(1, 10.0)
     test.assert_eq(focus.clicked(l, at, ""), "people")
     test.assert_eq(switch focus.control_at(l, at) {
         Some(one) { one.name }
@@ -941,8 +980,8 @@ fn clicking_a_row_focuses_the_list_and_reports_the_row() {
 // arriving here for free.
 #[test]
 fn a_row_scrolled_out_of_the_list_cannot_be_clicked() {
-    val l = laid_list(with five() { offset: 40.0 })
-    // Rows 2, 3 and 4 are visible; row 0 is two rows above the top.
+    val l = laid_list(with five() { offset: row_tall() * 2.0 })
+    // The list is two rows down, so the top of the box is row 2 and row 0 is above it.
     test.assert_eq(switch focus.control_at(l, geom.point_of(10.0, 10.0)) {
         Some(one) { one.name }
         None { "(none)" }
@@ -963,7 +1002,7 @@ fn popup_box() -> geom.Rect {
 }
 
 fn to_menu(m: controls.Menu, input: controls.Input) -> controls.MenuStep {
-    return controls.menu_input(m, input, style(), title_box, popup_box())
+    return controls.menu_input(m, input, style(), title_box, popup_box(), metrics())
 }
 
 fn menu_key(m: controls.Menu, k: controls.Key) -> controls.MenuStep {
@@ -1069,7 +1108,7 @@ fn the_popup_rows_are_menu_items() {
     val open = menu_key(file_menu(), key_down).menu
     val l = widget.layout(
         widget.layered_of([widget.base_layer(widget.Widget.Nothing),
-            controls.menu_popup_layer(open, theme.plain(), popup_box())]),
+            controls.menu_popup_layer(open, theme.plain(), popup_box(), metrics())]),
         geom.rect_of(0.0, 0.0, 120.0, 100.0),
         metrics()
     )
@@ -1690,7 +1729,7 @@ fn a_masked_field_is_one_line_whatever_rows_says() {
 //   empty          0  branch, open, and EMPTY -- the case a derived `expandable` gets wrong
 //   scratch        0  leaf at the top, so "depth 0" and "branch" are not the same thing
 fn forest() -> controls.Tree {
-    return with controls.tree_of("files", "Collections", [
+    return controls.tree_of("files", "Collections", [
         controls.tree_branch("api", 0, true),
         controls.tree_branch("auth", 1, true),
         controls.tree_row("login", 2),
@@ -1698,13 +1737,13 @@ fn forest() -> controls.Tree {
         controls.tree_row("health", 1),
         controls.tree_branch("empty", 0, true),
         controls.tree_row("scratch", 0)
-    ]) { row_height: 20.0, indent: 16.0 }
+    ])
 }
 
 val tree_box = geom.rect_of(0.0, 0.0, 200.0, 140.0)
 
 fn to_tree(t: controls.Tree, input: controls.Input) -> controls.TreeStep {
-    return controls.tree_input(t, input, style(), tree_box)
+    return controls.tree_input(t, input, style(), tree_box, metrics())
 }
 
 fn tree_key(t: controls.Tree, k: controls.Key) -> controls.TreeStep {
@@ -1732,7 +1771,7 @@ fn everything_is_visible_while_every_branch_is_open() {
 // two rows on screen with nothing above them.
 #[test]
 fn closing_a_branch_hides_everything_under_it() {
-    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0)))
+    val shut = to_tree(forest(), controls.Input.Press(on_row(0, 8.0)))
     test.assert(shut.toggled)
     test.assert_eq(join(separator: " ", pieces: labels_shown(shut.tree)), "api empty scratch")
 }
@@ -1741,12 +1780,12 @@ fn closing_a_branch_hides_everything_under_it() {
 // apart on the same row, which is why the hit test needs the column as well as the row.
 #[test]
 fn a_press_on_the_label_selects_where_a_press_on_the_mark_toggles() {
-    val chose = to_tree(forest(), controls.Input.Press(geom.point_of(60.0, 30.0)))
+    val chose = to_tree(forest(), controls.Input.Press(on_row(1, 60.0)))
     test.assert_false(chose.toggled)
     test.assert_eq(chose.tree.selected, 1)
     test.assert(chose.moved)
 
-    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(20.0, 30.0)))
+    val shut = to_tree(forest(), controls.Input.Press(on_row(1, 20.0)))
     test.assert(shut.toggled)
     test.assert_false(shut.tree.rows[1].expanded)
 }
@@ -1755,7 +1794,7 @@ fn a_press_on_the_label_selects_where_a_press_on_the_mark_toggles() {
 // select rather than quietly do nothing, or a third of every leaf row is dead.
 #[test]
 fn pressing_where_a_leaf_has_no_mark_still_selects_it() {
-    val chose = to_tree(forest(), controls.Input.Press(geom.point_of(36.0, 50.0)))
+    val chose = to_tree(forest(), controls.Input.Press(on_row(2, 36.0)))
     test.assert_false(chose.toggled)
     test.assert_eq(chose.tree.selected, 2)
 }
@@ -1764,7 +1803,7 @@ fn pressing_where_a_leaf_has_no_mark_still_selects_it() {
 // `empty` and not on `auth`.
 #[test]
 fn the_arrows_step_over_what_is_hidden() {
-    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0))).tree
+    val shut = to_tree(forest(), controls.Input.Press(on_row(0, 8.0))).tree
     test.assert_eq(tree_key(shut, controls.Key.Down).tree.selected, 5)
     test.assert_eq(t_label(tree_key(shut, controls.Key.Down).tree), "empty")
 }
@@ -1780,7 +1819,7 @@ fn t_label(t: controls.Tree) -> string {
 // downwards instead of stopping on the first folder.
 #[test]
 fn right_opens_a_branch_then_steps_into_it() {
-    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0))).tree
+    val shut = to_tree(forest(), controls.Input.Press(on_row(0, 8.0))).tree
     val opened = tree_key(shut, controls.Key.Right)
     test.assert(opened.toggled)
     test.assert_eq(t_label(opened.tree), "api")
@@ -1816,7 +1855,7 @@ fn left_at_the_top_of_the_tree_does_nothing() {
 // and a user loses their place every time they look inside a folder.
 #[test]
 fn toggling_leaves_the_selection_where_it_was() {
-    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0)))
+    val shut = to_tree(forest(), controls.Input.Press(on_row(0, 8.0)))
     test.assert_eq(shut.tree.selected, 0)
     test.assert_false(shut.activated)
 }
@@ -1825,7 +1864,7 @@ fn toggling_leaves_the_selection_where_it_was() {
 // would draw `empty` as a leaf, and a user could not tell an empty folder from a missing one.
 #[test]
 fn an_empty_branch_still_opens_and_closes() {
-    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 110.0)))
+    val shut = to_tree(forest(), controls.Input.Press(on_row(5, 8.0)))
     test.assert(shut.toggled)
     test.assert_eq(shut.tree.selected, 5)
     // Nothing was hidden, because there is nothing under it -- but the state changed, which is
@@ -1842,12 +1881,12 @@ fn enter_chooses_and_the_arrows_do_not() {
 #[test]
 fn a_disabled_tree_ignores_everything() {
     val off = with forest() { disabled: true }
-    test.assert_false(to_tree(off, controls.Input.Press(geom.point_of(8.0, 10.0))).toggled)
+    test.assert_false(to_tree(off, controls.Input.Press(on_row(0, 8.0))).toggled)
     test.assert_false(tree_key(off, controls.Key.Down).moved)
 }
 
 fn laid_tree(t: controls.Tree) -> widget.Laid {
-    return widget.layout(controls.tree_widget(t, theme.plain()), tree_box, metrics())
+    return widget.layout(controls.tree_widget(t, theme.plain(), metrics()), tree_box, metrics())
 }
 
 // One stop for Tab, one node per **visible** row -- a reader should not be told about rows that
@@ -1858,7 +1897,7 @@ fn a_tree_is_one_tab_stop_and_a_node_per_visible_row() {
     // The window, the tree, and seven rows.
     test.assert_len(9, open_tree.nodes)
 
-    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0))).tree
+    val shut = to_tree(forest(), controls.Input.Press(on_row(0, 8.0))).tree
     val shut_tree = a11y.tree_of(laid_tree(shut), "Records", "files")
     // The window, the tree, and three rows.
     test.assert_len(5, shut_tree.nodes)
@@ -1872,7 +1911,7 @@ fn a_branch_says_it_is_open_and_a_leaf_says_nothing_about_it() {
     val t = a11y.tree_of(laid_tree(forest()), "Records", "files")
     test.assert_eq(said_of_tree(t, "files/0"), "tree item, api, expanded, selected")
     test.assert_eq(said_of_tree(t, "files/2"), "tree item, login")
-    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0))).tree
+    val shut = to_tree(forest(), controls.Input.Press(on_row(0, 8.0))).tree
     test.assert_eq(
         said_of_tree(a11y.tree_of(laid_tree(shut), "Records", "files"), "files/0"),
         "tree item, api, collapsed, selected"
@@ -1890,11 +1929,11 @@ fn the_tree_announces_itself_as_a_tree() {
 #[test]
 fn the_mark_a_press_toggles_is_where_the_layout_drew_it() {
     // `auth` sits at depth 1, so its mark is the second indent-wide column.
-    val on_mark = to_tree(forest(), controls.Input.Press(geom.point_of(16.0 + 8.0, 30.0)))
+    val on_mark = to_tree(forest(), controls.Input.Press(on_row(1, 16.0 + 8.0)))
     test.assert(on_mark.toggled)
     // One indent to the left is `api`'s column, which on this row is empty space, so a press there
     // selects rather than toggling -- the thing that breaks if the two disagree by one level.
-    val left_of_it = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 30.0)))
+    val left_of_it = to_tree(forest(), controls.Input.Press(on_row(1, 8.0)))
     test.assert_false(left_of_it.toggled)
     test.assert_eq(left_of_it.tree.selected, 1)
 }
@@ -1917,7 +1956,7 @@ fn a_branch_is_the_parent_of_what_is_under_it() {
 // Closing a branch takes its children out of the tree a reader walks, not just off the screen.
 #[test]
 fn a_closed_branch_has_no_children_to_walk() {
-    val shut = to_tree(forest(), controls.Input.Press(geom.point_of(8.0, 10.0))).tree
+    val shut = to_tree(forest(), controls.Input.Press(on_row(0, 8.0))).tree
     val t = a11y.tree_of(laid_tree(shut), "Records", "files")
     test.assert_eq(kids_of(t, "files/0"), "")
     test.assert_eq(kids_of(t, "files"), "files/0 files/5 files/6")
@@ -2265,12 +2304,12 @@ fn fill_box(op: scene.Op) -> geom.Rect {
 fn a_wheel_over_a_row_is_routed_to_the_list() {
     val l = laid_list(five())
     val over_a_row = controls.Input.Wheel(controls.Wheel {
-        at: geom.point_of(20.0, 30.0),
+        at: on_row(1, 20.0),
         vertical: 0 - 1,
         horizontal: 0
     })
     // The row is what `control_at` finds, and it is *not* what the wheel is for.
-    test.assert_eq(switch focus.control_at(l, geom.point_of(20.0, 30.0)) {
+    test.assert_eq(switch focus.control_at(l, on_row(1, 20.0)) {
         Some(one) { one.name }
         None { "(nothing)" }
     }, controls.row_name(five(), 1))
@@ -2293,7 +2332,7 @@ fn long_tree() -> controls.Tree {
 val long_box = geom.rect_of(0.0, 0.0, 200.0, 100.0)
 
 fn on_long(t: controls.Tree, input: controls.Input) -> controls.TreeStep {
-    return controls.tree_input(t, input, style(), long_box)
+    return controls.tree_input(t, input, style(), long_box, metrics())
 }
 
 // **A press in the strip down the right edge takes the bar, not the row behind it.** The row is
@@ -2322,14 +2361,15 @@ fn a_short_tree_has_no_strip_to_grab() {
     test.assert_eq(step.tree.selected, 0)
 }
 
-// **The drag keeps the point the thumb was taken hold of, and moves the view.** 500 of content in
-// a 100 view gives a 20-point thumb with 80 points of room over 400 of overhang, so a pointer 20
-// points further down is 100 further into the content.
+// **The drag keeps the point the thumb was taken hold of, and moves the view.** Twenty-five rows
+// of 28 is 700 of content in a 100 view, which gives a thumb at its 20-point floor with 80 points
+// of room over 600 of overhang -- so a pointer 20 points further down is 150 further into the
+// content.
 #[test]
 fn dragging_the_bar_scrolls_without_moving_the_selection() {
     val held = on_long(long_tree(), controls.Input.Press(geom.point_of(196.0, 5.0))).tree
     val dragged = on_long(held, controls.Input.Move(geom.point_of(196.0, 25.0)))
-    test.assert_eq(dragged.tree.offset, 100.0)
+    test.assert_eq(dragged.tree.offset, 150.0)
     test.assert_eq(dragged.tree.selected, 0)
     test.assert_false(dragged.moved)
 }
@@ -2341,11 +2381,11 @@ fn dragging_the_bar_scrolls_without_moving_the_selection() {
 fn a_drag_off_the_strip_still_drags_and_still_lets_go() {
     val held = on_long(long_tree(), controls.Input.Press(geom.point_of(196.0, 5.0))).tree
     val away = on_long(held, controls.Input.Move(geom.point_of(10.0, 55.0)))
-    test.assert_eq(away.tree.offset, 250.0)
+    test.assert_eq(away.tree.offset, 375.0)
     val let_go = on_long(away.tree, controls.Input.Release(geom.point_of(10.0, 55.0)))
     test.assert_false(Option.is_Some(let_go.tree.bar.grabbed))
     // ...and once it has let go, a press in the rows selects again -- row 13, because the view is
-    // 250 points down and the press is 10 into it.
+    // 375 points down and the press is 10 into it.
     test.assert_eq(on_long(let_go.tree, controls.Input.Press(geom.point_of(40.0, 10.0))).tree.selected, 13)
 }
 
@@ -2358,7 +2398,7 @@ fn a_wheel_over_the_strip_is_still_a_wheel() {
         vertical: 0 - 1,
         horizontal: 0
     }))
-    test.assert_eq(step.tree.offset, 20.0)
+    test.assert_eq(step.tree.offset, row_tall())
     test.assert_false(Option.is_Some(step.tree.bar.grabbed))
 }
 
@@ -2372,10 +2412,16 @@ fn a_list_drags_its_bar_too() {
         i = i + 1
     }
     val l = controls.list_of("rows", "Rows", snapshot(many))
-    val held = controls.list_input(l, controls.Input.Press(geom.point_of(196.0, 5.0)), style(), long_box)
+    val held = controls.list_input(l, controls.Input.Press(geom.point_of(196.0, 5.0)), style(), long_box, metrics())
     test.assert(Option.is_Some(held.list.bar.grabbed))
-    val dragged = controls.list_input(held.list, controls.Input.Move(geom.point_of(196.0, 25.0)), style(), long_box)
-    test.assert_eq(dragged.list.offset, 100.0)
+    val dragged = controls.list_input(
+        held.list,
+        controls.Input.Move(geom.point_of(196.0, 25.0)),
+        style(),
+        long_box,
+        metrics()
+    )
+    test.assert_eq(dragged.list.offset, 150.0)
     test.assert_eq(dragged.list.selected, 0)
     test.assert_false(dragged.moved)
 }
@@ -2693,7 +2739,7 @@ val combo_popup_at = geom.rect_of(0.0, 24.0, 80.0, 100.0)
 
 fn combo_key(c: controls.ComboBox, k: controls.Key, alt: bool) -> controls.ComboBoxStep {
     val stroke = controls.Keystroke { key: k, shift: false, control: false, alt: alt, meta: false }
-    return controls.combo_box_input(c, controls.Input.KeyDown(stroke), style(), combo_box_at, combo_popup_at)
+    return controls.combo_box_input(c, controls.Input.KeyDown(stroke), style(), combo_box_at, combo_popup_at, metrics())
 }
 
 // **Down changes the value without opening the list**, which is the behaviour a menu does not have
@@ -2875,11 +2921,14 @@ fn a_field_that_is_not_the_focused_one_paints_no_caret() {
 #[test]
 fn a_chosen_row_takes_its_own_radius_and_never_a_border() {
     val list = with controls.list_of("rows", "Rows", ["one", "two", "three"]) { selected: 1 }
-    val ops = painted(controls.list_widget(list, row_asking_for(widget.Radius.Points(4.0))))
+    val ops = painted(controls.list_widget(list, row_asking_for(widget.Radius.Points(4.0)), metrics()))
     test.assert_eq(strokes(ops), 0)
     test.assert(curved_fills(ops) > 0)
     // And the face's own step does not reach it: a rounded `medium` leaves the row square.
-    test.assert_eq(curved_fills(painted(controls.list_widget(list, asking_for(widget.Radius.Points(6.0))))), 0)
+    test.assert_eq(
+        curved_fills(painted(controls.list_widget(list, asking_for(widget.Radius.Points(6.0)), metrics()))),
+        0
+    )
 }
 
 // **The scrim is never rounded and never edged, whatever the style says.** It covers the whole
@@ -3769,11 +3818,11 @@ fn table() -> controls.Table {
 }
 
 fn to_table(t: controls.Table, input: controls.Input) -> controls.TableStep {
-    return controls.table_input(t, input, style(), table_box)
+    return controls.table_input(t, input, style(), table_box, metrics())
 }
 
 fn laid_table(t: controls.Table) -> widget.Laid {
-    return widget.layout(controls.table_widget(t, theme.plain()), table_box, metrics())
+    return widget.layout(controls.table_widget(t, theme.plain(), metrics()), table_box, metrics())
 }
 
 // The sideways offset a named viewport is scrolled by, or -1 for no such viewport.
@@ -3821,30 +3870,31 @@ fn a_columns_start_is_the_widths_before_it() {
     test.assert_eq(controls.columns_width(table()), 240.0)
 }
 
-// **The header is not part of the view the rows scroll in**, and this is the number that proves
-// it: a hundred-point box with a twenty-two point header holds three whole rows, not five.
+// **The header is not part of the view the rows scroll in**, and this is what proves it: a
+// hundred-point box less a header band holds two whole rows, not the three and a half its own box
+// would.
 #[test]
 fn the_body_is_the_box_without_the_header() {
-    val body = controls.table_body(table(), table_box)
-    test.assert_eq(body.y, 22.0)
-    test.assert_eq(body.height, 78.0)
+    val body = controls.table_body(table(), style(), table_box, metrics())
+    test.assert_eq(body.y, header_tall())
+    test.assert_eq(body.height, table_box.height - header_tall())
     // A table with no header is all body, which is the grid-in-a-dialog case.
-    val bare = with table() { header_height: 0.0 }
-    test.assert_eq(controls.table_body(bare, table_box).height, 100.0)
-    test.assert_eq(controls.table_body(bare, table_box).y, 0.0)
+    val bare = with table() { headers: false }
+    test.assert_eq(controls.table_body(bare, style(), table_box, metrics()).height, 100.0)
+    test.assert_eq(controls.table_body(bare, style(), table_box, metrics()).y, 0.0)
 }
 
-// **A press picks the row under the pointer, measured from the body.** At y=30 the pointer is
-// eight points into the first row; a table that measured from its own box would select the
-// second, and the error is exactly one header tall -- invisible on a tall row and wrong on
-// every one.
+// **A press picks the row under the pointer, measured from the body.** `in_body` counts from under
+// the header band, which is the whole point: a table that measured from its own box would select
+// the row after the one pressed, and the error is exactly one header tall -- invisible on a tall
+// row and wrong on every one.
 #[test]
 fn a_press_picks_the_row_under_it_and_not_one_header_lower() {
-    test.assert_eq(to_table(table(), controls.Input.Press(geom.point_of(20.0, 30.0))).table.selected, 0)
-    test.assert_eq(to_table(table(), controls.Input.Press(geom.point_of(20.0, 45.0))).table.selected, 1)
+    test.assert_eq(to_table(table(), controls.Input.Press(in_body(0, 20.0))).table.selected, 0)
+    test.assert_eq(to_table(table(), controls.Input.Press(in_body(1, 20.0))).table.selected, 1)
     // Scrolled down by a row, the same point is the row after.
-    val down = with table() { offset: 20.0 }
-    test.assert_eq(to_table(down, controls.Input.Press(geom.point_of(20.0, 30.0))).table.selected, 1)
+    val down = with table() { offset: row_tall() }
+    test.assert_eq(to_table(down, controls.Input.Press(in_body(0, 20.0))).table.selected, 1)
 }
 
 // A press on the header selects nothing: there is no row there. (It is where a sort will go, which
@@ -3902,18 +3952,18 @@ fn a_column_stops_at_its_minimum_width() {
 // give the points to.
 #[test]
 fn the_resize_grip_is_only_on_a_header_and_never_on_the_last_column() {
-    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(100.0, 10.0)), 0)
-    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(160.0, 10.0)), 1)
-    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(240.0, 10.0)), 0 - 1)
-    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(100.0, 40.0)), 0 - 1)
-    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(130.0, 10.0)), 0 - 1)
+    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(100.0, 10.0), metrics()), 0)
+    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(160.0, 10.0), metrics()), 1)
+    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(240.0, 10.0), metrics()), 0 - 1)
+    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(100.0, 40.0), metrics()), 0 - 1)
+    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(130.0, 10.0), metrics()), 0 - 1)
     // So a press two points from a boundary in the body is a row selection.
-    val hit = to_table(table(), controls.Input.Press(geom.point_of(99.0, 45.0)))
+    val hit = to_table(table(), controls.Input.Press(in_body(1, 99.0)))
     test.assert_eq(hit.table.selected, 1)
     test.assert_eq(hit.table.resizing, 0 - 1)
     // And a header with no header height has no grips at all.
     test.assert_eq(
-        controls.edge_at(with table() { header_height: 0.0 }, style(), table_box, geom.point_of(100.0, 2.0)),
+        controls.edge_at(with table() { headers: false }, style(), table_box, geom.point_of(100.0, 2.0), metrics()),
         0 - 1
     )
 }
@@ -3925,23 +3975,27 @@ fn the_resize_grip_is_only_on_a_header_and_never_on_the_last_column() {
 #[test]
 fn a_grip_follows_its_column_sideways() {
     val across = with table() { offset_x: 40.0 }
-    test.assert_eq(controls.edge_at(across, style(), table_box, geom.point_of(60.0, 10.0)), 0)
-    test.assert_eq(controls.edge_at(across, style(), table_box, geom.point_of(100.0, 10.0)), 0 - 1)
+    test.assert_eq(controls.edge_at(across, style(), table_box, geom.point_of(60.0, 10.0), metrics()), 0)
+    test.assert_eq(controls.edge_at(across, style(), table_box, geom.point_of(100.0, 10.0), metrics()), 0 - 1)
 }
 
-// Paging and revealing use the body's height, so PageDown moves three rows here and not five.
+// Paging and revealing use the body's height, so PageDown moves by what fits under the header and
+// not by what fits in the box.
 #[test]
 fn a_page_is_what_fits_in_the_body() {
     val paged = to_table(table(), controls.Input.KeyDown(key(controls.Key.PageDown)))
-    test.assert_eq(paged.table.selected, 3)
+    test.assert_eq(paged.table.selected, 2)
     test.assert_eq(to_table(table(), controls.Input.KeyDown(key(controls.Key.End))).table.selected, 5)
     test.assert_eq(
         to_table(with table() { selected: 5 }, controls.Input.KeyDown(key(controls.Key.Home))).table.selected,
         0
     )
-    // Arrowing to the last row scrolls it into view by the least that works: six rows of twenty is
-    // 120 points of content in a 78-point body, so the end of it sits at 42.
-    test.assert_eq(to_table(table(), controls.Input.KeyDown(key(controls.Key.End))).table.offset, 42.0)
+    // Arrowing to the last row scrolls it into view by the least that works: six rows of content
+    // in a body of what is left under the header, so the end of it sits exactly there.
+    test.assert_eq(
+        to_table(table(), controls.Input.KeyDown(key(controls.Key.End))).table.offset,
+        row_tall() * 6.0 - (table_box.height - header_tall())
+    )
 }
 
 // **The columns scroll sideways and the rows do not come with them.** The sideways offset is
@@ -3950,7 +4004,7 @@ fn a_page_is_what_fits_in_the_body() {
 #[test]
 fn the_columns_scroll_sideways_within_their_own_width() {
     val right = to_table(table(), controls.Input.KeyDown(key(controls.Key.Right)))
-    test.assert_eq(right.table.offset_x, 20.0)
+    test.assert_eq(right.table.offset_x, row_tall())
     test.assert_eq(right.table.offset, 0.0)
     test.assert_eq(
         to_table(with table() { offset_x: 30.0 }, controls.Input.KeyDown(key(controls.Key.Right))).table.offset_x,
@@ -3964,7 +4018,7 @@ fn the_columns_scroll_sideways_within_their_own_width() {
         vertical: 0 - 1,
         horizontal: 1
     }))
-    test.assert_eq(flicked.table.offset_x, 20.0)
+    test.assert_eq(flicked.table.offset_x, row_tall())
     test.assert_eq(flicked.table.offset, 0.0)
 }
 
@@ -3975,7 +4029,7 @@ fn the_columns_scroll_sideways_within_their_own_width() {
 fn an_empty_table_still_scrolls_sideways() {
     val empty = controls.table_of("meds", "", table_columns(), [])
     test.assert_eq(empty.selected, 0 - 1)
-    test.assert_eq(to_table(empty, controls.Input.KeyDown(key(controls.Key.Right))).table.offset_x, 20.0)
+    test.assert_eq(to_table(empty, controls.Input.KeyDown(key(controls.Key.Right))).table.offset_x, row_tall())
     test.assert_false(to_table(empty, controls.Input.KeyDown(key(controls.Key.Down))).moved)
 }
 
@@ -3988,7 +4042,7 @@ fn the_wheel_scrolls_the_rows_and_leaves_the_selection() {
         vertical: 0 - 1,
         horizontal: 0
     }))
-    test.assert_eq(rolled.table.offset, 20.0)
+    test.assert_eq(rolled.table.offset, row_tall())
     test.assert_eq(rolled.table.selected, 0)
     test.assert_false(rolled.moved)
 }
@@ -4037,12 +4091,12 @@ fn the_header_band_spans_the_table_and_not_just_its_columns() {
     // 200 points of table and 240 of columns is the scrolled case; 400 of table is the case that
     // was wrong, where there is more pane than there are columns.
     val wide = geom.rect_of(0.0, 0.0, 400.0, 100.0)
-    val l = widget.layout(controls.table_widget(table(), theme.plain()), wide, metrics())
+    val l = widget.layout(controls.table_widget(table(), theme.plain(), metrics()), wide, metrics())
     var band = 0.0 - 1.0
     for op in widget.paint_ops(l, metrics()) {
         if Fill(f) = op {
             val filled = shape.path_bounds(f.path)
-            if filled.y == 0.0 && filled.height == table().header_height {
+            if filled.y == 0.0 && filled.height == header_tall() {
                 band = filled.width
             }
         }
@@ -4436,12 +4490,24 @@ fn the_pointer_is_a_resize_over_a_divider_and_an_arrow_elsewhere() {
 #[test]
 fn the_pointer_is_a_resize_over_a_column_edge_only_in_the_header() {
     test.assert(widget.Cursor.is_ResizeAcross(
-        controls.table_cursor(table(), style(), table_box, geom.point_of(100.0, 10.0))
+        controls.table_cursor(table(), style(), table_box, geom.point_of(100.0, 10.0), metrics())
     ))
     // The same x, in the body.
-    test.assert(widget.Cursor.is_Arrow(controls.table_cursor(table(), style(), table_box, geom.point_of(100.0, 45.0))))
+    test.assert(widget.Cursor.is_Arrow(controls.table_cursor(
+        table(),
+        style(),
+        table_box,
+        geom.point_of(100.0, 45.0),
+        metrics()
+    )))
     // The last column has no edge to drag, so no promise is made over it.
-    test.assert(widget.Cursor.is_Arrow(controls.table_cursor(table(), style(), table_box, geom.point_of(240.0, 10.0))))
+    test.assert(widget.Cursor.is_Arrow(controls.table_cursor(
+        table(),
+        style(),
+        table_box,
+        geom.point_of(240.0, 10.0),
+        metrics()
+    )))
 }
 
 // **A collapsed combo box says it opens.** Drawn as a plain filled rectangle it is a disabled
@@ -4480,7 +4546,7 @@ fn a_collapsed_combo_box_draws_its_mark() {
 #[test]
 fn a_tree_row_is_inset_from_its_own_edge() {
     val laid = widget.layout(
-        controls.tree_widget(forest(), theme.plain()),
+        controls.tree_widget(forest(), theme.plain(), metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 200.0),
         metrics()
     )
@@ -4621,7 +4687,7 @@ fn the_ring_follows_the_selection_as_it_moves() {
 // control with a selected part.
 #[test]
 fn a_focused_list_still_rings_the_whole_list() {
-    val l = widget.layout(controls.list_widget(five(), theme.plain()), list_box(), metrics())
+    val l = widget.layout(controls.list_widget(five(), theme.plain(), metrics()), list_box(), metrics())
     val ring = ring_box(l, "people")
     val whole = l.bounds
     test.assert(ring.width > whole.width * 0.9)
@@ -4726,11 +4792,11 @@ fn the_hovered_control_gets_one_overlay_over_its_own_box() {
 // name an application reads from `focus.control_at` is the innermost one under the pointer.
 #[test]
 fn a_row_can_be_hovered_as_well_as_its_list() {
-    val l = widget.layout(controls.list_widget(five(), theme.plain()), list_box(), metrics())
+    val l = widget.layout(controls.list_widget(five(), theme.plain(), metrics()), list_box(), metrics())
     val row = hover_fills(l, controls.row_name(five(), 1))
     test.assert_len(1, row)
-    test.assert_eq(row[0].height, five().row_height)
-    test.assert_eq(row[0].y, five().row_height)
+    test.assert_eq(row[0].height, row_tall())
+    test.assert_eq(row[0].y, row_tall())
 }
 
 // A name this tree does not hold draws nothing rather than refusing: a pointer naming a control
@@ -4756,7 +4822,7 @@ fn an_unknown_or_empty_hover_draws_nothing() {
 // A list, a tree, a split or a pane holds its own and does not.
 #[test]
 fn a_control_that_holds_controls_is_not_tinted() {
-    val l = widget.layout(controls.list_widget(five(), theme.plain()), list_box(), metrics())
+    val l = widget.layout(controls.list_widget(five(), theme.plain(), metrics()), list_box(), metrics())
     test.assert_len(0, hover_fills(l, "people"))
     // And the row inside it still lights, which is the half that has to keep working.
     test.assert_len(1, hover_fills(l, controls.row_name(five(), 1)))

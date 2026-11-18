@@ -246,14 +246,14 @@ pub fn layer_of(d: Demo, style: controls.Style, m: widget.Metrics, at: geom.Rect
             if combo_box.anchor(it) == "" {
                 Option<widget.Layer>.None
             } else {
-                Option<widget.Layer>.Some(combo_box.layer(it, style, at))
+                Option<widget.Layer>.Some(combo_box.layer(it, style, at, m))
             }
         }
         Menu(it) {
             if menu.anchor(it) == "" {
                 Option<widget.Layer>.None
             } else {
-                Option<widget.Layer>.Some(menu.layer(it, style, at))
+                Option<widget.Layer>.Some(menu.layer(it, style, at, m))
             }
         }
         Dialog(it) {
@@ -267,21 +267,21 @@ pub fn layer_of(d: Demo, style: controls.Style, m: widget.Metrics, at: geom.Rect
             if layout.anchor(it) == "" {
                 Option<widget.Layer>.None
             } else {
-                Option<widget.Layer>.Some(layout.layer(it, style, at))
+                Option<widget.Layer>.Some(layout.layer(it, style, at, m))
             }
         }
         LookAndFeel(it) {
             if look_and_feel.anchor(it) == "" {
                 Option<widget.Layer>.None
             } else {
-                Option<widget.Layer>.Some(look_and_feel.layer(it, style, at))
+                Option<widget.Layer>.Some(look_and_feel.layer(it, style, at, m))
             }
         }
         Accessibility(it) {
             if accessibility.anchor(it) == "" {
                 Option<widget.Layer>.None
             } else {
-                Option<widget.Layer>.Some(accessibility.layer(it, style, at))
+                Option<widget.Layer>.Some(accessibility.layer(it, style, at, m))
             }
         }
         Button(_) { Option<widget.Layer>.None }
@@ -344,10 +344,16 @@ pub fn groups() -> [string] {
 // **Only two demos have an answer and the rest say arrow**, which is the honest shape of it: a
 // cursor is a promise that something will happen if you drag, and only a divider and a column
 // edge make that promise. See `controls.split_pane_cursor`.
-pub fn cursor_of(d: Demo, style: controls.Style, laid: widget.Laid, at: geom.Point) -> widget.Cursor {
+pub fn cursor_of(
+    d: Demo,
+    style: controls.Style,
+    laid: widget.Laid,
+    at: geom.Point,
+    m: widget.Metrics
+) -> widget.Cursor {
     return switch d {
         SplitPane(it) { split_pane.cursor(it, style, laid, at) }
-        Table(it) { table.cursor(it, style, laid, at) }
+        Table(it) { table.cursor(it, style, laid, at, m) }
         Button(_) { widget.Cursor.Arrow }
         CheckBox(_) { widget.Cursor.Arrow }
         Radios(_) { widget.Cursor.Arrow }

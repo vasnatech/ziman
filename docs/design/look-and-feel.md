@@ -982,6 +982,54 @@ letting the renderer refuse the run -- retiring the gallery's load-the-text-face
 shrank the text would be a zoom, and it is the one change a reader with low vision cannot undo from
 their own settings. Material's density does the same.
 
+**D18 (Q8, F293) -- a row is measured, not written down. 2026-11-18.**
+
+The last four numbers of §6.1 -- `row_height` 20 on `List`, `Tree` and `Table`, `header_height` 22,
+`indent` 16, `tab_width` 100 -- were fields on the control **instances**, so no look and no density
+reached them: `at_density(Compact)` tightened every padding and gap in the window and left every
+table row exactly twenty points tall.
+
+**Three of the four are derived and the fourth stays a field:**
+
+    pub fn row_height(m, style)    = line_for(m, style.text.body) + style.space.s
+    pub fn header_height(m, style) = line_for(m, style.text.label) + style.space.m
+    pub fn indent_for(style)       = style.space.xl
+    Tabs.tab_width                 -- stays a field
+
+**Why not a token set to 20.** A token is the same number in a different place: it can still
+disagree with the face the theme asks for, and nothing would say so. A row is the one box in this
+library whose height *is* a line of text, so it is measured like one -- by `line_for`, the same
+function the row's label is laid out with, which is what keeps the box and the text in it from
+reading different numbers.
+
+**Why `tab_width` is not derived with them.** It is the one of the four that genuinely varies per
+instance: the gallery's file tabs are 170 and its demo tabs 110, and curly sets its own. The other
+three were never set to anything but their default in any caller.
+
+**What it cost: twelve functions now take `widget.Metrics`** -- `list_input`, `list_widget`,
+`tree_input`, `tree_widget`, `table_input`, `table_widget`, `table_body`, `table_cursor`, `edge_at`,
+`menu_input`, `menu_popup_layer`, `combo_box_input`, `combo_box_popup_layer` -- which is the same
+argument `entry_widget`, `check_box_widget`, `radios_widget` and `link_widget` already take, and
+exactly what `Tabs.tab_width`'s own comment said a fitted tab strip would need. In the menu's
+functions the `Menu` parameter was renamed `menu` so that `m` keeps meaning the metrics, as it does
+everywhere else in the file.
+
+**`Table.header_height: 0.0` became `Table.headers: bool`.** Zero was how a caller said "a grid of
+values in a dialog, with nothing to put in a header"; the height is now the theme's, so the
+capability is said as the thing itself. One function, `band_height`, answers how tall the band is
+here, so the widget, the body and the hit test cannot disagree.
+
+**Two hard-coded paddings came with them**: a list's and a tree's rows were `insets_of(4, 2, 4, 2)`
+and a table's cells `insets_of(6, 2, 6, 2)`. Both are now `s` beside the text and `xs` above and
+below -- the same air at the default density, and the thing that keeps a row from clipping its own
+label at a compact one, where `row_height` is a line plus a smaller `s`.
+
+**Pixels moved, as this decision said they would.** With a real font a row is no longer exactly 20:
+curly's committed `window_geometry.txt` moved by under a point per sidebar row (20 -> 20.7) and was
+re-blessed. In the control tests, where the metrics make a line twice the point size, a row is 28 --
+which is why those tests now read `row_tall()`, `on_row(n, x)` and `in_body(n, x)` instead of the
+literal 20s and the y values that only meant "row one" while a row was twenty tall.
+
 ### 13.4 Build order
 
 **Raised as F291 to F297** in [docs/reviews/tasks/f291-f297.md](../reviews/tasks/f291-f297.md), one

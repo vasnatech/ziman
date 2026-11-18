@@ -1593,7 +1593,6 @@ pub struct List {
     // scrolled by whole rows cannot show half of one, and half of one is what tells a user there is
     // more below.
     offset: float
-    row_height: float
     disabled: bool
     // What a reader calls this and its rows.
     //
@@ -1615,7 +1614,6 @@ pub fn list_of(name: string, label: string, items: [string]) -> List {
         items: items,
         selected: if len(items) == 0 { 0 - 1 } else { 0 },
         offset: 0.0,
-        row_height: 20.0,
         disabled: false,
         role: widget.Role.List,
         item_role: widget.Role.ListItem,
@@ -1637,15 +1635,17 @@ pub struct ListStep {
 // What an input does to a list.
 //
 // `bounds` is the box the layout gave it, needed for two things: turning a click's y into a row,
-// and knowing how far one page is.
-pub fn list_input(l: List, input: Input, style: Style, bounds: Rect) -> ListStep {
+// and knowing how far one page is. `m` is what a row is measured with: see `row_height`, which the
+// widget lays the rows out by, so the hit test and the layout cannot disagree.
+pub fn list_input(l: List, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> ListStep {
     if l.disabled {
         return held_still(l)
     }
+    val tall = row_height(m, style)
     // The bar first, and a drag in progress before anything else -- see `tree_input`, which has
     // the same three lines for the same reasons.
-    if Option.is_Some(l.bar.grabbed) || list_for_the_bar(l, input, style, bounds) {
-        return list_bar_step(l, input, style, bounds)
+    if Option.is_Some(l.bar.grabbed) || list_for_the_bar(l, input, style, bounds, tall) {
+        return list_bar_step(l, input, style, bounds, tall)
     }
     val last = len(l.items) - 1
     return switch input {
@@ -1653,16 +1653,16 @@ pub fn list_input(l: List, input: Input, style: Style, bounds: Rect) -> ListStep
         // easy to get wrong by routing a wheel to whatever has the keyboard: a user scrolling to
         // look at something further down has not asked to select it, and a list that moved the
         // selection under them would lose the row they were about to act on.
-        Wheel(w) { scrolled(l, l.offset - (w.vertical as float) * l.row_height, bounds) }
+        Wheel(w) { scrolled(l, l.offset - (w.vertical as float) * tall, bounds, tall) }
         Press(p) {
-            val row = floor((p.y - bounds.y + l.offset) / l.row_height)
+            val row = floor((p.y - bounds.y + l.offset) / tall)
             if row < 0 || row > last {
                 held_still(l)
             } else {
                 ListStep { list: with l { selected: row }, moved: row != l.selected, activated: false }
             }
         }
-        KeyDown(k) { list_key(l, k, bounds) }
+        KeyDown(k) { list_key(l, k, bounds, tall) }
         KeyUp(_) { held_still(l) }
         Text(_) { held_still(l) }
         Paste(_) { held_still(l) }
@@ -1671,19 +1671,27 @@ pub fn list_input(l: List, input: Input, style: Style, bounds: Rect) -> ListStep
     }
 }
 
-fn list_for_the_bar(l: List, input: Input, style: Style, bounds: Rect) -> bool {
+fn list_for_the_bar(l: List, input: Input, style: Style, bounds: Rect, tall: float) -> bool {
     if Press(p) = input {
-        return on_the_bar(style, bounds, p, list_content(l), bounds.height)
+        return on_the_bar(style, bounds, p, list_content(l, tall), bounds.height)
     }
     return false
 }
 
-fn list_content(l: List) -> float {
-    return (len(l.items) as float) * l.row_height
+fn list_content(l: List, tall: float) -> float {
+    return (len(l.items) as float) * tall
 }
 
-fn list_bar_step(l: List, input: Input, style: Style, bounds: Rect) -> ListStep {
-    val taken = scroll_bar_input(l.bar, input, style, bar_box(style, bounds), list_content(l), bounds.height, l.offset)
+fn list_bar_step(l: List, input: Input, style: Style, bounds: Rect, tall: float) -> ListStep {
+    val taken = scroll_bar_input(
+        l.bar,
+        input,
+        style,
+        bar_box(style, bounds),
+        list_content(l, tall),
+        bounds.height,
+        l.offset
+    )
     // A bar moves the view and never the selection, as a tree's does.
     return ListStep {
         list: with l { bar: taken.bar, offset: taken.offset },
@@ -1692,18 +1700,18 @@ fn list_bar_step(l: List, input: Input, style: Style, bounds: Rect) -> ListStep 
     }
 }
 
-fn list_key(l: List, k: Keystroke, bounds: Rect) -> ListStep {
+fn list_key(l: List, k: Keystroke, bounds: Rect, tall: float) -> ListStep {
     val last = len(l.items) - 1
     if last < 0 {
         return held_still(l)
     }
-    val per_page = page_rows(l, bounds)
-    if Key.is_Down(k.key) { return selected_to(l, l.selected + 1, bounds) }
-    if Key.is_Up(k.key) { return selected_to(l, l.selected - 1, bounds) }
-    if Key.is_PageDown(k.key) { return selected_to(l, l.selected + per_page, bounds) }
-    if Key.is_PageUp(k.key) { return selected_to(l, l.selected - per_page, bounds) }
-    if Key.is_Home(k.key) { return selected_to(l, 0, bounds) }
-    if Key.is_End(k.key) { return selected_to(l, last, bounds) }
+    val per_page = page_rows(l, bounds, tall)
+    if Key.is_Down(k.key) { return selected_to(l, l.selected + 1, bounds, tall) }
+    if Key.is_Up(k.key) { return selected_to(l, l.selected - 1, bounds, tall) }
+    if Key.is_PageDown(k.key) { return selected_to(l, l.selected + per_page, bounds, tall) }
+    if Key.is_PageUp(k.key) { return selected_to(l, l.selected - per_page, bounds, tall) }
+    if Key.is_Home(k.key) { return selected_to(l, 0, bounds, tall) }
+    if Key.is_End(k.key) { return selected_to(l, last, bounds, tall) }
     if Key.is_Enter(k.key) || Key.is_Space(k.key) {
         if l.selected >= 0 {
             return ListStep { list: l, moved: false, activated: true }
@@ -1713,35 +1721,39 @@ fn list_key(l: List, k: Keystroke, bounds: Rect) -> ListStep {
 }
 
 // At least one row a page, so a list shorter than one row still moves rather than sticking.
-fn page_rows(l: List, bounds: Rect) -> int {
-    val fits = floor(bounds.height / l.row_height)
+fn page_rows(l: List, bounds: Rect, tall: float) -> int {
+    val fits = floor(bounds.height / tall)
     return if fits < 1 { 1 } else { fits }
 }
 
 // Moves the selection and **brings it into view by the least that works**, which is what makes
 // arrowing down a long list creep by a row at the bottom edge instead of jumping a page at a time.
-fn selected_to(l: List, want: int, bounds: Rect) -> ListStep {
+fn selected_to(l: List, want: int, bounds: Rect, tall: float) -> ListStep {
     val last = len(l.items) - 1
     val row = if want < 0 { 0 } else { if want > last { last } else { want } }
     val revealed = widget.scroll_to_reveal(
         bounds.height,
         l.offset,
-        (row as float) * l.row_height,
-        l.row_height
+        (row as float) * tall,
+        tall
     )
     return ListStep {
-        list: with l { selected: row, offset: clamped(l, revealed, bounds) },
+        list: with l { selected: row, offset: clamped(l, revealed, bounds, tall) },
         moved: row != l.selected,
         activated: false
     }
 }
 
-fn scrolled(l: List, offset: float, bounds: Rect) -> ListStep {
-    return ListStep { list: with l { offset: clamped(l, offset, bounds) }, moved: false, activated: false }
+fn scrolled(l: List, offset: float, bounds: Rect, tall: float) -> ListStep {
+    return ListStep {
+        list: with l { offset: clamped(l, offset, bounds, tall) },
+        moved: false,
+        activated: false
+    }
 }
 
-fn clamped(l: List, offset: float, bounds: Rect) -> float {
-    return widget.clamp_offset(offset, bounds.height, (len(l.items) as float) * l.row_height)
+fn clamped(l: List, offset: float, bounds: Rect, tall: float) -> float {
+    return widget.clamp_offset(offset, bounds.height, (len(l.items) as float) * tall)
 }
 
 fn held_still(l: List) -> ListStep {
@@ -1753,8 +1765,9 @@ fn held_still(l: List) -> ListStep {
 // **The rows carry `selected` rather than the list carrying an index**, because that is what a
 // reader reads: it announces "list item, Ada, selected", and an index on the container would make
 // every adapter work out for itself which child the number meant.
-pub fn list_widget(l: List, style: Style) -> widget.Widget {
+pub fn list_widget(l: List, style: Style, m: widget.Metrics) -> widget.Widget {
     val ink = if l.disabled { style.disabled_ink } else { style.ink }
+    val tall = row_height(m, style)
     val rows = mutable_array_new<widget.Widget>()
     var i = 0
     while i < len(l.items) {
@@ -1763,7 +1776,11 @@ pub fn list_widget(l: List, style: Style) -> widget.Widget {
         val row = widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: 0.0,
-            padding: widget.insets_of(4.0, 2.0, 4.0, 2.0),
+            // **The row's own air, on the space scale** -- `s` beside the text and half of it above
+            // and below, which is the 4/2/4/2 this was written as and now follows the density. It
+            // is also what keeps a row from clipping its label: `row_height` is a line plus `s`,
+            // and `xs` twice is `s` on any scale where `xs` is half of it.
+            padding: widget.insets_of(style.space.s, style.space.xs, style.space.s, style.space.xs),
             surface: highlight_of(style, face),
             align: widget.stretched(),
             children: [widget.label_in_face(l.items[i], style.text.body.size, ink, style.text.body.face)],
@@ -1771,7 +1788,7 @@ pub fn list_widget(l: List, style: Style) -> widget.Widget {
         })
         push(rows, widget.fixed_of(
             0.0,
-            l.row_height,
+            tall,
             widget.part_of(
                 row_name(l, i),
                 l.item_role,
@@ -2027,11 +2044,6 @@ pub struct Tree {
     // projection does exactly that.
     selected: int
     offset: float
-    row_height: float
-    // How far one level indents, and the width of the mark a branch draws -- one number, because
-    // the press that toggles a branch has to find the mark where the widget drew it. The hit test
-    // and the layout each compute it from this, as the tab strip's `tab_width` is shared.
-    indent: float
     // The drag state of the bar down its right edge. **Only the drag**: where the thumb sits
     // comes from `offset` and the row count, which this already has, and a second copy of either
     // is a second thing to keep in step.
@@ -2046,8 +2058,6 @@ pub fn tree_of(name: string, label: string, rows: [TreeRow]) -> Tree {
         rows: rows,
         selected: if len(rows) == 0 { 0 - 1 } else { 0 },
         offset: 0.0,
-        row_height: 20.0,
-        indent: 16.0,
         bar: scroll_bar_of(concat(name, "/bar"), 20.0),
         disabled: false
     }
@@ -2092,22 +2102,24 @@ pub struct TreeStep {
 //
 // `bounds` turns a press into a row the way the list does, and into a *column* besides: a press on
 // the mark at the left of a branch opens or closes it, and a press anywhere else on the row selects
-// it. Both computed from `indent`, which the widget also lays out by.
-pub fn tree_input(t: Tree, input: Input, style: Style, bounds: Rect) -> TreeStep {
+// it. Both computed from `indent_for`, which the widget also lays out by, as `row_height` is for
+// the rows -- and `m` is what measures a row: see `row_height`.
+pub fn tree_input(t: Tree, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> TreeStep {
     if t.disabled {
         return tree_still(t)
     }
+    val tall = row_height(m, style)
     // **The bar first, and a drag in progress before anything else.** A press that took hold of
     // the thumb moved the focus to the tree, so the moves and the release that follow are routed
     // here -- and they have to reach the bar wherever the pointer has wandered to, or a thumb
     // dragged off the strip is left holding on while the rows move under the pointer instead.
-    if dragging_bar(t) || for_the_bar(t, input, style, bounds) {
-        return bar_step(t, input, style, bounds)
+    if dragging_bar(t) || for_the_bar(t, input, style, bounds, tall) {
+        return bar_step(t, input, style, bounds, tall)
     }
     return switch input {
-        Wheel(w) { tree_scrolled(t, t.offset - (w.vertical as float) * t.row_height, bounds) }
-        Press(p) { tree_pressed(t, p, bounds) }
-        KeyDown(k) { tree_key(t, k, bounds) }
+        Wheel(w) { tree_scrolled(t, t.offset - (w.vertical as float) * tall, bounds, tall) }
+        Press(p) { tree_pressed(t, p, style, bounds, tall) }
+        KeyDown(k) { tree_key(t, k, bounds, tall) }
         KeyUp(_) { tree_still(t) }
         Text(_) { tree_still(t) }
         Paste(_) { tree_still(t) }
@@ -2122,19 +2134,27 @@ fn dragging_bar(t: Tree) -> bool {
 
 // Only a press decides: a wheel over the strip should scroll the tree the ordinary way, and a key
 // is aimed at nothing in particular.
-fn for_the_bar(t: Tree, input: Input, style: Style, bounds: Rect) -> bool {
+fn for_the_bar(t: Tree, input: Input, style: Style, bounds: Rect, tall: float) -> bool {
     if Press(p) = input {
-        return on_the_bar(style, bounds, p, tree_content(t), bounds.height)
+        return on_the_bar(style, bounds, p, tree_content(t, tall), bounds.height)
     }
     return false
 }
 
-fn tree_content(t: Tree) -> float {
-    return (len(visible_rows(t)) as float) * t.row_height
+fn tree_content(t: Tree, tall: float) -> float {
+    return (len(visible_rows(t)) as float) * tall
 }
 
-fn bar_step(t: Tree, input: Input, style: Style, bounds: Rect) -> TreeStep {
-    val taken = scroll_bar_input(t.bar, input, style, bar_box(style, bounds), tree_content(t), bounds.height, t.offset)
+fn bar_step(t: Tree, input: Input, style: Style, bounds: Rect, tall: float) -> TreeStep {
+    val taken = scroll_bar_input(
+        t.bar,
+        input,
+        style,
+        bar_box(style, bounds),
+        tree_content(t, tall),
+        bounds.height,
+        t.offset
+    )
     return TreeStep {
         tree: with t { bar: taken.bar, offset: taken.offset },
         // **A bar moves the view, never the selection.** Dragging a scrollbar in any list on any
@@ -2156,17 +2176,18 @@ fn bar_box(style: Style, bounds: Rect) -> Rect {
     )
 }
 
-fn tree_pressed(t: Tree, p: Point, bounds: Rect) -> TreeStep {
+fn tree_pressed(t: Tree, p: Point, style: Style, bounds: Rect, tall: float) -> TreeStep {
     val shown = visible_rows(t)
-    val at = floor((p.y - bounds.y + t.offset) / t.row_height)
+    val at = floor((p.y - bounds.y + t.offset) / tall)
     if at < 0 || at >= len(shown) {
         return tree_still(t)
     }
     val which = shown[at]
     val row = t.rows[which]
+    val indent = indent_for(style)
     // The mark sits in the one indent-wide column at this row's own depth.
-    val mark_from = bounds.x + (row.depth as float) * t.indent
-    if row.expandable && p.x >= mark_from && p.x < mark_from + t.indent {
+    val mark_from = bounds.x + (row.depth as float) * indent
+    if row.expandable && p.x >= mark_from && p.x < mark_from + indent {
         return tree_toggled(t, which)
     }
     return TreeStep {
@@ -2177,19 +2198,19 @@ fn tree_pressed(t: Tree, p: Point, bounds: Rect) -> TreeStep {
     }
 }
 
-fn tree_key(t: Tree, k: Keystroke, bounds: Rect) -> TreeStep {
+fn tree_key(t: Tree, k: Keystroke, bounds: Rect, tall: float) -> TreeStep {
     val shown = visible_rows(t)
     if len(shown) == 0 {
         return tree_still(t)
     }
-    val per_page = tree_page_rows(t, bounds)
+    val per_page = tree_page_rows(t, bounds, tall)
     val here = shown_index_of(shown, t.selected)
-    if Key.is_Down(k.key) { return tree_to(t, shown, here + 1, bounds) }
-    if Key.is_Up(k.key) { return tree_to(t, shown, here - 1, bounds) }
-    if Key.is_PageDown(k.key) { return tree_to(t, shown, here + per_page, bounds) }
-    if Key.is_PageUp(k.key) { return tree_to(t, shown, here - per_page, bounds) }
-    if Key.is_Home(k.key) { return tree_to(t, shown, 0, bounds) }
-    if Key.is_End(k.key) { return tree_to(t, shown, len(shown) - 1, bounds) }
+    if Key.is_Down(k.key) { return tree_to(t, shown, here + 1, bounds, tall) }
+    if Key.is_Up(k.key) { return tree_to(t, shown, here - 1, bounds, tall) }
+    if Key.is_PageDown(k.key) { return tree_to(t, shown, here + per_page, bounds, tall) }
+    if Key.is_PageUp(k.key) { return tree_to(t, shown, here - per_page, bounds, tall) }
+    if Key.is_Home(k.key) { return tree_to(t, shown, 0, bounds, tall) }
+    if Key.is_End(k.key) { return tree_to(t, shown, len(shown) - 1, bounds, tall) }
     // **Right opens a branch, and opens it only once**: on a branch already open it steps to the
     // first child, which is what every tree does and what makes Right-Right-Right walk downwards
     // rather than stopping on the first folder.
@@ -2200,7 +2221,7 @@ fn tree_key(t: Tree, k: Keystroke, bounds: Rect) -> TreeStep {
                 return tree_toggled(t, t.selected)
             }
             if row.expandable && row.expanded {
-                return tree_to(t, shown, here + 1, bounds)
+                return tree_to(t, shown, here + 1, bounds, tall)
             }
         }
         return tree_still(t)
@@ -2215,7 +2236,7 @@ fn tree_key(t: Tree, k: Keystroke, bounds: Rect) -> TreeStep {
             }
             val up = parent_of(t, t.selected)
             if up >= 0 {
-                return tree_to(t, shown, shown_index_of(shown, up), bounds)
+                return tree_to(t, shown, shown_index_of(shown, up), bounds, tall)
             }
         }
         return tree_still(t)
@@ -2261,14 +2282,14 @@ fn shown_index_of(shown: [int], selected: int) -> int {
     return 0
 }
 
-fn tree_to(t: Tree, shown: [int], want: int, bounds: Rect) -> TreeStep {
+fn tree_to(t: Tree, shown: [int], want: int, bounds: Rect, tall: float) -> TreeStep {
     val last = len(shown) - 1
     val at = if want < 0 { 0 } else { if want > last { last } else { want } }
     val which = shown[at]
     val revealed = widget.clamp_offset(
-        widget.scroll_to_reveal(bounds.height, t.offset, (at as float) * t.row_height, t.row_height),
+        widget.scroll_to_reveal(bounds.height, t.offset, (at as float) * tall, tall),
         bounds.height,
-        (len(shown) as float) * t.row_height
+        (len(shown) as float) * tall
     )
     return TreeStep {
         tree: with t { selected: which, offset: revealed },
@@ -2296,13 +2317,13 @@ fn tree_toggled(t: Tree, index: int) -> TreeStep {
     }
 }
 
-fn tree_page_rows(t: Tree, bounds: Rect) -> int {
-    val fits = floor(bounds.height / t.row_height)
+fn tree_page_rows(t: Tree, bounds: Rect, tall: float) -> int {
+    val fits = floor(bounds.height / tall)
     return if fits < 1 { 1 } else { fits }
 }
 
-fn tree_scrolled(t: Tree, want: float, bounds: Rect) -> TreeStep {
-    val content = (len(visible_rows(t)) as float) * t.row_height
+fn tree_scrolled(t: Tree, want: float, bounds: Rect, tall: float) -> TreeStep {
+    val content = (len(visible_rows(t)) as float) * tall
     return TreeStep {
         tree: with t { offset: widget.clamp_offset(want, bounds.height, content) },
         moved: false,
@@ -2326,9 +2347,9 @@ fn tree_still(t: Tree) -> TreeStep {
 // Nesting costs nothing in layout, because a part adds no box of its own and the rows keep their
 // absolute indent: a column of columns of fixed-height rows stacks exactly as one column of them
 // does, which is what keeps the hit test's `y / row_height` true.
-pub fn tree_widget(t: Tree, style: Style) -> widget.Widget {
+pub fn tree_widget(t: Tree, style: Style, m: widget.Metrics) -> widget.Widget {
     val shown = visible_rows(t)
-    val built = tree_level(t, shown, 0, 0, style)
+    val built = tree_level(t, shown, 0, 0, style, m)
     return widget.Widget.Control(widget.Focusable {
         name: t.name,
         role: widget.Role.Tree,
@@ -2349,7 +2370,7 @@ struct TreeLevel {
     next: int
 }
 
-fn tree_level(t: Tree, shown: [int], from: int, depth: int, style: Style) -> TreeLevel {
+fn tree_level(t: Tree, shown: [int], from: int, depth: int, style: Style, m: widget.Metrics) -> TreeLevel {
     val out = mutable_array_new<widget.Widget>()
     var i = from
     while i < len(shown) && t.rows[shown[i]].depth >= depth {
@@ -2362,9 +2383,9 @@ fn tree_level(t: Tree, shown: [int], from: int, depth: int, style: Style) -> Tre
         // nothing at all. Every sidebar built here starts at 0, which is why no test and no
         // screenshot showed it; a profiler reporting that a layout benchmark had no work to do
         // is what showed it.
-        val kids = tree_level(t, shown, i + 1, row.depth + 1, style)
+        val kids = tree_level(t, shown, i + 1, row.depth + 1, style, m)
         i = kids.next
-        val own = tree_row_box(t, which, row, style)
+        val own = tree_row_box(t, which, row, style, m)
         val inside = if len(kids.rows) == 0 {
             own
         } else {
@@ -2394,7 +2415,7 @@ fn tree_level(t: Tree, shown: [int], from: int, depth: int, style: Style) -> Tre
 // One row: its indent, the mark a branch draws, and its label. **The indent is absolute rather
 // than one level per nesting**, so the column the hit test computes from `depth * indent` is the
 // column the mark was drawn in whatever the parts do around it.
-fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style) -> widget.Widget {
+fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style, m: widget.Metrics) -> widget.Widget {
     val ink = if t.disabled { style.disabled_ink } else { style.ink }
     val face = if which == t.selected { style.selection } else { style.face }
     val mark = if row.expandable {
@@ -2402,19 +2423,20 @@ fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style) -> widget.Widge
     } else {
         ""
     }
-    return widget.fixed_of(0.0, t.row_height, widget.Widget.Group(widget.Stack {
+    val indent = indent_for(style)
+    return widget.fixed_of(0.0, row_height(m, style), widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
         // **A left inset, because the focus ring is drawn inside the control's own box.** With
         // none, a row at depth zero put its mark at the very first point of the tree -- under the
         // two-point ring, which paints after the rows and so over them. The arrow was there and
         // the ring was on top of it.
-        padding: widget.insets_of(4.0, 2.0, 4.0, 2.0),
+        padding: widget.insets_of(style.space.s, style.space.xs, style.space.s, style.space.xs),
         surface: highlight_of(style, face),
         align: widget.stretched(),
         children: [
-            widget.fixed_of((row.depth as float) * t.indent, 0.0, widget.flex()),
-            widget.fixed_of(t.indent, 0.0, widget.label_in_face(mark, style.text.body.size, ink, style.text.body.face)),
+            widget.fixed_of((row.depth as float) * indent, 0.0, widget.flex()),
+            widget.fixed_of(indent, 0.0, widget.label_in_face(mark, style.text.body.size, ink, style.text.body.face)),
             widget.label_in_face(row.label, style.text.body.size, ink, style.text.body.face)
         ],
         name: ""
@@ -2890,8 +2912,8 @@ pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget {
 }
 
 // The popup, as a layer. The same one a menu uses -- a list is a list.
-pub fn combo_box_popup_layer(c: ComboBox, style: Style, at: Rect) -> widget.Layer {
-    return widget.layer_at(at, true, popped(list_widget(c.items, style), style))
+pub fn combo_box_popup_layer(c: ComboBox, style: Style, at: Rect, m: widget.Metrics) -> widget.Layer {
+    return widget.layer_at(at, true, popped(list_widget(c.items, style, m), style))
 }
 
 // A popup's own surface: a panel with the theme's shadow behind it.
@@ -3029,7 +3051,14 @@ fn closed_combo_input(c: ComboBox, input: Input, at: Rect) -> ComboBoxStep {
     }
 }
 
-pub fn combo_box_input(c: ComboBox, input: Input, style: Style, at: Rect, popup_at: Rect) -> ComboBoxStep {
+pub fn combo_box_input(
+    c: ComboBox,
+    input: Input,
+    style: Style,
+    at: Rect,
+    popup_at: Rect,
+    m: widget.Metrics
+) -> ComboBoxStep {
     if c.disabled {
         return combo_unchanged(c)
     }
@@ -3040,7 +3069,7 @@ pub fn combo_box_input(c: ComboBox, input: Input, style: Style, at: Rect, popup_
     // the highlight, a click outside dismisses, a release over a row chooses it, and the arrows
     // belong to the list. Shared with `Menu` rather than copied, which is the half of that struct's
     // old argument this control keeps.
-    val step = open_popup_input(c.items, input, style, at, popup_at)
+    val step = open_popup_input(c.items, input, style, at, popup_at, m)
     return ComboBoxStep {
         combo: with c { items: step.items, open: step.open },
         chosen: step.chosen,
@@ -3066,14 +3095,21 @@ pub struct MenuStep {
 // The popup is not a child of the title, so this cannot find either box itself: `widget.layer_at`
 // explains why an overlay lives in the root's layer list, and the caller that put it there is the
 // one that knows where it went.
-pub fn menu_input(m: Menu, input: Input, style: Style, title_bounds: Rect, popup_bounds: Rect) -> MenuStep {
-    if m.disabled {
-        return menu_unchanged(m)
+pub fn menu_input(
+    menu: Menu,
+    input: Input,
+    style: Style,
+    title_bounds: Rect,
+    popup_bounds: Rect,
+    m: widget.Metrics
+) -> MenuStep {
+    if menu.disabled {
+        return menu_unchanged(menu)
     }
-    if !m.open {
-        return closed_menu_input(m, input, title_bounds)
+    if !menu.open {
+        return closed_menu_input(menu, input, title_bounds)
     }
-    return open_menu_input(m, input, style, title_bounds, popup_bounds)
+    return open_menu_input(menu, input, style, title_bounds, popup_bounds, m)
 }
 
 fn closed_menu_input(m: Menu, input: Input, title_bounds: Rect) -> MenuStep {
@@ -3125,7 +3161,14 @@ fn popup_dismissed(l: List) -> PopupStep {
     return PopupStep { items: l, open: false, chosen: 0 - 1, dismissed: true }
 }
 
-fn open_popup_input(items: List, input: Input, style: Style, title_bounds: Rect, popup_bounds: Rect) -> PopupStep {
+fn open_popup_input(
+    items: List,
+    input: Input,
+    style: Style,
+    title_bounds: Rect,
+    popup_bounds: Rect,
+    m: widget.Metrics
+) -> PopupStep {
     // `Other("")` for an input that is not a keystroke, so the tests below read as one list rather
     // than as a key check wrapped in an input check.
     val pressed = switch input {
@@ -3177,17 +3220,24 @@ fn open_popup_input(items: List, input: Input, style: Style, title_bounds: Rect,
         }
     }
     // Everything else is the list's: arrows, Home, End, the wheel, and a press on a row.
-    val step = list_input(items, input, style, popup_bounds)
+    val step = list_input(items, input, style, popup_bounds, m)
     return popup_held(step.list)
 }
 
 // The menu's open half, which is `open_popup_input` and nothing else. It kept its own name
 // because `menu_input` reads better dispatching to a pair than to one shared function and one
 // inline branch, and because the closed half beside it is where a menu's behaviour actually is.
-fn open_menu_input(m: Menu, input: Input, style: Style, title_bounds: Rect, popup_bounds: Rect) -> MenuStep {
-    val step = open_popup_input(m.items, input, style, title_bounds, popup_bounds)
+fn open_menu_input(
+    menu: Menu,
+    input: Input,
+    style: Style,
+    title_bounds: Rect,
+    popup_bounds: Rect,
+    m: widget.Metrics
+) -> MenuStep {
+    val step = open_popup_input(menu.items, input, style, title_bounds, popup_bounds, m)
     return MenuStep {
-        menu: with m { items: step.items, open: step.open },
+        menu: with menu { items: step.items, open: step.open },
         chosen: step.chosen,
         dismissed: step.dismissed
     }
@@ -3252,8 +3302,8 @@ pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
 // to what is beneath as well as closing the menu.
 //
 // Takes the keyboard while it is open, because an open menu owns the arrows.
-pub fn menu_popup_layer(m: Menu, style: Style, at: Rect) -> widget.Layer {
-    return widget.layer_at(at, true, popped(list_widget(m.items, style), style))
+pub fn menu_popup_layer(menu: Menu, style: Style, at: Rect, m: widget.Metrics) -> widget.Layer {
+    return widget.layer_at(at, true, popped(list_widget(menu.items, style, m), style))
 }
 
 // ------------------------------------------------------------------ dialogs
@@ -3770,11 +3820,14 @@ pub struct Table {
     rows: [[string]]
     // The selected row, or -1 for none -- a real state, as `List.selected` explains at length.
     selected: int
-    row_height: float
-    // How tall the header is, and **zero for no header at all**: a grid of values inside a dialog
-    // has nothing to put in one, and that is a table with its header height set to zero rather
-    // than a second control.
-    header_height: float
+    // Whether the strip of column titles is drawn at all.
+    //
+    // **A flag, where this was `header_height: 0.0`.** A grid of values inside a dialog has
+    // nothing to put in a header, and that is still this table rather than a second control -- but
+    // the height is `header_height(m, style)` now and no longer a number a caller can zero. Saying
+    // it in a bool says the thing itself: a table either has titles over its columns or it does
+    // not, and a caller that wanted a shorter band was never what the zero meant.
+    headers: bool
     // How far the rows have scrolled down.
     offset: float
     // How far the columns have scrolled sideways. **One number, read by the header and by the
@@ -3799,8 +3852,7 @@ pub fn table_of(name: string, label: string, columns: [Column], rows: [[string]]
         columns: columns,
         rows: rows,
         selected: if len(rows) == 0 { 0 - 1 } else { 0 },
-        row_height: 20.0,
-        header_height: 22.0,
+        headers: true,
         offset: 0.0,
         offset_x: 0.0,
         resizing: 0 - 1,
@@ -3862,10 +3914,17 @@ pub fn columns_width(t: Table) -> float {
 // PageDown moves, the reveal that brings a selection into view, the scroll bar's track and
 // whether a press landed on it. The header is the only thing between them and `bounds`, and it is
 // the kind of subtraction that gets written four times and forgotten once.
-pub fn table_body(t: Table, bounds: Rect) -> Rect {
-    val top = if t.header_height < 0.0 { 0.0 } else { t.header_height }
+pub fn table_body(t: Table, style: Style, bounds: Rect, m: widget.Metrics) -> Rect {
+    val top = band_height(t, style, m)
     val height = bounds.height - top
     return geom.rect_of(bounds.x, bounds.y + top, bounds.width, if height < 0.0 { 0.0 } else { height })
+}
+
+// How tall the header band is here: the theme's header height, or nothing at all when this table
+// has no titles. **One function, so that the widget, the body and the hit test cannot disagree**
+// -- which is `table_body`'s own rule one level down.
+fn band_height(t: Table, style: Style, m: widget.Metrics) -> float {
+    return if t.headers { header_height(m, style) } else { 0.0 }
 }
 
 // Which column's trailing edge is under this point, or -1 for none.
@@ -3877,11 +3936,12 @@ pub fn table_body(t: Table, bounds: Rect) -> Rect {
 // **The last column's edge is not a grip.** There is nothing to its right to give or take the
 // points, so dragging it would either do nothing or resize a different column -- and a grip that
 // does nothing is worse than no grip, because the pointer changed shape and promised otherwise.
-pub fn edge_at(t: Table, style: Style, bounds: Rect, p: Point) -> int {
-    if t.header_height <= 0.0 || len(t.columns) < 2 {
+pub fn edge_at(t: Table, style: Style, bounds: Rect, p: Point, m: widget.Metrics) -> int {
+    val band = band_height(t, style, m)
+    if band <= 0.0 || len(t.columns) < 2 {
         return 0 - 1
     }
-    if p.y < bounds.y || p.y >= bounds.y + t.header_height {
+    if p.y < bounds.y || p.y >= bounds.y + band {
         return 0 - 1
     }
     var i = 0
@@ -3925,21 +3985,22 @@ fn table_still(t: Table) -> TableStep {
 // **Three gestures in order of who owns the pointer**, the opening `list_input` has for the same
 // reason: a resize in progress keeps it, then the scroll bar, then the rows. A press that is none
 // of those -- on a header, on empty space below the last row -- does nothing at all.
-pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect) -> TableStep {
+pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> TableStep {
     if t.disabled {
         return table_still(t)
     }
-    val body = table_body(t, bounds)
+    val tall = row_height(m, style)
+    val body = table_body(t, style, bounds, m)
     if Option.is_Some(t.grabbed) {
         return table_resized(t, input, style, bounds)
     }
-    if Option.is_Some(t.bar.grabbed) || table_for_the_bar(t, style, body, input) {
-        return table_bar_step(t, input, style, body)
+    if Option.is_Some(t.bar.grabbed) || table_for_the_bar(t, style, body, input, tall) {
+        return table_bar_step(t, input, style, body, tall)
     }
     val last = len(t.rows) - 1
     return switch input {
         Press(p) {
-            val edge = edge_at(t, style, bounds, p)
+            val edge = edge_at(t, style, bounds, p, m)
             if edge >= 0 {
                 val at = bounds.x + column_x(t, edge + 1) - t.offset_x
                 TableStep {
@@ -3952,7 +4013,7 @@ pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect) -> TableS
                 if !widget.contains(body, p) {
                     table_still(t)
                 } else {
-                    val row = floor((p.y - body.y + t.offset) / t.row_height)
+                    val row = floor((p.y - body.y + t.offset) / tall)
                     if row < 0 || row > last {
                         table_still(t)
                     } else {
@@ -3972,12 +4033,12 @@ pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect) -> TableS
         // can do it.
         Wheel(w) {
             if w.horizontal != 0 {
-                scrolled_sideways(t, t.offset_x + (w.horizontal as float) * t.row_height, body)
+                scrolled_sideways(t, t.offset_x + (w.horizontal as float) * tall, body)
             } else {
-                scrolled_down(t, t.offset - (w.vertical as float) * t.row_height, body)
+                scrolled_down(t, t.offset - (w.vertical as float) * tall, body, tall)
             }
         }
-        KeyDown(k) { table_key(t, k, body) }
+        KeyDown(k) { table_key(t, k, body, tall) }
         KeyUp(_) { table_still(t) }
         Text(_) { table_still(t) }
         Paste(_) { table_still(t) }
@@ -3986,7 +4047,7 @@ pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect) -> TableS
     }
 }
 
-fn table_for_the_bar(t: Table, style: Style, body: Rect, input: Input) -> bool {
+fn table_for_the_bar(t: Table, style: Style, body: Rect, input: Input, tall: float) -> bool {
     if Press(p) = input {
         // **In the body, not merely in the bar's column of x.** `on_the_bar` answers from x alone,
         // which is right for a list whose whole box is rows; here the same x in the header is over
@@ -3999,17 +4060,25 @@ fn table_for_the_bar(t: Table, style: Style, body: Rect, input: Input) -> bool {
         // is that the first one is the one that is *about* this table -- a predicate that answers
         // "yes, that press was for the scroll bar" about a point in the header is wrong on its
         // face, whatever the code downstream does with the answer.
-        return widget.contains(body, p) && on_the_bar(style, body, p, table_content(t), body.height)
+        return widget.contains(body, p) && on_the_bar(style, body, p, table_content(t, tall), body.height)
     }
     return false
 }
 
-fn table_content(t: Table) -> float {
-    return (len(t.rows) as float) * t.row_height
+fn table_content(t: Table, tall: float) -> float {
+    return (len(t.rows) as float) * tall
 }
 
-fn table_bar_step(t: Table, input: Input, style: Style, body: Rect) -> TableStep {
-    val taken = scroll_bar_input(t.bar, input, style, bar_box(style, body), table_content(t), body.height, t.offset)
+fn table_bar_step(t: Table, input: Input, style: Style, body: Rect, tall: float) -> TableStep {
+    val taken = scroll_bar_input(
+        t.bar,
+        input,
+        style,
+        bar_box(style, body),
+        table_content(t, tall),
+        body.height,
+        t.offset
+    )
     return TableStep {
         table: with t { bar: taken.bar, offset: taken.offset },
         moved: false,
@@ -4069,26 +4138,26 @@ fn table_resized(t: Table, input: Input, style: Style, bounds: Rect) -> TableSte
     }
 }
 
-fn table_key(t: Table, k: Keystroke, body: Rect) -> TableStep {
+fn table_key(t: Table, k: Keystroke, body: Rect, tall: float) -> TableStep {
     val last = len(t.rows) - 1
     // **Sideways first, because it works on an empty table.** A table with no rows still has
     // columns, and a user who cannot see the last one should still be able to scroll to it.
     if Key.is_Left(k.key) {
-        return scrolled_sideways(t, t.offset_x - t.row_height, body)
+        return scrolled_sideways(t, t.offset_x - tall, body)
     }
     if Key.is_Right(k.key) {
-        return scrolled_sideways(t, t.offset_x + t.row_height, body)
+        return scrolled_sideways(t, t.offset_x + tall, body)
     }
     if last < 0 {
         return table_still(t)
     }
-    val per_page = table_page(t, body)
-    if Key.is_Down(k.key) { return table_to(t, t.selected + 1, body) }
-    if Key.is_Up(k.key) { return table_to(t, t.selected - 1, body) }
-    if Key.is_PageDown(k.key) { return table_to(t, t.selected + per_page, body) }
-    if Key.is_PageUp(k.key) { return table_to(t, t.selected - per_page, body) }
-    if Key.is_Home(k.key) { return table_to(t, 0, body) }
-    if Key.is_End(k.key) { return table_to(t, last, body) }
+    val per_page = table_page(t, body, tall)
+    if Key.is_Down(k.key) { return table_to(t, t.selected + 1, body, tall) }
+    if Key.is_Up(k.key) { return table_to(t, t.selected - 1, body, tall) }
+    if Key.is_PageDown(k.key) { return table_to(t, t.selected + per_page, body, tall) }
+    if Key.is_PageUp(k.key) { return table_to(t, t.selected - per_page, body, tall) }
+    if Key.is_Home(k.key) { return table_to(t, 0, body, tall) }
+    if Key.is_End(k.key) { return table_to(t, last, body, tall) }
     if Key.is_Enter(k.key) || Key.is_Space(k.key) {
         if t.selected >= 0 {
             return TableStep { table: t, moved: false, activated: true, resized: false }
@@ -4097,33 +4166,33 @@ fn table_key(t: Table, k: Keystroke, body: Rect) -> TableStep {
     return table_still(t)
 }
 
-fn table_page(t: Table, body: Rect) -> int {
-    val fits = floor(body.height / t.row_height)
+fn table_page(t: Table, body: Rect, tall: float) -> int {
+    val fits = floor(body.height / tall)
     return if fits < 1 { 1 } else { fits }
 }
 
 // Moves the selection and brings it into view by the least that works, as a list's does -- against
 // the **body's** height, which is the whole reason `table_body` exists.
-fn table_to(t: Table, want: int, body: Rect) -> TableStep {
+fn table_to(t: Table, want: int, body: Rect, tall: float) -> TableStep {
     val last = len(t.rows) - 1
     val row = if want < 0 { 0 } else { if want > last { last } else { want } }
     val revealed = widget.scroll_to_reveal(
         body.height,
         t.offset,
-        (row as float) * t.row_height,
-        t.row_height
+        (row as float) * tall,
+        tall
     )
     return TableStep {
-        table: with t { selected: row, offset: down_clamped(t, revealed, body) },
+        table: with t { selected: row, offset: down_clamped(t, revealed, body, tall) },
         moved: row != t.selected,
         activated: false,
         resized: false
     }
 }
 
-fn scrolled_down(t: Table, offset: float, body: Rect) -> TableStep {
+fn scrolled_down(t: Table, offset: float, body: Rect, tall: float) -> TableStep {
     return TableStep {
-        table: with t { offset: down_clamped(t, offset, body) },
+        table: with t { offset: down_clamped(t, offset, body, tall) },
         moved: false,
         activated: false,
         resized: false
@@ -4139,8 +4208,8 @@ fn scrolled_sideways(t: Table, offset: float, body: Rect) -> TableStep {
     }
 }
 
-fn down_clamped(t: Table, offset: float, body: Rect) -> float {
-    return widget.clamp_offset(offset, body.height, table_content(t))
+fn down_clamped(t: Table, offset: float, body: Rect, tall: float) -> float {
+    return widget.clamp_offset(offset, body.height, table_content(t, tall))
 }
 
 // A line of the grid, a point thick, filling whatever box it is given.
@@ -4165,7 +4234,10 @@ fn cell_widget(t: Table, style: Style, column: int, text: string, ink: Color) ->
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
-        padding: widget.insets_of(6.0, 2.0, 6.0, 2.0),
+        // **On the space scale, as a list's and a tree's rows are**: the 6/2/6/2 this was written
+        // as is the same air by a different route, and a cell that kept its points would clip its
+        // own text at a compact density, where `row_height` is a line plus a smaller `s`.
+        padding: widget.insets_of(style.space.s, style.space.xs, style.space.s, style.space.xs),
         surface: widget.no_surface(),
         align: widget.Alignment { across: widget.Across.Centre, along: t.columns[column].align },
         children: [widget.label_in_face(text, style.text.body.size, ink, style.text.body.face)],
@@ -4183,7 +4255,7 @@ fn cell_widget(t: Table, style: Style, column: int, text: string, ink: Color) ->
 }
 
 // The header: a strip of titles, scrolled sideways with the body and not vertically with it.
-fn header_widget(t: Table, style: Style, ink: Color) -> widget.Widget {
+fn header_widget(t: Table, style: Style, ink: Color, m: widget.Metrics) -> widget.Widget {
     val cells = mutable_array_new<widget.Widget>()
     var i = 0
     while i < len(t.columns) {
@@ -4220,7 +4292,7 @@ fn header_widget(t: Table, style: Style, ink: Color) -> widget.Widget {
         ))],
         name: ""
     })
-    return widget.fixed_of(0.0, t.header_height, widget.Widget.Group(widget.Stack {
+    return widget.fixed_of(0.0, header_height(m, style), widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Column,
         spacing: 0.0,
         padding: widget.no_insets(),
@@ -4239,8 +4311,9 @@ fn header_widget(t: Table, style: Style, ink: Color) -> widget.Widget {
 // it. The rows are `part_of` -- something a click and a reader reach and Tab does not -- and so are
 // the column headers, which is what will make a header sortable without a second tab stop per
 // column.
-pub fn table_widget(t: Table, style: Style) -> widget.Widget {
+pub fn table_widget(t: Table, style: Style, m: widget.Metrics) -> widget.Widget {
     val ink = if t.disabled { style.disabled_ink } else { style.ink }
+    val tall = row_height(m, style)
     val rows = mutable_array_new<widget.Widget>()
     var r = 0
     while r < len(t.rows) {
@@ -4273,7 +4346,7 @@ pub fn table_widget(t: Table, style: Style) -> widget.Widget {
         // **The line is under the row and inside its height**, for the reason the cell's is inside
         // its width: a row that grew a point would make `row_height` a lie, and every press that
         // divides by it would land a row lower further down the table.
-        push(rows, widget.fixed_of(0.0, t.row_height, widget.Widget.Group(widget.Stack {
+        push(rows, widget.fixed_of(0.0, tall, widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Column,
             spacing: 0.0,
             padding: widget.no_insets(),
@@ -4290,8 +4363,8 @@ pub fn table_widget(t: Table, style: Style) -> widget.Widget {
         t.offset,
         widget.column_of(0.0, snapshot(rows))
     ))
-    val parts = if t.header_height > 0.0 {
-        [header_widget(t, style, ink), body]
+    val parts = if t.headers {
+        [header_widget(t, style, ink, m), body]
     } else {
         [body]
     }
@@ -4957,8 +5030,8 @@ pub fn split_pane_cursor(s: SplitPane, style: Style, bounds: Rect, p: Point) -> 
 //
 // **`edge_at` is the same function the press uses**, so the shape and the gesture agree by
 // construction: the pointer cannot show arrows where a drag would select a row.
-pub fn table_cursor(t: Table, style: Style, bounds: Rect, p: Point) -> widget.Cursor {
-    if t.disabled || edge_at(t, style, bounds, p) < 0 {
+pub fn table_cursor(t: Table, style: Style, bounds: Rect, p: Point, m: widget.Metrics) -> widget.Cursor {
+    if t.disabled || edge_at(t, style, bounds, p, m) < 0 {
         return widget.Cursor.Arrow
     }
     return widget.Cursor.ResizeAcross
@@ -5268,6 +5341,43 @@ pub fn face_for(m: widget.Metrics, want: int) -> int {
 // One function, so that a caret and the box it sits in cannot read different numbers.
 pub fn line_for(m: widget.Metrics, t: Type) -> float {
     return widget.height_in(m, face_for(m, t.face), t.size) * t.line
+}
+
+// How tall one row of a list, a tree or a table is: **a line of body text, with the small step of
+// the space scale around it.**
+//
+// **Derived rather than a field on the control, which is what it was** -- `List`, `Tree` and
+// `Table` each carried `row_height: 20.0`, set by nothing but their own constructors. Twenty is a
+// line of twelve-point text and a little air, written down once as a number and thereafter true
+// only by coincidence: a look that enlarged its type clipped its own rows, and `at_density`
+// tightened every padding and gap in the window and left every row exactly twenty points tall.
+// A row is the one box in this library whose height *is* a line of text, so it is measured like
+// one -- by `line_for`, which is also what the row's label is laid out with, so the box and the
+// text in it cannot read different numbers. See Q8 in docs/design/look-and-feel.md.
+//
+// **Not a theme token either.** A token set to 20 is the same number in a different place: it can
+// still disagree with the face the theme asks for, and nothing would say so.
+pub fn row_height(m: widget.Metrics, style: Style) -> float {
+    return line_for(m, style.text.body) + style.space.s
+}
+
+// How tall a table's header band is: a line of **label** text -- the role a column title is drawn
+// in -- with the medium step around it.
+//
+// **A step wider than a row's**, which is what every table does and what the old pair of numbers
+// said too (22 against 20): the header is a band rather than a row, and the air around the titles
+// is what separates them from the data.
+pub fn header_height(m: widget.Metrics, style: Style) -> float {
+    return line_for(m, style.text.label) + style.space.m
+}
+
+// How far one level of a tree indents, and the width of the mark a branch draws.
+//
+// **`space.xl`, which had no other caller**: sixteen points was the indent and sixteen points is
+// the top of the space scale, so the scale already held the number the tree was keeping for
+// itself. Density reaches it through `space` like everything else.
+pub fn indent_for(style: Style) -> float {
+    return style.space.xl
 }
 
 fn face_of(style: Style, colour: Color) -> widget.Surface {

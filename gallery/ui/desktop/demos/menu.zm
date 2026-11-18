@@ -51,15 +51,15 @@ pub fn anchor(d: Demo) -> string {
     }
 }
 
-pub fn layer(d: Demo, style: controls.Style, at: geom.Rect) -> widget.Layer {
+pub fn layer(d: Demo, style: controls.Style, at: geom.Rect, m: widget.Metrics) -> widget.Layer {
     switch open_menu(d) {
         Some(one) {
             return controls.menu_popup_layer(one, style, geom.rect_of(
                 at.x,
                 at.y + at.height,
                 at.width,
-                (len(one.items.items) as float) * one.items.row_height
-            ))
+                (len(one.items.items) as float) * controls.row_height(m, style)
+            ), m)
         }
         None { return widget.layer_at(geom.rect_of(0.0, 0.0, 0.0, 0.0), false, widget.Widget.Nothing) }
     }
@@ -80,6 +80,8 @@ pub fn input(
             style,
             boxes.bounds_of(laid, "menu-file"),
             boxes.bounds_of(laid, "menu-file/items")
+            ,
+            m
         )
         return with d { file: taken.menu, said: word_of(taken, d) }
     }
@@ -90,6 +92,8 @@ pub fn input(
             style,
             boxes.bounds_of(laid, "menu-edit"),
             boxes.bounds_of(laid, "menu-edit/items")
+            ,
+            m
         )
         return with d { edit: taken.menu, said: word_of(taken, d) }
     }

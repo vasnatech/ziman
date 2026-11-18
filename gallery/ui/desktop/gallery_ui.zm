@@ -41,11 +41,11 @@ pub fn label(text: string, size: float, style: controls.Style) -> widget.Widget 
 }
 
 // The leading pane: a heading and the tree of everything the gallery knows how to show.
-pub fn catalogue(tree: controls.Tree, style: controls.Style) -> widget.Widget {
+pub fn catalogue(tree: controls.Tree, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return widget.column_of(gap, [
         widget.tall_of(gap, widget.flex()),
         widget.tall_of(heading_height, label("Controls", style.text.heading.size, style)),
-        widget.expand(controls.tree_widget(tree, style))
+        widget.expand(controls.tree_widget(tree, style, m))
     ])
 }
 
@@ -84,7 +84,7 @@ pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Wi
             it.split,
             style,
             it.split_extent,
-            catalogue(it.tree, style),
+            catalogue(it.tree, style, m),
             demo_pane(it, style, m)
         )),
         widget.wide_of(gap, widget.flex())

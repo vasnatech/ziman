@@ -755,7 +755,6 @@ pub struct List {
     // scrolled by whole rows cannot show half of one, and half of one is what tells a user there is
     // more below.
     offset: float
-    row_height: float
     disabled: bool
     // What a reader calls this and its rows.
     //
@@ -803,18 +802,19 @@ pub struct ListStep {
 ### `list_input`
 
 ```
-pub fn list_input(l: List, input: Input, style: Style, bounds: Rect) -> ListStep
+pub fn list_input(l: List, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> ListStep
 ```
 
 What an input does to a list.
 
 `bounds` is the box the layout gave it, needed for two things: turning a click's y into a row,
-and knowing how far one page is.
+and knowing how far one page is. `m` is what a row is measured with: see `row_height`, which the
+widget lays the rows out by, so the hit test and the layout cannot disagree.
 
 ### `list_widget`
 
 ```
-pub fn list_widget(l: List, style: Style) -> widget.Widget
+pub fn list_widget(l: List, style: Style, m: widget.Metrics) -> widget.Widget
 ```
 
 The list as a widget: a control holding a viewport of rows, each row a part of the list.
@@ -976,11 +976,6 @@ pub struct Tree {
     // projection does exactly that.
     selected: int
     offset: float
-    row_height: float
-    // How far one level indents, and the width of the mark a branch draws -- one number, because
-    // the press that toggles a branch has to find the mark where the widget drew it. The hit test
-    // and the layout each compute it from this, as the tab strip's `tab_width` is shared.
-    indent: float
     // The drag state of the bar down its right edge. **Only the drag**: where the thumb sits
     // comes from `offset` and the row count, which this already has, and a second copy of either
     // is a second thing to keep in step.
@@ -1030,14 +1025,15 @@ pub struct TreeStep {
 ### `tree_input`
 
 ```
-pub fn tree_input(t: Tree, input: Input, style: Style, bounds: Rect) -> TreeStep
+pub fn tree_input(t: Tree, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> TreeStep
 ```
 
 What an input does to a tree.
 
 `bounds` turns a press into a row the way the list does, and into a *column* besides: a press on
 the mark at the left of a branch opens or closes it, and a press anywhere else on the row selects
-it. Both computed from `indent`, which the widget also lays out by.
+it. Both computed from `indent_for`, which the widget also lays out by, as `row_height` is for
+the rows -- and `m` is what measures a row: see `row_height`.
 
 ### `parent_of`
 
@@ -1050,7 +1046,7 @@ The row this one hangs under: the nearest earlier row one level shallower. -1 at
 ### `tree_widget`
 
 ```
-pub fn tree_widget(t: Tree, style: Style) -> widget.Widget
+pub fn tree_widget(t: Tree, style: Style, m: widget.Metrics) -> widget.Widget
 ```
 
 The tree as a widget: a `Tree` control over one `TreeItem` part per visible row.
@@ -1392,7 +1388,7 @@ The collapsed control: what it shows, and the same face every other control wear
 ### `combo_box_popup_layer`
 
 ```
-pub fn combo_box_popup_layer(c: ComboBox, style: Style, at: Rect) -> widget.Layer
+pub fn combo_box_popup_layer(c: ComboBox, style: Style, at: Rect, m: widget.Metrics) -> widget.Layer
 ```
 
 The popup, as a layer. The same one a menu uses -- a list is a list.
@@ -1400,7 +1396,14 @@ The popup, as a layer. The same one a menu uses -- a list is a list.
 ### `combo_box_input`
 
 ```
-pub fn combo_box_input(c: ComboBox, input: Input, style: Style, at: Rect, popup_at: Rect) -> ComboBoxStep
+pub fn combo_box_input(
+    c: ComboBox,
+    input: Input,
+    style: Style,
+    at: Rect,
+    popup_at: Rect,
+    m: widget.Metrics
+) -> ComboBoxStep
 ```
 
 ### `MenuStep`
@@ -1419,7 +1422,14 @@ pub struct MenuStep {
 ### `menu_input`
 
 ```
-pub fn menu_input(m: Menu, input: Input, style: Style, title_bounds: Rect, popup_bounds: Rect) -> MenuStep
+pub fn menu_input(
+    menu: Menu,
+    input: Input,
+    style: Style,
+    title_bounds: Rect,
+    popup_bounds: Rect,
+    m: widget.Metrics
+) -> MenuStep
 ```
 
 What an input does to a menu.
@@ -1444,7 +1454,7 @@ announces it.
 ### `menu_popup_layer`
 
 ```
-pub fn menu_popup_layer(m: Menu, style: Style, at: Rect) -> widget.Layer
+pub fn menu_popup_layer(menu: Menu, style: Style, at: Rect, m: widget.Metrics) -> widget.Layer
 ```
 
 The open popup, as a layer for the **root's** layer list.
@@ -1707,11 +1717,14 @@ pub struct Table {
     rows: [[string]]
     // The selected row, or -1 for none -- a real state, as `List.selected` explains at length.
     selected: int
-    row_height: float
-    // How tall the header is, and **zero for no header at all**: a grid of values inside a dialog
-    // has nothing to put in one, and that is a table with its header height set to zero rather
-    // than a second control.
-    header_height: float
+    // Whether the strip of column titles is drawn at all.
+    //
+    // **A flag, where this was `header_height: 0.0`.** A grid of values inside a dialog has
+    // nothing to put in a header, and that is still this table rather than a second control -- but
+    // the height is `header_height(m, style)` now and no longer a number a caller can zero. Saying
+    // it in a bool says the thing itself: a table either has titles over its columns or it does
+    // not, and a caller that wanted a shorter band was never what the zero meant.
+    headers: bool
     // How far the rows have scrolled down.
     offset: float
     // How far the columns have scrolled sideways. **One number, read by the header and by the
@@ -1793,7 +1806,7 @@ pub fn columns_width(t: Table) -> float
 ### `table_body`
 
 ```
-pub fn table_body(t: Table, bounds: Rect) -> Rect
+pub fn table_body(t: Table, style: Style, bounds: Rect, m: widget.Metrics) -> Rect
 ```
 
 The box the rows are in: the control's box without the header.
@@ -1806,7 +1819,7 @@ the kind of subtraction that gets written four times and forgotten once.
 ### `edge_at`
 
 ```
-pub fn edge_at(t: Table, style: Style, bounds: Rect, p: Point) -> int
+pub fn edge_at(t: Table, style: Style, bounds: Rect, p: Point, m: widget.Metrics) -> int
 ```
 
 Which column's trailing edge is under this point, or -1 for none.
@@ -1851,7 +1864,7 @@ pub struct TableStep {
 ### `table_input`
 
 ```
-pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect) -> TableStep
+pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> TableStep
 ```
 
 What an input does to a table.
@@ -1863,7 +1876,7 @@ of those -- on a header, on empty space below the last row -- does nothing at al
 ### `table_widget`
 
 ```
-pub fn table_widget(t: Table, style: Style) -> widget.Widget
+pub fn table_widget(t: Table, style: Style, m: widget.Metrics) -> widget.Widget
 ```
 
 The table as a widget: a header over a viewport of rows.
@@ -2175,7 +2188,7 @@ against -- a cursor that changes shape a few points away from the line it belong
 ### `table_cursor`
 
 ```
-pub fn table_cursor(t: Table, style: Style, bounds: Rect, p: Point) -> widget.Cursor
+pub fn table_cursor(t: Table, style: Style, bounds: Rect, p: Point, m: widget.Metrics) -> widget.Cursor
 ```
 
 The shape the pointer should take over a table's box: the resize arrows over a column's
@@ -2517,6 +2530,52 @@ pub fn line_for(m: widget.Metrics, t: Type) -> float
 
 How tall one line of a role is: **the font's own line height, stretched by the theme's factor.**
 One function, so that a caret and the box it sits in cannot read different numbers.
+
+### `row_height`
+
+```
+pub fn row_height(m: widget.Metrics, style: Style) -> float
+```
+
+How tall one row of a list, a tree or a table is: **a line of body text, with the small step of
+the space scale around it.**
+
+**Derived rather than a field on the control, which is what it was** -- `List`, `Tree` and
+`Table` each carried `row_height: 20.0`, set by nothing but their own constructors. Twenty is a
+line of twelve-point text and a little air, written down once as a number and thereafter true
+only by coincidence: a look that enlarged its type clipped its own rows, and `at_density`
+tightened every padding and gap in the window and left every row exactly twenty points tall.
+A row is the one box in this library whose height *is* a line of text, so it is measured like
+one -- by `line_for`, which is also what the row's label is laid out with, so the box and the
+text in it cannot read different numbers. See Q8 in docs/design/look-and-feel.md.
+
+**Not a theme token either.** A token set to 20 is the same number in a different place: it can
+still disagree with the face the theme asks for, and nothing would say so.
+
+### `header_height`
+
+```
+pub fn header_height(m: widget.Metrics, style: Style) -> float
+```
+
+How tall a table's header band is: a line of **label** text -- the role a column title is drawn
+in -- with the medium step around it.
+
+**A step wider than a row's**, which is what every table does and what the old pair of numbers
+said too (22 against 20): the header is a band rather than a row, and the air around the titles
+is what separates them from the data.
+
+### `indent_for`
+
+```
+pub fn indent_for(style: Style) -> float
+```
+
+How far one level of a tree indents, and the width of the mark a branch draws.
+
+**`space.xl`, which had no other caller**: sixteen points was the indent and sixteen points is
+the top of the space scale, so the scale already held the number the tree was keeping for
+itself. Density reaches it through `space` like everything else.
 
 ## The keys
 

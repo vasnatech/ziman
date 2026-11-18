@@ -121,13 +121,13 @@ pub fn anchor(d: Demo) -> string {
     return ""
 }
 
-pub fn layer(d: Demo, style: controls.Style, at: geom.Rect) -> widget.Layer {
+pub fn layer(d: Demo, style: controls.Style, at: geom.Rect, m: widget.Metrics) -> widget.Layer {
     return controls.combo_box_popup_layer(d.picker, style, geom.rect_of(
         at.x,
         at.y + at.height,
         at.width,
-        (len(d.picker.items.items) as float) * d.picker.items.row_height
-    ))
+        (len(d.picker.items.items) as float) * controls.row_height(m, style)
+    ), m)
 }
 
 pub fn input(
@@ -146,6 +146,8 @@ pub fn input(
                 style,
                 boxes.bounds_of(laid, "look-picker"),
                 boxes.bounds_of(laid, "look-picker/items")
+                ,
+                m
             ).combo
         }
     }

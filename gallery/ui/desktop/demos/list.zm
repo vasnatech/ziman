@@ -26,7 +26,7 @@ fn items() -> [string] {
 
 pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return list_ui.screen(list_ui.Screen {
-        list: controls.list_widget(d.list, style),
+        list: controls.list_widget(d.list, style, m),
         said: said(d)
     }, style, m)
 }
@@ -47,7 +47,7 @@ pub fn input(
     m: widget.Metrics
 ) -> Demo {
     if name == "list-demo" {
-        return with d { list: controls.list_input(d.list, input, style, boxes.bounds_of(laid, name)).list }
+        return with d { list: controls.list_input(d.list, input, style, boxes.bounds_of(laid, name), m).list }
     }
     return d
 }
