@@ -729,7 +729,7 @@ The same, measuring in a named face.
 
 **A fifth argument rather than a changed signature**: the four-argument form is what a caller
 with one face wants, which is most of them, and an entry in a second face is the one that has to
-say so. `entry_input` passes `style.text_font`, so a field drawn in a face measures its clicks
+say so. `entry_input` passes `style.text.body.face`, so a field drawn in a face measures its clicks
 in the same one -- a caret placed by the wrong face's widths lands between the wrong letters,
 and only on the text where the two faces differ.
 
@@ -2186,20 +2186,13 @@ construction: the pointer cannot show arrows where a drag would select a row.
 
 ## The style
 
-### `Shape`
+### `Type`
 
 ```
-pub struct Shape {
-    // A chosen row in a list, a tree or a table: a subtler shape than a control's own face.
-    small: widget.Radius
-    // A control's face: a button, a field, a tab, a menu's title, a scroll bar's thumb.
-    medium: widget.Radius
-    // What stands in front of the window: a menu's popup, a combo box's list, a dialog's panel.
-    // **Rounded further than a face**, which is what every system does -- Material puts a dialog at
-    // 28 and a button at 20 -- and what the single `corner` token could not say.
-    large: widget.Radius
-    // As round as the box allows: a radio's dot, a capsule.
-    full: widget.Radius
+pub struct Type {
+    face: int
+    size: float
+    line: float
 }
 ```
 
@@ -2227,6 +2220,70 @@ these and a step nothing reads is a decision a look author has to make for nothi
 including the square one, because round-against-square is how a user tells a radio from a check
 box -- so `plain` sets `full` to `Fraction(0.5)` while setting every other step to `Square`. A
 look may square it and would be wrong to.
+One role of a theme's type scale: which face it is drawn in, how big, and how far apart lines of
+it sit.
+
+**`line` is a multiplier, not a height.** `widget.FaceMetrics.line_height` is a function of size
+computed from the font and it stays authoritative; a theme may only stretch it. The precedent is
+in the same struct: `FaceMetrics.ascent` exists because "a baseline cannot be guessed from a line
+height", and every glyph in this widget set was once drawn a descent too low with every box
+correct. The font knows its own ascent, descent and gap, and a theme written against a Latin face
+does not know what CJK or Devanagari need. See D14 in docs/design/look-and-feel.md.
+
+**`face` is an index into the faces an application loaded**, and it is clamped rather than
+trusted: see `face_for`.
+
+### `TypeScale`
+
+```
+pub struct TypeScale {
+    // An application's own headings. No control draws one.
+    heading: Type
+    // Text a control contains, and **every caret calculation**: a caret measured in one role and
+    // drawn in another drifts by a character per character, which `Style.text_font` already caused
+    // once.
+    body: Type
+    // A control's own name: a button's words, a tab's title, a check box's label.
+    label: Type
+    // A hint, a footnote, a count beside a heading.
+    caption: Type
+    // A monospaced pane. The gallery's Code tab is the first caller this layer ever had for a
+    // second face, and it used to reach it by overriding `text_font` at the call site.
+    code: Type
+}
+```
+
+The type scale a theme sets and its readers index.
+
+**Five roles, and the library reads two of them.** `body` is text a control *contains* -- a
+field's content, a list's rows, a table's cells, a link -- and `label` is a control's own name:
+a button, a tab, a menu's title, a check box, a radio. The other three have **application**
+readers rather than control ones, and that is not an oversight: a heading is not a control, which
+is why `controls` was never going to draw one.
+
+**That gap is why this exists.** `Style` used to carry `heading_size` and `small_size` and
+**nothing read either of them** -- while the gallery's design files and curly's each declared
+`val heading_size = 12.0` and `val small_size = 11.0` for themselves, at 12 where the theme said
+16. Two applications invented a type scale because the one in the theme was unreachable from
+where they needed it. The sizes here are what those applications actually draw, so adopting the
+scale moves no pixels; see Q7/D17.
+
+### `Shape`
+
+```
+pub struct Shape {
+    // A chosen row in a list, a tree or a table: a subtler shape than a control's own face.
+    small: widget.Radius
+    // A control's face: a button, a field, a tab, a menu's title, a scroll bar's thumb.
+    medium: widget.Radius
+    // What stands in front of the window: a menu's popup, a combo box's list, a dialog's panel.
+    // **Rounded further than a face**, which is what every system does -- Material puts a dialog at
+    // 28 and a button at 20 -- and what the single `corner` token could not say.
+    large: widget.Radius
+    // As round as the box allows: a radio's dot, a capsule.
+    full: widget.Radius
+}
+```
 
 ### `Space`
 
@@ -2282,7 +2339,6 @@ doubled in a spacious theme would stop being a grid line and start being a borde
 
 ```
 pub struct Style {
-    text_size: float
     padding: Insets
     ink: Color
     face: Color
@@ -2394,11 +2450,6 @@ pub struct Style {
     space: Space
     minimum: Minimum
     stroke: Stroke
-    // Larger than the body, for a heading. The gallery had one of these as a local constant, which
-    // is where a type scale goes to hide.
-    heading_size: float
-    // Smaller than the body, for a caption or a hint.
-    small_size: float
     hover_tint: Color
     raised: Option<widget.Shadow>
     face_border: Option<widget.Border>
@@ -2415,22 +2466,18 @@ pub struct Style {
     // `Points` means, and a theme that wants a capsule says `Fraction(0.5)` -- see
     // `widget.Radius`, which has the whole argument.
     shape: Shape
-    // Which face a control's text is drawn in, and which an icon *glyph* comes from: indices into
-    // the faces a window gave `widget.Metrics` and `raster.Options.fonts`.
+    // The type scale. **This was four loose fields** -- `text_size`, `heading_size`, `small_size`
+    // and `text_font` -- of which two, `heading_size` and `small_size`, were read by nothing at all
+    // while two applications wrote their own. See `TypeScale`.
+    text: TypeScale
+    // Which face an icon *glyph* comes from: an index into the faces a window gave
+    // `widget.Metrics` and `raster.Options.fonts`.
     //
-    // **Named by purpose here so that no control writes a literal index.** `widget` works in
-    // indices because the renderer does; meaning belongs at this layer, where a theme can say "the
-    // text is face 1 and the icons are face 2" once and every control follows. Both default to 0,
-    // which is the single-face window every application starts as.
+    // **Not a role in the type scale**, because an icon is not text: it has no line height to
+    // stretch, and its size is an em square taken from whatever role is drawing beside it.
     //
-    // **Drawn in, as well as measured in**, which it was not: every control drew its text with
-    // `widget.label_of`, which names face 0, while `entry_input` placed its caret using
-    // `style.text_font`. So a theme that set this got a field whose caret was positioned by one
-    // face's metrics and whose glyphs came from another -- drifting further apart with every
-    // character, and only on a window that had loaded a second face, which is why nothing had
-    // met it. `widget.label_in_face` existed the whole time and `controls` called it zero times.
-    // Found by the gallery wanting a monospaced code pane: the first caller ever to set this.
-    text_font: int
+    // Named by purpose here so that no control writes a literal index. `widget` works in indices
+    // because the renderer does; meaning belongs at this layer.
     icon_font: int
     // The space between an icon and the label it sits beside.
     //
@@ -2441,6 +2488,35 @@ pub struct Style {
     icon_gap: float
 }
 ```
+
+### `face_for`
+
+```
+pub fn face_for(m: widget.Metrics, want: int) -> int
+```
+
+A control's own face: its fill, edged and rounded as the style asks.
+
+**Every control that has a face goes through here**, which is the point: a look and feel set on
+`Style` reaches a button, a field, a tab, a menu title, a dialog's panel and a scroll bar's thumb
+without each of them being taught about borders. A control that painted its own
+`widget.filled(...)` would be the one that stayed flat when the theme changed, and the way that
+bug presents is one widget out of fifteen looking wrong.
+A face index an application actually loaded.
+
+**Clamped rather than trusted, which the gallery had to work around.** `gallery.zm` records that
+the renderer "refuses a run naming a face the options do not hold", and loads its text face twice
+so that index 1 is always real. With a clamp a single-face application renders a look that asks
+for bold -- it renders it regular, which is the right failure and the one D9 chose.
+
+### `line_for`
+
+```
+pub fn line_for(m: widget.Metrics, t: Type) -> float
+```
+
+How tall one line of a role is: **the font's own line height, stretched by the theme's factor.**
+One function, so that a caret and the box it sits in cannot read different numbers.
 
 ## The keys
 

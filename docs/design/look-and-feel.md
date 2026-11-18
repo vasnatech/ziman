@@ -449,10 +449,8 @@ To be worked through one at a time. Nothing here is decided.
   changes signatures that `tests/`, `gallery/` and curly all call. **This is the cost D6 did not
   foresee, and it is a public API decision rather than an implementation detail.**
 
-- **Q7 -- Whose number wins when an application already hardcoded it?** Raised 2026-11-18 by
-  F293. `Style.heading_size` is 16 and every design file in the gallery and curly carries its own
-  `val heading_size = 12.0`. Wiring them to the scale changes two applications' pixels; changing the
-  looks to 12 moves the token to where the practice already is. Decides the second half of D9.
+- **Q7 -- Whose number wins when an application already hardcoded it?** **DECIDED 2026-11-18 --
+  see §13.3/D17.**
 
 ### 13.3 Decisions taken
 
@@ -944,6 +942,45 @@ instead of inventing one each.
 **Which raises a question that is not F293's to settle** (see Q7): the theme says a heading is 16
 and both applications draw 12. Making them read the scale changes pixels in two applications unless
 the looks change instead.
+
+**D17 (Q7, F293) -- the looks move to the practice, and the scale gains its readers.
+2026-11-18.**
+
+    pub struct Type { face: int, size: float, line: float }
+    pub struct TypeScale { heading: Type, body: Type, label: Type, caption: Type, code: Type }
+
+`Style`'s four loose type fields -- `text_size`, `heading_size`, `small_size`, `text_font` -- become
+one scale. `icon_font` stays out of it: an icon is not text, it has no line height to stretch, and
+its size is an em square taken from whatever role draws beside it.
+
+**The looks adopt the practice rather than the reverse.** `heading` is 12, not the 16 the token
+used to claim, because 12 is what both applications were actually drawing from their own
+`val heading_size`. So adopting the scale moved **no pixels anywhere**, including curly's committed
+geometry baseline, which passed untouched.
+
+**The library reads two roles and the applications read the rest, which is the point.** `body` is
+text a control *contains* -- a field's content, a list's rows, a table's cells, a link, and **every
+caret calculation**; `label` is a control's own name -- a button, a tab, a menu title, a check box,
+a radio. `heading` and `caption` have no control reader because **a heading is not a control**, and
+that is exactly why two applications invented one. The gallery's and curly's design files now read
+`style.text.heading.size` and `style.text.caption.size` -- 24 files, around 78 readers, where there
+were none.
+
+**`code` became a role rather than an index poked into a field.** The gallery used to write
+`with style { text_font: code_face }`; it now says `as_code(style)`, which hands the `Entry` a style
+whose `body` *is* the look's `code` role. An `Entry` cannot know it is showing code, so naming the
+role is the application's job and this is what that looks like.
+
+**Two tokens made live that would otherwise have been dead on arrival.** `Type.line` is read by
+`controls.line_for`, the one function a caret and the box it sits in both measure with -- and
+`at_density` stretches it, gently (0.9/1.0/1.15) rather than by `space`'s factor, because 0.75 of a
+font's line height overlaps one line's descenders with the next line's ascenders. `Type.face` is
+read through `controls.face_for`, which **clamps** an index the window has not loaded instead of
+letting the renderer refuse the run -- retiring the gallery's load-the-text-face-twice workaround.
+
+**Density moves the leading and never the sizes**, and `theme_test` asserts it. A compact mode that
+shrank the text would be a zoom, and it is the one change a reader with low vision cannot undo from
+their own settings. Material's density does the same.
 
 ### 13.4 Build order
 

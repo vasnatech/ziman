@@ -5,7 +5,6 @@ use widget
 val gap = 8.0
 val tree_height = 200.0
 val tree_width = 260.0
-val small_size = 11.0
 
 pub struct Screen {
     tree: widget.Widget
@@ -18,6 +17,6 @@ pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Wi
             widget.wide_of(tree_width, it.tree),
             widget.expand(widget.flex())
         ])),
-        widget.label_of(it.said, small_size, style.ink)
+        widget.label_of(it.said, style.text.caption.size, style.ink)
     ])
 }

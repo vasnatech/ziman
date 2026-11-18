@@ -431,10 +431,10 @@ pub fn button_widget(b: Button, style: Style) -> widget.Widget {
     // the control rather than a picture beside it: a disabled button's icon greys with its words,
     // and a theme that sets a larger `text_size` gets a larger icon without saying so.
     val content = mutable_array_new<widget.Widget>()
-    val label = widget.label_in_face(b.label, style.text_size, ink, style.text_font)
+    val label = widget.label_in_face(b.label, style.text.label.size, ink, style.text.label.face)
     switch b.icon {
         Some(icon) {
-            val mark = widget.icon_widget(icon, style.text_size, ink, style.icon_font)
+            val mark = widget.icon_widget(icon, style.text.label.size, ink, style.icon_font)
             // A label-less button is just the icon: no gap, and nothing to put one between.
             if b.label == "" {
                 push(content, mark)
@@ -552,14 +552,14 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
     // it was a flat grey rectangle; F286's rounded theme drew it as a capsule, which is how the
     // shape was found.
     //
-    // **One line tall, which is the only side that needs no guess.** `style.text_size` would be
+    // **One line tall, which is the only side that needs no guess.** `style.text.label.size` would be
     // metric-free and wrong: the mark's own line box is `line_height(text_size)`, and the painter
     // puts a glyph's baseline a full line below its box's top -- so a square smaller than that
     // hangs the mark out of the bottom of the box it is supposed to sit in. Asking the metrics is
     // also what makes the box exactly as tall as the label beside it, which is the relationship a
     // check box has on every platform. `entry_widget` and `multi_line_widget` already take a
     // `Metrics` for the same kind of reason, so this is the pattern rather than a new one.
-    val side = widget.height_in(m, style.text_font, style.text_size)
+    val side = line_for(m, style.text.label)
     val box = widget.fixed_of(side, side, widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
@@ -581,7 +581,7 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
     }))
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
-        spacing: style.text_size * 0.5,
+        spacing: style.text.label.size * 0.5,
         padding: style.padding,
         surface: widget.no_surface(),
         // **`Across.Centre` rather than the default, or the square is not square.** A stretched
@@ -589,7 +589,7 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
         // as tall as the row -- a stack cannot be given a square child, it can only be told not to
         // stretch it. It also centres the mark against the label, which is where it belongs.
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
-        children: [box, widget.label_in_face(c.label, style.text_size, ink, style.text_font)],
+        children: [box, widget.label_in_face(c.label, style.text.label.size, ink, style.text.label.face)],
         name: ""
     })
     return widget.Widget.Control(widget.Focusable {
@@ -889,7 +889,7 @@ fn following_caret(step: EntryStep, bounds: Rect, style: Style, m: widget.Metric
     if e.rows <= 1 {
         return step
     }
-    val line = widget.height_in(m, style.text_font, style.text_size)
+    val line = line_for(m, style.text.body)
     val at = edit.line_index(e.editor.text, e.editor.caret)
     val view = bounds.height - style.padding.top - style.padding.bottom
     return EntryStep {
@@ -1126,10 +1126,10 @@ fn caret_for(e: Entry, style: Style, m: widget.Metrics, bounds: Rect, p: Point) 
     }
     return caret_at_x(
         shown_text(e),
-        style.text_size,
+        style.text.body.size,
         m,
         p.x - text_left(bounds, style),
-        style.text_font
+        style.text.body.face
     )
 }
 
@@ -1140,7 +1140,7 @@ fn caret_for(e: Entry, style: Style, m: widget.Metrics, bounds: Rect, p: Point) 
 // this module keeps designing against. The lines are walked rather than split for that function's
 // stated reason: a split throws away the one thing that relates a line to the whole string.
 fn caret_at_point(e: Entry, style: Style, m: widget.Metrics, bounds: Rect, p: Point) -> int {
-    val line = widget.height_in(m, style.text_font, style.text_size)
+    val line = line_for(m, style.text.body)
     if line <= 0.0 {
         return e.editor.caret
     }
@@ -1158,10 +1158,10 @@ fn caret_at_point(e: Entry, style: Style, m: widget.Metrics, bounds: Rect, p: Po
     return start +
         caret_at_x(
             substring(text, start, stop),
-            style.text_size,
+            style.text.body.size,
             m,
             p.x - text_left(bounds, style),
-            style.text_font
+            style.text.body.face
         )
 }
 
@@ -1217,7 +1217,7 @@ pub fn caret_at_x(text: string, size: float, m: widget.Metrics, x: float) -> int
 //
 // **A fifth argument rather than a changed signature**: the four-argument form is what a caller
 // with one face wants, which is most of them, and an entry in a second face is the one that has to
-// say so. `entry_input` passes `style.text_font`, so a field drawn in a face measures its clicks
+// say so. `entry_input` passes `style.text.body.face`, so a field drawn in a face measures its clicks
 // in the same one -- a caret placed by the wrong face's widths lands between the wrong letters,
 // and only on the text where the two faces differ.
 pub fn caret_at_x(text: string, size: float, m: widget.Metrics, x: float, face: int) -> int {
@@ -1247,7 +1247,7 @@ pub fn caret_at_x(text: string, size: float, m: widget.Metrics, x: float, face: 
 // group of one, so a field that uses no colour lays out exactly as it did before this existed.
 fn inked_run(e: Entry, text: string, from_at: int, to_at: int, ink: Color, style: Style) -> widget.Widget {
     if len(e.inks) == 0 || e.masked || to_at <= from_at {
-        return widget.label_in_face(substring(text, from_at, to_at), style.text_size, ink, style.text_font)
+        return widget.label_in_face(substring(text, from_at, to_at), style.text.body.size, ink, style.text.body.face)
     }
     val parts = mutable_array_new<widget.Widget>()
     var at = from_at
@@ -1258,15 +1258,21 @@ fn inked_run(e: Entry, text: string, from_at: int, to_at: int, ink: Color, style
         val hi = if span.to > to_at { to_at } else { span.to }
         if hi > lo && lo >= at {
             if lo > at {
-                push(parts, widget.label_in_face(substring(text, at, lo), style.text_size, ink, style.text_font))
+                push(
+                    parts,
+                    widget.label_in_face(substring(text, at, lo), style.text.body.size, ink, style.text.body.face)
+                )
             }
-            push(parts, widget.label_in_face(substring(text, lo, hi), style.text_size, span.colour, style.text_font))
+            push(
+                parts,
+                widget.label_in_face(substring(text, lo, hi), style.text.body.size, span.colour, style.text.body.face)
+            )
             at = hi
         }
         i = i + 1
     }
     if at < to_at {
-        push(parts, widget.label_in_face(substring(text, at, to_at), style.text_size, ink, style.text_font))
+        push(parts, widget.label_in_face(substring(text, at, to_at), style.text.body.size, ink, style.text.body.face))
     }
     return widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
@@ -1356,7 +1362,7 @@ fn run_between(
     if from >= starts[0] && to <= starts[1] {
         return tinted(piece, style.composing_face, ink, style, "composing")
     }
-    return widget.label_in_face(piece, style.text_size, ink, style.text_font)
+    return widget.label_in_face(piece, style.text.body.size, ink, style.text.body.face)
 }
 
 fn tinted(piece: string, face: Color, ink: Color, style: Style, name: string) -> widget.Widget {
@@ -1366,7 +1372,7 @@ fn tinted(piece: string, face: Color, ink: Color, style: Style, name: string) ->
         padding: widget.no_insets(),
         surface: widget.filled(face),
         align: widget.stretched(),
-        children: [widget.label_in_face(piece, style.text_size, ink, style.text_font)],
+        children: [widget.label_in_face(piece, style.text.body.size, ink, style.text.body.face)],
         name: name
     })
 }
@@ -1479,7 +1485,7 @@ fn entry_line(
 
 fn multi_line_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget {
     val ink = if e.disabled { style.disabled_ink } else { style.ink }
-    val line = widget.height_in(m, style.text_font, style.text_size)
+    val line = line_for(m, style.text.body)
     val text = e.editor.text
     val caret_line = edit.line_index(text, e.editor.caret)
     val lines = mutable_array_new<widget.Widget>()
@@ -1529,7 +1535,7 @@ pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget 
         return multi_line_widget(e, style, m)
     }
     val ink = if e.disabled { style.disabled_ink } else { style.ink }
-    val line = widget.height_in(m, style.text_font, style.text_size)
+    val line = line_for(m, style.text.body)
     val text = shown_text(e)
     // **A field is never selecting and composing at once**, which is not a simplification taken
     // but one the model gives: `edit.compose` deletes a selection before it opens a composition,
@@ -1760,7 +1766,7 @@ pub fn list_widget(l: List, style: Style) -> widget.Widget {
             padding: widget.insets_of(4.0, 2.0, 4.0, 2.0),
             surface: highlight_of(style, face),
             align: widget.stretched(),
-            children: [widget.label_in_face(l.items[i], style.text_size, ink, style.text_font)],
+            children: [widget.label_in_face(l.items[i], style.text.body.size, ink, style.text.body.face)],
             name: ""
         })
         push(rows, widget.fixed_of(
@@ -1934,7 +1940,7 @@ pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget {
             ),
             surface: tab_face_of(style, chosen),
             align: widget.stretched(),
-            children: [widget.label_in_face(t.items[i], style.text_size, ink, style.text_font)],
+            children: [widget.label_in_face(t.items[i], style.text.label.size, ink, style.text.label.face)],
             name: ""
         })
         // **`wide_of`, not `fixed_of(width, 0)`.** A tab states its width so the strip divides
@@ -2408,8 +2414,8 @@ fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style) -> widget.Widge
         align: widget.stretched(),
         children: [
             widget.fixed_of((row.depth as float) * t.indent, 0.0, widget.flex()),
-            widget.fixed_of(t.indent, 0.0, widget.label_in_face(mark, style.text_size, ink, style.text_font)),
-            widget.label_in_face(row.label, style.text_size, ink, style.text_font)
+            widget.fixed_of(t.indent, 0.0, widget.label_in_face(mark, style.text.body.size, ink, style.text.body.face)),
+            widget.label_in_face(row.label, style.text.body.size, ink, style.text.body.face)
         ],
         name: ""
     }))
@@ -2859,9 +2865,9 @@ pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget {
         surface: face_of(style, style.face),
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
         children: [
-            widget.label_in_face(combo_box_text(c), style.text_size, ink, style.text_font),
+            widget.label_in_face(combo_box_text(c), style.text.label.size, ink, style.text.label.face),
             widget.flex(),
-            widget.label_in_face(style.expanded_mark, style.text_size, ink, style.text_font)
+            widget.label_in_face(style.expanded_mark, style.text.label.size, ink, style.text.label.face)
         ],
         name: ""
     })
@@ -3215,7 +3221,7 @@ pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
         padding: style.padding,
         surface: face_of(style, face),
         align: widget.stretched(),
-        children: [widget.label_in_face(collapsed_text(m), style.text_size, ink, style.text_font)],
+        children: [widget.label_in_face(collapsed_text(m), style.text.label.size, ink, style.text.label.face)],
         name: ""
     })
     return widget.Widget.Control(widget.Focusable {
@@ -3288,7 +3294,7 @@ pub fn dialog_keys(input: Input) -> DialogAnswer {
 pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: Style) -> widget.Layer {
     val framed = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Column,
-        spacing: style.text_size * 0.5,
+        spacing: style.text.body.size * 0.5,
         padding: style.padding,
         // **The panel, not a face.** See `Style.panel`: a dialog whose panel is the colour of a
         // button is a dialog whose buttons cannot be seen. Raised, because a modal dialog is the
@@ -3296,7 +3302,7 @@ pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: 
         // which of the two layers you are looking at.
         surface: raised_of(style, style.panel),
         align: widget.stretched(),
-        children: [widget.label_in_face(title, style.text_size, style.ink, style.text_font), content],
+        children: [widget.label_in_face(title, style.text.body.size, style.ink, style.text.body.face), content],
         name: ""
     })
     val titled = widget.Widget.Control(widget.Focusable {
@@ -4162,7 +4168,7 @@ fn cell_widget(t: Table, style: Style, column: int, text: string, ink: Color) ->
         padding: widget.insets_of(6.0, 2.0, 6.0, 2.0),
         surface: widget.no_surface(),
         align: widget.Alignment { across: widget.Across.Centre, along: t.columns[column].align },
-        children: [widget.label_in_face(text, style.text_size, ink, style.text_font)],
+        children: [widget.label_in_face(text, style.text.body.size, ink, style.text.body.face)],
         name: ""
     })
     return widget.fixed_of(t.columns[column].width, 0.0, widget.Widget.Group(widget.Stack {
@@ -4448,7 +4454,7 @@ fn radios_key(r: Radios, k: Keystroke) -> RadioStep {
 // would make every adapter work out for itself which child the number meant.
 pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widget {
     val ink = if r.disabled { style.disabled_ink } else { style.ink }
-    val side = widget.height_in(m, style.text_font, style.text_size)
+    val side = line_for(m, style.text.label)
     val rows = mutable_array_new<widget.Widget>()
     var i = 0
     while i < len(r.items) {
@@ -4483,7 +4489,7 @@ pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widge
         }))
         val row = widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
-            spacing: style.text_size * 0.5,
+            spacing: style.text.label.size * 0.5,
             // **A left inset, because the focus ring is drawn inside the control's own box.** With
             // none, the first option's circle sat at the very first point of the group -- under
             // the two-point ring, which paints after the options and so over them. The tree had
@@ -4491,7 +4497,7 @@ pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widge
             padding: widget.insets_of(4.0, 2.0, 0.0, 2.0),
             surface: widget.no_surface(),
             align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
-            children: [dot, widget.label_in_face(r.items[i], style.text_size, ink, style.text_font)],
+            children: [dot, widget.label_in_face(r.items[i], style.text.label.size, ink, style.text.label.face)],
             name: ""
         })
         push(rows, widget.fixed_of(0.0, style.minimum.target, widget.part_of(
@@ -4886,8 +4892,8 @@ pub fn link_widget(l: Link, style: Style, m: widget.Metrics) -> widget.Widget {
     // the link drew nothing at all: no rule, no words, no error. The check box learned the same
     // thing from the other side, where a stretched row made its square a rectangle. A stack can be
     // told not to stretch a child; it cannot be given one whose size it does not know.
-    val words = widget.width_in(m, style.text_font, l.label, style.text_size)
-    val tall = widget.height_in(m, style.text_font, style.text_size) + style.stroke.hair * 2.0
+    val words = widget.width_in(m, style.text.body.face, l.label, style.text.body.size)
+    val tall = line_for(m, style.text.body) + style.stroke.hair * 2.0
     val underlined = widget.fixed_of(words, tall, widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Column,
         spacing: style.stroke.hair,
@@ -4895,7 +4901,7 @@ pub fn link_widget(l: Link, style: Style, m: widget.Metrics) -> widget.Widget {
         surface: widget.no_surface(),
         align: widget.stretched(),
         children: [
-            widget.label_in_face(l.label, style.text_size, ink, style.text_font),
+            widget.label_in_face(l.label, style.text.body.size, ink, style.text.body.face),
             widget.fixed_of(0.0, style.stroke.hair, rule)
         ],
         name: ""
@@ -4984,6 +4990,54 @@ pub fn table_cursor(t: Table, style: Style, bounds: Rect, p: Point) -> widget.Cu
 // including the square one, because round-against-square is how a user tells a radio from a check
 // box -- so `plain` sets `full` to `Fraction(0.5)` while setting every other step to `Square`. A
 // look may square it and would be wrong to.
+// One role of a theme's type scale: which face it is drawn in, how big, and how far apart lines of
+// it sit.
+//
+// **`line` is a multiplier, not a height.** `widget.FaceMetrics.line_height` is a function of size
+// computed from the font and it stays authoritative; a theme may only stretch it. The precedent is
+// in the same struct: `FaceMetrics.ascent` exists because "a baseline cannot be guessed from a line
+// height", and every glyph in this widget set was once drawn a descent too low with every box
+// correct. The font knows its own ascent, descent and gap, and a theme written against a Latin face
+// does not know what CJK or Devanagari need. See D14 in docs/design/look-and-feel.md.
+//
+// **`face` is an index into the faces an application loaded**, and it is clamped rather than
+// trusted: see `face_for`.
+pub struct Type {
+    face: int
+    size: float
+    line: float
+}
+
+// The type scale a theme sets and its readers index.
+//
+// **Five roles, and the library reads two of them.** `body` is text a control *contains* -- a
+// field's content, a list's rows, a table's cells, a link -- and `label` is a control's own name:
+// a button, a tab, a menu's title, a check box, a radio. The other three have **application**
+// readers rather than control ones, and that is not an oversight: a heading is not a control, which
+// is why `controls` was never going to draw one.
+//
+// **That gap is why this exists.** `Style` used to carry `heading_size` and `small_size` and
+// **nothing read either of them** -- while the gallery's design files and curly's each declared
+// `val heading_size = 12.0` and `val small_size = 11.0` for themselves, at 12 where the theme said
+// 16. Two applications invented a type scale because the one in the theme was unreachable from
+// where they needed it. The sizes here are what those applications actually draw, so adopting the
+// scale moves no pixels; see Q7/D17.
+pub struct TypeScale {
+    // An application's own headings. No control draws one.
+    heading: Type
+    // Text a control contains, and **every caret calculation**: a caret measured in one role and
+    // drawn in another drifts by a character per character, which `Style.text_font` already caused
+    // once.
+    body: Type
+    // A control's own name: a button's words, a tab's title, a check box's label.
+    label: Type
+    // A hint, a footnote, a count beside a heading.
+    caption: Type
+    // A monospaced pane. The gallery's Code tab is the first caller this layer ever had for a
+    // second face, and it used to reach it by overriding `text_font` at the call site.
+    code: Type
+}
+
 pub struct Shape {
     // A chosen row in a list, a tree or a table: a subtler shape than a control's own face.
     small: widget.Radius
@@ -5034,7 +5088,6 @@ pub struct Stroke {
 }
 
 pub struct Style {
-    text_size: float
     padding: Insets
     ink: Color
     face: Color
@@ -5146,11 +5199,6 @@ pub struct Style {
     space: Space
     minimum: Minimum
     stroke: Stroke
-    // Larger than the body, for a heading. The gallery had one of these as a local constant, which
-    // is where a type scale goes to hide.
-    heading_size: float
-    // Smaller than the body, for a caption or a hint.
-    small_size: float
     hover_tint: Color
     raised: Option<widget.Shadow>
     face_border: Option<widget.Border>
@@ -5167,22 +5215,18 @@ pub struct Style {
     // `Points` means, and a theme that wants a capsule says `Fraction(0.5)` -- see
     // `widget.Radius`, which has the whole argument.
     shape: Shape
-    // Which face a control's text is drawn in, and which an icon *glyph* comes from: indices into
-    // the faces a window gave `widget.Metrics` and `raster.Options.fonts`.
+    // The type scale. **This was four loose fields** -- `text_size`, `heading_size`, `small_size`
+    // and `text_font` -- of which two, `heading_size` and `small_size`, were read by nothing at all
+    // while two applications wrote their own. See `TypeScale`.
+    text: TypeScale
+    // Which face an icon *glyph* comes from: an index into the faces a window gave
+    // `widget.Metrics` and `raster.Options.fonts`.
     //
-    // **Named by purpose here so that no control writes a literal index.** `widget` works in
-    // indices because the renderer does; meaning belongs at this layer, where a theme can say "the
-    // text is face 1 and the icons are face 2" once and every control follows. Both default to 0,
-    // which is the single-face window every application starts as.
+    // **Not a role in the type scale**, because an icon is not text: it has no line height to
+    // stretch, and its size is an em square taken from whatever role is drawing beside it.
     //
-    // **Drawn in, as well as measured in**, which it was not: every control drew its text with
-    // `widget.label_of`, which names face 0, while `entry_input` placed its caret using
-    // `style.text_font`. So a theme that set this got a field whose caret was positioned by one
-    // face's metrics and whose glyphs came from another -- drifting further apart with every
-    // character, and only on a window that had loaded a second face, which is why nothing had
-    // met it. `widget.label_in_face` existed the whole time and `controls` called it zero times.
-    // Found by the gallery wanting a monospaced code pane: the first caller ever to set this.
-    text_font: int
+    // Named by purpose here so that no control writes a literal index. `widget` works in indices
+    // because the renderer does; meaning belongs at this layer.
     icon_font: int
     // The space between an icon and the label it sits beside.
     //
@@ -5207,6 +5251,25 @@ pub struct Style {
 // without each of them being taught about borders. A control that painted its own
 // `widget.filled(...)` would be the one that stayed flat when the theme changed, and the way that
 // bug presents is one widget out of fifteen looking wrong.
+// A face index an application actually loaded.
+//
+// **Clamped rather than trusted, which the gallery had to work around.** `gallery.zm` records that
+// the renderer "refuses a run naming a face the options do not hold", and loads its text face twice
+// so that index 1 is always real. With a clamp a single-face application renders a look that asks
+// for bold -- it renders it regular, which is the right failure and the one D9 chose.
+pub fn face_for(m: widget.Metrics, want: int) -> int {
+    if want >= 0 && want < len(m.faces) {
+        return want
+    }
+    return 0
+}
+
+// How tall one line of a role is: **the font's own line height, stretched by the theme's factor.**
+// One function, so that a caret and the box it sits in cannot read different numbers.
+pub fn line_for(m: widget.Metrics, t: Type) -> float {
+    return widget.height_in(m, face_for(m, t.face), t.size) * t.line
+}
+
 fn face_of(style: Style, colour: Color) -> widget.Surface {
     return widget.Surface {
         fill: Option<Color>.Some(colour),

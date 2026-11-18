@@ -3,7 +3,6 @@ use controls
 use widget
 
 val gap = 8.0
-val small_size = 11.0
 
 pub struct Screen {
     on: widget.Widget
@@ -17,6 +16,6 @@ pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Wi
         it.on,
         it.mixed,
         it.off,
-        widget.label_of(it.said, small_size, style.ink)
+        widget.label_of(it.said, style.text.caption.size, style.ink)
     ])
 }

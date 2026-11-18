@@ -5,8 +5,6 @@ use widget
 val gap = 8.0
 val row_height = 30.0
 val button_width = 130.0
-val small_size = 11.0
-val heading_size = 12.0
 
 pub struct Screen {
     press: widget.Widget
@@ -17,7 +15,7 @@ pub struct Screen {
 }
 
 pub fn line(said: string, style: controls.Style) -> widget.Widget {
-    return widget.label_of(said, small_size, style.ink)
+    return widget.label_of(said, style.text.caption.size, style.ink)
 }
 
 pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
@@ -28,8 +26,11 @@ pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Wi
             widget.wide_of(button_width, it.picker),
             widget.expand(widget.flex())
         ]),
-        widget.tall_of(row_height, widget.label_of("What a screen reader says about them", heading_size, style.ink)),
+        widget.tall_of(
+            row_height,
+            widget.label_of("What a screen reader says about them", style.text.heading.size, style.ink)
+        ),
         widget.column_of(2.0, it.lines),
-        widget.label_of(it.said, small_size, style.ink)
+        widget.label_of(it.said, style.text.caption.size, style.ink)
     ])
 }

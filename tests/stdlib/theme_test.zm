@@ -237,6 +237,12 @@ fn a_density_moves_the_scale_and_leaves_the_floors_alone() {
             // Colour and shape are not density's business either.
             test.assert(same_colour(dense.window, look.style.window))
             test.assert(same_corner(dense.shape.medium, look.style.shape.medium))
+            // **The letters do not change size, only how far apart their lines sit.** A density
+            // that shrank the text would be a zoom, and the one change a reader with low vision
+            // cannot undo from their own settings.
+            test.assert_eq(dense.text.body.size, look.style.text.body.size)
+            test.assert_eq(dense.text.heading.size, look.style.text.heading.size)
+            test.assert_eq(dense.text.caption.size, look.style.text.caption.size)
         }
     }
 }
@@ -270,4 +276,17 @@ fn compact_is_tighter_and_spacious_is_looser() {
     // look says.
     test.assert_eq(theme.at_density(look, theme.Density.Comfortable).space.m, look.space.m)
     test.assert_eq(theme.at_density(look, theme.Density.Comfortable).padding.top, look.padding.top)
+}
+
+#[test]
+fn a_density_moves_the_leading_but_gently() {
+    val look = theme.plain()
+    val tight = theme.at_density(look, theme.Density.Compact)
+    val loose = theme.at_density(look, theme.Density.Spacious)
+    test.assert(tight.text.body.line < look.text.body.line)
+    test.assert(loose.text.body.line > look.text.body.line)
+    // **Gentler than the space factor**, because `line` multiplies the font's own line height:
+    // three quarters of that overlaps one line's descenders with the next line's ascenders.
+    test.assert(tight.text.body.line > 0.8)
+    test.assert(loose.text.body.line < 1.25)
 }

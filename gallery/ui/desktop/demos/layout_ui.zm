@@ -5,7 +5,6 @@ use widget
 val gap = 8.0
 val label_width = 110.0
 val picker_width = 160.0
-val small_size = 11.0
 
 pub struct Screen {
     picker: widget.Widget
@@ -22,7 +21,7 @@ pub fn block(title: string, colour: controls.Style) -> widget.Widget {
         padding: widget.insets_of(gap, 4.0, gap, 4.0),
         surface: widget.filled(colour.face),
         align: widget.centred(),
-        children: [widget.label_of(title, small_size, colour.ink)],
+        children: [widget.label_of(title, colour.text.caption.size, colour.ink)],
         name: ""
     })
 }
@@ -30,12 +29,12 @@ pub fn block(title: string, colour: controls.Style) -> widget.Widget {
 pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return widget.column_of(gap, [
         widget.row_of(gap, [
-            widget.wide_of(label_width, widget.label_of("Along the row", small_size, style.ink)),
+            widget.wide_of(label_width, widget.label_of("Along the row", style.text.caption.size, style.ink)),
             widget.wide_of(picker_width, it.picker),
             widget.expand(widget.flex())
         ]),
         it.row,
         it.column,
-        widget.label_of(it.said, small_size, style.ink)
+        widget.label_of(it.said, style.text.caption.size, style.ink)
     ])
 }

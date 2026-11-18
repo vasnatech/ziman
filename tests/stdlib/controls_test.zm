@@ -691,9 +691,12 @@ fn the_drawn_caret_and_the_clicked_caret_agree() {
         // which is precisely the drift this case exists to catch. Adding two units of spacing to
         // the widget's row left the round trip passing and fails this line, which is how that was
         // found.
-        test.assert_eq(x, style().padding.left + width(substring(e.editor.text, 0, at), style().text_size))
+        test.assert_eq(x, style().padding.left + width(substring(e.editor.text, 0, at), style().text.body.size))
         // And the inverse agrees, which is the direction a click travels.
-        test.assert_eq(controls.caret_at_x(e.editor.text, style().text_size, metrics(), x - style().padding.left), at)
+        test.assert_eq(
+            controls.caret_at_x(e.editor.text, style().text.body.size, metrics(), x - style().padding.left),
+            at
+        )
         at = at + 1
     }
 }
@@ -2981,7 +2984,7 @@ fn a_check_box_is_one_line_square() {
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
         m
     )
-    test.assert_eq(face_box(laid).height, height(theme.plain().text_size))
+    test.assert_eq(face_box(laid).height, height(theme.plain().text.label.size))
 }
 
 // **A row taller than the control does not stretch the square**, which is the whole reason the
@@ -3045,7 +3048,7 @@ fn first_fill_radius(ops: [scene.Op], left: float) -> float {
 fn a_check_box_caps_the_radius_its_size_cannot_carry() {
     val m = metrics()
     val height = widget.face_at(m, 0).line_height
-    val side = height(theme.plain().text_size)
+    val side = height(theme.plain().text.label.size)
     // A radius the square cannot carry: 10 against a side of 24, where the cap is 6.
     val asking = asking_for(widget.Radius.Points(10.0))
     val laid = widget.layout(
@@ -3093,7 +3096,7 @@ fn a_check_box_keeps_a_radius_that_fits() {
 fn a_fraction_is_a_capsule_at_any_size() {
     val m = metrics()
     val height = widget.face_at(m, 0).line_height
-    val side = height(theme.plain().text_size)
+    val side = height(theme.plain().text.label.size)
     val asking = asking_for(widget.Radius.Fraction(0.5))
     val checked = widget.layout(
         controls.check_box_widget(a_check_box(), asking, metrics()),
@@ -3139,10 +3142,10 @@ fn an_icon_is_a_square_the_size_of_the_text() {
     val row = laid_button(controls.icon_button_of("save", "Save", widget.icon_of(tick(), "save")), wide).children[0]
     test.assert_len(2, row.children)
     val mark = row.children[0]
-    test.assert_eq(mark.bounds.width, style.text_size)
-    test.assert_eq(mark.bounds.height, style.text_size)
+    test.assert_eq(mark.bounds.width, style.text.label.size)
+    test.assert_eq(mark.bounds.height, style.text.label.size)
     // And it grows with the text rather than with the padding.
-    val bigger = with style { text_size: 24.0 }
+    val bigger = with style { text: with style.text { label: with style.text.label { size: 24.0 } } }
     val big = widget.layout(
         controls.button_widget(controls.icon_button_of("save", "Save", widget.icon_of(tick(), "save")), bigger),
         wide,
@@ -3191,7 +3194,7 @@ fn an_icon_only_button_is_just_the_icon() {
         geom.rect_of(0.0, 0.0, 200.0, 40.0)
     ).children[0]
     test.assert_len(1, row.children)
-    test.assert_eq(row.children[0].bounds.width, theme.plain().text_size)
+    test.assert_eq(row.children[0].bounds.width, theme.plain().text.label.size)
 }
 
 // **The accessibility half of the icon decision**, and it falls out of two rules rather than a
@@ -3302,8 +3305,8 @@ fn a_glyph_icon_is_drawn_in_the_styles_icon_face() {
     // **And it is still an em square**, not the glyph's own advance: an icon font whose characters
     // are not square must not make the button a different height than its words.
     val row = laid.children[0]
-    test.assert_eq(row.children[0].bounds.width, style.text_size)
-    test.assert_eq(row.children[0].bounds.height, style.text_size)
+    test.assert_eq(row.children[0].bounds.width, style.text.label.size)
+    test.assert_eq(row.children[0].bounds.height, style.text.label.size)
 
     // **A reader says the label and not the private-use character.** This is the case that forced
     // `announced_name`: a drawn icon is silent by itself because a `Drawing` has no text, and a
@@ -3448,13 +3451,14 @@ fn a_span_past_the_end_is_clipped() {
 
 // **A control drawn in a named face draws its text in that face**, which it did not: every label
 // went out through `widget.label_of`, which names face 0, while `entry_input` placed the caret
-// using `style.text_font`. A theme that set the field got a caret positioned by one face's
+// using the field now called `style.text.body.face`. A theme that set it got a caret positioned by one face's
 // metrics over glyphs from another, drifting further apart along the line -- and only on a window
 // that had loaded a second face, which is why nothing had met it. The gallery's monospaced code
 // pane was the first caller ever to set it.
 #[test]
 fn a_control_draws_its_text_in_the_face_its_style_names() {
-    val style = with theme.plain() { text_font: 1 }
+    val base = theme.plain()
+    val style = with base { text: with base.text { label: with base.text.label { face: 1 } } }
     val laid = widget.layout(
         controls.button_widget(controls.button_of("go", "Send"), style),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
@@ -4520,7 +4524,7 @@ fn caret_after_press(e: controls.Entry, x: float, y: float) -> int {
 #[test]
 fn a_press_in_a_text_area_lands_on_the_line_it_was_aimed_at() {
     val style = theme.plain()
-    val line = widget.height_in(metrics(), style.text_font, style.text_size)
+    val line = controls.line_for(metrics(), style.text.body)
     val top = style.padding.top
     val left = style.padding.left
     // The first character of each line: "alpha" is 0, "beta" is 6, "gamma" is 11.
@@ -4532,7 +4536,7 @@ fn a_press_in_a_text_area_lands_on_the_line_it_was_aimed_at() {
 #[test]
 fn a_press_in_a_text_area_lands_on_the_column_it_was_aimed_at() {
     val style = theme.plain()
-    val line = widget.height_in(metrics(), style.text_font, style.text_size)
+    val line = controls.line_for(metrics(), style.text.body)
     // Two characters into the second line, which is index 6 + 2.
     test.assert_eq(
         caret_after_press(area(), style.padding.left + 20.0, style.padding.top + line * 1.5),

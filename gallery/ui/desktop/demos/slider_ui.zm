@@ -5,7 +5,6 @@ use widget
 val gap = 8.0
 val label_width = 90.0
 val value_width = 70.0
-val small_size = 11.0
 
 pub struct Screen {
     volume: widget.Widget
@@ -17,9 +16,9 @@ pub struct Screen {
 
 pub fn row(title: string, slider: widget.Widget, value: string, style: controls.Style) -> widget.Widget {
     return widget.row_of(gap, [
-        widget.wide_of(label_width, widget.label_of(title, small_size, style.ink)),
+        widget.wide_of(label_width, widget.label_of(title, style.text.caption.size, style.ink)),
         widget.expand(slider),
-        widget.wide_of(value_width, widget.label_of(value, small_size, style.ink))
+        widget.wide_of(value_width, widget.label_of(value, style.text.caption.size, style.ink))
     ])
 }
 
@@ -27,6 +26,6 @@ pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Wi
     return widget.column_of(gap, [
         row("Volume", it.volume, it.volume_said, style),
         row("Quarters", it.steps, it.steps_said, style),
-        widget.label_of(it.said, small_size, style.ink)
+        widget.label_of(it.said, style.text.caption.size, style.ink)
     ])
 }

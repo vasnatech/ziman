@@ -204,11 +204,23 @@ fn loaded(s: State, file: int, style: controls.Style) -> State {
     }
 }
 
+// A style whose body text is the look's `code` role, in whatever monospaced face this window
+// managed to load. See `code_face`.
+fn as_code(style: controls.Style) -> controls.Style {
+    val mono = with style.text.code { face: code_face }
+    return with style { text: with style.text { body: mono } }
+}
+
 pub fn view(s: State, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     // **Which tab is showing is a conditional, and a conditional is not design.** The design file
     // takes a slot; this is what fills it.
     val body = if s.tabs.selected == code_tab {
-        gallery_ui.code_pane(s.files, s.source, with style { text_font: code_face }, m)
+        // **The code pane asks for the `code` role by name**, which is what a type scale is for:
+        // an `Entry` reads `style.text.body`, so an application that wants a monospaced one hands
+        // it a style whose body *is* the code role. Before F293 this said
+        // `with style { text_font: code_face }` -- an index poked into the one font field there
+        // was, with nothing to say what it meant.
+        gallery_ui.code_pane(s.files, s.source, as_code(style), m)
     } else {
         gallery_ui.demo_box(all.view_of(s.demos[s.at], style, m))
     }

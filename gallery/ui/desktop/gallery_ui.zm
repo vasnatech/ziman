@@ -13,8 +13,6 @@ use widget
 
 val gap = 8.0
 val heading_height = 18.0
-val heading_size = 12.0
-val small_size = 11.0
 val row_height = 30.0
 val status_height = 18.0
 // **The catalogue opens at this width and is not fixed to it**: the divider is draggable, so this
@@ -46,7 +44,7 @@ pub fn label(text: string, size: float, style: controls.Style) -> widget.Widget 
 pub fn catalogue(tree: controls.Tree, style: controls.Style) -> widget.Widget {
     return widget.column_of(gap, [
         widget.tall_of(gap, widget.flex()),
-        widget.tall_of(heading_height, label("Controls", heading_size, style)),
+        widget.tall_of(heading_height, label("Controls", style.text.heading.size, style)),
         widget.expand(controls.tree_widget(tree, style))
     ])
 }
@@ -99,7 +97,7 @@ pub fn demo_pane(it: Screen, style: controls.Style, m: widget.Metrics) -> widget
         widget.tall_of(gap, widget.flex()),
         strip(it.tabs, demo_strip_width, style),
         widget.expand(it.body),
-        widget.tall_of(status_height, label(it.status, small_size, style)),
+        widget.tall_of(status_height, label(it.status, style.text.caption.size, style)),
         widget.tall_of(gap, widget.flex())
     ])
 }

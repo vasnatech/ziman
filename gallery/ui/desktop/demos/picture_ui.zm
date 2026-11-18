@@ -4,7 +4,6 @@ use widget
 
 val gap = 8.0
 val label_width = 90.0
-val small_size = 11.0
 
 pub struct Screen {
     size: widget.Widget
@@ -36,11 +35,11 @@ pub fn band(picture: widget.Widget, drawing: widget.Widget) -> widget.Widget {
 pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     return widget.column_of(gap, [
         widget.row_of(gap, [
-            widget.wide_of(label_width, widget.label_of("Drawn at", small_size, style.ink)),
+            widget.wide_of(label_width, widget.label_of("Drawn at", style.text.caption.size, style.ink)),
             widget.expand(it.size),
-            widget.wide_of(label_width, widget.label_of(it.size_said, small_size, style.ink))
+            widget.wide_of(label_width, widget.label_of(it.size_said, style.text.caption.size, style.ink))
         ]),
         band(it.picture, it.drawing),
-        widget.label_of(it.said, small_size, style.ink)
+        widget.label_of(it.said, style.text.caption.size, style.ink)
     ])
 }

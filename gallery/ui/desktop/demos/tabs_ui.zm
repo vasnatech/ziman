@@ -5,7 +5,6 @@ use widget
 val gap = 8.0
 val strip_width = 400.0
 val panel_height = 120.0
-val small_size = 11.0
 
 pub struct Screen {
     strip: widget.Widget
@@ -18,6 +17,6 @@ pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Wi
             widget.wide_of(strip_width, it.strip),
             widget.expand(widget.flex())
         ]),
-        widget.tall_of(panel_height, widget.label_of(it.panel, small_size, style.ink))
+        widget.tall_of(panel_height, widget.label_of(it.panel, style.text.caption.size, style.ink))
     ])
 }

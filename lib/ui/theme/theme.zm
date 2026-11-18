@@ -81,6 +81,11 @@ pub fn at_density(s: controls.Style, d: Density) -> controls.Style {
         Comfortable { 1.0 }
         Spacious { 1.5 }
     }
+    val leading = switch d {
+        Compact { 0.9 }
+        Comfortable { 1.0 }
+        Spacious { 1.15 }
+    }
     return with s {
         space: controls.Space {
             none: s.space.none * by,
@@ -95,8 +100,33 @@ pub fn at_density(s: controls.Style, d: Density) -> controls.Style {
             s.padding.top * by,
             s.padding.right * by,
             s.padding.bottom * by
-        )
+        ),
+        text: leaded(s.text, leading)
     }
+}
+
+// The type scale with its leading stretched, and **the sizes untouched**.
+//
+// **Density changes how far apart lines sit, not how big the letters are.** A compact mode that
+// shrank the text would be a zoom rather than a density, and it is the one change a reader with low
+// vision cannot undo from the application's own settings. Material's density does the same: it
+// moves spacing and leaves the type scale alone.
+//
+// **A gentler factor than `space`'s**, because `Type.line` multiplies the font's own line height
+// (D14) and three quarters of that would overlap the descenders of one line with the ascenders of
+// the next.
+fn leaded(s: controls.TypeScale, by: float) -> controls.TypeScale {
+    return controls.TypeScale {
+        heading: stretched(s.heading, by),
+        body: stretched(s.body, by),
+        label: stretched(s.label, by),
+        caption: stretched(s.caption, by),
+        code: stretched(s.code, by)
+    }
+}
+
+fn stretched(t: controls.Type, by: float) -> controls.Type {
+    return with t { line: t.line * by }
 }
 
 // Every density, in the order an application offers them.

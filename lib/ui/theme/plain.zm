@@ -9,7 +9,16 @@
 
 pub fn plain() -> controls.Style {
     return controls.Style {
-        text_size: 12.0,
+        // **The scale moves to where the practice already was** (Q7/D17): both applications drew
+        // a 12-point heading from their own `val heading_size` while this said 16, so the token is
+        // 12 and adopting it moves no pixels. `line: 1.0` is the font's own leading, unstretched.
+        text: controls.TypeScale {
+            heading: controls.Type { face: 0, size: 12.0, line: 1.0 },
+            body: controls.Type { face: 0, size: 12.0, line: 1.0 },
+            label: controls.Type { face: 0, size: 12.0, line: 1.0 },
+            caption: controls.Type { face: 0, size: 11.0, line: 1.0 },
+            code: controls.Type { face: 0, size: 12.0, line: 1.0 }
+        },
         padding: widget.insets_of(8.0, 4.0, 8.0, 4.0),
         ink: paint.rgb(0.1, 0.1, 0.1),
         face: paint.rgb(0.9, 0.9, 0.9),
@@ -41,10 +50,6 @@ pub fn plain() -> controls.Style {
         // were already exactly that. `at_density` does not touch these.
         minimum: controls.Minimum { target: 24.0, thumb: 20.0 },
         stroke: controls.Stroke { hair: 1.0, line: 2.0 },
-        // A third larger and a tenth smaller, which is the smallest scale worth having: enough
-        // that a heading reads as one, little enough that nothing reflows.
-        heading_size: 16.0,
-        small_size: 11.0,
         // A tenth of black: enough that a row lights under the pointer, little enough that a
         // button does not look pressed when it is only being passed over.
         hover_tint: paint.rgba(0.0, 0.0, 0.0, 0.10),
@@ -62,7 +67,6 @@ pub fn plain() -> controls.Style {
             large: widget.Radius.Square,
             full: widget.Radius.Fraction(0.5)
         },
-        text_font: 0,
         icon_font: 0,
         // Half the text size: at 12 points that is 6, which reads as a space between two things
         // rather than as a gap. Scaling with the text keeps it right at any size, the way the
