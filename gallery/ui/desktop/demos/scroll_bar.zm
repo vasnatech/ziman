@@ -52,7 +52,7 @@ pub fn input(
 ) -> Demo {
     if name == "bar-demo" {
         val at = boxes.bounds_of(laid, name)
-        val taken = controls.scroll_bar_input(d.bar, input, at, content, view_extent, d.offset)
+        val taken = controls.scroll_bar_input(d.bar, input, style, at, content, view_extent, d.offset)
         return with d { bar: taken.bar, offset: taken.offset }
     }
     return d

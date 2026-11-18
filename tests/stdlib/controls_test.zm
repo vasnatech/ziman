@@ -6,14 +6,13 @@
 // are only visible in what the state becomes.
 use a11y
 use controls
-use controls.divider_thickness
 use focus
 use geom
-use theme
 use paint
 use scene
 use shape
 use test
+use theme
 use widget
 use widget.caret_name
 
@@ -423,10 +422,15 @@ fn only_a_key_or_text_could_change_a_field() {
 
 // --- the text entry
 
-use controls.bar_thickness
-use controls.divider_line
-use controls.min_column
-use controls.min_thumb
+// **What the plain look says these are**, now that they belong to the theme rather than to the
+// module -- F293 moved them into `Style.space`, `Style.minimum` and `Style.stroke`. The names are
+// kept so that every assertion below still reads as it did, and so that an assertion and the code
+// it checks read the same number from the same place.
+val bar_thickness = theme.plain().space.m
+val divider_line = theme.plain().stroke.line
+val divider_thickness = theme.plain().space.m
+val min_column = theme.plain().minimum.target
+val min_thumb = theme.plain().minimum.thumb
 use controls.thumb_height
 use controls.thumb_name
 use controls.thumb_width
@@ -749,7 +753,7 @@ fn list_box() -> geom.Rect {
 }
 
 fn to_list(l: controls.List, input: controls.Input) -> controls.ListStep {
-    return controls.list_input(l, input, list_box())
+    return controls.list_input(l, input, style(), list_box())
 }
 
 fn arrow(l: controls.List, k: controls.Key) -> controls.ListStep {
@@ -956,7 +960,7 @@ fn popup_box() -> geom.Rect {
 }
 
 fn to_menu(m: controls.Menu, input: controls.Input) -> controls.MenuStep {
-    return controls.menu_input(m, input, title_box, popup_box())
+    return controls.menu_input(m, input, style(), title_box, popup_box())
 }
 
 fn menu_key(m: controls.Menu, k: controls.Key) -> controls.MenuStep {
@@ -1697,7 +1701,7 @@ fn forest() -> controls.Tree {
 val tree_box = geom.rect_of(0.0, 0.0, 200.0, 140.0)
 
 fn to_tree(t: controls.Tree, input: controls.Input) -> controls.TreeStep {
-    return controls.tree_input(t, input, tree_box)
+    return controls.tree_input(t, input, style(), tree_box)
 }
 
 fn tree_key(t: controls.Tree, k: controls.Key) -> controls.TreeStep {
@@ -1964,16 +1968,16 @@ fn bar() -> controls.ScrollBar {
 }
 
 fn to_bar(b: controls.ScrollBar, input: controls.Input, offset: float) -> controls.ScrollBarStep {
-    return controls.scroll_bar_input(b, input, bar_box, bar_content, bar_view, offset)
+    return controls.scroll_bar_input(b, input, style(), bar_box, bar_content, bar_view, offset)
 }
 
 #[test]
 fn the_thumb_is_the_views_share_of_the_content() {
-    val t = controls.thumb_of(100.0, 250.0, 100.0, 0.0)
+    val t = controls.thumb_of(style(), 100.0, 250.0, 100.0, 0.0)
     test.assert_eq(t.length, 40.0)
     test.assert_eq(t.start, 0.0)
     // Scrolled to the end, the thumb sits at the end of the track and not past it.
-    val end = controls.thumb_of(100.0, 250.0, 100.0, 150.0)
+    val end = controls.thumb_of(style(), 100.0, 250.0, 100.0, 150.0)
     test.assert_eq(end.start, 60.0)
     test.assert_eq(end.start + end.length, 100.0)
 }
@@ -1983,7 +1987,7 @@ fn the_thumb_is_the_views_share_of_the_content() {
 // must not push the thumb past the end of its track.
 #[test]
 fn a_tiny_thumb_is_floored_and_still_fits() {
-    val t = controls.thumb_of(100.0, 100000.0, 100.0, 100000.0 - 100.0)
+    val t = controls.thumb_of(style(), 100.0, 100000.0, 100.0, 100000.0 - 100.0)
     test.assert_eq(t.length, min_thumb)
     test.assert_eq(t.start + t.length, 100.0)
 }
@@ -1994,7 +1998,7 @@ fn a_tiny_thumb_is_floored_and_still_fits() {
 // second clamp every other test here still passed, because they all use a track of a hundred.
 #[test]
 fn a_thumb_never_outgrows_a_short_track() {
-    val t = controls.thumb_of(15.0, 250.0, 100.0, 0.0)
+    val t = controls.thumb_of(style(), 15.0, 250.0, 100.0, 0.0)
     test.assert_eq(t.length, 15.0)
     test.assert(t.start + t.length <= 15.0)
 }
@@ -2004,7 +2008,7 @@ fn a_thumb_never_outgrows_a_short_track() {
 #[test]
 fn a_view_bigger_than_its_content_has_no_thumb() {
     test.assert_false(controls.scrolls(40.0, 100.0))
-    test.assert_eq(controls.thumb_of(100.0, 40.0, 100.0, 0.0).length, 100.0)
+    test.assert_eq(controls.thumb_of(style(), 100.0, 40.0, 100.0, 0.0).length, 100.0)
 }
 
 // A press on the track pages **towards the pointer**, which is what a track click does
@@ -2101,7 +2105,7 @@ fn laid_bar(offset: float) -> widget.Laid {
 #[test]
 fn the_drawn_thumb_is_where_the_hit_test_looks_for_it() {
     val drawn = box_named(laid_bar(75.0), thumb_name)
-    val figured = controls.thumb_of(100.0, bar_content, bar_view, 75.0)
+    val figured = controls.thumb_of(style(), 100.0, bar_content, bar_view, 75.0)
     test.assert_eq(drawn.y, figured.start)
     test.assert_eq(drawn.height, figured.length)
     // And a press at the drawn thumb's own middle grabs rather than pages.
@@ -2286,7 +2290,7 @@ fn long_tree() -> controls.Tree {
 val long_box = geom.rect_of(0.0, 0.0, 200.0, 100.0)
 
 fn on_long(t: controls.Tree, input: controls.Input) -> controls.TreeStep {
-    return controls.tree_input(t, input, long_box)
+    return controls.tree_input(t, input, style(), long_box)
 }
 
 // **A press in the strip down the right edge takes the bar, not the row behind it.** The row is
@@ -2365,9 +2369,9 @@ fn a_list_drags_its_bar_too() {
         i = i + 1
     }
     val l = controls.list_of("rows", "Rows", snapshot(many))
-    val held = controls.list_input(l, controls.Input.Press(geom.point_of(196.0, 5.0)), long_box)
+    val held = controls.list_input(l, controls.Input.Press(geom.point_of(196.0, 5.0)), style(), long_box)
     test.assert(Option.is_Some(held.list.bar.grabbed))
-    val dragged = controls.list_input(held.list, controls.Input.Move(geom.point_of(196.0, 25.0)), long_box)
+    val dragged = controls.list_input(held.list, controls.Input.Move(geom.point_of(196.0, 25.0)), style(), long_box)
     test.assert_eq(dragged.list.offset, 100.0)
     test.assert_eq(dragged.list.selected, 0)
     test.assert_false(dragged.moved)
@@ -2672,7 +2676,7 @@ val combo_popup_at = geom.rect_of(0.0, 24.0, 80.0, 100.0)
 
 fn combo_key(c: controls.ComboBox, k: controls.Key, alt: bool) -> controls.ComboBoxStep {
     val stroke = controls.Keystroke { key: k, shift: false, control: false, alt: alt, meta: false }
-    return controls.combo_box_input(c, controls.Input.KeyDown(stroke), combo_box_at, combo_popup_at)
+    return controls.combo_box_input(c, controls.Input.KeyDown(stroke), style(), combo_box_at, combo_popup_at)
 }
 
 // **Down changes the value without opening the list**, which is the behaviour a menu does not have
@@ -3470,7 +3474,7 @@ fn pane() -> controls.SplitPane {
 }
 
 fn to_pane(s: controls.SplitPane, input: controls.Input) -> controls.SplitStep {
-    return controls.split_pane_input(s, input, pane_box)
+    return controls.split_pane_input(s, input, style(), pane_box)
 }
 
 // A pane with a name a layout probe can find, and nothing in it.
@@ -3496,20 +3500,24 @@ fn laid_pane(s: controls.SplitPane, extent: float) -> widget.Laid {
 
 #[test]
 fn a_divider_stays_inside_both_minimums() {
-    test.assert_eq(controls.split_at(pane(), pane_extent), 100.0)
-    test.assert_eq(controls.split_at(with pane() { position: 5.0 }, pane_extent), 40.0)
-    test.assert_eq(controls.split_at(with pane() { position: 290.0 }, pane_extent), 244.0)
+    test.assert_eq(controls.split_at(pane(), style(), pane_extent), 100.0)
+    test.assert_eq(controls.split_at(with pane() { position: 5.0 }, style(), pane_extent), 40.0)
+    test.assert_eq(controls.split_at(with pane() { position: 290.0 }, style(), pane_extent), 242.0)
 }
 
 // **The case where the minimums contradict the box**, which is the one a wide window never shows.
-// Sixty points cannot give forty to one pane and fifty to the other, so neither gets what it asked
-// for and the room is shared in the ratio -- and, the part that matters, the divider is still
+// Sixty-two points cannot give forty to one pane and fifty to the other, so neither gets what it
+// asked for and the room is shared in the ratio -- and, the part that matters, the divider is still
 // inside the box rather than hanging out of the end of it.
+//
+// **Sixty-two rather than sixty since F293**, which widened the divider from six points to eight:
+// the extent is chosen so that the shared room is a whole twenty-four, because a test whose
+// expected value is 23.111111111111 teaches a reader nothing about the ratio it is checking.
 #[test]
 fn minimums_that_cannot_both_be_met_share_the_room() {
-    val at = controls.split_at(pane(), 60.0)
+    val at = controls.split_at(pane(), style(), 62.0)
     test.assert_eq(at, 24.0)
-    test.assert(at + divider_thickness <= 60.0)
+    test.assert(at + divider_thickness <= 62.0)
 }
 
 // **A squeezed window does not cost the user the position they chose.** The clamp is on the way
@@ -3519,9 +3527,9 @@ fn minimums_that_cannot_both_be_met_share_the_room() {
 #[test]
 fn a_narrow_window_does_not_overwrite_the_chosen_position() {
     val s = pane()
-    test.assert_eq(controls.split_at(s, 60.0), 24.0)
+    test.assert_eq(controls.split_at(s, style(), 62.0), 24.0)
     test.assert_eq(s.position, 100.0)
-    test.assert_eq(controls.split_at(s, pane_extent), 100.0)
+    test.assert_eq(controls.split_at(s, style(), pane_extent), 100.0)
 }
 
 // The one-function rule, as the scroll bar's thumb has it: the divider the layout draws is the
@@ -3529,10 +3537,10 @@ fn a_narrow_window_does_not_overwrite_the_chosen_position() {
 #[test]
 fn the_drawn_divider_is_where_the_hit_test_looks_for_it() {
     val drawn = box_named(laid_pane(pane(), pane_extent), controls.divider_name(pane()))
-    test.assert_eq(drawn.x, controls.split_at(pane(), pane_extent))
+    test.assert_eq(drawn.x, controls.split_at(pane(), style(), pane_extent))
     test.assert_eq(drawn.width, divider_thickness)
     test.assert_eq(drawn.height, 100.0)
-    test.assert(widget.contains(controls.divider_rect(pane(), pane_box), geom.point_of(drawn.x + 1.0, 50.0)))
+    test.assert(widget.contains(controls.divider_rect(pane(), style(), pane_box), geom.point_of(drawn.x + 1.0, 50.0)))
 }
 
 // **A press takes hold of the divider where it was pressed, and a drag moves it by how far the
@@ -3545,7 +3553,7 @@ fn a_drag_moves_the_divider_by_the_pointers_own_travel() {
     test.assert_false(held.moved)
     val dragged = to_pane(held.split, controls.Input.Move(geom.point_of(153.0, 50.0)))
     test.assert(dragged.moved)
-    test.assert_eq(controls.split_at(dragged.split, pane_extent), 150.0)
+    test.assert_eq(controls.split_at(dragged.split, style(), pane_extent), 150.0)
 }
 
 // A drag that keeps going stops at the minimum rather than past it, and a drag that is already
@@ -3554,22 +3562,22 @@ fn a_drag_moves_the_divider_by_the_pointers_own_travel() {
 fn a_drag_stops_at_the_minimum() {
     val held = to_pane(pane(), controls.Input.Press(geom.point_of(103.0, 50.0)))
     val far = to_pane(held.split, controls.Input.Move(geom.point_of(0.0 - 500.0, 50.0)))
-    test.assert_eq(controls.split_at(far.split, pane_extent), 40.0)
+    test.assert_eq(controls.split_at(far.split, style(), pane_extent), 40.0)
     test.assert_false(to_pane(far.split, controls.Input.Move(geom.point_of(0.0 - 900.0, 50.0))).moved)
 }
 
 // **A drag stores what the user achieved, not what they asked for**, which is the other half of
 // the clamp rule and the half no other test here can see: every assertion above reads through
 // `split_at`, so storing the raw pointer position looks identical until the window changes size.
-// Drag hard against the end at three hundred points and the divider stops at 244; widen the window
-// to six hundred and it must still be at 244, not out at the 997 the pointer was asking for.
+// Drag hard against the end at three hundred points and the divider stops at 242; widen the window
+// to six hundred and it must still be at 242, not out at the 997 the pointer was asking for.
 // Found by mutation -- storing `want` instead of the clamped number passed all fourteen.
 #[test]
 fn a_drag_stores_where_the_divider_stopped_and_not_where_the_pointer_went() {
     val held = to_pane(pane(), controls.Input.Press(geom.point_of(103.0, 50.0)))
     val shoved = to_pane(held.split, controls.Input.Move(geom.point_of(1000.0, 50.0)))
-    test.assert_eq(shoved.split.position, 244.0)
-    test.assert_eq(controls.split_at(shoved.split, 600.0), 244.0)
+    test.assert_eq(shoved.split.position, 242.0)
+    test.assert_eq(controls.split_at(shoved.split, style(), 600.0), 242.0)
 }
 
 #[test]
@@ -3599,11 +3607,11 @@ fn a_press_off_the_divider_does_nothing() {
 #[test]
 fn the_arrows_along_the_stack_move_the_divider_and_the_others_do_not() {
     test.assert_eq(
-        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Right))).split, pane_extent),
+        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Right))).split, style(), pane_extent),
         110.0
     )
     test.assert_eq(
-        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Left))).split, pane_extent),
+        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Left))).split, style(), pane_extent),
         90.0
     )
     test.assert_false(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Down))).moved)
@@ -3615,12 +3623,12 @@ fn the_arrows_along_the_stack_move_the_divider_and_the_others_do_not() {
 #[test]
 fn home_and_end_go_as_far_as_the_minimums_allow() {
     test.assert_eq(
-        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Home))).split, pane_extent),
+        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.Home))).split, style(), pane_extent),
         40.0
     )
     test.assert_eq(
-        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.End))).split, pane_extent),
-        244.0
+        controls.split_at(to_pane(pane(), controls.Input.KeyDown(key(controls.Key.End))).split, style(), pane_extent),
+        242.0
     )
 }
 
@@ -3630,7 +3638,7 @@ fn home_and_end_go_as_far_as_the_minimums_allow() {
 #[test]
 fn a_column_pane_divides_the_other_way() {
     val s = with controls.split_pane_of("rows", "", widget.Direction.Column, 30.0) { second_min: 20.0 }
-    val d = controls.divider_rect(s, geom.rect_of(0.0, 0.0, 300.0, 100.0))
+    val d = controls.divider_rect(s, style(), geom.rect_of(0.0, 0.0, 300.0, 100.0))
     test.assert_eq(d.y, 30.0)
     test.assert_eq(d.x, 0.0)
     test.assert_eq(d.width, 300.0)
@@ -3638,12 +3646,14 @@ fn a_column_pane_divides_the_other_way() {
     val down = controls.split_pane_input(
         s,
         controls.Input.KeyDown(key(controls.Key.Down)),
+        style(),
         geom.rect_of(0.0, 0.0, 300.0, 100.0)
     )
-    test.assert_eq(controls.split_at(down.split, 100.0), 40.0)
+    test.assert_eq(controls.split_at(down.split, style(), 100.0), 40.0)
     test.assert_false(controls.split_pane_input(
         s,
         controls.Input.KeyDown(key(controls.Key.Right)),
+        style(),
         geom.rect_of(0.0, 0.0, 300.0, 100.0)
     ).moved)
 }
@@ -3658,7 +3668,7 @@ fn the_panes_and_the_divider_fill_the_box_exactly() {
     val right = box_named(l, "right")
     test.assert_eq(left.x, 0.0)
     test.assert_eq(left.width, 100.0)
-    test.assert_eq(right.x, 106.0)
+    test.assert_eq(right.x, 108.0)
     test.assert_eq(left.width + divider_thickness + right.width, pane_extent)
 }
 
@@ -3733,7 +3743,7 @@ fn table() -> controls.Table {
 }
 
 fn to_table(t: controls.Table, input: controls.Input) -> controls.TableStep {
-    return controls.table_input(t, input, table_box)
+    return controls.table_input(t, input, style(), table_box)
 }
 
 fn laid_table(t: controls.Table) -> widget.Laid {
@@ -3866,17 +3876,20 @@ fn a_column_stops_at_its_minimum_width() {
 // give the points to.
 #[test]
 fn the_resize_grip_is_only_on_a_header_and_never_on_the_last_column() {
-    test.assert_eq(controls.edge_at(table(), table_box, geom.point_of(100.0, 10.0)), 0)
-    test.assert_eq(controls.edge_at(table(), table_box, geom.point_of(160.0, 10.0)), 1)
-    test.assert_eq(controls.edge_at(table(), table_box, geom.point_of(240.0, 10.0)), 0 - 1)
-    test.assert_eq(controls.edge_at(table(), table_box, geom.point_of(100.0, 40.0)), 0 - 1)
-    test.assert_eq(controls.edge_at(table(), table_box, geom.point_of(130.0, 10.0)), 0 - 1)
+    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(100.0, 10.0)), 0)
+    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(160.0, 10.0)), 1)
+    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(240.0, 10.0)), 0 - 1)
+    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(100.0, 40.0)), 0 - 1)
+    test.assert_eq(controls.edge_at(table(), style(), table_box, geom.point_of(130.0, 10.0)), 0 - 1)
     // So a press two points from a boundary in the body is a row selection.
     val hit = to_table(table(), controls.Input.Press(geom.point_of(99.0, 45.0)))
     test.assert_eq(hit.table.selected, 1)
     test.assert_eq(hit.table.resizing, 0 - 1)
     // And a header with no header height has no grips at all.
-    test.assert_eq(controls.edge_at(with table() { header_height: 0.0 }, table_box, geom.point_of(100.0, 2.0)), 0 - 1)
+    test.assert_eq(
+        controls.edge_at(with table() { header_height: 0.0 }, style(), table_box, geom.point_of(100.0, 2.0)),
+        0 - 1
+    )
 }
 
 // **A grip moves with its column once the table is scrolled sideways.** The edge is drawn at
@@ -3886,8 +3899,8 @@ fn the_resize_grip_is_only_on_a_header_and_never_on_the_last_column() {
 #[test]
 fn a_grip_follows_its_column_sideways() {
     val across = with table() { offset_x: 40.0 }
-    test.assert_eq(controls.edge_at(across, table_box, geom.point_of(60.0, 10.0)), 0)
-    test.assert_eq(controls.edge_at(across, table_box, geom.point_of(100.0, 10.0)), 0 - 1)
+    test.assert_eq(controls.edge_at(across, style(), table_box, geom.point_of(60.0, 10.0)), 0)
+    test.assert_eq(controls.edge_at(across, style(), table_box, geom.point_of(100.0, 10.0)), 0 - 1)
 }
 
 // Paging and revealing use the body's height, so PageDown moves three rows here and not five.
@@ -4036,7 +4049,7 @@ fn radios() -> controls.Radios {
 }
 
 fn to_radios(r: controls.Radios, input: controls.Input) -> controls.RadioStep {
-    return controls.radios_input(r, input, radio_box)
+    return controls.radios_input(r, input, style(), radio_box)
 }
 
 // **The arrows select, they do not merely move.** A radio group has no state between "looking at"
@@ -4375,20 +4388,20 @@ fn the_underline_is_as_wide_as_the_text() {
 // from the line they belong to.
 #[test]
 fn the_pointer_is_a_resize_over_a_divider_and_an_arrow_elsewhere() {
-    val at = controls.split_at(pane(), pane_extent)
+    val at = controls.split_at(pane(), style(), pane_extent)
     test.assert(widget.Cursor.is_ResizeAcross(
-        controls.split_pane_cursor(pane(), pane_box, geom.point_of(at + 2.0, 50.0))
+        controls.split_pane_cursor(pane(), style(), pane_box, geom.point_of(at + 2.0, 50.0))
     ))
     test.assert(widget.Cursor.is_Arrow(
-        controls.split_pane_cursor(pane(), pane_box, geom.point_of(at + 40.0, 50.0))
+        controls.split_pane_cursor(pane(), style(), pane_box, geom.point_of(at + 40.0, 50.0))
     ))
     // A column pane resizes the other way, and says so.
     val down = with controls.split_pane_of("rows", "", widget.Direction.Column, 30.0) { second_min: 20.0 }
     val tall = geom.rect_of(0.0, 0.0, 300.0, 100.0)
-    test.assert(widget.Cursor.is_ResizeDown(controls.split_pane_cursor(down, tall, geom.point_of(50.0, 32.0))))
+    test.assert(widget.Cursor.is_ResizeDown(controls.split_pane_cursor(down, style(), tall, geom.point_of(50.0, 32.0))))
     // And a pane nobody can drag promises nothing.
     test.assert(widget.Cursor.is_Arrow(
-        controls.split_pane_cursor(with pane() { disabled: true }, pane_box, geom.point_of(at + 2.0, 50.0))
+        controls.split_pane_cursor(with pane() { disabled: true }, style(), pane_box, geom.point_of(at + 2.0, 50.0))
     ))
 }
 
@@ -4397,12 +4410,12 @@ fn the_pointer_is_a_resize_over_a_divider_and_an_arrow_elsewhere() {
 #[test]
 fn the_pointer_is_a_resize_over_a_column_edge_only_in_the_header() {
     test.assert(widget.Cursor.is_ResizeAcross(
-        controls.table_cursor(table(), table_box, geom.point_of(100.0, 10.0))
+        controls.table_cursor(table(), style(), table_box, geom.point_of(100.0, 10.0))
     ))
     // The same x, in the body.
-    test.assert(widget.Cursor.is_Arrow(controls.table_cursor(table(), table_box, geom.point_of(100.0, 45.0))))
+    test.assert(widget.Cursor.is_Arrow(controls.table_cursor(table(), style(), table_box, geom.point_of(100.0, 45.0))))
     // The last column has no edge to drag, so no promise is made over it.
-    test.assert(widget.Cursor.is_Arrow(controls.table_cursor(table(), table_box, geom.point_of(240.0, 10.0))))
+    test.assert(widget.Cursor.is_Arrow(controls.table_cursor(table(), style(), table_box, geom.point_of(240.0, 10.0))))
 }
 
 // **A collapsed combo box says it opens.** Drawn as a plain filled rectangle it is a disabled

@@ -1632,14 +1632,14 @@ pub struct ListStep {
 //
 // `bounds` is the box the layout gave it, needed for two things: turning a click's y into a row,
 // and knowing how far one page is.
-pub fn list_input(l: List, input: Input, bounds: Rect) -> ListStep {
+pub fn list_input(l: List, input: Input, style: Style, bounds: Rect) -> ListStep {
     if l.disabled {
         return held_still(l)
     }
     // The bar first, and a drag in progress before anything else -- see `tree_input`, which has
     // the same three lines for the same reasons.
-    if Option.is_Some(l.bar.grabbed) || list_for_the_bar(l, input, bounds) {
-        return list_bar_step(l, input, bounds)
+    if Option.is_Some(l.bar.grabbed) || list_for_the_bar(l, input, style, bounds) {
+        return list_bar_step(l, input, style, bounds)
     }
     val last = len(l.items) - 1
     return switch input {
@@ -1665,9 +1665,9 @@ pub fn list_input(l: List, input: Input, bounds: Rect) -> ListStep {
     }
 }
 
-fn list_for_the_bar(l: List, input: Input, bounds: Rect) -> bool {
+fn list_for_the_bar(l: List, input: Input, style: Style, bounds: Rect) -> bool {
     if Press(p) = input {
-        return on_the_bar(bounds, p, list_content(l), bounds.height)
+        return on_the_bar(style, bounds, p, list_content(l), bounds.height)
     }
     return false
 }
@@ -1676,8 +1676,8 @@ fn list_content(l: List) -> float {
     return (len(l.items) as float) * l.row_height
 }
 
-fn list_bar_step(l: List, input: Input, bounds: Rect) -> ListStep {
-    val taken = scroll_bar_input(l.bar, input, bar_box(bounds), list_content(l), bounds.height, l.offset)
+fn list_bar_step(l: List, input: Input, style: Style, bounds: Rect) -> ListStep {
+    val taken = scroll_bar_input(l.bar, input, style, bar_box(style, bounds), list_content(l), bounds.height, l.offset)
     // A bar moves the view and never the selection, as a tree's does.
     return ListStep {
         list: with l { bar: taken.bar, offset: taken.offset },
@@ -1928,9 +1928,9 @@ pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget {
             // the theme's padding so the titles do not crowd each other.
             padding: widget.insets_of(
                 style.padding.left,
-                style.padding.top - style.space,
+                style.padding.top - style.space.s,
                 style.padding.right,
-                style.padding.bottom - style.space
+                style.padding.bottom - style.space.s
             ),
             surface: tab_face_of(style, chosen),
             align: widget.stretched(),
@@ -2087,7 +2087,7 @@ pub struct TreeStep {
 // `bounds` turns a press into a row the way the list does, and into a *column* besides: a press on
 // the mark at the left of a branch opens or closes it, and a press anywhere else on the row selects
 // it. Both computed from `indent`, which the widget also lays out by.
-pub fn tree_input(t: Tree, input: Input, bounds: Rect) -> TreeStep {
+pub fn tree_input(t: Tree, input: Input, style: Style, bounds: Rect) -> TreeStep {
     if t.disabled {
         return tree_still(t)
     }
@@ -2095,8 +2095,8 @@ pub fn tree_input(t: Tree, input: Input, bounds: Rect) -> TreeStep {
     // the thumb moved the focus to the tree, so the moves and the release that follow are routed
     // here -- and they have to reach the bar wherever the pointer has wandered to, or a thumb
     // dragged off the strip is left holding on while the rows move under the pointer instead.
-    if dragging_bar(t) || for_the_bar(t, input, bounds) {
-        return bar_step(t, input, bounds)
+    if dragging_bar(t) || for_the_bar(t, input, style, bounds) {
+        return bar_step(t, input, style, bounds)
     }
     return switch input {
         Wheel(w) { tree_scrolled(t, t.offset - (w.vertical as float) * t.row_height, bounds) }
@@ -2116,9 +2116,9 @@ fn dragging_bar(t: Tree) -> bool {
 
 // Only a press decides: a wheel over the strip should scroll the tree the ordinary way, and a key
 // is aimed at nothing in particular.
-fn for_the_bar(t: Tree, input: Input, bounds: Rect) -> bool {
+fn for_the_bar(t: Tree, input: Input, style: Style, bounds: Rect) -> bool {
     if Press(p) = input {
-        return on_the_bar(bounds, p, tree_content(t), bounds.height)
+        return on_the_bar(style, bounds, p, tree_content(t), bounds.height)
     }
     return false
 }
@@ -2127,8 +2127,8 @@ fn tree_content(t: Tree) -> float {
     return (len(visible_rows(t)) as float) * t.row_height
 }
 
-fn bar_step(t: Tree, input: Input, bounds: Rect) -> TreeStep {
-    val taken = scroll_bar_input(t.bar, input, bar_box(bounds), tree_content(t), bounds.height, t.offset)
+fn bar_step(t: Tree, input: Input, style: Style, bounds: Rect) -> TreeStep {
+    val taken = scroll_bar_input(t.bar, input, style, bar_box(style, bounds), tree_content(t), bounds.height, t.offset)
     return TreeStep {
         tree: with t { bar: taken.bar, offset: taken.offset },
         // **A bar moves the view, never the selection.** Dragging a scrollbar in any list on any
@@ -2141,11 +2141,11 @@ fn bar_step(t: Tree, input: Input, bounds: Rect) -> TreeStep {
 }
 
 // The strip the bar lives in, which is where `paint_scroll_bars` draws it.
-fn bar_box(bounds: Rect) -> Rect {
+fn bar_box(style: Style, bounds: Rect) -> Rect {
     return geom.rect_of(
-        bounds.x + bounds.width - bar_thickness,
+        bounds.x + bounds.width - style.space.m,
         bounds.y,
-        bar_thickness,
+        style.space.m,
         bounds.height
     )
 }
@@ -2469,21 +2469,19 @@ pub struct Thumb {
 }
 
 // The shortest a thumb may be drawn. Below about this there is nothing to aim at with a pointer.
-pub val min_thumb = 20.0
 
 // How wide a bar is, **as one number shared by everything that draws or touches one**. The
 // painter lays the track out from it and a scrolled control decides from it whether a press was
 // meant for the bar or for a row; two numbers here would be a bar you can see in one place and
 // grab in another, which is the failure this module keeps designing against.
-pub val bar_thickness = 8.0
 
-pub fn thumb_of(track: float, content: float, view: float, offset: float) -> Thumb {
+pub fn thumb_of(style: Style, track: float, content: float, view: float, offset: float) -> Thumb {
     if content <= view || track <= 0.0 {
         return Thumb { start: 0.0, length: track }
     }
     val share = track * view / content
-    val length = if share < min_thumb {
-        if min_thumb > track { track } else { min_thumb }
+    val length = if share < style.minimum.thumb {
+        if style.minimum.thumb > track { track } else { style.minimum.thumb }
     } else {
         share
     }
@@ -2500,11 +2498,11 @@ pub fn thumb_of(track: float, content: float, view: float, offset: float) -> Thu
 // reserved by the control, measured by the painter and subtracted by the hit test, and the three
 // would be three chances to disagree about one number. What it costs is the last few points of a
 // row, which on a list of text is the empty end of a line.
-pub fn on_the_bar(bounds: Rect, p: Point, content: float, view: float) -> bool {
+pub fn on_the_bar(style: Style, bounds: Rect, p: Point, content: float, view: float) -> bool {
     if !scrolls(content, view) {
         return false
     }
-    return p.x >= bounds.x + bounds.width - bar_thickness
+    return p.x >= bounds.x + bounds.width - style.space.m
 }
 
 // Whether there is anything to scroll. An application asks before placing a bar at all; a bar with
@@ -2530,6 +2528,7 @@ pub struct ScrollBarStep {
 pub fn scroll_bar_input(
     b: ScrollBar,
     input: Input,
+    style: Style,
     bounds: Rect,
     content: float,
     view: float,
@@ -2538,7 +2537,7 @@ pub fn scroll_bar_input(
     if b.disabled {
         return bar_still(b, offset)
     }
-    val thumb = thumb_of(bounds.height, content, view, offset)
+    val thumb = thumb_of(style, bounds.height, content, view, offset)
     return switch input {
         Press(p) {
             if !widget.contains(bounds, p) {
@@ -2609,7 +2608,7 @@ pub fn scroll_bar_widget(
     view: float,
     offset: float
 ) -> widget.Widget {
-    val thumb = thumb_of(track, content, view, offset)
+    val thumb = thumb_of(style, track, content, view, offset)
     val face = if b.disabled { style.disabled_ink } else { style.ink }
     val parts = mutable_array_new<widget.Widget>()
     push(parts, widget.fixed_of(0.0, thumb.start, widget.flex()))
@@ -2683,17 +2682,17 @@ fn collect_bars(l: Laid, style: Style, ops: MutableArray<scene.Op>) {
             val view = l.bounds.height
             val content = l.children[0].bounds.height
             if scrolls(content, view) {
-                val thumb = thumb_of(view, content, view, it.offset_y)
-                val x = l.bounds.x + l.bounds.width - bar_thickness
+                val thumb = thumb_of(style, view, content, view, it.offset_y)
+                val x = l.bounds.x + l.bounds.width - style.space.m
                 push(ops, scene.fill(
-                    shape.rect_path(geom.rect_of(x, l.bounds.y, bar_thickness, view)),
+                    shape.rect_path(geom.rect_of(x, l.bounds.y, style.space.m, view)),
                     paint.Paint.Solid(style.face)
                 ))
                 push(ops, scene.fill(
                     shape.rect_path(geom.rect_of(
                         x + 1.0,
                         l.bounds.y + thumb.start,
-                        bar_thickness - 2.0,
+                        style.space.m - style.space.xs,
                         thumb.length
                     )),
                     paint.Paint.Solid(style.disabled_ink)
@@ -3024,7 +3023,7 @@ fn closed_combo_input(c: ComboBox, input: Input, at: Rect) -> ComboBoxStep {
     }
 }
 
-pub fn combo_box_input(c: ComboBox, input: Input, at: Rect, popup_at: Rect) -> ComboBoxStep {
+pub fn combo_box_input(c: ComboBox, input: Input, style: Style, at: Rect, popup_at: Rect) -> ComboBoxStep {
     if c.disabled {
         return combo_unchanged(c)
     }
@@ -3035,7 +3034,7 @@ pub fn combo_box_input(c: ComboBox, input: Input, at: Rect, popup_at: Rect) -> C
     // the highlight, a click outside dismisses, a release over a row chooses it, and the arrows
     // belong to the list. Shared with `Menu` rather than copied, which is the half of that struct's
     // old argument this control keeps.
-    val step = open_popup_input(c.items, input, at, popup_at)
+    val step = open_popup_input(c.items, input, style, at, popup_at)
     return ComboBoxStep {
         combo: with c { items: step.items, open: step.open },
         chosen: step.chosen,
@@ -3061,14 +3060,14 @@ pub struct MenuStep {
 // The popup is not a child of the title, so this cannot find either box itself: `widget.layer_at`
 // explains why an overlay lives in the root's layer list, and the caller that put it there is the
 // one that knows where it went.
-pub fn menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect) -> MenuStep {
+pub fn menu_input(m: Menu, input: Input, style: Style, title_bounds: Rect, popup_bounds: Rect) -> MenuStep {
     if m.disabled {
         return menu_unchanged(m)
     }
     if !m.open {
         return closed_menu_input(m, input, title_bounds)
     }
-    return open_menu_input(m, input, title_bounds, popup_bounds)
+    return open_menu_input(m, input, style, title_bounds, popup_bounds)
 }
 
 fn closed_menu_input(m: Menu, input: Input, title_bounds: Rect) -> MenuStep {
@@ -3120,7 +3119,7 @@ fn popup_dismissed(l: List) -> PopupStep {
     return PopupStep { items: l, open: false, chosen: 0 - 1, dismissed: true }
 }
 
-fn open_popup_input(items: List, input: Input, title_bounds: Rect, popup_bounds: Rect) -> PopupStep {
+fn open_popup_input(items: List, input: Input, style: Style, title_bounds: Rect, popup_bounds: Rect) -> PopupStep {
     // `Other("")` for an input that is not a keystroke, so the tests below read as one list rather
     // than as a key check wrapped in an input check.
     val pressed = switch input {
@@ -3172,15 +3171,15 @@ fn open_popup_input(items: List, input: Input, title_bounds: Rect, popup_bounds:
         }
     }
     // Everything else is the list's: arrows, Home, End, the wheel, and a press on a row.
-    val step = list_input(items, input, popup_bounds)
+    val step = list_input(items, input, style, popup_bounds)
     return popup_held(step.list)
 }
 
 // The menu's open half, which is `open_popup_input` and nothing else. It kept its own name
 // because `menu_input` reads better dispatching to a pair than to one shared function and one
 // inline branch, and because the closed half beside it is where a menu's behaviour actually is.
-fn open_menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect) -> MenuStep {
-    val step = open_popup_input(m.items, input, title_bounds, popup_bounds)
+fn open_menu_input(m: Menu, input: Input, style: Style, title_bounds: Rect, popup_bounds: Rect) -> MenuStep {
+    val step = open_popup_input(m.items, input, style, title_bounds, popup_bounds)
     return MenuStep {
         menu: with m { items: step.items, open: step.open },
         chosen: step.chosen,
@@ -3340,7 +3339,6 @@ pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: 
 // **One number, shared by the widget, the hit test and the arithmetic that places the panes** --
 // `bar_thickness`'s rule for `bar_thickness`'s reason: a divider you can see in one place and take
 // hold of in another is the failure this module keeps designing against.
-pub val divider_thickness = 6.0
 
 // What one arrow key moves the divider by.
 //
@@ -3358,7 +3356,6 @@ pub val divider_step = 10.0
 // `style.face` too. A divider has to read as a *line* -- so the grab area paints nothing and a
 // narrow line is centred in it. Four points of nothing either side is also why a 6-point target is
 // enough to hit.
-pub val divider_line = 2.0
 
 // Two panes with a divider between them, which the user can drag.
 //
@@ -3432,8 +3429,8 @@ pub fn divider_name(s: SplitPane) -> string {
 // **One function, read by the widget and by every gesture** -- `thumb_of`'s rule. A divider drawn
 // at one number and dragged by another is a divider that jumps out from under the pointer on the
 // first press.
-pub fn split_at(s: SplitPane, extent: float) -> float {
-    val room = extent - divider_thickness
+pub fn split_at(s: SplitPane, style: Style, extent: float) -> float {
+    val room = extent - style.space.m
     if room <= 0.0 {
         return 0.0
     }
@@ -3461,14 +3458,14 @@ pub fn split_at(s: SplitPane, extent: float) -> float {
 }
 
 // The box the divider occupies, which is what a press is tested against.
-pub fn divider_rect(s: SplitPane, bounds: Rect) -> Rect {
-    val at = split_at(s, split_extent(s, bounds))
+pub fn divider_rect(s: SplitPane, style: Style, bounds: Rect) -> Rect {
+    val at = split_at(s, style, split_extent(s, bounds))
     return switch s.direction {
         Row {
-            geom.rect_of(bounds.x + at, bounds.y, divider_thickness, bounds.height)
+            geom.rect_of(bounds.x + at, bounds.y, style.space.m, bounds.height)
         }
         Column {
-            geom.rect_of(bounds.x, bounds.y + at, bounds.width, divider_thickness)
+            geom.rect_of(bounds.x, bounds.y + at, bounds.width, style.space.m)
         }
     }
 }
@@ -3503,9 +3500,9 @@ fn split_still(s: SplitPane) -> SplitStep {
 
 // Moves the divider to `want`, clamped by `split_at` -- so a gesture can ask for anything and the
 // stored position is always one the box can honour.
-fn split_to(s: SplitPane, want: float, extent: float) -> SplitStep {
-    val was = split_at(s, extent)
-    val now = split_at(with s { position: want }, extent)
+fn split_to(s: SplitPane, want: float, style: Style, extent: float) -> SplitStep {
+    val was = split_at(s, style, extent)
+    val now = split_at(with s { position: want }, style, extent)
     return SplitStep { split: with s { position: now }, moved: now != was }
 }
 
@@ -3521,19 +3518,19 @@ fn split_to(s: SplitPane, want: float, extent: float) -> SplitStep {
 // Up and Down for a `Column`. The other pair is left alone rather than treated as the same thing,
 // because a divider that moved sideways when you pressed Down would be reporting that this control
 // does not know which way it is facing.
-pub fn split_pane_input(s: SplitPane, input: Input, bounds: Rect) -> SplitStep {
+pub fn split_pane_input(s: SplitPane, input: Input, style: Style, bounds: Rect) -> SplitStep {
     if s.disabled {
         return split_still(s)
     }
     val extent = split_extent(s, bounds)
     return switch input {
         Press(p) {
-            if !widget.contains(divider_rect(s, bounds), p) {
+            if !widget.contains(divider_rect(s, style, bounds), p) {
                 split_still(s)
             } else {
                 SplitStep {
                     split: with s {
-                        grabbed: Option<float>.Some(split_along(s, bounds, p) - split_at(s, extent))
+                        grabbed: Option<float>.Some(split_along(s, bounds, p) - split_at(s, style, extent))
                     },
                     moved: false
                 }
@@ -3541,14 +3538,14 @@ pub fn split_pane_input(s: SplitPane, input: Input, bounds: Rect) -> SplitStep {
         }
         Move(p) {
             switch s.grabbed {
-                Some(held) { split_to(s, split_along(s, bounds, p) - held, extent) }
+                Some(held) { split_to(s, split_along(s, bounds, p) - held, style, extent) }
                 None { split_still(s) }
             }
         }
         // A release lets go wherever it happens, for the reason `scroll_bar_input` gives: a drag
         // that ended off the divider is still a drag that ended.
         Release(_) { SplitStep { split: with s { grabbed: Option<float>.None }, moved: false } }
-        KeyDown(k) { split_key(s, k, extent) }
+        KeyDown(k) { split_key(s, k, style, extent) }
         KeyUp(_) { split_still(s) }
         Text(_) { split_still(s) }
         Paste(_) { split_still(s) }
@@ -3559,8 +3556,8 @@ pub fn split_pane_input(s: SplitPane, input: Input, bounds: Rect) -> SplitStep {
     }
 }
 
-fn split_key(s: SplitPane, k: Keystroke, extent: float) -> SplitStep {
-    val at = split_at(s, extent)
+fn split_key(s: SplitPane, k: Keystroke, style: Style, extent: float) -> SplitStep {
+    val at = split_at(s, style, extent)
     val back = switch s.direction {
         Row { Key.is_Left(k.key) }
         Column { Key.is_Up(k.key) }
@@ -3570,18 +3567,18 @@ fn split_key(s: SplitPane, k: Keystroke, extent: float) -> SplitStep {
         Column { Key.is_Down(k.key) }
     }
     if back {
-        return split_to(s, at - divider_step, extent)
+        return split_to(s, at - divider_step, style, extent)
     }
     if on {
-        return split_to(s, at + divider_step, extent)
+        return split_to(s, at + divider_step, style, extent)
     }
     // Asking for 0 and for the whole extent, and letting `split_at` turn both into what the
     // minimums allow -- so Home and End need to know nothing about the minimums.
     if Key.is_Home(k.key) {
-        return split_to(s, 0.0, extent)
+        return split_to(s, 0.0, style, extent)
     }
     if Key.is_End(k.key) {
-        return split_to(s, extent, extent)
+        return split_to(s, extent, style, extent)
     }
     return split_still(s)
 }
@@ -3610,8 +3607,8 @@ fn divider_line_widget(s: SplitPane, style: Style, held: bool) -> widget.Widget 
         name: ""
     })
     return switch s.direction {
-        Row { widget.fixed_of(divider_line, 0.0, line) }
-        Column { widget.fixed_of(0.0, divider_line, line) }
+        Row { widget.fixed_of(style.stroke.line, 0.0, line) }
+        Column { widget.fixed_of(0.0, style.stroke.line, line) }
     }
 }
 
@@ -3636,7 +3633,7 @@ pub fn split_pane_widget(
     first: widget.Widget,
     second: widget.Widget
 ) -> widget.Widget {
-    val at = split_at(s, extent)
+    val at = split_at(s, style, extent)
     val held = switch s.grabbed {
         Some(_) { true }
         None { false }
@@ -3672,14 +3669,14 @@ pub fn split_pane_widget(
         Row {
             [
                 widget.fixed_of(at, 0.0, first),
-                widget.fixed_of(divider_thickness, 0.0, divider),
+                widget.fixed_of(style.space.m, 0.0, divider),
                 widget.expand(second)
             ]
         }
         Column {
             [
                 widget.fixed_of(0.0, at, first),
-                widget.fixed_of(0.0, divider_thickness, divider),
+                widget.fixed_of(0.0, style.space.m, divider),
                 widget.expand(second)
             ]
         }
@@ -3707,18 +3704,15 @@ pub fn split_pane_widget(
 
 // The least a column may be dragged down to. Below this there is no room for even an ellipsis, and
 // a column with nothing in it is a column a user cannot find again to drag back.
-pub val min_column = 24.0
 
 // How thick a grid line is. **One point, shared by both directions**, which is what makes a table
 // read as a grid rather than as two sets of lines that happen to cross.
-pub val grid_width = 1.0
 
 // How close to a column's trailing edge a press has to be to take hold of it.
 //
 // **Both sides of the edge, so the grip is twice this wide.** A one-point target is a target
 // nobody hits; the number is the one every table uses and it is the reason the cursor changes
 // shape there.
-pub val column_grip = 4.0
 
 // One column of a table.
 pub struct Column {
@@ -3877,7 +3871,7 @@ pub fn table_body(t: Table, bounds: Rect) -> Rect {
 // **The last column's edge is not a grip.** There is nothing to its right to give or take the
 // points, so dragging it would either do nothing or resize a different column -- and a grip that
 // does nothing is worse than no grip, because the pointer changed shape and promised otherwise.
-pub fn edge_at(t: Table, bounds: Rect, p: Point) -> int {
+pub fn edge_at(t: Table, style: Style, bounds: Rect, p: Point) -> int {
     if t.header_height <= 0.0 || len(t.columns) < 2 {
         return 0 - 1
     }
@@ -3887,7 +3881,7 @@ pub fn edge_at(t: Table, bounds: Rect, p: Point) -> int {
     var i = 0
     while i < len(t.columns) - 1 {
         val edge = bounds.x + column_x(t, i + 1) - t.offset_x
-        if p.x >= edge - column_grip && p.x < edge + column_grip {
+        if p.x >= edge - style.space.s && p.x < edge + style.space.s {
             return i
         }
         i = i + 1
@@ -3925,21 +3919,21 @@ fn table_still(t: Table) -> TableStep {
 // **Three gestures in order of who owns the pointer**, the opening `list_input` has for the same
 // reason: a resize in progress keeps it, then the scroll bar, then the rows. A press that is none
 // of those -- on a header, on empty space below the last row -- does nothing at all.
-pub fn table_input(t: Table, input: Input, bounds: Rect) -> TableStep {
+pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect) -> TableStep {
     if t.disabled {
         return table_still(t)
     }
     val body = table_body(t, bounds)
     if Option.is_Some(t.grabbed) {
-        return table_resized(t, input, bounds)
+        return table_resized(t, input, style, bounds)
     }
-    if Option.is_Some(t.bar.grabbed) || table_for_the_bar(t, body, input) {
-        return table_bar_step(t, input, body)
+    if Option.is_Some(t.bar.grabbed) || table_for_the_bar(t, style, body, input) {
+        return table_bar_step(t, input, style, body)
     }
     val last = len(t.rows) - 1
     return switch input {
         Press(p) {
-            val edge = edge_at(t, bounds, p)
+            val edge = edge_at(t, style, bounds, p)
             if edge >= 0 {
                 val at = bounds.x + column_x(t, edge + 1) - t.offset_x
                 TableStep {
@@ -3986,7 +3980,7 @@ pub fn table_input(t: Table, input: Input, bounds: Rect) -> TableStep {
     }
 }
 
-fn table_for_the_bar(t: Table, body: Rect, input: Input) -> bool {
+fn table_for_the_bar(t: Table, style: Style, body: Rect, input: Input) -> bool {
     if Press(p) = input {
         // **In the body, not merely in the bar's column of x.** `on_the_bar` answers from x alone,
         // which is right for a list whose whole box is rows; here the same x in the header is over
@@ -3999,7 +3993,7 @@ fn table_for_the_bar(t: Table, body: Rect, input: Input) -> bool {
         // is that the first one is the one that is *about* this table -- a predicate that answers
         // "yes, that press was for the scroll bar" about a point in the header is wrong on its
         // face, whatever the code downstream does with the answer.
-        return widget.contains(body, p) && on_the_bar(body, p, table_content(t), body.height)
+        return widget.contains(body, p) && on_the_bar(style, body, p, table_content(t), body.height)
     }
     return false
 }
@@ -4008,8 +4002,8 @@ fn table_content(t: Table) -> float {
     return (len(t.rows) as float) * t.row_height
 }
 
-fn table_bar_step(t: Table, input: Input, body: Rect) -> TableStep {
-    val taken = scroll_bar_input(t.bar, input, bar_box(body), table_content(t), body.height, t.offset)
+fn table_bar_step(t: Table, input: Input, style: Style, body: Rect) -> TableStep {
+    val taken = scroll_bar_input(t.bar, input, style, bar_box(style, body), table_content(t), body.height, t.offset)
     return TableStep {
         table: with t { bar: taken.bar, offset: taken.offset },
         moved: false,
@@ -4023,7 +4017,7 @@ fn table_bar_step(t: Table, input: Input, body: Rect) -> TableStep {
 // **The width is set from where the edge would land, not from how far the pointer moved**, which
 // is the same choice `scroll_bar_input` makes for the thumb: accumulating deltas drifts, and a
 // drag that leaves the window and comes back has no delta to add.
-fn table_resized(t: Table, input: Input, bounds: Rect) -> TableStep {
+fn table_resized(t: Table, input: Input, style: Style, bounds: Rect) -> TableStep {
     val held = switch t.grabbed {
         Some(h) { h }
         None { 0.0 }
@@ -4035,7 +4029,7 @@ fn table_resized(t: Table, input: Input, bounds: Rect) -> TableStep {
             } else {
                 val start = bounds.x + column_x(t, t.resizing) - t.offset_x
                 val want = p.x - held - start
-                val now = if want < min_column { min_column } else { want }
+                val now = if want < style.minimum.target { style.minimum.target } else { want }
                 val was = t.columns[t.resizing].width
                 val widths = mutable_array_new<Column>()
                 var i = 0
@@ -4177,7 +4171,7 @@ fn cell_widget(t: Table, style: Style, column: int, text: string, ink: Color) ->
         padding: widget.no_insets(),
         surface: widget.no_surface(),
         align: widget.stretched(),
-        children: [widget.expand(inside), widget.fixed_of(grid_width, 0.0, rule(style))],
+        children: [widget.expand(inside), widget.fixed_of(style.stroke.hair, 0.0, rule(style))],
         name: ""
     }))
 }
@@ -4228,7 +4222,7 @@ fn header_widget(t: Table, style: Style, ink: Color) -> widget.Widget {
         align: widget.stretched(),
         // The band, then the line that separates it from the rows -- which is the one grid line a
         // table must have even when the others are too quiet to see.
-        children: [widget.expand(titles), widget.fixed_of(0.0, grid_width, rule(style))],
+        children: [widget.expand(titles), widget.fixed_of(0.0, style.stroke.hair, rule(style))],
         name: ""
     }))
 }
@@ -4279,7 +4273,7 @@ pub fn table_widget(t: Table, style: Style) -> widget.Widget {
             padding: widget.no_insets(),
             surface: widget.no_surface(),
             align: widget.stretched(),
-            children: [widget.expand(body), widget.fixed_of(0.0, grid_width, rule(style))],
+            children: [widget.expand(body), widget.fixed_of(0.0, style.stroke.hair, rule(style))],
             name: ""
         })))
         r = r + 1
@@ -4320,7 +4314,6 @@ pub fn table_widget(t: Table, style: Style) -> widget.Widget {
 
 // How tall one option is. **A val rather than a field**, as `bar_thickness` is: a group whose
 // options were different heights would be a list, and a list is a different control.
-pub val radio_height = 24.0
 
 // A choice of one from several.
 //
@@ -4388,7 +4381,7 @@ fn radio_to(r: Radios, want: int) -> RadioStep {
 // **Both pairs of arrows, unlike a split pane.** A column of options is navigated with Up and Down
 // by every keyboard user and with Left and Right by every one who learned radios on a form where
 // they were in a row; neither is wrong about what "the next option" means.
-pub fn radios_input(r: Radios, input: Input, bounds: Rect) -> RadioStep {
+pub fn radios_input(r: Radios, input: Input, style: Style, bounds: Rect) -> RadioStep {
     if r.disabled {
         return radios_still(r)
     }
@@ -4398,7 +4391,7 @@ pub fn radios_input(r: Radios, input: Input, bounds: Rect) -> RadioStep {
             if !widget.contains(bounds, p) {
                 radios_still(r)
             } else {
-                val row = floor((p.y - bounds.y) / radio_height)
+                val row = floor((p.y - bounds.y) / style.minimum.target)
                 if row < 0 || row > last {
                     radios_still(r)
                 } else {
@@ -4501,7 +4494,7 @@ pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widge
             children: [dot, widget.label_in_face(r.items[i], style.text_size, ink, style.text_font)],
             name: ""
         })
-        push(rows, widget.fixed_of(0.0, radio_height, widget.part_of(
+        push(rows, widget.fixed_of(0.0, style.minimum.target, widget.part_of(
             radio_name(r, i),
             widget.Role.RadioButton,
             r.items[i],
@@ -4533,7 +4526,6 @@ pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widge
 
 // How thick the track is, and how wide the thumb is. **Shared by the widget and the hit test**,
 // which is `bar_thickness`'s rule.
-pub val track_thickness = 4.0
 pub val thumb_width = 14.0
 // How tall the thumb is drawn.
 //
@@ -4801,7 +4793,7 @@ pub fn slider_widget(s: Slider, style: Style) -> widget.Widget {
             // The track is centred in the lane, so the thumb overhangs it either side.
             widget.base_layer(widget.column_of(0.0, [
                 widget.flex(),
-                widget.fixed_of(0.0, track_thickness, track),
+                widget.fixed_of(0.0, style.space.s, track),
                 widget.flex()
             ])),
             widget.base_layer(over)
@@ -4844,8 +4836,6 @@ pub struct Link {
 // How thick the underline is and how far under the words it sits. **Two numbers shared by the
 // widget and by the height it asks for**, which is the only way the box can be exactly as tall as
 // what goes in it.
-pub val underline_width = 1.0
-pub val underline_gap = 1.0
 
 pub fn link_of(name: string, label: string, href: string) -> Link {
     return Link { name: name, label: label, href: href, held: false, disabled: false }
@@ -4897,16 +4887,16 @@ pub fn link_widget(l: Link, style: Style, m: widget.Metrics) -> widget.Widget {
     // thing from the other side, where a stretched row made its square a rectangle. A stack can be
     // told not to stretch a child; it cannot be given one whose size it does not know.
     val words = widget.width_in(m, style.text_font, l.label, style.text_size)
-    val tall = widget.height_in(m, style.text_font, style.text_size) + underline_gap + underline_width
+    val tall = widget.height_in(m, style.text_font, style.text_size) + style.stroke.hair * 2.0
     val underlined = widget.fixed_of(words, tall, widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Column,
-        spacing: underline_gap,
+        spacing: style.stroke.hair,
         padding: widget.no_insets(),
         surface: widget.no_surface(),
         align: widget.stretched(),
         children: [
             widget.label_in_face(l.label, style.text_size, ink, style.text_font),
-            widget.fixed_of(0.0, underline_width, rule)
+            widget.fixed_of(0.0, style.stroke.hair, rule)
         ],
         name: ""
     }))
@@ -4946,8 +4936,8 @@ pub fn link_widget(l: Link, style: Style, m: widget.Metrics) -> widget.Widget {
 // it is here: where the divider is is `split_at`'s answer, and an application computing it a
 // second time to decide a cursor would be the two-calculations bug this module keeps designing
 // against -- a cursor that changes shape a few points away from the line it belongs to.
-pub fn split_pane_cursor(s: SplitPane, bounds: Rect, p: Point) -> widget.Cursor {
-    if s.disabled || !widget.contains(divider_rect(s, bounds), p) {
+pub fn split_pane_cursor(s: SplitPane, style: Style, bounds: Rect, p: Point) -> widget.Cursor {
+    if s.disabled || !widget.contains(divider_rect(s, style, bounds), p) {
         return widget.Cursor.Arrow
     }
     return switch s.direction {
@@ -4961,8 +4951,8 @@ pub fn split_pane_cursor(s: SplitPane, bounds: Rect, p: Point) -> widget.Cursor 
 //
 // **`edge_at` is the same function the press uses**, so the shape and the gesture agree by
 // construction: the pointer cannot show arrows where a drag would select a row.
-pub fn table_cursor(t: Table, bounds: Rect, p: Point) -> widget.Cursor {
-    if t.disabled || edge_at(t, bounds, p) < 0 {
+pub fn table_cursor(t: Table, style: Style, bounds: Rect, p: Point) -> widget.Cursor {
+    if t.disabled || edge_at(t, style, bounds, p) < 0 {
         return widget.Cursor.Arrow
     }
     return widget.Cursor.ResizeAcross
@@ -4973,6 +4963,53 @@ pub fn table_cursor(t: Table, bounds: Rect, p: Point) -> widget.Cursor {
 // How a control is drawn. Injected rather than global, for the reason `widget.Metrics` is: a module
 // that reads a theme from somewhere cannot be tested against two themes, and an application with
 // two panels cannot style them differently.
+// The spacing scale a theme sets and the control set indexes.
+//
+// **Six steps, as Material and most design systems ship**, so a scale maps one-to-one onto what a
+// design tool exports. `controls` says **once** which step each control uses, and a theme never
+// names a control -- which is the whole shape of this layer and the reason a selector language
+// would have nothing to select.
+//
+// **This replaced eleven numbers rather than one.** Every control here invented its own insets --
+// the tree 4 and 2, the table 6 and 2, a radio 4 and 2, a cell 6 and 2 -- so a theme asking for
+// more room had nothing to set. The single `space` token that stood here before was the step of a
+// scale whose other steps did not exist.
+pub struct Space {
+    none: float
+    xs: float
+    s: float
+    m: float
+    l: float
+    xl: float
+}
+
+// The sizes a density may not go below.
+//
+// **Its own group precisely so that density cannot reach it.** `target` is 24 points, which is also
+// WCAG 2.2's minimum target size (SC 2.5.8) -- and two of the three numbers that became this were
+// already exactly 24. Had a compact density scaled them, the library's densest mode would have been
+// the one that fails an accessibility criterion, and the gate would have had to be told to permit
+// it. Compact tightens padding and gaps; a scroll thumb and a radio stay grabbable.
+pub struct Minimum {
+    // The least a control the pointer must hit may measure on either axis.
+    target: float
+    // The shortest a scroll bar's thumb may become, however long the content is. A thumb that
+    // shrank without limit would vanish on exactly the document it matters most on.
+    thumb: float
+}
+
+// The widths of the lines the control set draws.
+//
+// **Not on the space scale, because a hairline is a hairline at every density.** A grid line that
+// doubled in a spacious theme would stop being a grid line and start being a border.
+pub struct Stroke {
+    // One device line: a table's grid, a link's underline, and the gap between the two -- the rule
+    // sits one hairline below the text, so the gap and the line move together.
+    hair: float
+    // A line meant to be read *as* a line: a split pane's divider.
+    line: float
+}
+
 pub struct Style {
     text_size: float
     padding: Insets
@@ -5081,13 +5118,11 @@ pub struct Style {
     // tint of the accent, where a press is a darkening of the face. Sharing one colour meant a
     // theme could not say so.
     selection: Color
-    // The unit a theme's spacing is counted in.
-    //
-    // **Four points, and the reason it is a token is that it was eleven numbers.** Every control
-    // here invented its own insets -- the tree 4 and 2, the table 6 and 2, a radio 4 and 2, a cell
-    // 6 and 2 -- so a theme asking for more room had nothing to set. A spacing *scale* is what
-    // every system has instead, and this is the step of it.
-    space: float
+    // The spacing scale, the floors density may not cross, and the widths of lines. See each
+    // struct above: they are three groups rather than one because only the first scales.
+    space: Space
+    minimum: Minimum
+    stroke: Stroke
     // Larger than the body, for a heading. The gallery had one of these as a local constant, which
     // is where a type scale goes to hide.
     heading_size: float

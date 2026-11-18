@@ -143,6 +143,7 @@ pub fn input(
             picker: controls.combo_box_input(
                 d.picker,
                 input,
+                style,
                 boxes.bounds_of(laid, "look-picker"),
                 boxes.bounds_of(laid, "look-picker/items")
             ).combo

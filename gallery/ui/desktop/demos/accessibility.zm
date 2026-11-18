@@ -121,6 +121,7 @@ pub fn input(
             picker: controls.combo_box_input(
                 here.picker,
                 input,
+                style,
                 boxes.bounds_of(laid, "a11y-picker"),
                 boxes.bounds_of(laid, "a11y-picker/items")
             ).combo

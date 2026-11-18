@@ -344,10 +344,10 @@ pub fn groups() -> [string] {
 // **Only two demos have an answer and the rest say arrow**, which is the honest shape of it: a
 // cursor is a promise that something will happen if you drag, and only a divider and a column
 // edge make that promise. See `controls.split_pane_cursor`.
-pub fn cursor_of(d: Demo, laid: widget.Laid, at: geom.Point) -> widget.Cursor {
+pub fn cursor_of(d: Demo, style: controls.Style, laid: widget.Laid, at: geom.Point) -> widget.Cursor {
     return switch d {
-        SplitPane(it) { split_pane.cursor(it, laid, at) }
-        Table(it) { table.cursor(it, laid, at) }
+        SplitPane(it) { split_pane.cursor(it, style, laid, at) }
+        Table(it) { table.cursor(it, style, laid, at) }
         Button(_) { widget.Cursor.Arrow }
         CheckBox(_) { widget.Cursor.Arrow }
         Radios(_) { widget.Cursor.Arrow }

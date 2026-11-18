@@ -262,10 +262,15 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.
         pressed: controls.pressed_after(s.pressed, input, name)
     }
     if name == "layout/divider" {
-        return with here { split: controls.split_pane_input(here.split, input, boxes.bounds_of(laid, "layout")).split }
+        return with here { split: controls.split_pane_input(
+            here.split,
+            input,
+            style,
+            boxes.bounds_of(laid, "layout")
+        ).split }
     }
     if name == "catalogue" {
-        val taken = controls.tree_input(here.tree, input, boxes.bounds_of(laid, "catalogue"))
+        val taken = controls.tree_input(here.tree, input, style, boxes.bounds_of(laid, "catalogue"))
         val moved = with here { tree: taken.tree }
         // **Selecting shows it; there is nothing to activate.** A tree whose rows had to be
         // opened as well as reached would make the catalogue two gestures deep for no gain --

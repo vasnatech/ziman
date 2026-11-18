@@ -68,7 +68,7 @@ pub fn input(
     m: widget.Metrics
 ) -> Demo {
     if name == "tree-demo" {
-        return with d { tree: controls.tree_input(d.tree, input, boxes.bounds_of(laid, name)).tree }
+        return with d { tree: controls.tree_input(d.tree, input, style, boxes.bounds_of(laid, name)).tree }
     }
     return d
 }

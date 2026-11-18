@@ -803,7 +803,7 @@ pub struct ListStep {
 ### `list_input`
 
 ```
-pub fn list_input(l: List, input: Input, bounds: Rect) -> ListStep
+pub fn list_input(l: List, input: Input, style: Style, bounds: Rect) -> ListStep
 ```
 
 What an input does to a list.
@@ -1030,7 +1030,7 @@ pub struct TreeStep {
 ### `tree_input`
 
 ```
-pub fn tree_input(t: Tree, input: Input, bounds: Rect) -> TreeStep
+pub fn tree_input(t: Tree, input: Input, style: Style, bounds: Rect) -> TreeStep
 ```
 
 What an input does to a tree.
@@ -1133,35 +1133,16 @@ the pointer. `length` is the view's share of the content, floored at `min_thumb`
 long list still leaves something to take hold of; `start` is the offset's share of the overhang,
 spread over the track that is left.
 
-### `min_thumb`
-
-```
-pub val min_thumb = 20.0
-```
-
-The shortest a thumb may be drawn. Below about this there is nothing to aim at with a pointer.
-
-### `bar_thickness`
-
-```
-pub val bar_thickness = 8.0
-```
-
-How wide a bar is, **as one number shared by everything that draws or touches one**. The
-painter lays the track out from it and a scrolled control decides from it whether a press was
-meant for the bar or for a row; two numbers here would be a bar you can see in one place and
-grab in another, which is the failure this module keeps designing against.
-
 ### `thumb_of`
 
 ```
-pub fn thumb_of(track: float, content: float, view: float, offset: float) -> Thumb
+pub fn thumb_of(style: Style, track: float, content: float, view: float, offset: float) -> Thumb
 ```
 
 ### `on_the_bar`
 
 ```
-pub fn on_the_bar(bounds: Rect, p: Point, content: float, view: float) -> bool
+pub fn on_the_bar(style: Style, bounds: Rect, p: Point, content: float, view: float) -> bool
 ```
 
 Whether a point is in the strip a bar is drawn in, down the inside of a box's right edge.
@@ -1200,6 +1181,7 @@ pub struct ScrollBarStep {
 pub fn scroll_bar_input(
     b: ScrollBar,
     input: Input,
+    style: Style,
     bounds: Rect,
     content: float,
     view: float,
@@ -1418,7 +1400,7 @@ The popup, as a layer. The same one a menu uses -- a list is a list.
 ### `combo_box_input`
 
 ```
-pub fn combo_box_input(c: ComboBox, input: Input, at: Rect, popup_at: Rect) -> ComboBoxStep
+pub fn combo_box_input(c: ComboBox, input: Input, style: Style, at: Rect, popup_at: Rect) -> ComboBoxStep
 ```
 
 ### `MenuStep`
@@ -1437,7 +1419,7 @@ pub struct MenuStep {
 ### `menu_input`
 
 ```
-pub fn menu_input(m: Menu, input: Input, title_bounds: Rect, popup_bounds: Rect) -> MenuStep
+pub fn menu_input(m: Menu, input: Input, style: Style, title_bounds: Rect, popup_bounds: Rect) -> MenuStep
 ```
 
 What an input does to a menu.
@@ -1517,18 +1499,6 @@ it is asking.
 
 ## The split pane
 
-### `divider_thickness`
-
-```
-pub val divider_thickness = 6.0
-```
-
-How thick a divider is drawn, and how wide a target it is to grab.
-
-**One number, shared by the widget, the hit test and the arithmetic that places the panes** --
-`bar_thickness`'s rule for `bar_thickness`'s reason: a divider you can see in one place and take
-hold of in another is the failure this module keeps designing against.
-
 ### `divider_step`
 
 ```
@@ -1540,22 +1510,6 @@ What one arrow key moves the divider by.
 **A module val rather than a field, unlike `ScrollBar.step`.** A scroll bar's step is a row of
 something this module cannot see, so it has to be given one; a divider moves in points, and a
 point is a point whatever is either side of it.
-
-### `divider_line`
-
-```
-pub val divider_line = 2.0
-```
-
-How wide the **line** down the middle of a divider is, where `divider_thickness` is how wide the
-thing you can grab is.
-
-**Two numbers because a divider is two things**, which is what every toolkit does and what
-looking at the first one running made obvious: a six-point bar filled with `style.face` is
-invisible for most of its length, because the control on at least one side of it is drawn in
-`style.face` too. A divider has to read as a *line* -- so the grab area paints nothing and a
-narrow line is centred in it. Four points of nothing either side is also why a 6-point target is
-enough to hit.
 
 ### `SplitPane`
 
@@ -1628,7 +1582,7 @@ first half; and the thing a keyboard user wants to move is the divider. Same con
 ### `split_at`
 
 ```
-pub fn split_at(s: SplitPane, extent: float) -> float
+pub fn split_at(s: SplitPane, style: Style, extent: float) -> float
 ```
 
 Where the divider starts, in points from the start of a box `extent` long.
@@ -1640,7 +1594,7 @@ first press.
 ### `divider_rect`
 
 ```
-pub fn divider_rect(s: SplitPane, bounds: Rect) -> Rect
+pub fn divider_rect(s: SplitPane, style: Style, bounds: Rect) -> Rect
 ```
 
 The box the divider occupies, which is what a press is tested against.
@@ -1660,7 +1614,7 @@ pub struct SplitStep {
 ### `split_pane_input`
 
 ```
-pub fn split_pane_input(s: SplitPane, input: Input, bounds: Rect) -> SplitStep
+pub fn split_pane_input(s: SplitPane, input: Input, style: Style, bounds: Rect) -> SplitStep
 ```
 
 What an input does to a split pane, given the box the whole pane occupies.
@@ -1704,36 +1658,6 @@ fixed sizes that did not add up to the box would leave a line of background show
 them, on some window widths and not others.
 
 ## The table
-
-### `min_column`
-
-```
-pub val min_column = 24.0
-```
-
-The least a column may be dragged down to. Below this there is no room for even an ellipsis, and
-a column with nothing in it is a column a user cannot find again to drag back.
-
-### `grid_width`
-
-```
-pub val grid_width = 1.0
-```
-
-How thick a grid line is. **One point, shared by both directions**, which is what makes a table
-read as a grid rather than as two sets of lines that happen to cross.
-
-### `column_grip`
-
-```
-pub val column_grip = 4.0
-```
-
-How close to a column's trailing edge a press has to be to take hold of it.
-
-**Both sides of the edge, so the grip is twice this wide.** A one-point target is a target
-nobody hits; the number is the one every table uses and it is the reason the cursor changes
-shape there.
 
 ### `Column`
 
@@ -1882,7 +1806,7 @@ the kind of subtraction that gets written four times and forgotten once.
 ### `edge_at`
 
 ```
-pub fn edge_at(t: Table, bounds: Rect, p: Point) -> int
+pub fn edge_at(t: Table, style: Style, bounds: Rect, p: Point) -> int
 ```
 
 Which column's trailing edge is under this point, or -1 for none.
@@ -1927,7 +1851,7 @@ pub struct TableStep {
 ### `table_input`
 
 ```
-pub fn table_input(t: Table, input: Input, bounds: Rect) -> TableStep
+pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect) -> TableStep
 ```
 
 What an input does to a table.
@@ -1950,15 +1874,6 @@ the column headers, which is what will make a header sortable without a second t
 column.
 
 ## Radio buttons
-
-### `radio_height`
-
-```
-pub val radio_height = 24.0
-```
-
-How tall one option is. **A val rather than a field**, as `bar_thickness` is: a group whose
-options were different heights would be a list, and a list is a different control.
 
 ### `Radios`
 
@@ -2014,7 +1929,7 @@ pub struct RadioStep {
 ### `radios_input`
 
 ```
-pub fn radios_input(r: Radios, input: Input, bounds: Rect) -> RadioStep
+pub fn radios_input(r: Radios, input: Input, style: Style, bounds: Rect) -> RadioStep
 ```
 
 What an input does to a group.
@@ -2042,20 +1957,14 @@ would make every adapter work out for itself which child the number meant.
 
 ## The slider
 
-### `track_thickness`
-
-```
-pub val track_thickness = 4.0
-```
-
-How thick the track is, and how wide the thumb is. **Shared by the widget and the hit test**,
-which is `bar_thickness`'s rule.
-
 ### `thumb_width`
 
 ```
 pub val thumb_width = 14.0
 ```
+
+How thick the track is, and how wide the thumb is. **Shared by the widget and the hit test**,
+which is `bar_thickness`'s rule.
 
 ### `thumb_height`
 
@@ -2204,22 +2113,6 @@ Enter, and announced as a link, and a coloured label is none of those. What it d
 go anywhere -- this layer has no browser and no idea what a URL means -- so it answers that it
 was activated and the application decides.
 
-### `underline_width`
-
-```
-pub val underline_width = 1.0
-```
-
-How thick the underline is and how far under the words it sits. **Two numbers shared by the
-widget and by the height it asks for**, which is the only way the box can be exactly as tall as
-what goes in it.
-
-### `underline_gap`
-
-```
-pub val underline_gap = 1.0
-```
-
 ### `link_of`
 
 ```
@@ -2269,7 +2162,7 @@ end of it. A control that wants to be the size of its text has to ask how wide i
 ### `split_pane_cursor`
 
 ```
-pub fn split_pane_cursor(s: SplitPane, bounds: Rect, p: Point) -> widget.Cursor
+pub fn split_pane_cursor(s: SplitPane, style: Style, bounds: Rect, p: Point) -> widget.Cursor
 ```
 
 The shape the pointer should take over a split pane's box.
@@ -2282,7 +2175,7 @@ against -- a cursor that changes shape a few points away from the line it belong
 ### `table_cursor`
 
 ```
-pub fn table_cursor(t: Table, bounds: Rect, p: Point) -> widget.Cursor
+pub fn table_cursor(t: Table, style: Style, bounds: Rect, p: Point) -> widget.Cursor
 ```
 
 The shape the pointer should take over a table's box: the resize arrows over a column's
@@ -2292,6 +2185,71 @@ trailing edge in the header, and nothing anywhere else.
 construction: the pointer cannot show arrows where a drag would select a row.
 
 ## The style
+
+### `Space`
+
+```
+pub struct Space {
+    none: float
+    xs: float
+    s: float
+    m: float
+    l: float
+    xl: float
+}
+```
+
+How a control is drawn. Injected rather than global, for the reason `widget.Metrics` is: a module
+that reads a theme from somewhere cannot be tested against two themes, and an application with
+two panels cannot style them differently.
+The spacing scale a theme sets and the control set indexes.
+
+**Six steps, as Material and most design systems ship**, so a scale maps one-to-one onto what a
+design tool exports. `controls` says **once** which step each control uses, and a theme never
+names a control -- which is the whole shape of this layer and the reason a selector language
+would have nothing to select.
+
+**This replaced eleven numbers rather than one.** Every control here invented its own insets --
+the tree 4 and 2, the table 6 and 2, a radio 4 and 2, a cell 6 and 2 -- so a theme asking for
+more room had nothing to set. The single `space` token that stood here before was the step of a
+scale whose other steps did not exist.
+
+### `Minimum`
+
+```
+pub struct Minimum {
+    // The least a control the pointer must hit may measure on either axis.
+    target: float
+    // The shortest a scroll bar's thumb may become, however long the content is. A thumb that
+    // shrank without limit would vanish on exactly the document it matters most on.
+    thumb: float
+}
+```
+
+The sizes a density may not go below.
+
+**Its own group precisely so that density cannot reach it.** `target` is 24 points, which is also
+WCAG 2.2's minimum target size (SC 2.5.8) -- and two of the three numbers that became this were
+already exactly 24. Had a compact density scaled them, the library's densest mode would have been
+the one that fails an accessibility criterion, and the gate would have had to be told to permit
+it. Compact tightens padding and gaps; a scroll thumb and a radio stay grabbable.
+
+### `Stroke`
+
+```
+pub struct Stroke {
+    // One device line: a table's grid, a link's underline, and the gap between the two -- the rule
+    // sits one hairline below the text, so the gap and the line move together.
+    hair: float
+    // A line meant to be read *as* a line: a split pane's divider.
+    line: float
+}
+```
+
+The widths of the lines the control set draws.
+
+**Not on the space scale, because a hairline is a hairline at every density.** A grid line that
+doubled in a spacious theme would stop being a grid line and start being a border.
 
 ### `Style`
 
@@ -2404,13 +2362,11 @@ pub struct Style {
     // tint of the accent, where a press is a darkening of the face. Sharing one colour meant a
     // theme could not say so.
     selection: Color
-    // The unit a theme's spacing is counted in.
-    //
-    // **Four points, and the reason it is a token is that it was eleven numbers.** Every control
-    // here invented its own insets -- the tree 4 and 2, the table 6 and 2, a radio 4 and 2, a cell
-    // 6 and 2 -- so a theme asking for more room had nothing to set. A spacing *scale* is what
-    // every system has instead, and this is the step of it.
-    space: float
+    // The spacing scale, the floors density may not cross, and the widths of lines. See each
+    // struct above: they are three groups rather than one because only the first scales.
+    space: Space
+    minimum: Minimum
+    stroke: Stroke
     // Larger than the body, for a heading. The gallery had one of these as a local constant, which
     // is where a type scale goes to hide.
     heading_size: float
@@ -2455,10 +2411,6 @@ pub struct Style {
     icon_gap: float
 }
 ```
-
-How a control is drawn. Injected rather than global, for the reason `widget.Metrics` is: a module
-that reads a theme from somewhere cannot be tested against two themes, and an application with
-two panels cannot style them differently.
 
 ## The keys
 

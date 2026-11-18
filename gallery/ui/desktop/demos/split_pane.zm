@@ -5,7 +5,6 @@
 // into a wall and then widening the window puts it back where you left it.
 use boxes
 use controls
-use controls.divider_thickness
 use demos/split_pane_ui
 use geom
 use math.floor
@@ -37,25 +36,25 @@ pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget 
             split_pane_ui.half("Leading", style),
             split_pane_ui.half("Trailing", style)
         ),
-        said: said(d)
+        said: said(d, style)
     }, style, m)
 }
 
-fn said(d: Demo) -> string {
+fn said(d: Demo, style: controls.Style) -> string {
     return concat(
         "The divider is ",
-        str(floor(controls.split_at(d.split, extent))),
+        str(floor(controls.split_at(d.split, style, extent))),
         " points along, and will not go past ",
         str(floor(d.split.first_min)),
         " or ",
-        str(floor(extent - divider_thickness - d.split.second_min)),
+        str(floor(extent - style.space.m - d.split.second_min)),
         "."
     )
 }
 
 // What the pointer is over, asked of the control so that the shape and the gesture cannot disagree about where the divider is.
-pub fn cursor(d: Demo, laid: widget.Laid, at: geom.Point) -> widget.Cursor {
-    return controls.split_pane_cursor(d.split, boxes.bounds_of(laid, "split-demo"), at)
+pub fn cursor(d: Demo, style: controls.Style, laid: widget.Laid, at: geom.Point) -> widget.Cursor {
+    return controls.split_pane_cursor(d.split, style, boxes.bounds_of(laid, "split-demo"), at)
 }
 
 pub fn input(
@@ -67,7 +66,12 @@ pub fn input(
     m: widget.Metrics
 ) -> Demo {
     if name == "split-demo/divider" {
-        return with d { split: controls.split_pane_input(d.split, input, boxes.bounds_of(laid, "split-demo")).split }
+        return with d { split: controls.split_pane_input(
+            d.split,
+            input,
+            style,
+            boxes.bounds_of(laid, "split-demo")
+        ).split }
     }
     return d
 }

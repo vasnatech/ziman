@@ -71,6 +71,7 @@ pub fn input(
             picker: controls.combo_box_input(
                 d.picker,
                 input,
+                style,
                 boxes.bounds_of(laid, "combo-demo"),
                 boxes.bounds_of(laid, "combo-demo/items")
             ).combo

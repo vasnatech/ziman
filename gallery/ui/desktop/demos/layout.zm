@@ -107,6 +107,7 @@ pub fn input(
             along: controls.combo_box_input(
                 d.along,
                 input,
+                style,
                 boxes.bounds_of(laid, "layout-along"),
                 boxes.bounds_of(laid, "layout-along/items")
             ).combo

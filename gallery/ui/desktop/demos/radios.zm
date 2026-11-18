@@ -54,7 +54,12 @@ pub fn input(
     m: widget.Metrics
 ) -> Demo {
     if name == "radios-often" {
-        return with d { how_often: controls.radios_input(d.how_often, input, boxes.bounds_of(laid, name)).radios }
+        return with d { how_often: controls.radios_input(
+            d.how_often,
+            input,
+            style,
+            boxes.bounds_of(laid, name)
+        ).radios }
     }
     return d
 }

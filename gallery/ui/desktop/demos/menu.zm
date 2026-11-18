@@ -77,6 +77,7 @@ pub fn input(
         val taken = controls.menu_input(
             d.file,
             input,
+            style,
             boxes.bounds_of(laid, "menu-file"),
             boxes.bounds_of(laid, "menu-file/items")
         )
@@ -86,6 +87,7 @@ pub fn input(
         val taken = controls.menu_input(
             d.edit,
             input,
+            style,
             boxes.bounds_of(laid, "menu-edit"),
             boxes.bounds_of(laid, "menu-edit/items")
         )

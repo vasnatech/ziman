@@ -34,7 +34,13 @@ pub fn plain() -> controls.Style {
         // The same grey a press has used all along, so a plain window's pixels do not move. A look
         // that wants an accented selection says so; see `modern`.
         selection: paint.rgb(0.75, 0.75, 0.78),
-        space: 4.0,
+        // The scale, at the step the single `space` token used to be: 4 is `s`, and every other
+        // step is the number some control was carrying privately.
+        space: controls.Space { none: 0.0, xs: 2.0, s: 4.0, m: 8.0, l: 12.0, xl: 16.0 },
+        // 24 is WCAG 2.2's minimum target (SC 2.5.8), and two of the three numbers this replaced
+        // were already exactly that. `at_density` does not touch these.
+        minimum: controls.Minimum { target: 24.0, thumb: 20.0 },
+        stroke: controls.Stroke { hair: 1.0, line: 2.0 },
         // A third larger and a tenth smaller, which is the smallest scale worth having: enough
         // that a heading reads as one, little enough that nothing reflows.
         heading_size: 16.0,
