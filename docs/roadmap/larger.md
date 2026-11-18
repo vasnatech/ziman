@@ -2365,7 +2365,7 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   rounded rectangle is a path where a rectangle is a span fill. **The number to take before
   shipping a second look and feel, not after.**
 
-  **DONE (2026-11-17): `lib/ui/looknfeel` ships four looks.** `plain`, `plain_dark`, `modern` and
+  **DONE (2026-11-17): `lib/ui/theme` ships four looks.** `plain`, `plain_dark`, `modern` and
   `modern_dark`, one module in a file per look, each file holding its own variations -- split out
   of `controls.zm`, where the two that existed sat at the foot of a 5,000-line file and made the
   control set the home of both the vocabulary and every word spoken in it. `controls` defines
@@ -2376,7 +2376,7 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   every control -- the largest area in the window -- was written into each application's
   `raster.Options` and not into the theme. **That second one is why a dark look could not be
   expressed here before**: dark controls on a white window is not a dark theme.
-  `tests/stdlib/looknfeel_test.zm` holds every shipped look to WCAG AA on five surfaces and checks
+  `tests/stdlib/theme_test.zm` holds every shipped look to WCAG AA on five surfaces and checks
   the three things a dark variation gets wrong by inheriting -- a black hover veil, a shadow too
   shallow to read, and white text on a light accent.
 

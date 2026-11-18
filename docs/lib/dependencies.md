@@ -106,8 +106,8 @@ flowchart LR
         focus["ui.focus"]
         ibus["ui.ibus"]
         icons["ui.icons"]
-        looknfeel["ui.looknfeel"]
         terminal["ui.terminal"]
+        theme["ui.theme"]
         widget["ui.widget"]
         window["ui.window"]
     end
@@ -244,9 +244,6 @@ flowchart LR
     log --> locale
     log --> number
     log --> os
-    looknfeel --> controls
-    looknfeel --> paint
-    looknfeel --> widget
     markdown --> math
     memdb --> db
     memdb --> locale
@@ -365,6 +362,9 @@ flowchart LR
     terminal --> charset
     terminal --> io
     test --> regex
+    theme --> controls
+    theme --> paint
+    theme --> widget
     time --> clock
     time --> db
     time --> json
@@ -420,7 +420,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `icons`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml`, `widget` |
 | 6 | `a11y`, `codec`, `derive_repository`, `focus` |
 | 7 | `atspi`, `controls`, `paging`, `server` |
-| 8 | `desktop`, `looknfeel`, `rest` |
+| 8 | `desktop`, `rest`, `theme` |
 
 ## Each module
 
@@ -435,7 +435,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `charset`, `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
-| `controls` | `edit`, `focus`, `geom`, `math`, `paint`, `scene`, `shape`, `widget` | `desktop`, `looknfeel` |
+| `controls` | `edit`, `focus`, `geom`, `math`, `paint`, `scene`, `shape`, `widget` | `desktop`, `theme` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `charset`, `fs`, `io`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `batch`, `eql`, `migrate` |
@@ -470,7 +470,6 @@ otherwise: everything on a layer depends only on lower layers.
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
 | `locale` | - | `client`, `encoding`, `eql`, `http`, `ini`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `svg`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
-| `looknfeel` | `controls`, `paint`, `widget` | - |
 | `markdown` | `math` | - |
 | `math` | - | `controls`, `geom`, `icons`, `image`, `json`, `markdown`, `paint`, `properties`, `raster`, `shape`, `stroker`, `svg` |
 | `memdb` | `db`, `locale`, `sql` | - |
@@ -485,7 +484,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `os` | `clock` | `client`, `fs`, `icons`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `encoding`, `random` | - |
 | `paging` | `codec`, `json`, `mime` | - |
-| `paint` | `geom`, `locale`, `math` | `controls`, `image`, `layout`, `looknfeel`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `widget` |
+| `paint` | `geom`, `locale`, `math` | `controls`, `image`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `theme`, `widget` |
 | `pdf` | `charset`, `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
 | `pdfobj` | `compress` | `pdf` |
 | `pg` | `crypto`, `db`, `encoding`, `locale`, `net`, `number`, `random` | - |
@@ -506,6 +505,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `template` | `expr`, `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `terminal` | `charset`, `io` | - |
 | `test` | `regex` | - |
+| `theme` | `controls`, `paint`, `widget` | - |
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `batch`, `client`, `eql`, `migrate`, `schedule`, `toml` |
 | `toml` | `charset`, `json`, `locale`, `number`, `time` | `codec` |
@@ -513,7 +513,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `url` | `charset`, `locale`, `number` | `db`, `http`, `rest` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | `batch`, `eql`, `rest`, `server` |
 | `validate` | `regex` | - |
-| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `atspi`, `controls`, `desktop`, `focus`, `looknfeel` |
+| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `atspi`, `controls`, `desktop`, `focus`, `theme` |
 | `window` | `charset` | `desktop`, `ibus` |
 | `xml` | `charset`, `io`, `locale` | `codec`, `svg` |
 | `yaml` | `charset`, `json`, `locale`, `number` | `codec` |

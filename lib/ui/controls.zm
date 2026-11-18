@@ -5003,7 +5003,7 @@ pub struct Style {
     //
     // **Not drawn by any control**, because no control owns the window: an application passes this
     // to `raster.Options.background` (or fills with it) and the controls sit on top. That is the
-    // one token here with a caller-side obligation, and `lib/ui/looknfeel`'s header says so too.
+    // one token here with a caller-side obligation, and `lib/ui/theme`'s header says so too.
     window: Color
     // The lines between a table's cells.
     //
@@ -5132,12 +5132,12 @@ pub struct Style {
     icon_gap: float
 }
 
-// **The looks themselves live in `lib/ui/looknfeel`**, not here. `default_style` and
+// **The looks themselves live in `lib/ui/theme`**, not here. `default_style` and
 // `modern_style` were at this point in the file until 2026-11-17, which made the control set the
 // home of both the vocabulary above and every word spoken in it -- two things with different
 // readers, in one 5,000-line file. `controls` defines `Style` and never builds one, so the
-// dependency points one way and the split cost nothing: `looknfeel.plain()` is what the one
-// called `default_style` was, and `looknfeel.modern()` what `modern_style` was.
+// dependency points one way and the split cost nothing: `theme.plain()` is what the one
+// called `default_style` was, and `theme.modern()` what `modern_style` was.
 
 // A control's own face: its fill, edged and rounded as the style asks.
 //

@@ -30,7 +30,7 @@ use a11y
 use controls
 use focus
 use geom
-use looknfeel
+use theme
 use widget
 
 // A fake metrics, so the example needs no font: ten units per character.
@@ -60,7 +60,7 @@ struct Window {
 }
 
 fn view(w: Window) -> widget.Widget {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     return widget.column_of(
         6.0,
         [
@@ -81,7 +81,7 @@ fn step(w: Window, input: controls.Input) -> Window {
         None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
     }
     if name == "email" {
-        val done = controls.entry_input(w.email, input, bounds, looknfeel.plain(), metrics())
+        val done = controls.entry_input(w.email, input, bounds, theme.plain(), metrics())
         val board = if done.copied == "" { w.clipboard } else { done.copied }
         return with w { email: done.entry, focused: name, pressed: held, clipboard: board }
     }
@@ -2326,7 +2326,7 @@ pub struct Style {
     //
     // **Not drawn by any control**, because no control owns the window: an application passes this
     // to `raster.Options.background` (or fills with it) and the controls sit on top. That is the
-    // one token here with a caller-side obligation, and `lib/ui/looknfeel`'s header says so too.
+    // one token here with a caller-side obligation, and `lib/ui/theme`'s header says so too.
     window: Color
     // The lines between a table's cells.
     //

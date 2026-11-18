@@ -11,10 +11,10 @@ use demos/all
 use focus
 use geom
 use highlight
-use looknfeel
 use paint
 use state
 use test
+use theme
 use widget
 
 // Ten points a character and a line twice the size, so a box's arithmetic is readable in a
@@ -27,7 +27,7 @@ fn metrics() -> widget.Metrics {
 }
 
 fn style() -> controls.Style {
-    return looknfeel.plain()
+    return theme.plain()
 }
 
 val window = geom.rect_of(0.0, 0.0, 1100.0, 720.0)
@@ -254,7 +254,7 @@ fn kind_of(w: widget.Widget) -> string {
 // allowance.
 #[test]
 fn the_modern_theme_is_legible_everywhere_it_puts_text() {
-    val look = looknfeel.modern()
+    val look = theme.modern()
     // Body text on each surface it is drawn on.
     test.assert(paint.contrast_ratio(look.ink, look.face) >= 4.5)
     test.assert(paint.contrast_ratio(look.ink, look.panel) >= 4.5)
@@ -270,7 +270,7 @@ fn the_modern_theme_is_legible_everywhere_it_puts_text() {
 // the press colour to mean "chosen" disappears.
 #[test]
 fn the_modern_theme_tells_its_states_apart() {
-    val look = looknfeel.modern()
+    val look = theme.modern()
     test.assert(paint.contrast_ratio(look.selection, look.face) >= 1.08)
     test.assert(paint.contrast_ratio(look.accent, look.face) >= 3.0)
     switch look.face_border {
@@ -283,7 +283,7 @@ fn the_modern_theme_tells_its_states_apart() {
 // application replaces rather than undoes.
 #[test]
 fn the_default_theme_stays_plain() {
-    val plain = looknfeel.plain()
+    val plain = theme.plain()
     test.assert(Option.is_None(plain.face_border))
     test.assert(widget.Radius.is_Square(plain.corner))
     test.assert(paint.contrast_ratio(plain.ink, plain.face) >= 4.5)

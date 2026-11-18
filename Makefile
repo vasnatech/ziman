@@ -128,7 +128,7 @@ PRELUDE_PARTS := prelude array channel iter map mutable option result set string
 
 # **Five bundled modules are several files each**, which is what a module too big to read in one
 # sitting does; see src/corelib.c's MODULE_PARTS and loader.c's merge. Three are folders under
-# lib/http/, the fourth is lib/core/charset/ and the fifth is lib/ui/looknfeel/; in each the first
+# lib/http/, the fourth is lib/core/charset/ and the fifth is lib/ui/theme/; in each the first
 # part carries the module comment, the imports and the types. Adding a part
 # means a file in the folder, its name here, and *two* lines in corelib.c -- the #include and the
 # row -- the same three edits a prelude part takes, and the same cheap check: as many #includes as
@@ -148,12 +148,12 @@ CHARSET_PARTS := charset tables
 # `plain.zm` has the light and the dark, `modern.zm` has its two. Split out of `controls.zm` on
 # 2026-11-17, where `default_style` and `modern_style` sat at the foot of a 5,000-line file and
 # made the control set the home of both the vocabulary and every word spoken in it. See
-# lib/ui/looknfeel/looknfeel.zm, which is the part carrying the register.
+# lib/ui/theme/theme.zm, which is the part carrying the register.
 #
 # **Not in CORELIB_MODULES**, like `server`, `client` and `rest` and unlike `charset`: the name has
 # no `lib/<name>.zm` for the generic `%_source.h` rule to find, so listing it there would ask make
 # for a file that does not exist.
-LOOKNFEEL_PARTS := looknfeel plain modern
+THEME_PARTS := theme plain modern
 # Bundled modules live in lib/core (general-purpose), lib/db (SQL drivers, and the three
 # generators that write SQL: derive_row, derive_entity, derive_repository), lib/http (http,
 # server, client), lib/time (time, zone, schedule) and lib/graphics (the 2D model and its
@@ -168,7 +168,7 @@ CORELIB_HEADERS := $(CORELIB_MODULES:%=$(BUILD)/%_source.h) $(PRELUDE_PARTS:%=$(
                    $(SERVER_PARTS:%=$(BUILD)/server_%_source.h) $(CLIENT_PARTS:%=$(BUILD)/client_%_source.h) \
                    $(REST_PARTS:%=$(BUILD)/rest_%_source.h) \
                    $(CHARSET_PARTS:%=$(BUILD)/charset_%_source.h) \
-                   $(LOOKNFEEL_PARTS:%=$(BUILD)/looknfeel_%_source.h)
+                   $(THEME_PARTS:%=$(BUILD)/theme_%_source.h)
 
 -include $(DEP)
 

@@ -1,4 +1,4 @@
-# `looknfeel`
+# `theme`
 
 The looks the control set ships with, and the register of them.
 
@@ -23,28 +23,28 @@ design decisions answered for a different surround, so it belongs beside the thi
 and splitting light from dark across two files is how the two drift until only one of them is
 really maintained.
 
-**Parts of one module.** Every file here is `use looknfeel`, exactly as `lib/core/charset` is
-one module in two files: a caller says `looknfeel.plain()` and `looknfeel.modern_dark()` without
+**Parts of one module.** Every file here is `use theme`, exactly as `lib/core/charset` is
+one module in two files: a caller says `theme.plain()` and `theme.modern_dark()` without
 knowing which file either lives in. Function names therefore carry their look's name, which they
 would want to anyway.
 
-**Adding one** takes a file here, its name in `LOOKNFEEL_PARTS` and `src/corelib.c`, and an
+**Adding one** takes a file here, its name in `THEME_PARTS` and `src/corelib.c`, and an
 entry in `all` below -- the last being what makes it show up in an application's theme list and
-in `looknfeel_test`'s contrast gate, which every shipped look passes.
+in `theme_test`'s contrast gate, which every shipped look passes.
 
 **One token has a caller-side obligation**: `Style.window` is the colour behind everything, and
 no control draws it. An application passes it to `raster.Options.background`. A look and feel
 that could not say what colour the window was is why dark variations could not be written here
 before.
 
-`use looknfeel` -- or `use looknfeel.Name` to bring one item in bare.
+`use theme` -- or `use theme.Name` to bring one item in bare.
 
-## `looknfeel.zm`
+## `theme.zm`
 
-### `Theme`
+### `Look`
 
 ```
-pub struct Theme {
+pub struct Look {
     // What to put in a menu. Capitalised as a title, because it is one.
     name: string
     style: controls.Style
@@ -60,7 +60,7 @@ look has to be added to twice.
 ### `all`
 
 ```
-pub fn all() -> [Theme]
+pub fn all() -> [Look]
 ```
 
 Every look and feel here, each variation as its own entry.
@@ -133,7 +133,7 @@ variation lives beside the thing it varies rather than being computed from it:
   is a half rather than a fifth;
 * **`on_accent` goes dark.** A dark look wants a lighter accent so it reads against the
   window -- and dark text is what reads on a light blue, where white text on it does not.
-  Checked rather than chosen: `looknfeel_test` asserts both ends of every pair.
+  Checked rather than chosen: `theme_test` asserts both ends of every pair.
 ```
 
 ## `modern.zm`

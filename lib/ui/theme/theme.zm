@@ -1,4 +1,4 @@
-// looknfeel.zm -- the looks the control set ships with, and the register of them.
+// theme.zm -- the looks the control set ships with, and the register of them.
 //
 // **A look and feel is not a colour theme**, which is the whole reason this is a module and not a
 // palette. A `controls.Style` carries six kinds of decision at once: colour (ink, faces, accent,
@@ -21,14 +21,14 @@
 // and splitting light from dark across two files is how the two drift until only one of them is
 // really maintained.
 //
-// **Parts of one module.** Every file here is `use looknfeel`, exactly as `lib/core/charset` is
-// one module in two files: a caller says `looknfeel.plain()` and `looknfeel.modern_dark()` without
+// **Parts of one module.** Every file here is `use theme`, exactly as `lib/core/charset` is
+// one module in two files: a caller says `theme.plain()` and `theme.modern_dark()` without
 // knowing which file either lives in. Function names therefore carry their look's name, which they
 // would want to anyway.
 //
-// **Adding one** takes a file here, its name in `LOOKNFEEL_PARTS` and `src/corelib.c`, and an
+// **Adding one** takes a file here, its name in `THEME_PARTS` and `src/corelib.c`, and an
 // entry in `all` below -- the last being what makes it show up in an application's theme list and
-// in `looknfeel_test`'s contrast gate, which every shipped look passes.
+// in `theme_test`'s contrast gate, which every shipped look passes.
 //
 // **One token has a caller-side obligation**: `Style.window` is the colour behind everything, and
 // no control draws it. An application passes it to `raster.Options.background`. A look and feel
@@ -43,7 +43,7 @@ use widget
 // **A name and a style, not a constructor**, because the list is what a theme picker wants and a
 // list of functions is not one -- and because `named` would otherwise be a switch that every new
 // look has to be added to twice.
-pub struct Theme {
+pub struct Look {
     // What to put in a menu. Capitalised as a title, because it is one.
     name: string
     style: controls.Style
@@ -54,12 +54,12 @@ pub struct Theme {
 // **The register is a list and not a map** so that the order is the one an application shows: a
 // map would sort by name and put "Modern dark" before "Plain". `named` searches it; nothing needs
 // the lookup to be fast, because a theme is chosen by a person.
-pub fn all() -> [Theme] {
+pub fn all() -> [Look] {
     return [
-        Theme { name: "Plain", style: plain() },
-        Theme { name: "Plain dark", style: plain_dark() },
-        Theme { name: "Modern", style: modern() },
-        Theme { name: "Modern dark", style: modern_dark() }
+        Look { name: "Plain", style: plain() },
+        Look { name: "Plain dark", style: plain_dark() },
+        Look { name: "Modern", style: modern() },
+        Look { name: "Modern dark", style: modern_dark() }
     ]
 }
 

@@ -190,7 +190,7 @@ text or a control's edge; AAA wants 7.0.
 
 Here rather than in the one application that needed it: `gallery/ui/desktop/highlight.zm` had
 this and `relative_luminance` written out, which is a general fact about colour sitting in a
-program about syntax colouring. `lib/ui/looknfeel` now asserts every shipped look against it.
+program about syntax colouring. `lib/ui/theme` now asserts every shipped look against it.
 
 ### `named`
 

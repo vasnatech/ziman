@@ -2,7 +2,7 @@
 //
 // **Not a theme and not a design.** F277 says in as many words that pixel parity with a platform's
 // widgets is not a goal, so this is the legible default and the thing an application replaces. It
-// is deliberately the smallest answer to each of the six decisions in `looknfeel.zm`'s header --
+// is deliberately the smallest answer to each of the six decisions in `theme.zm`'s header --
 // square, filled, unedged, one grey, one size of padding -- because an application replacing it
 // should not have to undo anything first. `modern.zm` is the demonstration of what the vocabulary
 // can say; this is the reference.
@@ -71,7 +71,7 @@ pub fn plain() -> controls.Style {
 //     is a half rather than a fifth;
 //   * **`on_accent` goes dark.** A dark look wants a lighter accent so it reads against the
 //     window -- and dark text is what reads on a light blue, where white text on it does not.
-//     Checked rather than chosen: `looknfeel_test` asserts both ends of every pair.
+//     Checked rather than chosen: `theme_test` asserts both ends of every pair.
 pub fn plain_dark() -> controls.Style {
     return with plain() {
         ink: paint.rgb(0.92, 0.92, 0.93),

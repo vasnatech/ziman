@@ -18,13 +18,13 @@ use desktop
 use font
 use fs
 use geom
-use looknfeel
 use os
 use paint
 use pictures.images
 use raster
 use scene
 use state
+use theme
 use widget
 use window
 
@@ -199,7 +199,7 @@ fn run() -> Result<unit, string> {
     // **The gallery wears the look the library is proudest of**, which is also the only way
     // anyone finds out that `modern_style` is wrong about something. The two marks are replaced
     // for the reason they always were: the faces a desktop ships have no triangles.
-    val style = with looknfeel.modern() { collapsed_mark: ">", expanded_mark: "v" }
+    val style = with theme.modern() { collapsed_mark: ">", expanded_mark: "v" }
     val density = chosen_density().density
     val scale = density.px_per_pt
     val options = with raster.options() {

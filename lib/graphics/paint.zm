@@ -153,7 +153,7 @@ pub fn relative_luminance(c: Color) -> float {
 //
 // Here rather than in the one application that needed it: `gallery/ui/desktop/highlight.zm` had
 // this and `relative_luminance` written out, which is a general fact about colour sitting in a
-// program about syntax colouring. `lib/ui/looknfeel` now asserts every shipped look against it.
+// program about syntax colouring. `lib/ui/theme` now asserts every shipped look against it.
 pub fn contrast_ratio(a: Color, b: Color) -> float {
     val la = relative_luminance(a)
     val lb = relative_luminance(b)

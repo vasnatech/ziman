@@ -505,7 +505,7 @@ What a container paints behind and around its children.
 **This is the vocabulary a second look and feel needs, and until 2026-11-12 it was one colour
 wide.** `Stack` carried a `background: Option<Color>` and nothing else, so every container in
 every theme was a flat rectangle: an application could already replace the whole palette --
-`looknfeel.plain()` exists to be replaced -- and still could not draw a button that
+`theme.plain()` exists to be replaced -- and still could not draw a button that
 looked different, because what distinguishes one look and feel from another is *shape*. The
 capability was always one layer down (`shape.round_rect_path`, and `paint_focused` has stroked a
 path in this very module since F270); only the way to ask for it was missing.

@@ -7,7 +7,7 @@ use controls
 use desktop
 use edit
 use geom
-use looknfeel
+use theme
 use test
 use widget
 use window
@@ -147,7 +147,7 @@ fn laid_field(text: string, caret: int) -> widget.Laid {
         editor: edit.Editor { text: text, caret: caret, anchor: caret }
     }
     return widget.layout(
-        controls.entry_widget(e, looknfeel.plain(), fake_metrics()),
+        controls.entry_widget(e, theme.plain(), fake_metrics()),
         geom.rect_of(30.0, 50.0, 200.0, 24.0),
         fake_metrics()
     )
@@ -179,7 +179,7 @@ fn the_caret_is_reported_in_screen_pixels() {
     // this asserted first: the caret is a child of the row that holds the text, so the layout
     // gives it the row's height rather than the height it measured. A field shorter than a line
     // has a shorter caret, which is what it should look like.
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val x = 30.0 + style.padding.left + 12.0
     val y = 50.0 + style.padding.top
     val tall = 24.0 - style.padding.top - style.padding.bottom
@@ -247,7 +247,7 @@ fn a_caret_is_never_zero_sized() {
 #[test]
 fn a_tree_with_no_caret_reports_none() {
     val laid = widget.layout(
-        controls.button_widget(controls.button_of("go", "Go"), looknfeel.plain()),
+        controls.button_widget(controls.button_of("go", "Go"), theme.plain()),
         geom.rect_of(0.0, 0.0, 80.0, 24.0),
         fake_metrics()
     )

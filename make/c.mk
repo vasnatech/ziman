@@ -107,8 +107,8 @@ $(BUILD)/rest_%_source.h: lib/http/rest/%.zm | $(BUILD)
 $(BUILD)/charset_%_source.h: lib/core/charset/%.zm | $(BUILD)
 	$(call embed_zm,CHARSET_$(shell echo $* | tr a-z A-Z)_SOURCE)
 
-$(BUILD)/looknfeel_%_source.h: lib/ui/looknfeel/%.zm | $(BUILD)
-	$(call embed_zm,LOOKNFEEL_$(shell echo $* | tr a-z A-Z)_SOURCE)
+$(BUILD)/theme_%_source.h: lib/ui/theme/%.zm | $(BUILD)
+	$(call embed_zm,THEME_$(shell echo $* | tr a-z A-Z)_SOURCE)
 
 $(BUILD)/%.o: src/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<

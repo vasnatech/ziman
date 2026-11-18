@@ -20,9 +20,9 @@ use controls
 use font
 use fs
 use geom
-use looknfeel
 use paint
 use raster
+use theme
 use widget
 
 fn metrics() -> widget.Metrics {
@@ -56,7 +56,7 @@ fn form(rows: int, style: controls.Style, m: widget.Metrics) -> widget.Widget {
 }
 
 fn edged() -> controls.Style {
-    return with looknfeel.plain() {
+    return with theme.plain() {
         face_border: Option<widget.Border>.Some(widget.border_of(paint.rgb(0.4, 0.4, 0.45), 1.0)),
         corner: widget.Radius.Points(4.0)
     }
@@ -202,7 +202,7 @@ fn rasterised_region(
 
 fn main() {
     val m = metrics()
-    val flat = looknfeel.plain()
+    val flat = theme.plain()
     val fancy = edged()
 
     // Warmed up, because the first pass through any of this pays for the code it touches once.

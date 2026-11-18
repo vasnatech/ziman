@@ -9,7 +9,7 @@ use controls
 use controls.divider_thickness
 use focus
 use geom
-use looknfeel
+use theme
 use paint
 use scene
 use shape
@@ -149,14 +149,14 @@ fn a_click_toggles_an_unchecked_box_on_and_a_checked_box_off() {
     val on = click(off)
     test.assert(on.toggled)
     test.assert_eq(
-        said_of(controls.check_box_widget(on.check_box, looknfeel.plain(), metrics()), "notify"),
+        said_of(controls.check_box_widget(on.check_box, theme.plain(), metrics()), "notify"),
         "check box, Notify me, checked"
     )
 
     val back = click(on.check_box)
     test.assert(back.toggled)
     test.assert_eq(
-        said_of(controls.check_box_widget(back.check_box, looknfeel.plain(), metrics()), "notify"),
+        said_of(controls.check_box_widget(back.check_box, theme.plain(), metrics()), "notify"),
         "check box, Notify me, unchecked"
     )
 }
@@ -170,7 +170,7 @@ fn a_mixed_box_becomes_checked() {
     val after = click(mixed)
     test.assert(after.toggled)
     test.assert_eq(
-        said_of(controls.check_box_widget(after.check_box, looknfeel.plain(), metrics()), "all"),
+        said_of(controls.check_box_widget(after.check_box, theme.plain(), metrics()), "all"),
         "check box, Select all, checked"
     )
 }
@@ -194,7 +194,7 @@ fn a_disabled_check_box_does_not_toggle() {
 // --- routing
 
 fn laid_pair() -> widget.Laid {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val row = widget.row_of(
         0.0,
         [
@@ -305,7 +305,7 @@ fn a_press_on_nothing_goes_nowhere_and_leaves_the_focus_alone() {
 // tree, tab strip and table in the window at once.
 #[test]
 fn a_press_on_a_row_routes_to_the_list_and_not_to_the_row() {
-    val l = widget.layout(controls.list_widget(five(), looknfeel.plain()), list_box(), metrics())
+    val l = widget.layout(controls.list_widget(five(), theme.plain()), list_box(), metrics())
     // The row is there, and it is a control.
     test.assert(Option.is_Some(widget.node_named(l, controls.row_name(five(), 1))))
     test.assert_eq(controls.target(l, controls.Input.Press(geom.point_of(10.0, 30.0)), "elsewhere", ""), "people")
@@ -317,7 +317,7 @@ fn a_press_on_a_row_routes_to_the_list_and_not_to_the_row() {
 #[test]
 fn a_press_reaches_a_control_the_keyboard_cannot() {
     val bar = widget.layout(
-        controls.scroll_bar_widget(bar(), looknfeel.plain(), 12.0, 100.0, bar_content, bar_view, 0.0),
+        controls.scroll_bar_widget(bar(), theme.plain(), 12.0, 100.0, bar_content, bar_view, 0.0),
         bar_box,
         metrics()
     )
@@ -353,7 +353,7 @@ fn name_of(w: widget.Widget, name: string) -> string {
 #[test]
 fn a_button_announces_itself_as_a_button() {
     test.assert_eq(
-        said_of(controls.button_widget(controls.button_of("save", "Save"), looknfeel.plain()), "save"),
+        said_of(controls.button_widget(controls.button_of("save", "Save"), theme.plain()), "save"),
         "button, Save"
     )
 }
@@ -362,7 +362,7 @@ fn a_button_announces_itself_as_a_button() {
 fn a_disabled_button_announces_that_it_is_dimmed() {
     val off = with controls.button_of("save", "Save") { disabled: true }
     test.assert_eq(
-        said_of(controls.button_widget(off, looknfeel.plain()), "save"),
+        said_of(controls.button_widget(off, theme.plain()), "save"),
         "button, Save, dimmed"
     )
 }
@@ -373,7 +373,7 @@ fn a_disabled_button_announces_that_it_is_dimmed() {
 #[test]
 fn a_check_box_does_not_read_its_own_mark_aloud() {
     val on = controls.check_box_of("notify", "Notify me", widget.Toggle.On)
-    val style = looknfeel.plain()
+    val style = theme.plain()
     // The name is the label exactly. Were the label not declared, `a11y` would take the name from
     // the text inside -- which is the mark and then the label -- and this would read "x Notify me".
     test.assert_eq(name_of(controls.check_box_widget(on, style, metrics()), "notify"), "Notify me")
@@ -406,7 +406,7 @@ fn being_held_changes_nothing_a_reader_is_told() {
     val held = press(controls.button_of("save", "Save"), inside()).button
     test.assert(held.held)
     test.assert_eq(
-        said_of(controls.button_widget(held, looknfeel.plain()), "save"),
+        said_of(controls.button_widget(held, theme.plain()), "save"),
         "button, Save"
     )
 }
@@ -441,7 +441,7 @@ fn field() -> controls.Entry {
 }
 
 fn style() -> controls.Style {
-    return looknfeel.plain()
+    return theme.plain()
 }
 
 fn entry_box() -> geom.Rect {
@@ -884,7 +884,7 @@ fn a_disabled_list_ignores_everything() {
 // --- one tab stop, five nodes
 
 fn laid_list(l: controls.List) -> widget.Laid {
-    return widget.layout(controls.list_widget(l, looknfeel.plain()), list_box(), metrics())
+    return widget.layout(controls.list_widget(l, theme.plain()), list_box(), metrics())
 }
 
 // **The whole reason `tab_stop` exists.** Tab sees one control; a reader sees the list and every
@@ -1049,7 +1049,7 @@ fn a_disabled_menu_does_not_open() {
 // to tell a user whether pressing Down will do anything.
 #[test]
 fn a_menu_title_says_whether_it_is_expanded() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     test.assert_eq(said_of(controls.menu_title_widget(file_menu(), style), "file"), "menu, File, collapsed")
     val open = menu_key(file_menu(), key_down).menu
     test.assert_eq(said_of(controls.menu_title_widget(open, style), "file"), "menu, File, expanded")
@@ -1062,7 +1062,7 @@ fn the_popup_rows_are_menu_items() {
     val open = menu_key(file_menu(), key_down).menu
     val l = widget.layout(
         widget.layered_of([widget.base_layer(widget.Widget.Nothing),
-            controls.menu_popup_layer(open, looknfeel.plain(), popup_box())]),
+            controls.menu_popup_layer(open, theme.plain(), popup_box())]),
         geom.rect_of(0.0, 0.0, 120.0, 100.0),
         metrics()
     )
@@ -1098,7 +1098,7 @@ fn a_dialog_answers_escape_and_enter() {
 // pointer and `takes_keys` does Tab, and this is the case that holds the pair together.
 #[test]
 fn a_dialog_traps_the_window_behind_it() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val behind = controls.button_widget(controls.button_of("save", "Save"), style)
     val inside_it = controls.button_widget(controls.button_of("ok", "OK"), style)
     val l = widget.layout(
@@ -1139,7 +1139,7 @@ fn enter_types_a_newline_in_an_area() {
         area("ab"),
         press(controls.Key.Enter),
         anywhere,
-        looknfeel.plain(),
+        theme.plain(),
         metrics()
     )
     test.assert_eq("ab\n", step.entry.editor.text)
@@ -1154,7 +1154,7 @@ fn enter_is_untouched_in_a_one_line_field() {
         controls.entry_of("name", "Name", "ab"),
         press(controls.Key.Enter),
         anywhere,
-        looknfeel.plain(),
+        theme.plain(),
         metrics()
     )
     test.assert_eq("ab", step.entry.editor.text)
@@ -1165,10 +1165,10 @@ fn enter_is_untouched_in_a_one_line_field() {
 fn up_and_down_move_by_line_in_an_area_and_do_nothing_in_a_field() {
     val two = area(concat("abcd", "\n", "efgh"))
     val placed = with two { editor: edit.place_caret(two.editor, 2, false) }
-    val down = controls.entry_input(placed, press(controls.Key.Down), anywhere, looknfeel.plain(), metrics())
+    val down = controls.entry_input(placed, press(controls.Key.Down), anywhere, theme.plain(), metrics())
     test.assert_eq(7, down.entry.editor.caret)
     val field = controls.entry_of("name", "Name", "abcd")
-    val still = controls.entry_input(field, press(controls.Key.Down), anywhere, looknfeel.plain(), metrics())
+    val still = controls.entry_input(field, press(controls.Key.Down), anywhere, theme.plain(), metrics())
     test.assert_eq(field.editor.caret, still.entry.editor.caret)
 }
 
@@ -1178,13 +1178,13 @@ fn up_and_down_move_by_line_in_an_area_and_do_nothing_in_a_field() {
 fn home_is_the_start_of_the_line_not_of_the_text() {
     val a = area(concat("one", "\n", "two"))
     val placed = with a { editor: edit.place_caret(a.editor, 5, false) }
-    val home = controls.entry_input(placed, press(controls.Key.Home), anywhere, looknfeel.plain(), metrics())
+    val home = controls.entry_input(placed, press(controls.Key.Home), anywhere, theme.plain(), metrics())
     test.assert_eq(4, home.entry.editor.caret)
 }
 
 #[test]
 fn an_area_announces_itself_as_multiline() {
-    val w = controls.entry_widget(area("x"), looknfeel.plain(), metrics())
+    val w = controls.entry_widget(area("x"), theme.plain(), metrics())
     val laid = widget.layout(w, geom.rect_of(0.0, 0.0, 200.0, 100.0), metrics())
     val tree = a11y.tree_of(laid, "form", "body")
     if Some(node) = a11y.node_of(tree, "body") {
@@ -1275,12 +1275,12 @@ fn a_text_area_scrolls_to_follow_its_caret() {
     val tall = with area(many) { editor: edit.place_caret(edit.editor_of(many), 0, false) }
     test.assert_eq(0.0, tall.scroll)
     // End of the text: the last line is far below a 40 point box, so the view has to move.
-    val toEnd = controls.entry_input(tall, press(controls.Key.End), view_box, looknfeel.plain(), metrics())
+    val toEnd = controls.entry_input(tall, press(controls.Key.End), view_box, theme.plain(), metrics())
     val down = controls.entry_input(
         with toEnd.entry { editor: edit.place_caret(toEnd.entry.editor, len(many), false) },
         press(controls.Key.Right),
         box,
-        looknfeel.plain(),
+        theme.plain(),
         metrics()
     )
     test.assert(down.entry.scroll > 0.0)
@@ -1290,7 +1290,7 @@ fn a_text_area_scrolls_to_follow_its_caret() {
 fn a_one_line_field_never_scrolls() {
     val view_box = geom.rect_of(0.0, 0.0, 200.0, 20.0)
     val field = controls.entry_of("name", "Name", "a long value that will not fit in the box at all")
-    val step = controls.entry_input(field, press(controls.Key.End), view_box, looknfeel.plain(), metrics())
+    val step = controls.entry_input(field, press(controls.Key.End), view_box, theme.plain(), metrics())
     test.assert_eq(0.0, step.entry.scroll)
 }
 
@@ -1301,7 +1301,7 @@ fn typing_scrolls_a_text_area_too() {
     var a = area("")
     var i = 0
     while i < 12 {
-        val step = controls.entry_input(a, press(controls.Key.Enter), view_box, looknfeel.plain(), metrics())
+        val step = controls.entry_input(a, press(controls.Key.Enter), view_box, theme.plain(), metrics())
         a = step.entry
         i = i + 1
     }
@@ -1330,7 +1330,7 @@ fn ring_count(scene_now: scene.Scene) -> int {
 }
 
 fn two_fields() -> widget.Laid {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val tree = widget.column_of(4.0, [
         widget.fixed_of(0.0, 20.0, controls.entry_widget(controls.entry_of("one", "One", "a"), style, metrics())),
         widget.fixed_of(0.0, 20.0, controls.entry_widget(controls.entry_of("two", "Two", "b"), style, metrics()))
@@ -1369,7 +1369,7 @@ fn the_ring_follows_the_focus() {
 // window it was blocking and nothing said which half was live.
 #[test]
 fn a_dialog_covers_what_it_blocks() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val dialog = controls.dialog_layer("ask", "Are you sure?", widget.label_of("yes or no", 12.0, paint.black()), style)
     val laid = widget.layout(widget.layered_of([
         widget.base_layer(widget.label_of("behind", 12.0, paint.black())),
@@ -1400,8 +1400,8 @@ fn a_dialog_covers_what_it_blocks() {
 // window is gone", and a user needs to see what they were doing to decide what to answer.
 #[test]
 fn the_scrim_is_translucent() {
-    test.assert(looknfeel.plain().scrim.alpha > 0.0)
-    test.assert(looknfeel.plain().scrim.alpha < 1.0)
+    test.assert(theme.plain().scrim.alpha > 0.0)
+    test.assert(theme.plain().scrim.alpha < 1.0)
 }
 
 // --------------------------------------------------------------- the tab strip
@@ -1486,7 +1486,7 @@ fn a_disabled_strip_ignores_everything() {
 }
 
 fn laid_strip(t: controls.Tabs) -> widget.Laid {
-    return widget.layout(controls.tabs_widget(t, looknfeel.plain()), strip_box, metrics())
+    return widget.layout(controls.tabs_widget(t, theme.plain()), strip_box, metrics())
 }
 
 // **The test this control exists to have.** `tabs_input` divides the strip by `tab_width` and
@@ -1569,7 +1569,7 @@ fn a_masked_field_shows_bullets_and_not_the_text() {
 // downstream -- a reader, a remote bridge and a test dump all read the one published string.
 #[test]
 fn a_masked_field_publishes_the_mask_and_announces_a_password() {
-    val w = controls.entry_widget(secret(), looknfeel.plain(), metrics())
+    val w = controls.entry_widget(secret(), theme.plain(), metrics())
     test.assert_eq(said_of(w, "pass"), "password text, Password, •••••••")
     test.assert_false(contains(said_of(w, "pass"), "hunter2"))
 }
@@ -1585,7 +1585,7 @@ fn a_press_in_a_masked_field_places_the_caret_where_it_looks() {
         secret(),
         controls.Input.Press(geom.point_of(secret_box.x + 8.0 + 25.0, 10.0)),
         secret_box,
-        looknfeel.plain(),
+        theme.plain(),
         metrics()
     )
     test.assert_eq(taken.entry.editor.caret, 3)
@@ -1610,7 +1610,7 @@ fn the_caret_follows_the_mask_in_a_font_where_a_bullet_is_wider() {
         secret(),
         controls.Input.Press(geom.point_of(secret_box.x + 8.0 + 50.0, 10.0)),
         secret_box,
-        looknfeel.plain(),
+        theme.plain(),
         wide_bullet
     )
     // 50 points into a run of 20-point bullets is between the second and the third.
@@ -1625,18 +1625,18 @@ fn a_masked_field_copies_nothing() {
     val select_all = controls.Input.KeyDown(with controls.keystroke_of(controls.Key.Char("a")) {
         control: true
     })
-    val chosen = controls.entry_input(secret(), select_all, secret_box, looknfeel.plain(), metrics())
+    val chosen = controls.entry_input(secret(), select_all, secret_box, theme.plain(), metrics())
     val copy = controls.Input.KeyDown(with controls.keystroke_of(controls.Key.Char("c")) {
         control: true
     })
-    val taken = controls.entry_input(chosen.entry, copy, secret_box, looknfeel.plain(), metrics())
+    val taken = controls.entry_input(chosen.entry, copy, secret_box, theme.plain(), metrics())
     test.assert_eq(taken.copied, "")
 
     // The same gesture on an ordinary field does copy, or the test above would pass on a field
     // that simply never copies anything.
     val plain = controls.entry_of("url", "URL", "hunter2")
-    val plain_chosen = controls.entry_input(plain, select_all, secret_box, looknfeel.plain(), metrics())
-    val plain_taken = controls.entry_input(plain_chosen.entry, copy, secret_box, looknfeel.plain(), metrics())
+    val plain_chosen = controls.entry_input(plain, select_all, secret_box, theme.plain(), metrics())
+    val plain_taken = controls.entry_input(plain_chosen.entry, copy, secret_box, theme.plain(), metrics())
     test.assert_eq(plain_taken.copied, "hunter2")
 }
 
@@ -1648,11 +1648,11 @@ fn a_masked_field_still_cuts_even_though_it_hands_nothing_out() {
     val select_all = controls.Input.KeyDown(with controls.keystroke_of(controls.Key.Char("a")) {
         control: true
     })
-    val chosen = controls.entry_input(secret(), select_all, secret_box, looknfeel.plain(), metrics())
+    val chosen = controls.entry_input(secret(), select_all, secret_box, theme.plain(), metrics())
     val cut = controls.Input.KeyDown(with controls.keystroke_of(controls.Key.Char("x")) {
         control: true
     })
-    val taken = controls.entry_input(chosen.entry, cut, secret_box, looknfeel.plain(), metrics())
+    val taken = controls.entry_input(chosen.entry, cut, secret_box, theme.plain(), metrics())
     test.assert_eq(taken.copied, "")
     test.assert_eq(taken.entry.editor.text, "")
     test.assert(taken.changed)
@@ -1665,7 +1665,7 @@ fn a_masked_field_still_cuts_even_though_it_hands_nothing_out() {
 fn a_masked_field_is_one_line_whatever_rows_says() {
     val tall = with secret() { rows: 4 }
     test.assert_eq(
-        said_of(controls.entry_widget(tall, looknfeel.plain(), metrics()), "pass"),
+        said_of(controls.entry_widget(tall, theme.plain(), metrics()), "pass"),
         "password text, Password, •••••••"
     )
 }
@@ -1840,7 +1840,7 @@ fn a_disabled_tree_ignores_everything() {
 }
 
 fn laid_tree(t: controls.Tree) -> widget.Laid {
-    return widget.layout(controls.tree_widget(t, looknfeel.plain()), tree_box, metrics())
+    return widget.layout(controls.tree_widget(t, theme.plain()), tree_box, metrics())
 }
 
 // One stop for Tab, one node per **visible** row -- a reader should not be told about rows that
@@ -2090,7 +2090,7 @@ fn a_disabled_bar_ignores_everything() {
 
 fn laid_bar(offset: float) -> widget.Laid {
     return widget.layout(
-        controls.scroll_bar_widget(bar(), looknfeel.plain(), 12.0, 100.0, bar_content, bar_view, offset),
+        controls.scroll_bar_widget(bar(), theme.plain(), 12.0, 100.0, bar_content, bar_view, offset),
         bar_box,
         metrics()
     )
@@ -2115,7 +2115,7 @@ fn the_drawn_thumb_is_where_the_hit_test_looks_for_it() {
 #[test]
 fn an_unscrollable_bar_draws_no_thumb() {
     val l = widget.layout(
-        controls.scroll_bar_widget(bar(), looknfeel.plain(), 12.0, 100.0, 40.0, 100.0, 0.0),
+        controls.scroll_bar_widget(bar(), theme.plain(), 12.0, 100.0, 40.0, 100.0, 0.0),
         bar_box,
         metrics()
     )
@@ -2181,7 +2181,7 @@ fn scrolled_tree() -> widget.Laid {
 
 fn bars_over(l: widget.Laid) -> [scene.Op] {
     val empty = scene.scene_of(l.bounds.width, l.bounds.height)
-    return controls.paint_scroll_bars(l, empty, looknfeel.plain()).ops
+    return controls.paint_scroll_bars(l, empty, theme.plain()).ops
 }
 
 // **The pass takes its numbers off the laid tree and nowhere else**, which is the whole reason it
@@ -2221,7 +2221,7 @@ fn the_scene_underneath_is_kept() {
         scene.scene_of(80.0, 100.0),
         [scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 80.0, 100.0)), paint.Paint.Solid(paint.black()))]
     )
-    val after = controls.paint_scroll_bars(l, under, looknfeel.plain())
+    val after = controls.paint_scroll_bars(l, under, theme.plain())
     test.assert_len(3, after.ops)
     test.assert_eq(fill_box(after.ops[0]).width, 80.0)
 }
@@ -2444,9 +2444,9 @@ fn a_press_while_composing_moves_nothing() {
     // can hold, and not the one the caret is at.
     val pressed = controls.entry_input(
         e,
-        controls.Input.Press(geom.point_of(looknfeel.plain().padding.left + 62.0, 10.0)),
+        controls.Input.Press(geom.point_of(theme.plain().padding.left + 62.0, 10.0)),
         note_box,
-        looknfeel.plain(),
+        theme.plain(),
         metrics()
     )
     test.assert_eq(pressed.entry.editor.caret, 2)
@@ -2458,7 +2458,7 @@ fn a_press_while_composing_moves_nothing() {
         done,
         controls.Input.Press(geom.point_of(5.0, 10.0)),
         note_box,
-        looknfeel.plain(),
+        theme.plain(),
         metrics()
     )
     test.assert_eq(after.entry.editor.caret, 0)
@@ -2468,11 +2468,11 @@ fn a_press_while_composing_moves_nothing() {
 // the widget places it from `edit.shown_caret` rather than from the editor's own caret.
 #[test]
 fn the_caret_is_drawn_inside_the_composition() {
-    val w = controls.entry_widget(composing_field(), looknfeel.plain(), metrics())
+    val w = controls.entry_widget(composing_field(), theme.plain(), metrics())
     val l = widget.layout(w, note_box, metrics())
     // Every character is 10 wide under these metrics, so a caret 5 characters in sits at 50 plus
     // the field's left padding.
-    test.assert_eq(box_named(l, caret_name).x, 50.0 + looknfeel.plain().padding.left)
+    test.assert_eq(box_named(l, caret_name).x, 50.0 + theme.plain().padding.left)
 }
 
 // **The run being converted is drawn apart from the rest of the composition**, because the two
@@ -2488,13 +2488,13 @@ fn the_converting_run_is_drawn_apart_from_the_composition() {
         3
     ).entry
     val l = widget.layout(
-        controls.entry_widget(marked, looknfeel.plain(), metrics()),
+        controls.entry_widget(marked, theme.plain(), metrics()),
         note_box,
         metrics()
     )
     // Two points at 10 per character: the composition starts at 2 and the converted run at 3.
-    test.assert_eq(box_named(l, "composing").x, 20.0 + looknfeel.plain().padding.left)
-    test.assert_eq(box_named(l, "converting").x, 30.0 + looknfeel.plain().padding.left)
+    test.assert_eq(box_named(l, "composing").x, 20.0 + theme.plain().padding.left)
+    test.assert_eq(box_named(l, "converting").x, 30.0 + theme.plain().padding.left)
     test.assert_eq(box_named(l, "converting").width, 20.0)
 }
 
@@ -2502,7 +2502,7 @@ fn the_converting_run_is_drawn_apart_from_the_composition() {
 #[test]
 fn a_field_with_no_composition_draws_no_tint() {
     val l = widget.layout(
-        controls.entry_widget(controls.entry_of("note", "Note", "ab"), looknfeel.plain(), metrics()),
+        controls.entry_widget(controls.entry_of("note", "Note", "ab"), theme.plain(), metrics()),
         note_box,
         metrics()
     )
@@ -2528,7 +2528,7 @@ fn a_masked_field_masks_the_composition_too() {
 
 // A style that asks for a shape rather than only a palette: what a second look and feel is.
 fn edged_style() -> controls.Style {
-    return with looknfeel.plain() {
+    return with theme.plain() {
         face_border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
         corner: widget.Radius.Points(5.0)
     }
@@ -2620,7 +2620,7 @@ fn square_fills(ops: [scene.Op]) -> int {
 // at zero, so a button paints exactly the one square fill it always did.
 #[test]
 fn the_default_style_paints_no_border_and_no_curve() {
-    val ops = painted(controls.button_widget(controls.button_of("save", "Save"), looknfeel.plain()))
+    val ops = painted(controls.button_widget(controls.button_of("save", "Save"), theme.plain()))
     test.assert_eq(strokes(ops), 0)
     test.assert_eq(rings(ops), 0)
     test.assert_eq(curved_fills(ops), 0)
@@ -2768,12 +2768,12 @@ fn escape_closes_the_list_without_choosing() {
 // "Method, combo box" and leave the user to open it to find out what it is set to.
 #[test]
 fn a_combo_box_announces_its_value() {
-    val said = said_of(controls.combo_box_widget(combo(), looknfeel.plain()), "method")
+    val said = said_of(controls.combo_box_widget(combo(), theme.plain()), "method")
     test.assert(contains(said, "Method"))
     test.assert(contains(said, "GET"))
     // and the value it says follows the selection rather than being fixed at build time
     val moved = combo_key(combo(), controls.Key.End, false)
-    val after = said_of(controls.combo_box_widget(moved.combo, looknfeel.plain()), "method")
+    val after = said_of(controls.combo_box_widget(moved.combo, theme.plain()), "method")
     test.assert(contains(after, "DELETE"))
 }
 
@@ -2807,7 +2807,7 @@ fn caret_fills(ops: [scene.Op], at: geom.Rect) -> int {
 
 fn field_laid() -> widget.Laid {
     return widget.layout(
-        controls.entry_widget(controls.entry_of("url", "URL", "abc"), looknfeel.plain(), metrics()),
+        controls.entry_widget(controls.entry_of("url", "URL", "abc"), theme.plain(), metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
         metrics()
     )
@@ -2887,7 +2887,7 @@ fn text_x(l: widget.Laid) -> float {
 // on the field beside them -- so the spare room that shows the bug is zero.
 #[test]
 fn a_stretched_button_centres_its_label() {
-    val button = controls.button_widget(controls.button_of("send", "Send"), looknfeel.plain())
+    val button = controls.button_widget(controls.button_of("send", "Send"), theme.plain())
     val laid = widget.layout(button, geom.rect_of(0.0, 0.0, 200.0, 30.0), metrics())
     val at = text_x(laid)
     // "Send" is 4 characters at 10 points each under these metrics, so 40 wide in 200: 80 each side.
@@ -2899,7 +2899,7 @@ fn a_stretched_button_centres_its_label() {
 #[test]
 fn a_shrink_wrapped_button_is_where_it_always_was() {
     val row = widget.row_of(0.0, [
-        controls.button_widget(controls.button_of("send", "Send"), looknfeel.plain()),
+        controls.button_widget(controls.button_of("send", "Send"), theme.plain()),
         widget.flex()
     ])
     val laid = widget.layout(row, geom.rect_of(0.0, 0.0, 200.0, 30.0), metrics())
@@ -2934,7 +2934,7 @@ fn a_check_box() -> controls.CheckBox {
 #[test]
 fn a_check_box_is_square() {
     val laid = widget.layout(
-        controls.check_box_widget(a_check_box(), looknfeel.plain(), metrics()),
+        controls.check_box_widget(a_check_box(), theme.plain(), metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
         metrics()
     )
@@ -2951,11 +2951,11 @@ fn a_check_box_is_one_line_square() {
     val m = metrics()
     val height = widget.face_at(m, 0).line_height
     val laid = widget.layout(
-        controls.check_box_widget(a_check_box(), looknfeel.plain(), metrics()),
+        controls.check_box_widget(a_check_box(), theme.plain(), metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
         m
     )
-    test.assert_eq(face_box(laid).height, height(looknfeel.plain().text_size))
+    test.assert_eq(face_box(laid).height, height(theme.plain().text_size))
 }
 
 // **A row taller than the control does not stretch the square**, which is the whole reason the
@@ -2965,7 +2965,7 @@ fn a_check_box_is_one_line_square() {
 #[test]
 fn a_tall_row_leaves_the_check_box_square() {
     val laid = widget.layout(
-        controls.check_box_widget(a_check_box(), looknfeel.plain(), metrics()),
+        controls.check_box_widget(a_check_box(), theme.plain(), metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 80.0),
         metrics()
     )
@@ -3019,7 +3019,7 @@ fn first_fill_radius(ops: [scene.Op], left: float) -> float {
 fn a_check_box_caps_the_radius_its_size_cannot_carry() {
     val m = metrics()
     val height = widget.face_at(m, 0).line_height
-    val side = height(looknfeel.plain().text_size)
+    val side = height(theme.plain().text_size)
     // A radius the square cannot carry: 10 against a side of 24, where the cap is 6.
     val asking = with edged_style() { corner: widget.Radius.Points(10.0) }
     val laid = widget.layout(
@@ -3067,7 +3067,7 @@ fn a_check_box_keeps_a_radius_that_fits() {
 fn a_fraction_is_a_capsule_at_any_size() {
     val m = metrics()
     val height = widget.face_at(m, 0).line_height
-    val side = height(looknfeel.plain().text_size)
+    val side = height(theme.plain().text_size)
     val asking = with edged_style() { corner: widget.Radius.Fraction(0.5) }
     val checked = widget.layout(
         controls.check_box_widget(a_check_box(), asking, metrics()),
@@ -3100,7 +3100,7 @@ fn tick() -> shape.Path {
 }
 
 fn laid_button(b: controls.Button, within: geom.Rect) -> widget.Laid {
-    return widget.layout(controls.button_widget(b, looknfeel.plain()), within, metrics())
+    return widget.layout(controls.button_widget(b, theme.plain()), within, metrics())
 }
 
 // **An icon has no size of its own: it is an em square from the control's text.** That is the rule
@@ -3108,7 +3108,7 @@ fn laid_button(b: controls.Button, within: geom.Rect) -> widget.Laid {
 // and it is the first thing to break if someone gives `Icon` a width.
 #[test]
 fn an_icon_is_a_square_the_size_of_the_text() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val wide = geom.rect_of(0.0, 0.0, 200.0, 40.0)
     val row = laid_button(controls.icon_button_of("save", "Save", widget.icon_of(tick(), "save")), wide).children[0]
     test.assert_len(2, row.children)
@@ -3129,7 +3129,7 @@ fn an_icon_is_a_square_the_size_of_the_text() {
 // the two: an empty label would measure zero and still be a child a reader walks into.
 #[test]
 fn the_icon_sits_beside_the_label_on_the_side_it_names() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val wide = geom.rect_of(0.0, 0.0, 200.0, 40.0)
 
     val leading = laid_button(
@@ -3165,7 +3165,7 @@ fn an_icon_only_button_is_just_the_icon() {
         geom.rect_of(0.0, 0.0, 200.0, 40.0)
     ).children[0]
     test.assert_len(1, row.children)
-    test.assert_eq(row.children[0].bounds.width, looknfeel.plain().text_size)
+    test.assert_eq(row.children[0].bounds.width, theme.plain().text_size)
 }
 
 // **The accessibility half of the icon decision**, and it falls out of two rules rather than a
@@ -3205,7 +3205,7 @@ fn named(tree: a11y.Tree, key: string) -> string {
 // staying bright beside them.
 #[test]
 fn an_icon_takes_the_controls_own_ink() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val wide = geom.rect_of(0.0, 0.0, 200.0, 40.0)
     val off = with controls.icon_button_of("save", "Save", widget.icon_of(tick(), "save")) {
         disabled: true
@@ -3252,7 +3252,7 @@ fn a_glyph_icon_is_drawn_in_the_styles_icon_face() {
             fn(size: float) -> float { return size * 2.0 }
         )
     ])
-    val style = with looknfeel.plain() { icon_font: 1 }
+    val style = with theme.plain() { icon_font: 1 }
     val b = controls.icon_button_of("done", "Done", widget.glyph_icon("A", "done"))
     val laid = widget.layout(controls.button_widget(b, style), geom.rect_of(0.0, 0.0, 400.0, 60.0), m)
 
@@ -3290,7 +3290,7 @@ fn a_glyph_icon_is_drawn_in_the_styles_icon_face() {
 #[test]
 fn a_wordless_glyph_button_says_its_name_and_not_its_character() {
     val m = metrics()
-    val style = with looknfeel.plain() { icon_font: 0 }
+    val style = with theme.plain() { icon_font: 0 }
     val b = controls.icon_button_of("close", "", widget.glyph_icon("x", "close"))
     val laid = widget.layout(controls.button_widget(b, style), geom.rect_of(0.0, 0.0, 400.0, 60.0), m)
     test.assert_eq(named(a11y.tree_of(laid, "demo", ""), "close"), "close")
@@ -3303,7 +3303,7 @@ fn a_wordless_glyph_button_says_its_name_and_not_its_character() {
 // indistinguishable from what they sat on. The third defect of this shape, after the divider.
 #[test]
 fn a_dialogs_panel_is_not_the_colour_of_a_control_on_it() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val layer = controls.dialog_layer(
         "ask",
         "Delete this?",
@@ -3355,7 +3355,7 @@ fn inked_field() -> controls.Entry {
 // Every string the field drew, with the red channel of the colour it was drawn in.
 fn runs_of(e: controls.Entry) -> [string] {
     val laid = widget.layout(
-        controls.entry_widget(e, looknfeel.plain(), metrics()),
+        controls.entry_widget(e, theme.plain(), metrics()),
         ink_box,
         metrics()
     )
@@ -3428,7 +3428,7 @@ fn a_span_past_the_end_is_clipped() {
 // pane was the first caller ever to set it.
 #[test]
 fn a_control_draws_its_text_in_the_face_its_style_names() {
-    val style = with looknfeel.plain() { text_font: 1 }
+    val style = with theme.plain() { text_font: 1 }
     val laid = widget.layout(
         controls.button_widget(controls.button_of("go", "Send"), style),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
@@ -3444,7 +3444,7 @@ fn a_control_draws_its_text_in_the_face_its_style_names() {
     test.assert_eq(faces, 1)
     // And face 0 is still what an untouched style draws in.
     val plain = widget.layout(
-        controls.button_widget(controls.button_of("go", "Send"), looknfeel.plain()),
+        controls.button_widget(controls.button_of("go", "Send"), theme.plain()),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
         metrics()
     )
@@ -3488,7 +3488,7 @@ fn blank_pane(name: string) -> widget.Widget {
 
 fn laid_pane(s: controls.SplitPane, extent: float) -> widget.Laid {
     return widget.layout(
-        controls.split_pane_widget(s, looknfeel.plain(), extent, blank_pane("left"), blank_pane("right")),
+        controls.split_pane_widget(s, theme.plain(), extent, blank_pane("left"), blank_pane("right")),
         geom.rect_of(0.0, 0.0, extent, 100.0),
         metrics()
     )
@@ -3737,7 +3737,7 @@ fn to_table(t: controls.Table, input: controls.Input) -> controls.TableStep {
 }
 
 fn laid_table(t: controls.Table) -> widget.Laid {
-    return widget.layout(controls.table_widget(t, looknfeel.plain()), table_box, metrics())
+    return widget.layout(controls.table_widget(t, theme.plain()), table_box, metrics())
 }
 
 // The sideways offset a named viewport is scrolled by, or -1 for no such viewport.
@@ -3998,7 +3998,7 @@ fn the_header_band_spans_the_table_and_not_just_its_columns() {
     // 200 points of table and 240 of columns is the scrolled case; 400 of table is the case that
     // was wrong, where there is more pane than there are columns.
     val wide = geom.rect_of(0.0, 0.0, 400.0, 100.0)
-    val l = widget.layout(controls.table_widget(table(), looknfeel.plain()), wide, metrics())
+    val l = widget.layout(controls.table_widget(table(), theme.plain()), wide, metrics())
     var band = 0.0 - 1.0
     for op in widget.paint_ops(l, metrics()) {
         if Fill(f) = op {
@@ -4106,7 +4106,7 @@ fn a_wheel_does_not_change_the_choice() {
 #[test]
 fn a_group_is_one_tab_stop_whose_options_carry_the_state() {
     val l = widget.layout(
-        controls.radios_widget(radios(), looknfeel.plain(), metrics()),
+        controls.radios_widget(radios(), theme.plain(), metrics()),
         radio_box,
         metrics()
     )
@@ -4229,7 +4229,7 @@ fn the_drawn_thumb_is_where_the_value_says() {
 #[test]
 fn a_slider_announces_its_value() {
     val l = widget.layout(
-        controls.slider_widget(slider(), looknfeel.plain()),
+        controls.slider_widget(slider(), theme.plain()),
         slider_box,
         metrics()
     )
@@ -4252,7 +4252,7 @@ fn a_disabled_slider_ignores_everything() {
 #[test]
 fn the_thumb_is_drawn_where_the_value_says() {
     val laid = widget.layout(
-        controls.slider_widget(slider(), looknfeel.plain()),
+        controls.slider_widget(slider(), theme.plain()),
         geom.rect_of(0.0, 0.0, 114.0, 30.0),
         metrics()
     )
@@ -4283,7 +4283,7 @@ fn the_thumb_lands_where_the_press_looks_for_it_at_any_width() {
     for width in [60.0, 114.0, 300.0, 801.0] {
         val box_of = geom.rect_of(0.0, 0.0, width, 30.0)
         val laid = widget.layout(
-            controls.slider_widget(slider(), looknfeel.plain()),
+            controls.slider_widget(slider(), theme.plain()),
             box_of,
             metrics()
         )
@@ -4337,7 +4337,7 @@ fn a_link_is_followed_by_a_press_and_not_by_a_drag_away() {
 // unusable on a page of links; what a user needs is where it goes in words, which is the label.
 #[test]
 fn a_link_says_what_it_is_and_not_where_it_goes() {
-    val l = widget.layout(controls.link_widget(a_link(), looknfeel.plain(), metrics()), box, metrics())
+    val l = widget.layout(controls.link_widget(a_link(), theme.plain(), metrics()), box, metrics())
     test.assert_eq(said_of_tree(a11y.tree_of(l, "Docs", ""), "docs"), "link, Read the syntax guide")
     test.assert_eq(a_link().href, "https://ziman.dev/syntax")
     test.assert_len(1, focus.controls(l))
@@ -4348,7 +4348,7 @@ fn a_link_says_what_it_is_and_not_where_it_goes() {
 // the rule matches the label rather than the control's box.
 #[test]
 fn the_underline_is_as_wide_as_the_text() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val l = widget.layout(
         controls.link_widget(a_link(), style, metrics()),
         geom.rect_of(0.0, 0.0, 600.0, 40.0),
@@ -4410,7 +4410,7 @@ fn the_pointer_is_a_resize_over_a_column_edge_only_in_the_header() {
 // thing on screen that says this one can be opened, and it was missing.
 #[test]
 fn a_collapsed_combo_box_draws_its_mark() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val laid = widget.layout(
         controls.combo_box_widget(combo(), style),
         geom.rect_of(0.0, 0.0, 200.0, 30.0),
@@ -4441,7 +4441,7 @@ fn a_collapsed_combo_box_draws_its_mark() {
 #[test]
 fn a_tree_row_is_inset_from_its_own_edge() {
     val laid = widget.layout(
-        controls.tree_widget(forest(), looknfeel.plain()),
+        controls.tree_widget(forest(), theme.plain()),
         geom.rect_of(0.0, 0.0, 200.0, 200.0),
         metrics()
     )
@@ -4474,7 +4474,7 @@ fn caret_after_press(e: controls.Entry, x: float, y: float) -> int {
         e,
         controls.Input.Press(geom.point_of(x, y)),
         area_box(),
-        looknfeel.plain(),
+        theme.plain(),
         metrics()
     )
     return got.entry.editor.caret
@@ -4484,7 +4484,7 @@ fn caret_after_press(e: controls.Entry, x: float, y: float) -> int {
 // a click on the third line landed in the first and typing appeared where nobody had clicked.
 #[test]
 fn a_press_in_a_text_area_lands_on_the_line_it_was_aimed_at() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val line = widget.height_in(metrics(), style.text_font, style.text_size)
     val top = style.padding.top
     val left = style.padding.left
@@ -4496,7 +4496,7 @@ fn a_press_in_a_text_area_lands_on_the_line_it_was_aimed_at() {
 
 #[test]
 fn a_press_in_a_text_area_lands_on_the_column_it_was_aimed_at() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val line = widget.height_in(metrics(), style.text_font, style.text_size)
     // Two characters into the second line, which is index 6 + 2.
     test.assert_eq(
@@ -4509,7 +4509,7 @@ fn a_press_in_a_text_area_lands_on_the_column_it_was_aimed_at() {
 // outside the text: a press is a gesture and a gesture near the edge means the edge.
 #[test]
 fn a_press_outside_the_lines_clamps_to_the_nearest_one() {
-    val style = looknfeel.plain()
+    val style = theme.plain()
     test.assert_eq(caret_after_press(area(), style.padding.left, -400.0), 0)
     test.assert_eq(caret_after_press(area(), style.padding.left, 4000.0), 11)
 }
@@ -4519,7 +4519,7 @@ fn a_press_outside_the_lines_clamps_to_the_nearest_one() {
 #[test]
 fn a_one_line_field_still_ignores_the_y_it_is_given() {
     val e = controls.entry_of("email", "Email", "abcdef")
-    val style = looknfeel.plain()
+    val style = theme.plain()
     val high = caret_after_press(e, style.padding.left + 20.0, 2.0)
     val low = caret_after_press(e, style.padding.left + 20.0, 90.0)
     test.assert_eq(high, low)
@@ -4547,7 +4547,7 @@ fn four_tabs() -> controls.Tabs {
 
 fn laid_tabs(t: controls.Tabs) -> widget.Laid {
     return widget.layout(
-        controls.tabs_widget(t, looknfeel.plain()),
+        controls.tabs_widget(t, theme.plain()),
         geom.rect_of(0.0, 0.0, 400.0, 40.0),
         metrics()
     )
@@ -4582,7 +4582,7 @@ fn the_ring_follows_the_selection_as_it_moves() {
 // control with a selected part.
 #[test]
 fn a_focused_list_still_rings_the_whole_list() {
-    val l = widget.layout(controls.list_widget(five(), looknfeel.plain()), list_box(), metrics())
+    val l = widget.layout(controls.list_widget(five(), theme.plain()), list_box(), metrics())
     val ring = ring_box(l, "people")
     val whole = l.bounds
     test.assert(ring.width > whole.width * 0.9)
@@ -4621,7 +4621,7 @@ fn a_horizontal_divider_asks_for_the_up_and_down_resize() {
         second_min: 10.0
     }
     val l = widget.layout(
-        controls.split_pane_widget(down, looknfeel.plain(), 100.0, blank_pane("a"), blank_pane("b")),
+        controls.split_pane_widget(down, theme.plain(), 100.0, blank_pane("a"), blank_pane("b")),
         geom.rect_of(0.0, 0.0, 200.0, 100.0),
         metrics()
     )
@@ -4631,13 +4631,13 @@ fn a_horizontal_divider_asks_for_the_up_and_down_resize() {
 #[test]
 fn a_text_field_asks_for_the_text_cursor_and_a_button_does_not() {
     val field = widget.layout(
-        controls.entry_widget(controls.entry_of("email", "Email", "a@b"), looknfeel.plain(), metrics()),
+        controls.entry_widget(controls.entry_of("email", "Email", "a@b"), theme.plain(), metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 30.0),
         metrics()
     )
     test.assert_eq(cursor_over(field, 100.0, 15.0), "text")
     val go = widget.layout(
-        controls.button_widget(controls.button_of("go", "Go"), looknfeel.plain()),
+        controls.button_widget(controls.button_of("go", "Go"), theme.plain()),
         geom.rect_of(0.0, 0.0, 80.0, 30.0),
         metrics()
     )
@@ -4672,7 +4672,7 @@ fn hover_fills(l: widget.Laid, name: string) -> [geom.Rect] {
 #[test]
 fn the_hovered_control_gets_one_overlay_over_its_own_box() {
     val l = widget.layout(
-        controls.button_widget(controls.button_of("go", "Send"), looknfeel.plain()),
+        controls.button_widget(controls.button_of("go", "Send"), theme.plain()),
         geom.rect_of(10.0, 20.0, 120.0, 30.0),
         metrics()
     )
@@ -4687,7 +4687,7 @@ fn the_hovered_control_gets_one_overlay_over_its_own_box() {
 // name an application reads from `focus.control_at` is the innermost one under the pointer.
 #[test]
 fn a_row_can_be_hovered_as_well_as_its_list() {
-    val l = widget.layout(controls.list_widget(five(), looknfeel.plain()), list_box(), metrics())
+    val l = widget.layout(controls.list_widget(five(), theme.plain()), list_box(), metrics())
     val row = hover_fills(l, controls.row_name(five(), 1))
     test.assert_len(1, row)
     test.assert_eq(row[0].height, five().row_height)
@@ -4699,7 +4699,7 @@ fn a_row_can_be_hovered_as_well_as_its_list() {
 #[test]
 fn an_unknown_or_empty_hover_draws_nothing() {
     val l = widget.layout(
-        controls.button_widget(controls.button_of("go", "Send"), looknfeel.plain()),
+        controls.button_widget(controls.button_of("go", "Send"), theme.plain()),
         geom.rect_of(0.0, 0.0, 120.0, 30.0),
         metrics()
     )
@@ -4717,7 +4717,7 @@ fn an_unknown_or_empty_hover_draws_nothing() {
 // A list, a tree, a split or a pane holds its own and does not.
 #[test]
 fn a_control_that_holds_controls_is_not_tinted() {
-    val l = widget.layout(controls.list_widget(five(), looknfeel.plain()), list_box(), metrics())
+    val l = widget.layout(controls.list_widget(five(), theme.plain()), list_box(), metrics())
     test.assert_len(0, hover_fills(l, "people"))
     // And the row inside it still lights, which is the half that has to keep working.
     test.assert_len(1, hover_fills(l, controls.row_name(five(), 1)))
@@ -4744,7 +4744,7 @@ fn laid_check(t: widget.Toggle) -> widget.Laid {
     return widget.layout(
         controls.check_box_widget(
             controls.check_box_of("notify", "Notify me", t),
-            looknfeel.plain(),
+            theme.plain(),
             metrics()
         ),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
@@ -4780,7 +4780,7 @@ fn an_unchecked_box_draws_no_mark() {
 #[test]
 fn a_radio_group_draws_one_dot() {
     val l = widget.layout(
-        controls.radios_widget(radios(), looknfeel.plain(), metrics()),
+        controls.radios_widget(radios(), theme.plain(), metrics()),
         radio_box,
         metrics()
     )

@@ -6,17 +6,17 @@
 // field from a square one, is **shape** -- `Surface.border` and `Surface.corner` -- and until
 // `widget.Surface` widened, this layer had no way to ask for any of it.
 //
-// **The looks come from `looknfeel.all()` and are not written here.** This file used to invent two
+// **The looks come from `theme.all()` and are not written here.** This file used to invent two
 // of the four -- a "Soft" and an "Outlined" that existed nowhere else -- which is an application
 // writing a library's content: nothing else could use them, and the real looks went undemonstrated
-// beside them. Now the picker is the register, so a look added to `lib/ui/looknfeel` appears here
+// beside them. Now the picker is the register, so a look added to `lib/ui/theme` appears here
 // with no edit to the gallery at all, and this demo tests that the register is complete.
 use boxes
 use controls
 use demos/look_and_feel_ui
 use geom
-use looknfeel
 use paint
+use theme
 use widget
 use widget.Toggle
 
@@ -38,7 +38,7 @@ pub fn demo() -> Demo {
 
 fn look_names() -> [string] {
     val names = mutable_array_new<string>()
-    for one in looknfeel.all() {
+    for one in theme.all() {
         push(names, one.name)
     }
     return snapshot(names)
@@ -50,10 +50,10 @@ fn look_names() -> [string] {
 // `modern` now, so a demo that started from the style it was given would show four variations of
 // modern and call the first one "Plain". A demo comparing looks takes them from the register.
 fn look_of(d: Demo, style: controls.Style) -> controls.Style {
-    val looks = looknfeel.all()
+    val looks = theme.all()
     val which = d.picker.items.selected
     if which < 0 || which >= len(looks) {
-        return looknfeel.plain()
+        return theme.plain()
     }
     return looks[which].style
 }
@@ -77,9 +77,9 @@ pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget 
 //
 // A sentence per look goes stale the moment one is added -- and the thing worth saying about a
 // look is what it decided, which the style can be asked. The contrast is `paint.contrast_ratio`,
-// the same number `looknfeel_test` holds every shipped look to.
+// the same number `theme_test` holds every shipped look to.
 fn said(d: Demo) -> string {
-    val look = look_of(d, looknfeel.plain())
+    val look = look_of(d, theme.plain())
     return concat(
         edge_word(look),
         ", ",
@@ -87,7 +87,7 @@ fn said(d: Demo) -> string {
         ", ",
         shadow_word(look),
         ". Ink on face ",
-        format("{:.1}", looknfeel.ink_contrast(look)),
+        format("{:.1}", theme.ink_contrast(look)),
         ":1, where WCAG AA asks 4.5."
     )
 }
