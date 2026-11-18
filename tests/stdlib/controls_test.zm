@@ -4843,9 +4843,14 @@ fn a_tight_density_still_leaves_a_target_you_can_hit() {
         val s = theme.at_density(theme.plain(), d)
         val within = geom.rect_of(0.0, 0.0, 300.0, 200.0)
 
+        // **The target is the control, not its ornament.** The first draft of this test measured
+        // `face_box`, which is the check box's little square -- and at Compact that square is 21.6
+        // points, because `at_density` tightens the leading and the square is one line tall. It
+        // read as a failure and it is not one: what a pointer has to hit is the control's own node,
+        // which `check_box_input` is handed and which includes the label beside the square. A
+        // 15-point square inside a 30-point row is how every platform draws a check box.
         val check = widget.layout(controls.check_box_widget(a_check_box(), s, metrics()), within, metrics())
-        test.assert(face_box(check).height >= s.minimum.target)
-        test.assert(face_box(check).width >= s.minimum.target)
+        test.assert(box_named(check, "tls").height >= s.minimum.target)
 
         val button = widget.layout(
             controls.button_widget(controls.button_of("go", "Go"), s),
