@@ -441,6 +441,14 @@ To be worked through one at a time. Nothing here is decided.
 - **Q5 -- Does `looknfeel` ever own the "feel"** (§6.7, key maps)? **DECIDED 2026-11-17 -- see
   §13.3/D13.**
 
+- **Q6 -- Do the geometry and input functions take a `Style`?** Raised 2026-11-17 by starting F293.
+  Seven functions read the numbers D6 moves and have no style in scope -- `split_at`, `thumb_of`,
+  `divider_rect`, `edge_at`, `on_the_bar`, `radios_input`, and privately `bar_box` and
+  `table_resized` -- and six are `pub`. `split_at` and `thumb_of` are the one-function-rule
+  functions, the single calculation a widget and every gesture share, so theming their numbers
+  changes signatures that `tests/`, `gallery/` and curly all call. **This is the cost D6 did not
+  foresee, and it is a public API decision rather than an implementation detail.**
+
 ### 13.3 Decisions taken
 
 **D1 (Q3) -- a scale, with the library assigning the steps. 2026-11-17.**
@@ -852,6 +860,62 @@ own value, chosen by the platform rather than from a theme menu, and they are **
 document.
 
 This document keeps its own name, and its references to `looknfeel` before this line are historical.
+
+**D14 (F293) -- `Type.line` is a multiplier on the face's own line height. 2026-11-17.**
+
+    pub struct Type { face: int, size: float, line: float }   // line: 1.0 is the font's own leading
+
+    fn line_of(m: widget.Metrics, t: Type) -> float {
+        return m.faces[t.face].line_height(t.size) * t.line
+    }
+
+**One source of truth with one theme-owned factor.** `widget.FaceMetrics.line_height` is a function
+of size computed from the real font, and it stays authoritative; a theme may only stretch it. So the
+caret arithmetic keeps reading one calculation, which is the whole reason this needed deciding --
+`Style.text_font` already caused a defect by measuring with one face's metrics and drawing in
+another's.
+
+**The precedent is in the same struct.** `FaceMetrics.ascent` exists because "a baseline cannot be
+guessed from a line height": every glyph in the widget set was drawn a descent too low, invisible to
+every assertion because the boxes were right and only the ink was wrong. The font knows its own
+ascent, descent and gap; a theme does not, and a theme written against a Latin face does not know
+what CJK or Devanagari need. An absolute line height would have repeated that mistake with a
+different number.
+
+**It composes with D4.** Density scales the factor -- compact 1.2, comfortable 1.4, spacious 1.6 --
+so a dense table gets tighter text as well as tighter padding, which is the half of density a user
+actually sees. An absolute value could not be scaled without knowing the face.
+
+**D15 (F293) -- a fourth group: the proportions the library owns. 2026-11-17.**
+
+Mapping D6's nineteen numbers onto its three groups for real left **four with no home**, so there is
+a fourth, and it is not themed:
+
+    pub val mark_weight = 0.14      // a ratio, not a length  (D6 already exempted this)
+    pub val divider_step = 10.0     // how far an arrow key moves a divider: an input increment
+    pub val thumb_width = 14.0      // a slider thumb's proportions, which are the library's
+    pub val thumb_height = 18.0
+
+**A theme governs spacing, minimums, strokes, shape and type. It does not govern how far an arrow
+key moves, or what shape a slider thumb is.** Bending those onto the scale would have changed the
+thumb's shape and made a compact density alter a keyboard increment, which is not density.
+
+`underline_gap` becomes `stroke.hair` rather than a space step: the rule sits **one hairline below
+the text**, so the gap and the line move together when a density thickens strokes, and the 1 does
+not have to become the scale's smallest 2.
+
+The full mapping, with the one deliberate pixel move:
+
+    min_thumb 20     -> minimum.thumb        grid_width 1      -> stroke.hair
+    min_column 24    -> minimum.target       divider_line 2    -> stroke.line
+    radio_height 24  -> minimum.target       underline_width 1 -> stroke.hair
+    bar_thickness 8  -> space.m              underline_gap 1   -> stroke.hair
+    column_grip 4    -> space.s              divider_thickness 6 -> space.m   (6 -> 8, pixels move)
+    track_thickness 4 -> space.s
+
+**A finding worth its own task: the slider thumb is 14 x 18**, which is under the 24 x 24 that D6
+just made a floor for everything else (WCAG 2.2 SC 2.5.8). It is grabbable inside a taller row, so
+this is a question rather than a defect, but it is the one place the floor does not reach.
 
 ### 13.4 Build order
 
