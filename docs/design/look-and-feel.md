@@ -449,6 +449,11 @@ To be worked through one at a time. Nothing here is decided.
   changes signatures that `tests/`, `gallery/` and curly all call. **This is the cost D6 did not
   foresee, and it is a public API decision rather than an implementation detail.**
 
+- **Q7 -- Whose number wins when an application already hardcoded it?** Raised 2026-11-18 by
+  F293. `Style.heading_size` is 16 and every design file in the gallery and curly carries its own
+  `val heading_size = 12.0`. Wiring them to the scale changes two applications' pixels; changing the
+  looks to 12 moves the token to where the practice already is. Decides the second half of D9.
+
 ### 13.3 Decisions taken
 
 **D1 (Q3) -- a scale, with the library assigning the steps. 2026-11-17.**
@@ -916,6 +921,29 @@ The full mapping, with the one deliberate pixel move:
 **A finding worth its own task: the slider thumb is 14 x 18**, which is under the 24 x 24 that D6
 just made a floor for everything else (WCAG 2.2 SC 2.5.8). It is grabbable inside a taller row, so
 this is a question rather than a defect, but it is the one place the floor does not reach.
+
+**Found while building F293, 2026-11-18: the type scale has no readers at all.**
+
+`Style.heading_size` and `Style.small_size` are **read nowhere** -- not in `lib/`, `tests/`,
+`gallery/`, `docs/lib/examples/` or curly. They are declared in `Style`, set by `plain()`, and that
+is the end of them. Meanwhile **both applications declare their own**: `gallery_ui.zm` and
+`accessibility_ui.zm` and their siblings each carry `val heading_size = 12.0` and
+`val small_size = 11.0`, and so does curly's `request_ui.zm` -- at 12 where the theme says 16.
+
+This is the shape `Style.window` had before D-nothing fixed it, and the tasks README already has the
+sentence for it: *"A capability added and never adopted is indistinguishable from one that was never
+added."*
+
+**It changes what D9 is for.** The premise was that the type scale carries only sizes and wants
+faces per role. The deeper problem is that **a heading is not a control** -- the control set has no
+heading in it, so `controls` was never going to read `heading`. The readers of a type scale are
+**applications**, which is exactly why two of them wrote their own literals. So D9's five roles are
+right and the work is not only in `Style`: it is in making the gallery and curly read the scale
+instead of inventing one each.
+
+**Which raises a question that is not F293's to settle** (see Q7): the theme says a heading is 16
+and both applications draw 12. Making them read the scale changes pixels in two applications unless
+the looks change instead.
 
 ### 13.4 Build order
 
