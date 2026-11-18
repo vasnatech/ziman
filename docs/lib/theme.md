@@ -57,6 +57,52 @@ A look and feel under the name an application offers it by.
 list of functions is not one -- and because `named` would otherwise be a switch that every new
 look has to be added to twice.
 
+### `Density`
+
+```
+pub enum Density {
+    Compact
+    Comfortable
+    Spacious
+}
+```
+
+How much room a look is given, as an axis over it rather than an entry in the register.
+
+**Density is not a look.** `all()` below lists four looks, and crossing them with three
+densities would list twelve -- eight of them colour-identical to another, so the contrast gate
+would do the same work three times over while a theme menu offered four looks in twelve rows.
+An axis also composes for nothing: compact dark modern needs no entry and no name, and nobody
+has to remember to add it. See D4 in docs/design/look-and-feel.md.
+
+### `at_density`
+
+```
+pub fn at_density(s: controls.Style, d: Density) -> controls.Style
+```
+
+The same look with less or more room: the same colours, the same shapes, a different scale.
+
+**The scale moves and the floors do not.** `Style.minimum.target` is WCAG 2.2's 24 points
+(SC 2.5.8) and a narrow window is not a reason to hand somebody a smaller target, so `minimum`
+is untouched here -- which is the whole reason D6 made it a separate group. `stroke` is
+untouched for its own reason: a hairline is a hairline at every density, and a grid line that
+thickened in a spacious theme would stop being a grid line and start being a border.
+
+**What moves is `space` and `padding`**, which is where the room in a window actually is.
+
+**Three factors rather than three hand-written scales**, because a scale written out per density
+is three places for a step to drift: `xs` could end up larger than `s` in exactly one of them and
+nothing would say so.
+
+### `densities`
+
+```
+pub fn densities() -> [Density]
+```
+
+Every density, in the order an application offers them.
+
 ### `all`
 
 ```

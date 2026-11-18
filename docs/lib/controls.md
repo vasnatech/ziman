@@ -2186,16 +2186,20 @@ construction: the pointer cannot show arrows where a drag would select a row.
 
 ## The style
 
-### `Space`
+### `Shape`
 
 ```
-pub struct Space {
-    none: float
-    xs: float
-    s: float
-    m: float
-    l: float
-    xl: float
+pub struct Shape {
+    // A chosen row in a list, a tree or a table: a subtler shape than a control's own face.
+    small: widget.Radius
+    // A control's face: a button, a field, a tab, a menu's title, a scroll bar's thumb.
+    medium: widget.Radius
+    // What stands in front of the window: a menu's popup, a combo box's list, a dialog's panel.
+    // **Rounded further than a face**, which is what every system does -- Material puts a dialog at
+    // 28 and a button at 20 -- and what the single `corner` token could not say.
+    large: widget.Radius
+    // As round as the box allows: a radio's dot, a capsule.
+    full: widget.Radius
 }
 ```
 
@@ -2213,6 +2217,29 @@ would have nothing to select.
 the tree 4 and 2, the table 6 and 2, a radio 4 and 2, a cell 6 and 2 -- so a theme asking for
 more room had nothing to set. The single `space` token that stood here before was the step of a
 scale whose other steps did not exist.
+The corner roundings a theme sets and the control set indexes.
+
+**Four steps, every one with a reader.** D1's sketch had five, with a `none`; it was dropped
+rather than shipped empty, because a look that wants square corners says `Square` in each of
+these and a step nothing reads is a decision a look author has to make for nothing.
+
+**`full` is a role rather than a preference.** A radio's dot is a circle in every look here,
+including the square one, because round-against-square is how a user tells a radio from a check
+box -- so `plain` sets `full` to `Fraction(0.5)` while setting every other step to `Square`. A
+look may square it and would be wrong to.
+
+### `Space`
+
+```
+pub struct Space {
+    none: float
+    xs: float
+    s: float
+    m: float
+    l: float
+    xl: float
+}
+```
 
 ### `Minimum`
 
@@ -2375,16 +2402,19 @@ pub struct Style {
     hover_tint: Color
     raised: Option<widget.Shadow>
     face_border: Option<widget.Border>
-    // One rounding, shared by every control's face and by a list's and a tree's selected row -- the
-    // same rule `tab_width` and `bar_thickness` follow. A theme with four-point buttons and
-    // square selection is not a theme, it is two.
+    // The rounding scale. **This was one number**, shared by every control's face and by a list's
+    // and a tree's chosen row, on the argument that a theme with four-point buttons and square
+    // selection is not a theme but two. The argument was right and the conclusion too narrow: a
+    // scale the *library* indexes keeps the coherence (nothing can disagree, because nothing but
+    // `controls` chooses) while letting a look be rounder on a dialog than on a button, which every
+    // system is. See D1 in docs/design/look-and-feel.md.
     //
     // **A `widget.Radius` rather than a number**, because a number could not serve the sizes a
     // theme has to cover at once: `Points(6)` is right on a button and nearly circular on a check
     // box, which is why the check box used to carry a cap of its own. The cap is now part of what
     // `Points` means, and a theme that wants a capsule says `Fraction(0.5)` -- see
     // `widget.Radius`, which has the whole argument.
-    corner: widget.Radius
+    shape: Shape
     // Which face a control's text is drawn in, and which an icon *glyph* comes from: indices into
     // the faces a window gave `widget.Metrics` and `raster.Options.fonts`.
     //

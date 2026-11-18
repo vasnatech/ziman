@@ -49,6 +49,61 @@ pub struct Look {
     style: controls.Style
 }
 
+// How much room a look is given, as an axis over it rather than an entry in the register.
+//
+// **Density is not a look.** `all()` below lists four looks, and crossing them with three
+// densities would list twelve -- eight of them colour-identical to another, so the contrast gate
+// would do the same work three times over while a theme menu offered four looks in twelve rows.
+// An axis also composes for nothing: compact dark modern needs no entry and no name, and nobody
+// has to remember to add it. See D4 in docs/design/look-and-feel.md.
+pub enum Density {
+    Compact
+    Comfortable
+    Spacious
+}
+
+// The same look with less or more room: the same colours, the same shapes, a different scale.
+//
+// **The scale moves and the floors do not.** `Style.minimum.target` is WCAG 2.2's 24 points
+// (SC 2.5.8) and a narrow window is not a reason to hand somebody a smaller target, so `minimum`
+// is untouched here -- which is the whole reason D6 made it a separate group. `stroke` is
+// untouched for its own reason: a hairline is a hairline at every density, and a grid line that
+// thickened in a spacious theme would stop being a grid line and start being a border.
+//
+// **What moves is `space` and `padding`**, which is where the room in a window actually is.
+//
+// **Three factors rather than three hand-written scales**, because a scale written out per density
+// is three places for a step to drift: `xs` could end up larger than `s` in exactly one of them and
+// nothing would say so.
+pub fn at_density(s: controls.Style, d: Density) -> controls.Style {
+    val by = switch d {
+        Compact { 0.75 }
+        Comfortable { 1.0 }
+        Spacious { 1.5 }
+    }
+    return with s {
+        space: controls.Space {
+            none: s.space.none * by,
+            xs: s.space.xs * by,
+            s: s.space.s * by,
+            m: s.space.m * by,
+            l: s.space.l * by,
+            xl: s.space.xl * by
+        },
+        padding: widget.insets_of(
+            s.padding.left * by,
+            s.padding.top * by,
+            s.padding.right * by,
+            s.padding.bottom * by
+        )
+    }
+}
+
+// Every density, in the order an application offers them.
+pub fn densities() -> [Density] {
+    return [Density.Compact, Density.Comfortable, Density.Spacious]
+}
+
 // Every look and feel here, each variation as its own entry.
 //
 // **The register is a list and not a map** so that the order is the one an application shows: a

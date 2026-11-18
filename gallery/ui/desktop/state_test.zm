@@ -285,6 +285,6 @@ fn the_modern_theme_tells_its_states_apart() {
 fn the_default_theme_stays_plain() {
     val plain = theme.plain()
     test.assert(Option.is_None(plain.face_border))
-    test.assert(widget.Radius.is_Square(plain.corner))
+    test.assert(widget.Radius.is_Square(plain.shape.medium))
     test.assert(paint.contrast_ratio(plain.ink, plain.face) >= 4.5)
 }

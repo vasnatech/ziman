@@ -100,7 +100,7 @@ fn edge_word(look: controls.Style) -> string {
 }
 
 fn corner_word(look: controls.Style) -> string {
-    return switch look.corner {
+    return switch look.shape.medium {
         Square { "square corners" }
         Points(r) { concat(format("{:.0}", r), " points of corner") }
         Fraction(_) { "capsule corners" }

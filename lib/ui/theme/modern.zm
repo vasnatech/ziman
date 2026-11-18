@@ -47,7 +47,14 @@ pub fn modern() -> controls.Style {
             colour: paint.rgb8(208, 212, 218),
             width: 1.0
         }),
-        corner: widget.Radius.Points(6.0),
+        // Six on a face, four on a chosen row, eight on what floats in front of the window --
+        // the differences the single `corner` token could not express.
+        shape: controls.Shape {
+            small: widget.Radius.Points(4.0),
+            medium: widget.Radius.Points(6.0),
+            large: widget.Radius.Points(8.0),
+            full: widget.Radius.Fraction(0.5)
+        },
         raised: Option<widget.Shadow>.Some(widget.shadow_of(3.0, 14.0, 0.16))
     }
 }

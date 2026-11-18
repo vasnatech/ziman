@@ -54,7 +54,14 @@ pub fn plain() -> controls.Style {
         // read on a light window without turning the corner of a popup into a smudge.
         raised: Option<widget.Shadow>.Some(widget.shadow_of(2.0, 10.0, 0.22)),
         face_border: Option<widget.Border>.None,
-        corner: widget.Radius.Square,
+        // Square everywhere, and **round where round is a role**: a radio's dot is a circle in
+        // the plainest look too, because a square one is a check box.
+        shape: controls.Shape {
+            small: widget.Radius.Square,
+            medium: widget.Radius.Square,
+            large: widget.Radius.Square,
+            full: widget.Radius.Fraction(0.5)
+        },
         text_font: 0,
         icon_font: 0,
         // Half the text size: at 12 points that is 6, which reads as a space between two things

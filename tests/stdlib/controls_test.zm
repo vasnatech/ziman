@@ -2532,10 +2532,24 @@ fn a_masked_field_masks_the_composition_too() {
 
 // A style that asks for a shape rather than only a palette: what a second look and feel is.
 fn edged_style() -> controls.Style {
-    return with theme.plain() {
+    val base = theme.plain()
+    return with base {
         face_border: Option<widget.Border>.Some(widget.border_of(paint.black(), 2.0)),
-        corner: widget.Radius.Points(5.0)
+        shape: with base.shape { medium: widget.Radius.Points(5.0) }
     }
+}
+
+// A check box's face is `shape.medium` since F293, so a test that asks for a particular radius
+// says which step it means.
+fn asking_for(r: widget.Radius) -> controls.Style {
+    val base = edged_style()
+    return with base { shape: with base.shape { medium: r } }
+}
+
+// And a chosen row is `shape.small`, which is a different step on purpose -- see `Shape`.
+fn row_asking_for(r: widget.Radius) -> controls.Style {
+    val base = edged_style()
+    return with base { shape: with base.shape { small: r } }
 }
 
 fn painted(w: widget.Widget) -> [scene.Op] {
@@ -2845,16 +2859,24 @@ fn a_field_that_is_not_the_focused_one_paints_no_caret() {
     test.assert_eq(caret_fills(scene.ops, caret), 0)
 }
 
-// **A list's selected row is rounded but never edged.** A border round each row of a list is a box
+// **A list's chosen row is rounded but never edged.** A border round each row of a list is a box
 // inside a box, and over twenty rows it reads as a table rather than as a selection -- where the
-// rounded pill is what a modern look and feel actually draws. The two share the radius and part
-// company over the border, which is why `highlight_of` exists beside `face_of`.
+// rounded pill is what a modern look and feel actually draws. That is why `highlight_of` exists
+// beside `face_of`.
+//
+// **They used to share the radius, and since F293 they deliberately do not.** A chosen row reads
+// `shape.small` and a control's face reads `shape.medium`, because a selection is a subtler shape
+// than a thing you press -- which is the difference a single `corner` token could not say and D1
+// made sayable. So this asks for a rounded `small` and still gets no stroke: the step is the part
+// that changed, and the border is the part that did not.
 #[test]
-fn a_selected_row_takes_the_radius_but_not_the_border() {
+fn a_chosen_row_takes_its_own_radius_and_never_a_border() {
     val list = with controls.list_of("rows", "Rows", ["one", "two", "three"]) { selected: 1 }
-    val ops = painted(controls.list_widget(list, edged_style()))
+    val ops = painted(controls.list_widget(list, row_asking_for(widget.Radius.Points(4.0))))
     test.assert_eq(strokes(ops), 0)
     test.assert(curved_fills(ops) > 0)
+    // And the face's own step does not reach it: a rounded `medium` leaves the row square.
+    test.assert_eq(curved_fills(painted(controls.list_widget(list, asking_for(widget.Radius.Points(6.0))))), 0)
 }
 
 // **The scrim is never rounded and never edged, whatever the style says.** It covers the whole
@@ -3025,7 +3047,7 @@ fn a_check_box_caps_the_radius_its_size_cannot_carry() {
     val height = widget.face_at(m, 0).line_height
     val side = height(theme.plain().text_size)
     // A radius the square cannot carry: 10 against a side of 24, where the cap is 6.
-    val asking = with edged_style() { corner: widget.Radius.Points(10.0) }
+    val asking = asking_for(widget.Radius.Points(10.0))
     val laid = widget.layout(
         controls.check_box_widget(a_check_box(), asking, metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
@@ -3054,7 +3076,7 @@ fn a_button_keeps_the_radius_the_theme_asked_for() {
 // different radius for check boxes. Without this, "always use the cap" passes every other test.
 #[test]
 fn a_check_box_keeps_a_radius_that_fits() {
-    val asking = with edged_style() { corner: widget.Radius.Points(2.0) }
+    val asking = asking_for(widget.Radius.Points(2.0))
     val laid = widget.layout(
         controls.check_box_widget(a_check_box(), asking, metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
@@ -3072,7 +3094,7 @@ fn a_fraction_is_a_capsule_at_any_size() {
     val m = metrics()
     val height = widget.face_at(m, 0).line_height
     val side = height(theme.plain().text_size)
-    val asking = with edged_style() { corner: widget.Radius.Fraction(0.5) }
+    val asking = asking_for(widget.Radius.Fraction(0.5))
     val checked = widget.layout(
         controls.check_box_widget(a_check_box(), asking, metrics()),
         geom.rect_of(0.0, 0.0, 200.0, 40.0),
@@ -4798,4 +4820,39 @@ fn a_radio_group_draws_one_dot() {
         metrics()
     )
     test.assert_len(1, drawings_in(l))
+}
+
+// ---- density, measured on what gets laid out
+
+// **The floor, asserted on ink rather than on tokens.** `theme_test` checks that `at_density` does
+// not touch `minimum`; this checks the thing that actually matters, which is that a control laid
+// out at the tightest density is still big enough to hit. The two are different claims: a token
+// could be left alone while a control shrank past it anyway, because what a control measures comes
+// from its padding and its text as well as from the floor.
+//
+// 24 points is WCAG 2.2 SC 2.5.8. A check box is one line square, which at this file's fake
+// metrics is exactly 24 -- so this test sits on the boundary deliberately, where an off-by-a-hair
+// in the scale would show.
+#[test]
+fn a_tight_density_still_leaves_a_target_you_can_hit() {
+    for d in theme.densities() {
+        val s = theme.at_density(theme.plain(), d)
+        val within = geom.rect_of(0.0, 0.0, 300.0, 200.0)
+
+        val check = widget.layout(controls.check_box_widget(a_check_box(), s, metrics()), within, metrics())
+        test.assert(face_box(check).height >= s.minimum.target)
+        test.assert(face_box(check).width >= s.minimum.target)
+
+        val button = widget.layout(
+            controls.button_widget(controls.button_of("go", "Go"), s),
+            within,
+            metrics()
+        )
+        test.assert(face_box(button).height >= s.minimum.target)
+
+        // A radio group's row is the floor by construction, so this is the cheap end of the claim
+        // -- but it is the one that would break first if `at_density` ever reached `minimum`.
+        val group = widget.layout(controls.radios_widget(radios(), s, metrics()), within, metrics())
+        test.assert(box_named(group, controls.radio_name(radios(), 0)).height >= s.minimum.target)
+    }
 }
