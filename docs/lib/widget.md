@@ -1770,10 +1770,10 @@ misses.
 A name is inherited by every child that has none of its own, so the node wanted is the
 outermost one carrying it, which is the first a pre-order walk meets.
 
-### `chain_at`
+### `measured_as_nothing`
 
 ```
-pub fn chain_at(l: Laid, p: Point) -> [Laid]
+pub fn measured_as_nothing(l: Laid) -> [Laid]
 ```
 
 Every node `at` passed through on its way down, outermost first, ending at the one it would
@@ -1789,6 +1789,33 @@ take the name apart on a "/", which is a private convention of `controls` and no
 It walks the same way `at` does rather than being built on it: later siblings first, and the
 first child whose bounds contain the point wins, so the two can never disagree about which
 branch they took.
+Every node that paints something and was laid out as nothing.
+
+**The trap this exists for has cost eight victims and every one of them looked identical:
+nothing drawn, no error, all tests green.** The table's header band, the link, the slider's
+thumb, the star, the popup's rows, the slider's track, the check mark and the look-and-feel
+band. A `Fixed` of zero on an axis, a `Scroll`, or a `Drawing` measures zero and *stays* zero
+unless its parent stretches it -- `Across.Centre` does not, `stretched()` does -- so the widget
+is there, laid out, hit-testable at nothing, and invisible.
+
+**It is checked after layout because it cannot be seen before.** A zero measurement is correct
+and ordinary: half the controls in this library are `fixed_of(width, 0.0, ..)` inside a stack
+that stretches them, which is exactly the right spelling. What is wrong is a node that still has
+no extent *when the layout is finished* and yet has ink to put on the window. No lint can see
+that, because it depends on what the parent did.
+
+**Only nodes that paint**, which is the line between a bug and a container: a `Group` with a
+fill, or a `Drawing`. A stack with no surface and no size is a grouping, and grouping nothing is
+not an error.
+
+Intended as an assertion in an application's own tests -- the gallery holds all of its demos to
+it -- rather than as something to call per frame.
+
+### `chain_at`
+
+```
+pub fn chain_at(l: Laid, p: Point) -> [Laid]
+```
 
 ### `contains`
 

@@ -389,3 +389,54 @@ fn the_source_carries_the_numbers_the_sliders_are_on() {
 fn the_picker_is_the_register_plus_one() {
     test.assert_eq(len(look_and_feel.demo().picker.items.items), len(theme.all()) + 1)
 }
+
+// ------------------------- the measures-as-nothing guard (eight victims, F297)
+
+// **No demo draws anything into no space.** This is the trap that has cost this library eight
+// victims -- the table's header band, the link, the slider's thumb, the star, the popup's rows,
+// the slider's track, the check mark and the look-and-feel band -- and every one presented
+// identically: nothing drawn, no error, every test green.
+//
+// **It is a test and not a lint because it cannot be seen before layout.** A zero measurement is
+// ordinary: half the controls in `lib/ui` are `fixed_of(width, 0.0, ..)` inside a stack that
+// stretches them, which is the right spelling. What is wrong is a node that still has no extent
+// when the layout is finished and has ink to put down -- which depends on what its parent did, and
+// no reading of the source can tell you that.
+//
+// Twenty-one demos is also what makes this worth having: the gallery draws every control the
+// library has, so a control that measures as nothing anywhere fails here.
+#[test]
+fn no_demo_paints_into_no_space() {
+    val f = controls.frame_of(theme.plain(), metrics())
+    for d in all.all() {
+        val laid = widget.layout(all.view_of(d, f), window, metrics())
+        val lost = widget.measured_as_nothing(laid)
+        if len(lost) > 0 {
+            test.fail(concat(all.stem_of(d), " paints ", str(len(lost)), " node(s) into no space"))
+        }
+    }
+}
+
+// The popups too, which is where two of the eight were: a menu's rows and a combo box's list are
+// laid out in a layer of their own and so are not reached by the walk above.
+#[test]
+fn no_popup_paints_into_no_space() {
+    val f = controls.frame_of(theme.plain(), metrics())
+    val at = geom.rect_of(0.0, 0.0, 200.0, 120.0)
+    for d in all.all() {
+        switch all.layer_of(d, at, f) {
+            Some(over) {
+                val laid = widget.layout(
+                    widget.layered_of([widget.base_layer(widget.Widget.Nothing), over]),
+                    window,
+                    metrics()
+                )
+                val lost = widget.measured_as_nothing(laid)
+                if len(lost) > 0 {
+                    test.fail(concat(all.stem_of(d), "'s popup paints ", str(len(lost)), " node(s) into no space"))
+                }
+            }
+            None { unit }
+        }
+    }
+}

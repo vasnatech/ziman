@@ -2001,3 +2001,68 @@ fn a_shadow_of_nothing_paints_nothing() {
     test.assert_len(1, fills_of(shadowed(Option<widget.Shadow>.Some(widget.shadow_of(2.0, 0.0, 0.3)))))
     test.assert_len(1, fills_of(shadowed(Option<widget.Shadow>.Some(widget.shadow_of(2.0, 8.0, 0.0)))))
 }
+
+// ------------------------------ the measures-as-nothing guard (eight victims)
+
+fn ink_square(at: geom.Rect) -> widget.Widget {
+    return widget.drawn_of(shape.rect_path(at), paint.black())
+}
+
+fn laid_in(w: widget.Widget) -> widget.Laid {
+    return widget.layout(w, geom.rect_of(0.0, 0.0, 200.0, 100.0), fake_metrics())
+}
+
+fn centring(child: widget.Widget) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.centred(),
+        children: [child],
+        name: ""
+    })
+}
+
+// **The trap, as it was written the first eight times.** A `Drawing` measures zero and stays zero
+// unless its parent stretches it, and a centring stack does not -- so the node is laid out, hit
+// tested, and draws nothing at all. No error, no failing test, no pixel.
+#[test]
+fn a_drawing_a_parent_does_not_stretch_is_caught() {
+    val laid = laid_in(centring(ink_square(geom.rect_of(0.0, 0.0, 10.0, 10.0))))
+    test.assert_len(1, widget.measured_as_nothing(laid))
+}
+
+// And the same drawing given a size is not reported, which is what keeps this a gate rather than
+// a nuisance.
+#[test]
+fn the_same_drawing_given_a_size_is_not_caught() {
+    val laid = laid_in(centring(widget.fixed_of(10.0, 10.0, ink_square(geom.rect_of(0.0, 0.0, 10.0, 10.0)))))
+    test.assert_len(0, widget.measured_as_nothing(laid))
+}
+
+// **A zero measurement is ordinary and correct**, which is why this looks at what a node *paints*
+// rather than at what it measures: half the controls in this library are `fixed_of(width, 0.0, ..)`
+// inside a stack that stretches them. A group with no fill and no size is a grouping, and grouping
+// nothing is not an error.
+#[test]
+fn an_empty_container_is_not_a_victim() {
+    val laid = laid_in(centring(widget.Widget.Nothing))
+    test.assert_len(0, widget.measured_as_nothing(laid))
+}
+
+// A filled band of no height is the table's header, the slider's track and the look-and-feel band
+// -- three of the eight, one shape.
+#[test]
+fn a_filled_band_of_no_height_is_caught() {
+    val band = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.filled(paint.black()),
+        align: widget.stretched(),
+        children: [],
+        name: ""
+    })
+    test.assert_len(1, widget.measured_as_nothing(laid_in(centring(band))))
+}
