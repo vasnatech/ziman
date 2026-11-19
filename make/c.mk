@@ -323,6 +323,12 @@ analyze:
 	$(CC) -std=c11 -O1 -fwrapv -pthread -fanalyzer -fsyntax-only $(SRC)
 	@echo "analyze: -fanalyzer clean on both configurations"
 
+# A module listed in CORELIB_MODULES with no source on the vpath asks make for a file that does not
+# exist -- and says so only on a clean build, which is how `charset` stayed broken for four days on
+# a public repository while every build here succeeded against a stale header.
+corelib-sources-check:
+	python3 tools/check_corelib_sources.py
+
 libc-free-check:
 	python3 tools/check_libc_free.py
 

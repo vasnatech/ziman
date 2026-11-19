@@ -79,7 +79,7 @@ BIN := ziman
 # against the pre-split Makefile; nothing else would have noticed until someone typed `make`.
 .DEFAULT_GOAL := all
 
-.PHONY: all gui check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots test-maptable test-handleslot corelib-reference corelib-reference-check charsets charsets-check lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check design-status-check lint-check lib-map-check highlight-check site-check template-example-check vscode-grammar vscode-grammar-check libc-free-check xalloc-check tls-if-available pdf-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check overload-sets-check lint-lib-check gallery-check gallery design-if-available northstar-if-available module-path-check api-check
+.PHONY: all gui check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots test-maptable test-handleslot corelib-reference corelib-reference-check charsets charsets-check lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check design-status-check lint-check lib-map-check highlight-check site-check template-example-check vscode-grammar vscode-grammar-check corelib-sources-check libc-free-check xalloc-check tls-if-available pdf-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check overload-sets-check lint-lib-check gallery-check gallery design-if-available northstar-if-available module-path-check api-check
 
 # Every gate that needs nothing but this repo and a C toolchain: the fixture suite on both builds,
 # the standalone unit tests, formatting, and the documentation guards. One command for "is this
@@ -93,7 +93,7 @@ BIN := ziman
 # over half an hour for that one target alone (49 suites, each starting a real server), which is
 # what makes this usable as a pre-push hook -- and `api-check`, the 0.08s target that would have
 # caught the red HEAD of A46, is in here.
-check-fast: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available pdf-if-available fmt-check docs-check grammar-check benchmark-check libc-free-check xalloc-check handleset-check overload-sets-check lint-lib-check gallery-check design-if-available
+check-fast: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available pdf-if-available fmt-check docs-check grammar-check benchmark-check corelib-sources-check libc-free-check xalloc-check handleset-check overload-sets-check lint-lib-check gallery-check design-if-available
 
 check: check-fast northstar-if-available
 
@@ -111,7 +111,7 @@ install-hooks:
 # -MMD/-MP header tracking only kicks in from the second build onward,
 # once a .d file already mentions it. Add a new core module by adding
 # its name here and one line to corelib.c's CORE_MODULES table.
-CORELIB_MODULES := meta template batch derive_ord derive_row derive_properties derive_json derive_reflect derive_entity derive_repository derive_validate derive_xml expr validate process url fs log metrics regex random uuid clock time schedule json codec paging number math bits encoding charset thread datasource sqlite mysql memdb sql eql db net crypto pg http derive_routes os properties io terminal window ndjson csv toml yaml xml ini markdown compress zone mime jwt migrate otp locale test geom shape svg paint scene pdfobj pdf truetype font image stroker raster layout widget focus edit a11y controls icons desktop atspi ibus
+CORELIB_MODULES := meta template batch derive_ord derive_row derive_properties derive_json derive_reflect derive_entity derive_repository derive_validate derive_xml expr validate process url fs log metrics regex random uuid clock time schedule json codec paging number math bits encoding thread datasource sqlite mysql memdb sql eql db net crypto pg http derive_routes os properties io terminal window ndjson csv toml yaml xml ini markdown compress zone mime jwt migrate otp locale test geom shape svg paint scene pdfobj pdf truetype font image stroker raster layout widget focus edit a11y controls icons desktop atspi ibus
 
 # The prelude is not a module and is deliberately NOT in CORELIB_MODULES: it has
 # no line in corelib.c's CORE_MODULES table, nothing can `use` it, and
@@ -150,9 +150,16 @@ CHARSET_PARTS := charset tables
 # made the control set the home of both the vocabulary and every word spoken in it. See
 # lib/ui/theme/theme.zm, which is the part carrying the register.
 #
-# **Not in CORELIB_MODULES**, like `server`, `client` and `rest` and unlike `charset`: the name has
-# no `lib/<name>.zm` for the generic `%_source.h` rule to find, so listing it there would ask make
-# for a file that does not exist.
+# **Not in CORELIB_MODULES**, like `server`, `client`, `rest` and `charset`: the name has no
+# `lib/<name>.zm` for the generic `%_source.h` rule to find, so listing it there would ask make for
+# a file that does not exist.
+#
+# **`charset` was listed there and it broke the clean build**, which nobody saw because the header
+# from before it was split into parts was still sitting in `build/`: make had nothing to do, so it
+# did nothing and said nothing. Removing that file is all it took --
+# `No rule to make target 'build/charset_source.h'`. The comment above this one had even named
+# `charset` as the exception that proved the rule, which is how long a thing can be written down
+# and not fixed.
 THEME_PARTS := theme plain modern
 # Bundled modules live in lib/core (general-purpose), lib/db (SQL drivers, and the three
 # generators that write SQL: derive_row, derive_entity, derive_repository), lib/http (http,
