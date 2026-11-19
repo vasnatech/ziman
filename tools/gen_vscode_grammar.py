@@ -83,11 +83,55 @@ def main():
         start, end = block.span(2)
         return text[:start] + pattern + text[end:]
 
-    text = replace("builtin-types", r"\\\\b(%s)\\\\b" % "|".join(types))
-    text = replace("builtin-functions", r"\\\\b(%s)(?=\\\\s*[(<])" % "|".join(names))
+    # **Two backslashes, not four, and the difference is the whole rule.** This file is rewritten
+    # *textually* to keep its hand-written formatting, so what is written here is what lands in the
+    # JSON byte for byte. JSON then unescapes it once before the regex engine ever sees it: `\\b`
+    # in the file becomes `\b`, a word boundary, while `\\\\b` becomes `\\b` -- an escaped
+    # backslash followed by a `b`, which matches a backslash and then the letter. Both parse, both
+    # load, and the rule silently matches nothing.
+    #
+    # It was four here from the day this was written, so **no builtin type or function has ever
+    # been highlighted**; the hand-written rules beside them in the grammar use two, which is what
+    # finally gave it away. See `check` below, which now runs the pattern rather than trusting it.
+    text = replace("builtin-types", r"\\b(%s)\\b" % "|".join(types))
+    text = replace("builtin-functions", r"\\b(%s)(?=\\s*[(<])" % "|".join(names))
     json.loads(text)  # the rewrite must still parse
+    check(text, types[0], names[0])
     GRAMMAR.write_text(text)
     print("gen_vscode_grammar.py: %d builtin functions, %d builtin types" % (len(names), len(types)))
+
+
+def check(text, a_type, a_name):
+    """The generated patterns must actually match, which a diff against the last run cannot say.
+
+    **`vscode-grammar-check` regenerates this file and diffs it**, so it asks whether the grammar
+    matches the generator -- and when the generator is what is wrong, regenerating reproduces the
+    same wrong answer and the gate stays green. That is how `\\\\b` instead of `\\b` survived
+    from the day this was written: both spellings parse as JSON, both load in the editor, and the
+    rule silently matches nothing.
+
+    So the pattern is *run* here. Matching a known builtin says the escape survived JSON; failing to
+    match it with a letter stuck on the front says the word boundary is a boundary and not a literal
+    backslash followed by a `b`.
+    """
+    doc = json.loads(text)
+    for section, subject, glued in (
+        ("builtin-types", a_type, "x" + a_type),
+        ("builtin-functions", a_name + "(", "x" + a_name + "("),
+    ):
+        pattern = doc["repository"][section]["match"]
+        if not re.search(pattern, subject):
+            raise SystemExit(
+                "gen_vscode_grammar.py: the '%s' rule does not match %r. Its pattern reaches the "
+                "editor as %r -- if that begins with two backslashes rather than one, the `\\b` "
+                "was written with four here and JSON unescaped it to a literal backslash."
+                % (section, subject, pattern[:12])
+            )
+        if re.search(pattern, glued):
+            raise SystemExit(
+                "gen_vscode_grammar.py: the '%s' rule matches %r, so its word boundary is not one"
+                % (section, glued)
+            )
 
 
 if __name__ == "__main__":
