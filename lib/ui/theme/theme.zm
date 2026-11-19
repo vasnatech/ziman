@@ -266,7 +266,20 @@ pub fn derive(seeds: Seeds, s: Scheme) -> controls.Style {
     } else {
         Option<widget.Border>.None
     }
-    val accent = a[step_solid - 1]
+    // **A solid colour you cannot put text on is not a solid colour**, so step 9 is darkened until
+    // something reads on it.
+    //
+    // One lightness per step cannot serve every hue: at the accent table's .550 a blue clears AA
+    // against white by a comfortable margin and a green does not, because two colours of equal
+    // OKLab lightness do not carry equal *relative luminance*, which is what WCAG 2 measures.
+    // Dragging the editor's hue slider through the greens is what found it -- 4.32:1 at hue 150,
+    // against a gate the library claims everywhere else.
+    //
+    // **Derivation guarantees the gate rather than landing near it.** Radix solves the same problem
+    // by hand-tuning every scale and noting which step 9s take dark text; this measures instead,
+    // which is the only version of that a seed can do. Bounded, because a loop that cannot fail is
+    // a loop that can hang.
+    val accent = legible_solid(a[step_solid - 1], a)
     return controls.Style {
         padding: widget.insets_of(8.0, 4.0, 8.0, 4.0),
         ink: ink,
@@ -293,11 +306,7 @@ pub fn derive(seeds: Seeds, s: Scheme) -> controls.Style {
         // want dark text: so rather than a look asserting which, the ramp's two ends are measured
         // against step 9 and the one that reads wins. It picks white on both light looks and dark
         // on both dark ones, which is what the four hand-written looks had already chosen.
-        on_accent: if paint.contrast_ratio(a[0], accent) < paint.contrast_ratio(a[11], accent) {
-            a[11]
-        } else {
-            a[0]
-        },
+        on_accent: reads_on(accent, a),
         states: controls.States {
             rest: row_of(Paint.Solid(face), ink, edge),
             // 4 *is* hovered and 5 *is* active, by construction -- which is what stops a dark
@@ -349,6 +358,29 @@ pub fn derive(seeds: Seeds, s: Scheme) -> controls.Style {
         icon_font: 0,
         icon_gap: 6.0
     }
+}
+
+// The better of a ramp's two ends against a colour: §11.2's observation that most step 9s take
+// white text and some -- Sky, Mint, Lime, Yellow, Amber -- take dark, measured rather than listed.
+fn reads_on(solid: Color, a: [Color]) -> Color {
+    if paint.contrast_ratio(a[0], solid) < paint.contrast_ratio(a[11], solid) {
+        return a[11]
+    }
+    return a[0]
+}
+
+// Step 9, darkened until one end of its own ramp reads on it.
+fn legible_solid(solid: Color, a: [Color]) -> Color {
+    var out = solid
+    var tries = 0
+    while tries < 20 {
+        if paint.contrast_ratio(reads_on(out, a), out) >= 4.5 {
+            return out
+        }
+        out = paint.darken(out, 0.02)
+        tries = tries + 1
+    }
+    return out
 }
 
 fn is_light(s: Scheme) -> bool {

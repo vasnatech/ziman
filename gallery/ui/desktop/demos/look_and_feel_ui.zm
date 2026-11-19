@@ -7,6 +7,7 @@ val label_width = 110.0
 val picker_width = 160.0
 val field_width = 220.0
 val button_width = 120.0
+val row_height = 24.0
 
 pub struct Screen {
     picker: widget.Widget
@@ -14,6 +15,22 @@ pub struct Screen {
     check: widget.Widget
     field: widget.Widget
     said: string
+    // The editor: two seeds and three choices, which is the whole of what a look is (D12).
+    neutral_hue: widget.Widget
+    neutral_chroma: widget.Widget
+    accent_hue: widget.Widget
+    accent_chroma: widget.Widget
+    scheme: widget.Widget
+    surfaces: widget.Widget
+    edged: widget.Widget
+    // What to paste into a `.zm` file: the deliverable, and the reason there is no file format.
+    // **A widget rather than a string**, because it is one line per line and a design file cannot
+    // loop -- see `look_and_feel.source_widget`.
+    source: widget.Widget
+    // Whether the picker is on the look being designed. **The editor is shown either way** -- a
+    // control that appears and disappears as a list changes is one the eye has to hunt for -- but
+    // the source below it is only worth reading when it is what you are looking at.
+    designing: bool
     // The chosen look, for the band's own background. **A demo of a dark look on a light window
     // is not a demo of a dark look**: a button and a field carry their own faces and read fine,
     // but a check box's *label* has no face under it, so it was drawn in the dark look's near
@@ -44,6 +61,50 @@ pub fn band(it: Screen) -> widget.Widget {
     })
 }
 
+// One labelled control of the editor, on its own line.
+pub fn knob(said: string, control: widget.Widget, f: controls.Frame) -> widget.Widget {
+    return widget.tall_of(row_height, widget.row_of(gap, [
+        widget.wide_of(label_width, widget.label_of(said, f.style.text.caption.size, f.style.ink)),
+        widget.expand(control)
+    ]))
+}
+
+// The two seeds and the three choices.
+//
+// **Every one of these is a thing a ramp cannot derive**, which is why they and only they are here:
+// the hue and chroma of the two seeds, which end the look is read from, which way its surfaces move
+// from the window, and whether a face wears step 7's border. Everything else -- twelve neutral
+// steps, twelve accent steps, five state rows -- follows from them.
+pub fn editor(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        knob("Neutral hue", it.neutral_hue, f),
+        knob("Neutral chroma", it.neutral_chroma, f),
+        knob("Accent hue", it.accent_hue, f),
+        knob("Accent chroma", it.accent_chroma, f),
+        knob("Scheme", it.scheme, f),
+        knob("Surfaces", it.surfaces, f),
+        knob("Edges", it.edged, f)
+    ])
+}
+
+// What the designed look is, as source.
+//
+// **In the code face, because it is code** -- it is pasted into a `.zm` file, and a monospaced
+// run is the difference between something to read and something to copy. See D12: a look leaves
+// this window as two seeds, so there is no loader, no schema and nothing to be invalid at run
+// time.
+pub fn source(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.insets_of(gap, gap, gap, gap),
+        surface: widget.filled(f.style.panel),
+        align: widget.stretched(),
+        children: [it.source],
+        name: ""
+    })
+}
+
 pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
         widget.row_of(gap, [
@@ -52,6 +113,8 @@ pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
             widget.expand(widget.flex())
         ]),
         band(it),
-        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink),
+        editor(it, f),
+        source(it, f)
     ])
 }

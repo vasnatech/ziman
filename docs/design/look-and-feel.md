@@ -1191,6 +1191,37 @@ the process.
 the gallery opens dark with nothing set. That is the "1 is dark, 2 is light" trap closed by
 measurement instead of by care.
 
+**D12 built, 2026-11-18 (F297), and the editor found something no shipped look could have.**
+
+The look-and-feel demo carries four continuous sliders -- the two seeds' hue and chroma -- with
+`Scheme`, `Toward` and `edged` beside them, and prints the result as a `theme.Seeds { … }` in the
+code face. The picker keeps the register and gains a "Designed here" row, so the demo it already
+was survives and the editor is one more row rather than a replacement.
+
+**The arithmetic D12 rested on is now a thing you can hold.** "You cannot put a slider on
+thirty-five literals; you can put one on two seeds" was an argument when it was written; it is
+seven controls and a six-line snippet now.
+
+**What the first drag found.** Running the hue slider through the greens put `on_accent` at
+**4.32:1** at hue 150, where a blue at the same step was 5.16:1. One lightness per step cannot
+serve every hue: two colours of equal OKLab *lightness* do not carry equal *relative luminance*,
+and WCAG 2 measures the second. `derive` darkens the solid step until one end of its own ramp reads
+on it, so the derivation **guarantees** the gate rather than landing near it, and `theme_test` now
+holds every 15 degrees of the hue circle in both schemes.
+
+Nothing in the register goes near those hues. A file format would not have found it either -- it is
+not the kind of thing anyone types into a file and checks. **It took a slider.**
+
+**And two defects that only a window shows.** `slider_of` snaps its value through the default step
+of 1.0, so a chroma of 0.012 arrived as 0 and the thumb sat at the far left -- the value has to be
+set in the same `with` as `step: 0.0`. And a `\n` in a label is not a line break at this layer but a
+code point with no glyph: the snippet drew as six `.notdef` boxes, so it is built as a column of
+labels on the logic side, a design file having no loop.
+
+**`ZIMAN_GALLERY_DEMO` opens the window on a named demo**, following the `_ROOT`/`_FONT`/`_MONO`/
+`_SCALE` convention already in that file. Every other way in is a click, which is fine for a person
+and useless for a screenshot -- and a demo you cannot open is a demo you cannot look at.
+
 ### 13.4 Build order
 
 **Raised as F291 to F297** in [docs/reviews/tasks/f291-f297.md](../reviews/tasks/f291-f297.md), one

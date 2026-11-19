@@ -8,6 +8,7 @@
 use a11y
 use controls
 use demos/all
+use demos/look_and_feel
 use focus
 use geom
 use highlight
@@ -322,4 +323,69 @@ fn the_default_theme_stays_plain() {
     test.assert(Option.is_None(plain.states.rest.border))
     test.assert(widget.Radius.is_Square(plain.shape.medium))
     test.assert(paint.contrast_ratio(plain.ink, plain.face) >= 4.5)
+}
+
+// ------------------------------------------- the theme designer (F297, D12)
+
+fn designer() -> look_and_feel.Demo {
+    return with look_and_feel.demo() {
+        // The last row of the picker is the look being designed; the ones before it are the
+        // register's own.
+        picker: with look_and_feel.demo().picker {
+            items: with look_and_feel.demo().picker.items { selected: len(theme.all()) }
+        }
+    }
+}
+
+fn designed(d: look_and_feel.Demo) -> controls.Style {
+    return look_and_feel.look_of_demo(d)
+}
+
+// **The sliders are the look.** This is what replaced a theme file format (D12): the argument was
+// that a look had become small enough to put sliders on, and this is that claim as a test -- move
+// the accent's hue and the derived accent moves with it.
+#[test]
+fn moving_a_seed_moves_the_look() {
+    val before = designed(designer())
+    val after = designed(with designer() {
+        accent_hue: with designer().accent_hue { value: 30.0 }
+    })
+    val was = paint.to_oklch(before.accent)
+    val now = paint.to_oklch(after.accent)
+    test.assert(now.hue - was.hue < -100.0 || was.hue - now.hue < -100.0)
+}
+
+// **A designed look is held to the same gate as a shipped one.** `derive` is what the register's
+// looks go through, so a look designed here cannot be less legible than one in `theme.all()` --
+// which is the thing a file format could never promise, because a file of hand-written literals
+// has nothing to check.
+#[test]
+fn a_designed_look_is_legible_too() {
+    for hue in [0.0, 90.0, 180.0, 270.0] {
+        val look = designed(with designer() {
+            accent_hue: with designer().accent_hue { value: hue },
+            neutral_hue: with designer().neutral_hue { value: hue }
+        })
+        test.assert(paint.contrast_ratio(look.states.rest.ink, paint.flat_of(look.states.rest.face)) >= 4.5)
+        test.assert(paint.contrast_ratio(look.on_accent, look.accent) >= 4.5)
+    }
+}
+
+// The source is what leaves this window, so it says what the sliders say.
+#[test]
+fn the_source_carries_the_numbers_the_sliders_are_on() {
+    val lines = look_and_feel.source_lines(with designer() {
+        accent_hue: with designer().accent_hue { value: 30.0 }
+    })
+    test.assert_eq(lines[0], "theme.Seeds {")
+    test.assert(contains(lines[2], "30.0"))
+    test.assert(contains(lines[3], "Toward."))
+    test.assert_eq(lines[5], "}")
+}
+
+// **The register keeps its rows**, which the editor must not quietly replace: a look added to
+// `lib/ui/theme` still appears here, and the designed one is one more row after them.
+#[test]
+fn the_picker_is_the_register_plus_one() {
+    test.assert_eq(len(look_and_feel.demo().picker.items.items), len(theme.all()) + 1)
 }

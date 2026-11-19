@@ -471,3 +471,33 @@ fn the_register_says_which_scheme_a_row_is() {
         }
     }
 }
+
+// **Every hue is legible, not just the two the shipped looks happen to use.** One lightness per
+// step cannot serve every hue -- two colours of equal OKLab lightness do not carry equal relative
+// luminance, which is what WCAG 2 measures -- so a green accent at the same step as a blue one was
+// 4.32:1 against its own text while the blue was 5.16:1. `derive` darkens the solid step until
+// something reads on it.
+//
+// **Found by dragging a slider**, which is the theme designer earning its keep: nothing in the
+// register goes near those hues, so no shipped look would ever have shown it.
+#[test]
+fn a_look_of_any_hue_can_carry_text_on_its_accent() {
+    var hue = 0.0
+    while hue < 360.0 {
+        for s in [theme.Scheme.Light, theme.Scheme.Dark] {
+            val look = theme.derive(
+                theme.Seeds {
+                    neutral: paint.oklch(0.5, 0.012, hue),
+                    accent: paint.oklch(0.55, 0.215, hue),
+                    surfaces: theme.Toward.Away,
+                    edged: true
+                },
+                s
+            )
+            test.assert(paint.contrast_ratio(look.on_accent, look.accent) >= 4.5)
+            test.assert(reads_on_every_stop(look.states.rest))
+            test.assert(reads_on_every_stop(look.states.selected))
+        }
+        hue = hue + 15.0
+    }
+}

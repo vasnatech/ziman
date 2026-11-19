@@ -22,6 +22,21 @@ use widget.Toggle
 
 pub struct Demo {
     picker: controls.ComboBox
+    // The editor: two seeds and three choices, which is the whole of what a look is since F295.
+    //
+    // **This is what replaced a theme file format** (D12). F9 was ranked last on the assumption
+    // that a look is thirty-five literals -- which a file can carry and a slider cannot. After D6,
+    // D8 and D9 a look is two seeds, a scheme and a short override list, so the thing that made a
+    // format necessary is gone: you cannot put a slider on thirty-five literals, and you can put
+    // one on two seeds. No schema, no validator, and no new way for a look to be invalid at run
+    // time.
+    neutral_hue: controls.Slider
+    neutral_chroma: controls.Slider
+    accent_hue: controls.Slider
+    accent_chroma: controls.Slider
+    scheme: controls.ComboBox
+    surfaces: controls.ComboBox
+    edged: controls.CheckBox
     press: controls.Button
     notify: controls.CheckBox
     field: controls.Entry
@@ -30,18 +45,120 @@ pub struct Demo {
 pub fn demo() -> Demo {
     return Demo {
         picker: controls.combo_box_of("look-picker", "Look", look_names(), 2),
+        // **Continuous, which the slider's own comment anticipated**: "zero means no snapping,
+        // which is a continuous slider and a real thing to want -- a colour picker's hue has no
+        // steps". Written before there was a colour picker to want it.
+        //
+        // **The value is set in the same `with` as the step, and that is not a style choice.**
+        // `slider_of` snaps what it is given through the default step of 1.0, so a chroma of 0.012
+        // arrives as 0 -- which is a grey, and looked like the ramp ignoring its seed until the
+        // thumb was seen sitting at the far left.
+        neutral_hue: with controls.slider_of("look-nh", "Neutral hue", 0.0, 360.0, 265.0) {
+            step: 0.0,
+            value: 265.0
+        },
+        // **A hundredth, not a tenth.** A neutral's chroma is the difference between a grey that
+        // belongs to its accent and one that sits beside it; at 0.1 everything is a pastel.
+        neutral_chroma: with controls.slider_of("look-nc", "Neutral chroma", 0.0, 0.03, 0.012) {
+            step: 0.0,
+            value: 0.012
+        },
+        accent_hue: with controls.slider_of("look-ah", "Accent hue", 0.0, 360.0, 263.0) {
+            step: 0.0,
+            value: 263.0
+        },
+        accent_chroma: with controls.slider_of("look-ac", "Accent chroma", 0.0, 0.3, 0.215) {
+            step: 0.0,
+            value: 0.215
+        },
+        scheme: controls.combo_box_of("look-scheme", "Scheme", ["Light", "Dark"], 0),
+        surfaces: controls.combo_box_of(
+            "look-surfaces",
+            "Surfaces",
+            ["Darker than the window", "Lighter than the window"],
+            1
+        ),
+        edged: controls.check_box_of("look-edged", "Edged faces", Toggle.On),
         press: controls.button_of("look-press", "Send"),
         notify: controls.check_box_of("look-notify", "Notify me", Toggle.On),
         field: controls.entry_of("look-field", "Your name", "Ada Lovelace")
     }
 }
 
+// The register's looks, and then the one being designed.
+//
+// **"Designed here" last, so the register stays the demo it was**: a look added to `lib/ui/theme`
+// still appears without an edit to this file, and the editor is one more row rather than a
+// replacement for it.
 fn look_names() -> [string] {
     val names = mutable_array_new<string>()
     for one in theme.all() {
         push(names, one.name)
     }
+    push(names, designed_name)
     return snapshot(names)
+}
+
+pub val designed_name = "Designed here"
+
+// The seeds the sliders are on.
+fn seeds_of(d: Demo) -> theme.Seeds {
+    return theme.Seeds {
+        neutral: paint.oklch(0.5, d.neutral_chroma.value, d.neutral_hue.value),
+        accent: paint.oklch(0.55, d.accent_chroma.value, d.accent_hue.value),
+        surfaces: if d.surfaces.items.selected == 0 { theme.Toward.Ink } else { theme.Toward.Away },
+        edged: Toggle.is_On(d.edged.checked)
+    }
+}
+
+fn scheme_of(d: Demo) -> theme.Scheme {
+    if d.scheme.items.selected == 1 {
+        return theme.Scheme.Dark
+    }
+    return theme.Scheme.Light
+}
+
+// What to paste into a `.zm` file.
+//
+// **The deliverable of the whole exercise**, and the reason this is an editor and not a file
+// format: a look designed here leaves as source, so there is no loader, no schema and nothing that
+// can be invalid at run time. The numbers are the two seeds and the three choices -- everything
+// else about the look is derived from them.
+pub fn source_lines(d: Demo) -> [string] {
+    return [
+        "theme.Seeds {",
+        concat(
+            "    neutral: paint.oklch(0.5, ",
+            format("{:.3}", d.neutral_chroma.value),
+            ", ",
+            format("{:.1}", d.neutral_hue.value),
+            "),"
+        ),
+        concat(
+            "    accent: paint.oklch(0.55, ",
+            format("{:.3}", d.accent_chroma.value),
+            ", ",
+            format("{:.1}", d.accent_hue.value),
+            "),"
+        ),
+        concat("    surfaces: Toward.", if d.surfaces.items.selected == 0 { "Ink" } else { "Away" }, ","),
+        concat("    edged: ", if Toggle.is_On(d.edged.checked) { "true" } else { "false" }),
+        "}"
+    ]
+}
+
+// The source as a widget, built here rather than in the design file.
+//
+// **A line per label, because a label is one line.** A `\n` in a run of text is not a line break to
+// this layer -- it is a code point the face has no glyph for, and it drew as six `.notdef` boxes in
+// a row the first time this was tried. A design file cannot loop, so the column is built on this
+// side, which is the same split every other list of widgets here uses.
+pub fn source_widget(d: Demo, style: controls.Style) -> widget.Widget {
+    val lines = mutable_array_new<widget.Widget>()
+    for one in source_lines(d) {
+        push(lines, widget.label_in_face(one, style.text.code.size, style.ink, style.text.code.face))
+    }
+    return widget.column_of(0.0, snapshot(lines))
 }
 
 // The look the picker is on.
@@ -49,13 +166,32 @@ fn look_names() -> [string] {
 // **Not the style this demo was handed**, which the first version got wrong: the gallery wears
 // `modern` now, so a demo that started from the style it was given would show four variations of
 // modern and call the first one "Plain". A demo comparing looks takes them from the register.
+// The look this demo is showing, whichever row the picker is on.
+//
+// **Public because the editor is worth testing**, and what there is to test is exactly this: that
+// the sliders are the look. See `state_test`'s designer tests.
+pub fn look_of_demo(d: Demo) -> controls.Style {
+    return look_of(d, theme.plain())
+}
+
 fn look_of(d: Demo, style: controls.Style) -> controls.Style {
     val looks = theme.all()
     val which = d.picker.items.selected
+    // **The last row is the one being designed**, derived from the sliders on every frame. That is
+    // what makes this an editor rather than a picker: `derive` runs per repaint, which costs two
+    // twelve-step ramps and is the whole price of the live feedback.
+    if which == len(looks) {
+        return theme.derive(seeds_of(d), scheme_of(d))
+    }
     if which < 0 || which >= len(looks) {
         return theme.plain()
     }
     return looks[which].style
+}
+
+// Whether the picker is on the look being designed.
+fn designing(d: Demo) -> bool {
+    return d.picker.items.selected == len(theme.all())
 }
 
 pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
@@ -72,7 +208,18 @@ pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
             check: controls.check_box_widget(d.notify, controls.frame_of(look, m)),
             field: controls.entry_widget(d.field, controls.frame_of(look, m)),
             said: said(d),
-            look: look
+            look: look,
+            // **The editor keeps the window's own style, like the picker** -- a control that
+            // restyles itself while you are dragging it is one you cannot aim at.
+            neutral_hue: controls.slider_widget(d.neutral_hue, controls.frame_of(style, m)),
+            neutral_chroma: controls.slider_widget(d.neutral_chroma, controls.frame_of(style, m)),
+            accent_hue: controls.slider_widget(d.accent_hue, controls.frame_of(style, m)),
+            accent_chroma: controls.slider_widget(d.accent_chroma, controls.frame_of(style, m)),
+            scheme: controls.combo_box_widget(d.scheme, controls.frame_of(style, m)),
+            surfaces: controls.combo_box_widget(d.surfaces, controls.frame_of(style, m)),
+            edged: controls.check_box_widget(d.edged, controls.frame_of(style, m)),
+            source: source_widget(d, style),
+            designing: designing(d)
         },
         f
     )
@@ -160,6 +307,47 @@ pub fn input(
                 controls.frame_of(style, m)
             ).combo
         }
+    }
+    if name == "look-nh" {
+        return with d { neutral_hue: controls.slider_input(d.neutral_hue, input, boxes.bounds_of(laid, name)).slider }
+    }
+    if name == "look-nc" {
+        return with d {
+            neutral_chroma: controls.slider_input(d.neutral_chroma, input, boxes.bounds_of(laid, name)).slider
+        }
+    }
+    if name == "look-ah" {
+        return with d { accent_hue: controls.slider_input(d.accent_hue, input, boxes.bounds_of(laid, name)).slider }
+    }
+    if name == "look-ac" {
+        return with d {
+            accent_chroma: controls.slider_input(d.accent_chroma, input, boxes.bounds_of(laid, name)).slider
+        }
+    }
+    if name == "look-scheme" || name == "look-scheme/items" {
+        return with d {
+            scheme: controls.combo_box_input(
+                d.scheme,
+                input,
+                boxes.bounds_of(laid, "look-scheme"),
+                boxes.bounds_of(laid, "look-scheme/items"),
+                controls.frame_of(style, m)
+            ).combo
+        }
+    }
+    if name == "look-surfaces" || name == "look-surfaces/items" {
+        return with d {
+            surfaces: controls.combo_box_input(
+                d.surfaces,
+                input,
+                boxes.bounds_of(laid, "look-surfaces"),
+                boxes.bounds_of(laid, "look-surfaces/items"),
+                controls.frame_of(style, m)
+            ).combo
+        }
+    }
+    if name == "look-edged" {
+        return with d { edged: controls.check_box_input(d.edged, input, boxes.bounds_of(laid, name)).check_box }
     }
     if name == "look-press" {
         return with d { press: controls.button_input(d.press, input, boxes.bounds_of(laid, name)).button }

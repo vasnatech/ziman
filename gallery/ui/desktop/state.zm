@@ -17,6 +17,7 @@ use gallery_ui.frame_width
 use gallery_ui.tab_width
 use geom
 use highlight
+use os
 use source
 use widget
 
@@ -77,6 +78,32 @@ pub struct State {
 // picked fixed hexes would be unreadable the moment a theme changed the surface under them, which
 // is exactly what the first version of this did: ziman.dev's light-theme values on a light
 // control face, at 2.2:1. See `highlight.legible`.
+// Which demo to open on, from `ZIMAN_GALLERY_DEMO`, or the first.
+//
+// **Because a demo you cannot open is a demo you cannot look at.** Every other way into this
+// window is a click, which is fine for a person and useless for a screenshot or a bug report that
+// says "the slider under Look and feel" -- and the gallery already reads `ZIMAN_GALLERY_ROOT`,
+// `_FONT`, `_MONO` and `_SCALE`, so this is the convention and not a new one. The name is the
+// demo's own stem, the same string its files are named after.
+//
+// An unknown name opens the first demo rather than failing: a typo in an environment variable
+// should not stop a window opening.
+fn opening_at(demos: [all.Demo]) -> int {
+    switch os.get_env("ZIMAN_GALLERY_DEMO") {
+        Some(want) {
+            var i = 0
+            while i < len(demos) {
+                if all.stem_of(demos[i]) == want {
+                    return i
+                }
+                i = i + 1
+            }
+        }
+        None { unit }
+    }
+    return 0
+}
+
 pub fn opening_state(f: controls.Frame) -> State {
     val style = f.style
     val demos = all.all()
@@ -105,7 +132,7 @@ pub fn opening_state(f: controls.Frame) -> State {
         hovered: "",
         pressed: ""
     }
-    return showing(begin, 0, f)
+    return showing(begin, opening_at(demos), f)
 }
 
 // A branch per group, with its demos under it.
