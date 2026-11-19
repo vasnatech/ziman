@@ -342,6 +342,58 @@ diagnostics_for(main_uri)
 r = request("textDocument/formatting", {"textDocument": {"uri": main_uri}, "options": {"tabSize": 4}})
 check("formatting returns an edit", r["result"] and "fn main() {" in r["result"][0]["newText"], r)
 
+# --- a shadowing block: the two layer-3 features, which were wrong in opposite directions ---
+#
+# The 2026-11-16 colouring review's finding 8. `find_local` walked back line by line with no notion
+# of a block, so from the use *after* an `if` block the nearest `var v` above was the one inside it,
+# which had gone out of scope at the `}`: the use read `mutable` when it was the outer `val`. And
+# `line_declares` only matches a name *before* the cursor, so a declaration never matched on its own
+# line and a shadowing `var v` resolved to the binding it shadows -- reported readonly, with no
+# `declaration` modifier, and highlighted the outer binding's uses.
+#
+# The mutability marker is the one thing the token layer exists to provide, so being off by one
+# declaration across a shadowing boundary is the whole feature being wrong where it matters most.
+shadow_src = ("fn main() {\n"
+              "    val v = 1\n"
+              "    if true {\n"
+              "        var v = 2\n"
+              "        print(v)\n"
+              "    }\n"
+              "    print(v)\n"
+              "}\n")
+shadow_path = os.path.join(tmp, "shadow.zm")
+open(shadow_path, "w").write(shadow_src)
+shadow_uri = "file://" + shadow_path
+notify("textDocument/didOpen", {"textDocument": {"uri": shadow_uri, "languageId": "ziman",
+                                                 "version": 1, "text": shadow_src}})
+
+r = request("textDocument/semanticTokens/full", {"textDocument": {"uri": shadow_uri}})
+data = r["result"]["data"]
+seen = {}
+sline = schar = 0
+for k in range(0, len(data), 5):
+    dl, dc, ln, ty, mo = data[k:k + 5]
+    sline += dl
+    schar = dc if dl else schar + dc
+    if shadow_src.splitlines()[sline][schar:schar + ln] == "v":
+        names = {legend["tokenModifiers"][b] for b in range(len(legend["tokenModifiers"])) if mo >> b & 1}
+        seen[sline + 1] = names
+
+check("the outer val declares and is readonly", seen.get(2) == {"declaration", "readonly"}, str(seen.get(2)))
+check("the shadowing var declares and is mutable", seen.get(4) == {"declaration", "mutable"}, str(seen.get(4)))
+check("a use inside the block is mutable", seen.get(5) == {"mutable"}, str(seen.get(5)))
+check("a use after the block is the outer val, so readonly", seen.get(7) == {"readonly"}, str(seen.get(7)))
+
+def highlight_lines(line, character):
+    got = request("textDocument/documentHighlight",
+                  {"textDocument": {"uri": shadow_uri}, "position": {"line": line, "character": character}})
+    return sorted(h["range"]["start"]["line"] + 1 for h in (got.get("result") or []))
+
+check("the outer binding highlights itself and the use after the block",
+      highlight_lines(1, 8) == [2, 7], str(highlight_lines(1, 8)))
+check("the shadowing binding highlights itself and the use inside it",
+      highlight_lines(3, 12) == [4, 5], str(highlight_lines(3, 12)))
+
 r = request("shutdown", None)
 notify("exit", None)
 check("exit code 0 after shutdown", proc.wait(timeout=10) == 0)

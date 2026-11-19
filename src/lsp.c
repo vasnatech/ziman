@@ -1266,19 +1266,46 @@ static int is_header_start(const char *ln) {
 }
 
 /* Where the local variable, parameter or loop binder `w` used on line `line0` was declared. */
+/* The braces a line opens minus the braces it closes, ignoring strings and line comments. */
+static int net_braces(const char *ln, int len) {
+    int depth = 0, in_string = 0;
+    for (int i = 0; i < len; i++) {
+        if (!in_string && ln[i] == '/' && i + 1 < len && ln[i + 1] == '/') break;
+        if (ln[i] == '"' && (i == 0 || ln[i - 1] != '\\')) { in_string = !in_string; continue; }
+        if (in_string) continue;
+        if (ln[i] == '{') depth++;
+        else if (ln[i] == '}') depth--;
+    }
+    return depth;
+}
+
 static int find_local(const Doc *d, int line0, int col_bytes, const char *w, int *oline, int *ocol) {
+    /* **A block that has already closed above the cursor is not in scope**, and walking back line
+     * by line without counting braces cannot tell: from the `print(v)` after an `if` block, the
+     * nearest `var v` textually above is the one *inside* that block, which went out of scope at
+     * the `}`. The semantic token layer believed it, so a use after a shadowing block read
+     * `mutable` when it was the outer `val` -- the layer's one job, off by one declaration
+     * (docs/reviews/code-style-and-colouring-2026-11-16.md, finding 8).
+     *
+     * Walking upward, a `}` means a nested block is being entered from below and everything in it
+     * is skipped until its `{` balances. Clamped at zero because passing the opening brace of an
+     * *enclosing* block is a move outwards, where declarations are in scope again. */
+    int nesting = 0;
     for (int l = line0; l >= 0; l--) {
         const char *ln = line_ptr(d->text, l);
         if (ln == NULL) continue;
         const char *nl = strchr(ln, '\n');
         int len = nl != NULL ? (int)(nl - ln) : (int)strlen(ln);
-        int c = line_declares(ln, len, w, l == line0 ? col_bytes : len);
+        int upto = l == line0 ? col_bytes : len;
+        int c = nesting == 0 ? line_declares(ln, len, w, upto) : -1;
         if (c >= 0) { *oline = l; *ocol = c; return 1; }
         if (len > 0 && ln[0] != ' ' && ln[0] != '\t' && ln[0] != '}' && ln[0] != '/') {
             int off, col;
             if (is_header_start(ln) && header_declares(ln, w, &off, &col)) { *oline = l + off; *ocol = col; return 1; }
             return 0; /* a top-level item: the enclosing function has been searched */
         }
+        nesting -= net_braces(ln, upto);
+        if (nesting < 0) nesting = 0;
     }
     return 0;
 }
@@ -1682,7 +1709,23 @@ static void handle_document_highlight(const JVal *id, const JVal *params) {
      * spelling, because resolving every occurrence of a global would mean doing the type checker's
      * work here. What it no longer does is match inside a string or after a dot. */
     int dl = -1, dc = -1;
-    int is_local = !c.after_dot && find_local(d, line0, c.start_byte, c.word, &dl, &dc);
+    /* **The cursor may be the declaration, and then it is the answer.** `find_local` asks
+     * `line_declares` for a name *before* the cursor, so a declaration never matches on its own
+     * line and the search walks on -- which for a shadowing `var v` lands on the `val v` it
+     * shadows, and the reply becomes the outer binding's uses. Asked first, the keyword beside the
+     * cursor settles it. The scan below still covers the case where the cursor is on a declaration
+     * that no keyword introduces, such as a `for` or a switch arm's binding. */
+    const char *cursor_line = line_ptr(d->text, line0);
+    size_t cursor_at = cursor_line != NULL
+        ? (size_t)(cursor_line - d->text) + (size_t)c.start_byte
+        : 0;
+    int is_local = 0;
+    if (!c.after_dot && cursor_line != NULL && declares_here(d->text, cursor_at)) {
+        dl = line0;
+        dc = c.start_byte;
+        is_local = 1;
+    }
+    if (!is_local) is_local = !c.after_dot && find_local(d, line0, c.start_byte, c.word, &dl, &dc);
     /* The cursor may be sitting *on* the declaration, where there is nothing earlier to resolve to
      * and `find_local` correctly fails. Taking that as "not a local" was the first version's bug:
      * it switched resolution off for the one request where someone most often asks, with the
@@ -1829,7 +1872,16 @@ static void handle_semantic_tokens(const JVal *id, const JVal *params) {
             int type = -1, mods = 0;
             size_t abs_start = (size_t)(p - d->text) + (size_t)i;
             int dline = -1, dcol = -1;
-            if (find_local(d, line, i, word, &dline, &dcol) || declares_here(d->text, abs_start)) {
+            /* **A declaration is its own declaration**, which `find_local` cannot say: it asks
+             * `line_declares` for a name *before* the cursor, so the `v` of `var v` is never
+             * matched on its own line and the search walks on to whatever `v` is above. For a
+             * shadowing declaration that is the binding it shadows -- so `var v` inside a block
+             * reported `readonly`, and reported no `declaration` at all, because the position it
+             * had resolved to was somewhere else entirely. Asked first, the keyword beside it
+             * answers both. */
+            int self_declares = declares_here(d->text, abs_start);
+            if (self_declares) { dline = line; dcol = i; }
+            if (self_declares || find_local(d, line, i, word, &dline, &dcol)) {
                 /* A local: its own declaration says whether it may be reassigned, and that answer
                  * belongs on every use, not only where the keyword is. */
                 size_t decl_at = abs_start;
