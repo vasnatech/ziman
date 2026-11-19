@@ -257,15 +257,44 @@ fn kind_of(w: widget.Widget) -> string {
 // already owns the arithmetic for its Code pane -- so the theme it wears is held to the same
 // number its syntax colouring is. 4.5:1 is body text; nothing here is large enough for the 3:1
 // allowance.
+fn reads_on_every_stop(p: controls.Parts) -> bool {
+    for stop in stops_of(p.face) {
+        if paint.contrast_ratio(p.ink, stop) < 4.5 {
+            return false
+        }
+    }
+    return true
+}
+
+fn stops_of(p: paint.Paint) -> [paint.Color] {
+    return switch p {
+        Solid(c) { [c] }
+        LinearGradient(g) { stop_colours(g.stops) }
+        RadialGradient(g) { stop_colours(g.stops) }
+        Pattern(_) { [] }
+    }
+}
+
+fn stop_colours(stops: [paint.Stop]) -> [paint.Color] {
+    val out = mutable_array_new<paint.Color>()
+    for one in stops {
+        push(out, one.color)
+    }
+    return snapshot(out)
+}
+
 #[test]
 fn the_modern_theme_is_legible_everywhere_it_puts_text() {
     val look = theme.modern()
     // Body text on each surface it is drawn on.
     test.assert(paint.contrast_ratio(look.ink, look.face) >= 4.5)
     test.assert(paint.contrast_ratio(look.ink, look.panel) >= 4.5)
-    test.assert(paint.contrast_ratio(look.states.selected.ink, look.states.selected.face) >= 4.5)
-    test.assert(paint.contrast_ratio(look.states.pressed.ink, look.states.pressed.face) >= 4.5)
-    test.assert(paint.contrast_ratio(look.states.hovered.ink, look.states.hovered.face) >= 4.5)
+    // **Every stop of every live row**, since F295 made a face a span of ramp steps: a gradient
+    // face passes only if its text reads at both ends, and a flat one has the single stop it
+    // always had. `theme_test` holds every look in the register to the same rule.
+    test.assert(reads_on_every_stop(look.states.selected))
+    test.assert(reads_on_every_stop(look.states.pressed))
+    test.assert(reads_on_every_stop(look.states.hovered))
     // And whatever a theme says reads on its accent.
     test.assert(paint.contrast_ratio(look.on_accent, look.accent) >= 4.5)
 }
@@ -277,7 +306,7 @@ fn the_modern_theme_is_legible_everywhere_it_puts_text() {
 #[test]
 fn the_modern_theme_tells_its_states_apart() {
     val look = theme.modern()
-    test.assert(paint.contrast_ratio(look.states.selected.face, look.face) >= 1.08)
+    test.assert(paint.contrast_ratio(paint.flat_of(look.states.selected.face), look.face) >= 1.08)
     test.assert(paint.contrast_ratio(look.accent, look.face) >= 3.0)
     switch look.states.rest.border {
         Some(edge) { test.assert(paint.contrast_ratio(edge.colour, look.face) >= 1.3) }
