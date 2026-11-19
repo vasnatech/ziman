@@ -462,7 +462,12 @@ def main():
     # Makefile and to corelib.c and the docs build said nothing, because this walk did not look at
     # lib/ui at all -- the module simply had no page. A module that is in no group should fail here,
     # whichever folder it is in.
-    for folder in ("core", "db", "http", "time", "ui"):
+    # **`graphics` was missing from this list too.** The comment above records `lib/ui` being added
+    # after `desktop` slipped through with no page; `lib/graphics` was never added at all, so the
+    # same hole stayed open for the thirteen modules under it. It is the shape of mistake that
+    # repeats because the list is written out rather than derived -- the Makefile's own `vpath` is
+    # the other copy of it.
+    for folder in ("core", "db", "graphics", "http", "time", "ui"):
         for root, _dirs, files in os.walk(os.path.join(ROOT, "lib", folder)):
             for fn in sorted(files):
                 p = os.path.join(root, fn)

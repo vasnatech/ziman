@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generates docs/CORELIB.md from the lib/core and lib/db modules' own `pub` declarations --
+# Generates docs/CORELIB.md from every bundled module's own `pub` declarations --
 # every struct and function signature is extracted straight from source
 # (see the awk block below), so the reference can't silently drift from
 # the actual API the way a hand-copied list would. Only the one-line
@@ -9,37 +9,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# One line per module, from the module's own header comment -- see tools/gen_module_summaries.py,
+# which carries the argument. This was a hand-written `case` with one arm per module and
+# `*) echo "" ;;` for anything it had not been told about, so **42 of the 92 bundled modules
+# shipped here with a bare signature dump and no description**, and the `git diff` gate was happy
+# because the generator had produced the blanks itself.
+summaries=$(python3 tools/gen_module_summaries.py)
+
 describe() {
-    case "$1" in
-        io) echo "File I/O. The first native module -- proved the \`native fn\` mechanism end to end." ;;
-        random) echo "One native function reading real OS entropy (\`/dev/urandom\`) -- Ziman's first source of genuine non-determinism." ;;
-        uuid) echo "RFC 4122 v4 UUIDs, written in pure Ziman on top of \`random\` -- version/variant bits set with plain integer arithmetic, since Ziman has no bitwise operators." ;;
-        clock) echo "One native function reading the system clock (\`clock_gettime\`) -- Ziman's other source of genuine non-determinism." ;;
-        time) echo "Seven \`java.time\`-shaped types (\`LocalDate\`, \`LocalTime\`, \`LocalDateTime\`, \`Duration\`, \`Instant\`, \`ZoneOffset\`, \`ZoneId\`), written in pure Ziman on top of \`clock\`. \`ZoneId\` reads the IANA zone files (see \`tzdata\`). Every type has a fixed ISO-8601 \`_to_string\`/\`_parse\` pair; \`LocalDate\`/\`LocalTime\`/\`LocalDateTime\`/\`Instant\` also get a general \`_format\`/\`_parse_pattern\` pair taking a \`DateTimeFormat\` -- a pattern compiled once by \`datetime_format_of\` (see the \`iso_*_format\` vals, each compiled exactly once at program start) rather than a raw pattern string re-scanned on every call." ;;
-        zone) echo "The IANA time zone database, read from the operating system's zone files, for \`time\`'s named zones (\`zoneid_of\`)." ;;
-        markdown) echo "Markdown as a document tree: a reader over a declared subset, a writer, and the escaping that makes a generated document safe. The writer is the point -- \`|\` in a table cell, the \`*_[]\` family in text, a leading \`#\` or \`1.\`, a code span fenced longer than whatever is inside it -- so nothing a caller puts in a string can change the structure of the output. Markdown has no syntax errors, so a reader cannot refuse what it does not handle: \`parse_markdown\` reads anything unsupported as text, and \`parse_markdown_strict\` returns an Err naming the line instead." ;;
-        xml) echo "XML 1.0 as a document tree: a reader, a writer and a small path finder, in pure Ziman. Not a \`Json\` tree -- XML interleaves text with elements, separates attributes from children and identifies a name by its namespace URI, none of which survive a map. There is no DTD at all, so \`<!DOCTYPE>\` is a parse error and entity-expansion and external-entity attacks have nowhere to stand; size, depth and attribute-count limits are in \`XmlLimits\`." ;;
-        mime) echo "Media types (\`type/subtype; name=value\`): parse, write, match with wildcards, and the type of a file by its extension." ;;
-        json) echo "A JSON parser/serializer (\`Json\`, a genuinely recursive enum), written in pure Ziman -- no native code needed. \`\\uXXXX\` unicode escapes are read; \`==\`/\`!=\` on \`Json\` is the one known gap." ;;
-        number) echo "Shared formatting/parsing across \`int\`/\`float\`/\`bigint\`/\`decimal\`/\`byte\`, written in pure Ziman on top of each type's own \`str()\`. \`NumberFormat\`/\`parse_pattern\` cover thousands separators and forced decimal places (a small subset of DecimalFormat-style patterns); \`byte_to_hex\`/\`int_to_hex\`/\`bigint_to_hex\` (and their \`_from_hex\` inverses) cover hex for the three integral types." ;;
-        crypto) echo "Hashes (SHA-1/256/384/512), HMAC, PBKDF2, password hashing (bcrypt, Argon2id), a constant-time byte comparison, base64 and base64url, on OpenSSL. No ciphers or public-key operations." ;;
-        otp) echo "Time-based one-time passwords (RFC 6238): the six-digit codes of an authenticator app -- generate a secret, a provisioning URI, and check a code." ;;
-        migrate) echo "Versioned schema migrations: a directory of V<n>__<name>.sql files applied in order, once each, in one transaction, with checksums to catch an edited migration." ;;
-        jwt) echo "JSON Web Tokens signed with a shared secret (HS256/384/512): sign, and verify with expiry checks." ;;
-        ndjson) echo "Newline-delimited JSON (one value per line) on top of \`json\`." ;;
-        csv) echo "RFC 4180 CSV as a \`Json\` array of objects keyed by the header row (typed or string cells; TSV via the \`_with\` variants); a table writer that flattens one level." ;;
-        toml) echo "TOML 1.0 to and from a \`Json\` tree. Dates stay strings; \`inf\`/\`nan\` are rejected." ;;
-        yaml) echo "A strict YAML 1.2 subset to and from a \`Json\` tree: block and flow collections, quoted/plain/block scalars. Anchors, tags, merge keys and multiple documents are errors." ;;
-        pg) echo "A PostgreSQL client, the second engine behind \`datasource\`: the simple and extended query protocols, trust/cleartext/SCRAM-SHA-256 authentication, TLS. No MD5 auth, Kerberos, client certificates, COPY or LISTEN/NOTIFY." ;;
-        mysql) echo "A MySQL/MariaDB client, the third engine behind \`datasource\`: the text and binary protocols, \`mysql_native_password\`/\`caching_sha2_password\` authentication, TLS. No compressed protocol, LOCAL INFILE, the RSA key exchange, or prepared-statement reuse." ;;
-        *) echo "" ;;
-    esac
+    printf '%s\n' "$summaries" | awk -F'\t' -v want="$1" '$1 == want { print $2; found = 1 } END { exit !found }'
 }
+
 
 cat <<'EOF'
 # Ziman core module reference
 
-Auto-generated from each `lib/core/*.zm` or `lib/db/*.zm` file's own `pub` declarations by
+Auto-generated from every bundled module's own `pub` declarations by
 `tools/gen_corelib_reference.sh` -- **don't hand-edit the signature
 blocks below**; regenerate with `make corelib-reference` after changing
 any core module (adding, removing, or renaming a `pub struct`/`pub enum`/
@@ -59,8 +44,37 @@ unqualified in every program, the same way `print`/`str`/`parse_int`
 are. See docs/syntax/'s "Modules" section for what it contains.
 EOF
 
-for f in lib/core/*.zm lib/db/*.zm lib/http/*.zm lib/time/*.zm; do
-    name=$(basename "$f" .zm)
+# **Every directory a bundled module can live in, and the five that live one deeper.**
+#
+# This globbed `lib/core` and `lib/db` when it was written, and `lib/http` and `lib/time` were
+# added to the glob as those appeared. `lib/graphics` and `lib/ui` never were -- so **29 of the 92
+# bundled modules had no entry here**, among them `widget`, `controls`, `paint`, `raster`,
+# `window` and the whole HTTP server, while README.md called this file "every bundled module's
+# `pub` signatures" and CHEATSHEET.md called it "every module and every function in it".
+#
+# The `git diff` gate could not see it: the generator never produced those sections, so there was
+# nothing for a diff against the last run to differ from. Same shape as the VS Code grammar whose
+# two generated rules matched nothing, and as the stale `charset_source.h` that hid a broken clean
+# build -- a check that compares is not a check that verifies.
+#
+# A multi-part bundled module (`charset`, `theme`, `server`, `client`, `rest`) keeps its parts in a
+# folder and registers them all under the folder's name, so the folder is the module and its
+# first part carries the header comment.
+modules=$(
+    for f in lib/*.zm lib/core/*.zm lib/db/*.zm lib/graphics/*.zm lib/http/*.zm lib/time/*.zm \
+             lib/ui/*.zm lib/ui/desktop/*.zm lib/ui/terminal/*.zm; do
+        [ -e "$f" ] || continue
+        echo "$(basename "$f" .zm) $f"
+    done
+    for d in lib/core/charset lib/ui/theme lib/http/server lib/http/client lib/http/rest; do
+        [ -d "$d" ] || continue
+        name=$(basename "$d")
+        echo "$name $d/$name.zm"
+    done
+)
+
+echo "$modules" | sort -u | while read -r name f; do
+    if [ -z "$name" ]; then continue; fi
     if [ "$name" = "prelude" ]; then continue; fi
     desc=$(describe "$name")
     # The "Experimental" label comes from the module's own `#![experimental]` attribute, not from a

@@ -931,3 +931,45 @@ fn a_caller_can_bring_its_own_table() {
         Err(_) { true }
     })
 }
+
+// **The generated tables, against mappings nobody here produced.**
+//
+// `lib/core/charset/tables.zm` comes from Python's codec data and `charsets-check` regenerates it
+// and diffs -- so a wrong generator would reproduce its wrong answer and the gate would pass. On
+// 2026-11-19 all 3,027 high-byte mappings in the 25 generated tables were compared against
+// **iconv**, an implementation that did not produce them: 3,025 agreed exactly.
+//
+// The two that differ are both `macintosh`, and both are the known split between Apple's Mac OS
+// Roman -- which Unicode's own Apple mapping file and Python's codec follow, and which these
+// tables follow -- and glibc's older MACINTOSH: 0xC6 is INCREMENT here and GREEK CAPITAL DELTA
+// there, 0xF0 is Apple's private-use logo here and a different private-use point there. Asserted
+// below so the choice is a decision on the record rather than an accident.
+//
+// A handful of mappings, not all 3,027: this is a spot check that the table is wired up and says
+// what the standards say, where the full cross-check is a one-off against an external tool.
+#[test]
+fn the_generated_tables_say_what_the_standards_say() {
+    said_is("iso-8859-2", [177b], "ą")
+    // 0xE0 is р and not а: in ISO-8859-5 the capitals run 0xB0-0xCF and the lower case follows,
+    // so this is sixteen past the start of the lower case. Checked against iconv, which caught the
+    // first version of this line.
+    said_is("iso-8859-5", [224b], "р")
+    said_is("windows-1251", [192b], "А")
+    said_is("windows-1253", [193b], "Α")
+    said_is("koi8-r", [193b], "а")
+    said_is("iso-8859-15", [164b], "€")
+    // Apple's Mac OS Roman, not glibc's MACINTOSH: INCREMENT rather than GREEK CAPITAL DELTA.
+    said_is("macintosh", [198b], "∆")
+}
+
+fn said_is(name: string, data: [byte], want: string) {
+    switch charset.charset_named(name) {
+        Some(set) {
+            switch charset.decode(data, set) {
+                Ok(text) { test.assert_eq(text, want) }
+                Err(_) { test.fail(concat(name, " refused a byte it defines")) }
+            }
+        }
+        None { test.fail(concat("no set for ", name)) }
+    }
+}
