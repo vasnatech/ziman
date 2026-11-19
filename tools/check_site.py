@@ -69,6 +69,50 @@ def check_examples(page, examples_dir, problems):
         problems.append("index.html links docs/lib/examples/%s, which does not exist" % stale)
 
 
+def srgb_luminance(hex_colour):
+    """WCAG 2 relative luminance of a `#rrggbb`."""
+    h = hex_colour.lstrip("#")
+    channels = [int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4)]
+    lin = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def contrast(a, b):
+    la, lb = srgb_luminance(a), srgb_luminance(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def check_code_contrast(page, name, problems):
+    """Every colour the code block draws text in, against the background it draws it on.
+
+    **The page's own syntax colouring failed this and nothing said so.** `--accent` and
+    `--structure` are darkened for contrast on paper and were being used inside `pre`, whose
+    background is dark in both themes: a keyword came out at 3.98:1 and a literal at 2.66:1, the
+    second below even the 3:1 floor for large text. The fix is two code-only variables with no
+    theme variants; this is what keeps them that way.
+
+    Only the code block, because it is the one place on the page where a foreground and a
+    background are both named in the stylesheet and can be checked without rendering anything.
+    """
+    backgrounds = re.findall(r"--code-bg:\s*(#[0-9a-fA-F]{6})", page)
+    if not backgrounds:
+        return
+    hues = {}
+    for var in ("code-fg", "code-dim", "code-key", "code-lit"):
+        found = re.findall(r"--%s:\s*(#[0-9a-fA-F]{6})" % var, page)
+        if found:
+            hues[var] = found
+    for i, bg in enumerate(backgrounds):
+        for var, values in sorted(hues.items()):
+            fg = values[i] if len(values) > i else values[0]
+            ratio = contrast(fg, bg)
+            if ratio < 4.5:
+                problems.append(
+                    "%s: --%s (%s) on --code-bg (%s) is %.2f:1, under WCAG AA's 4.5:1 for body "
+                    "text" % (name, var, fg, bg, ratio))
+
+
 def check(directory, examples_dir=None):
     problems = []
 
@@ -108,6 +152,7 @@ def check(directory, examples_dir=None):
             problems.append("%s: <%s> at line %d col %d is never closed" % (name, tag, line, col))
         for tag, (line, col) in walk.stray:
             problems.append("%s: </%s> at line %d col %d closes nothing" % (name, tag, line, col))
+        check_code_contrast(page, name, problems)
 
     return problems
 

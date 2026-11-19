@@ -28,6 +28,13 @@
   --code-bg:    #15201b;
   --code-fg:    #e8e4da;
   --code-dim:   #8fa096;
+  /* The code block is dark in both themes, so its two syntax hues have no theme variants: the
+     page's --accent and --structure are darkened for contrast on paper, and on this background
+     that made a keyword 3.98:1 and a literal 2.66:1 -- the second below even the 3:1 large-text
+     floor. These are the values that were already being used in dark theme, where they sit at
+     7.72:1 and 7.63:1 on the same background. */
+  --code-key:   #e0a63c;
+  --code-lit:   #6fbf96;
   --display: "Literata", Georgia, "Times New Roman", serif;
   --body:    "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -124,10 +131,10 @@ pre {
   overflow-x: auto;
   tab-size: 4;
 }
-pre b { color: var(--accent); font-weight: 700 }
+pre b { color: var(--code-key); font-weight: 700 }
 pre .dim { color: var(--code-dim) }
 pre .cmt { color: var(--code-dim); font-style: italic }
-pre .grn { color: var(--structure) }
+pre .grn { color: var(--code-lit) }
 code { font-family: var(--mono); font-size: .92em }
 p code, li code, td code { background: var(--panel); padding: .1em .35em; border-radius: 3px }
 
