@@ -50,6 +50,7 @@ fn a_key_press_carries_the_hardware_keycode() {
         FocusIn { test.fail("wrong kind") }
         FocusOut { test.fail("wrong kind") }
         Exposed { test.fail("wrong kind") }
+        SchemeChanged(_) { test.fail("wrong kind") }
     }
     // A release carries it too: a method is told about both, and a dead key is decided on one and
     // released on the other.
@@ -66,6 +67,7 @@ fn a_key_press_carries_the_hardware_keycode() {
         FocusIn { test.fail("wrong kind") }
         FocusOut { test.fail("wrong kind") }
         Exposed { test.fail("wrong kind") }
+        SchemeChanged(_) { test.fail("wrong kind") }
     }
 }
 
@@ -91,6 +93,7 @@ fn a_key_press_carries_its_keysym_and_no_modifiers() {
         FocusIn { test.fail("wrong kind") }
         FocusOut { test.fail("wrong kind") }
         Exposed { test.fail("wrong kind") }
+        SchemeChanged(_) { test.fail("wrong kind") }
     }
 }
 
@@ -117,6 +120,7 @@ fn the_modifier_bits_are_read_independently() {
         FocusIn { test.fail("wrong kind") }
         FocusOut { test.fail("wrong kind") }
         Exposed { test.fail("wrong kind") }
+        SchemeChanged(_) { test.fail("wrong kind") }
     }
     switch one(ev(1, 115, 5, 0, 0)) {
         KeyDown(k) {
@@ -135,6 +139,7 @@ fn the_modifier_bits_are_read_independently() {
         FocusIn { test.fail("wrong kind") }
         FocusOut { test.fail("wrong kind") }
         Exposed { test.fail("wrong kind") }
+        SchemeChanged(_) { test.fail("wrong kind") }
     }
     switch one(ev(1, 115, 72, 0, 0)) {
         KeyDown(k) {
@@ -154,6 +159,7 @@ fn the_modifier_bits_are_read_independently() {
         FocusIn { test.fail("wrong kind") }
         FocusOut { test.fail("wrong kind") }
         Exposed { test.fail("wrong kind") }
+        SchemeChanged(_) { test.fail("wrong kind") }
     }
 }
 
@@ -172,6 +178,7 @@ fn char_text(e: Event) -> string {
         Close { "(Close)" }
         FocusIn { "(FocusIn)" }
         FocusOut { "(FocusOut)" }
+        SchemeChanged(_) { "(FocusOut)" }
         Exposed { "(Exposed)" }
     }
 }
@@ -240,6 +247,7 @@ fn a_keystroke_decodes_to_a_key_and_the_text_it_produced() {
         FocusIn { test.fail("wrong kind") }
         FocusOut { test.fail("wrong kind") }
         Exposed { test.fail("wrong kind") }
+        SchemeChanged(_) { test.fail("wrong kind") }
     }
 }
 
@@ -262,6 +270,7 @@ fn a_pointer_press_carries_its_position_and_button() {
         FocusIn { test.fail("wrong kind") }
         FocusOut { test.fail("wrong kind") }
         Exposed { test.fail("wrong kind") }
+        SchemeChanged(_) { test.fail("wrong kind") }
     }
 }
 
@@ -287,6 +296,7 @@ fn the_wheel_is_a_scroll_with_a_direction() {
         FocusIn { test.fail("wrong kind") }
         FocusOut { test.fail("wrong kind") }
         Exposed { test.fail("wrong kind") }
+        SchemeChanged(_) { test.fail("wrong kind") }
     }
     switch one(ev(7, 10, 20, 0, 0 - 1)) {
         Scroll(s) { test.assert_eq(s.vertical, 0 - 1) }
@@ -301,6 +311,7 @@ fn the_wheel_is_a_scroll_with_a_direction() {
         FocusIn { test.fail("wrong kind") }
         FocusOut { test.fail("wrong kind") }
         Exposed { test.fail("wrong kind") }
+        SchemeChanged(_) { test.fail("wrong kind") }
     }
 }
 
@@ -322,6 +333,7 @@ fn a_resize_carries_the_new_size() {
         FocusIn { test.fail("wrong kind") }
         FocusOut { test.fail("wrong kind") }
         Exposed { test.fail("wrong kind") }
+        SchemeChanged(_) { test.fail("wrong kind") }
     }
 }
 
@@ -383,6 +395,7 @@ fn name_of(keysym: int) -> string {
         Close { "wrong kind" }
         FocusIn { "wrong kind" }
         FocusOut { "wrong kind" }
+        SchemeChanged(_) { "wrong kind" }
         Exposed { "wrong kind" }
     }
 }

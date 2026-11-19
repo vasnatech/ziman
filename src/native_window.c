@@ -55,6 +55,10 @@
  * stride rather than a tagged length so the Ziman decoder is a loop over fives and not a parser. */
 #define EVENT_FIELDS 5
 
+/* The appearance event's code, matching `ev_scheme` in lib/ui/desktop/window.zm. **13, and the only
+ * code in this file that is not an X11 event** -- see the portal section below. */
+#define EV_SCHEME 13
+
 /* The event kinds, which lib/core/window.zm's decoder mirrors. Numbered rather than named across
  * the boundary because an int array is what crosses it; the names live in Ziman. */
 enum {
@@ -415,6 +419,140 @@ static const char *ensure_image(Slot *s, int width, int height) {
  * A function because `poll_raw` appends from two places -- an X KeyPress produces both a `KeyDown`
  * and the `Char` it composed -- and the second copy of this arithmetic is what put them in the
  * wrong order. */
+#ifdef ZIMAN_PORTAL
+#include <gio/gio.h>
+
+/* The desktop's appearance preference, read from the freedesktop portal.
+ *
+ * **GIO is already linked here and that is the whole reason this is cheap.** `src/native_ibus.c`
+ * has been calling `g_dbus_connection_call_sync` and `g_dbus_connection_signal_subscribe` since it
+ * was written, and the Makefile says why: "it costs nothing, because at-spi2-atk already brought
+ * it." This is the same three calls against a different service.
+ *
+ * **It must never hang.** A desktop that does not run the portal, or runs one that is wedged, is an
+ * ordinary machine -- so every call has a short timeout and a bus that fails once is remembered as
+ * absent rather than retried sixty times a second. A frame budget is 16ms; a D-Bus round trip that
+ * blocks for a second has already ruined the frame it was called from. */
+static GDBusConnection *g_portal = NULL;
+static int g_portal_tried = 0;   /* asked for the bus at least once */
+static int g_portal_absent = 0;  /* asked, and there is none: do not ask again */
+static int g_scheme = 0;         /* last value read, in the portal's own numbering */
+static int g_scheme_fresh = 0;   /* a change arrived that nobody has been told about yet */
+
+static int scheme_from_variant(GVariant *v) {
+    if (v == NULL) return 0;
+    /* `ReadOne` answers `v` and `Read` answers `(v)` wrapping another `v`, so the value arrives
+     * inside one or two layers of variant depending on which method answered. Unwrapping until it
+     * is no longer a variant handles both without the caller knowing which it called. */
+    GVariant *inner = g_variant_ref(v);
+    while (g_variant_is_of_type(inner, G_VARIANT_TYPE_VARIANT)) {
+        GVariant *next = g_variant_get_variant(inner);
+        g_variant_unref(inner);
+        inner = next;
+    }
+    int out = 0;
+    if (g_variant_is_of_type(inner, G_VARIANT_TYPE_UINT32)) {
+        guint32 raw = g_variant_get_uint32(inner);
+        /* **Anything unrecognised is 0**, which is what the spec asks for: a portal that one day
+         * answers 3 reads as "no preference" rather than as an error or as dark. */
+        if (raw == 1 || raw == 2) out = (int)raw;
+    }
+    g_variant_unref(inner);
+    return out;
+}
+
+static void on_setting_changed(GDBusConnection *c, const char *sender, const char *path,
+                               const char *iface, const char *signal, GVariant *params,
+                               gpointer user) {
+    (void)c; (void)sender; (void)path; (void)iface; (void)signal; (void)user;
+    const char *space = NULL;
+    const char *key = NULL;
+    GVariant *value = NULL;
+    g_variant_get(params, "(&s&sv)", &space, &key, &value);
+    if (space != NULL && key != NULL &&
+        strcmp(space, "org.freedesktop.appearance") == 0 && strcmp(key, "color-scheme") == 0) {
+        int now = scheme_from_variant(value);
+        if (now != g_scheme) {
+            g_scheme = now;
+            g_scheme_fresh = 1;
+        }
+    }
+    if (value != NULL) g_variant_unref(value);
+}
+
+/* Reads the setting once, over whichever method this portal has.
+ *
+ * **`ReadOne` is current and `Read` is deprecated, and the fallback is required rather than
+ * tidy**: older portals answer `ReadOne` with "No such method", which is an error and not an empty
+ * answer, so a client that only calls the new one gets nothing from them. Ghostty hit exactly this
+ * and it is the kind of thing that works on the machine it was written on. */
+static int portal_read_now(void) {
+    GError *err = NULL;
+    GVariant *answer = g_dbus_connection_call_sync(
+        g_portal, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+        "org.freedesktop.portal.Settings", "ReadOne",
+        g_variant_new("(ss)", "org.freedesktop.appearance", "color-scheme"),
+        NULL, G_DBUS_CALL_FLAGS_NONE, 1000, NULL, &err);
+    if (answer == NULL) {
+        g_clear_error(&err);
+        answer = g_dbus_connection_call_sync(
+            g_portal, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Settings", "Read",
+            g_variant_new("(ss)", "org.freedesktop.appearance", "color-scheme"),
+            NULL, G_DBUS_CALL_FLAGS_NONE, 1000, NULL, &err);
+    }
+    if (answer == NULL) {
+        g_clear_error(&err);
+        return 0;
+    }
+    GVariant *first = g_variant_n_children(answer) > 0 ? g_variant_get_child_value(answer, 0) : NULL;
+    int out = scheme_from_variant(first);
+    if (first != NULL) g_variant_unref(first);
+    g_variant_unref(answer);
+    return out;
+}
+
+/* Opens the session bus once, reads the setting, and subscribes to changes.
+ *
+ * **Lazily, and remembered either way.** A machine with no portal should pay for one failed
+ * connection and never think about it again -- `g_portal_absent` is what stops this being asked
+ * again on the next frame, which is the difference between a feature and a stall. */
+static void portal_open(void) {
+    if (g_portal_tried) return;
+    g_portal_tried = 1;
+    GError *err = NULL;
+    g_portal = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &err);
+    if (g_portal == NULL) {
+        g_clear_error(&err);
+        g_portal_absent = 1;
+        return;
+    }
+    g_scheme = portal_read_now();
+    /* **Some desktops historically never emitted this** -- a KDE bug fixed around Plasma 5.24 --
+     * which is why the value read above stands on its own and a change is an improvement on it
+     * rather than the only way to learn anything. A window on such a desktop shows what the setting
+     * was when it opened, which is what it would have done anyway. */
+    g_dbus_connection_signal_subscribe(
+        g_portal, "org.freedesktop.portal.Desktop", "org.freedesktop.portal.Settings",
+        "SettingChanged", "/org/freedesktop/portal/desktop", NULL, G_DBUS_SIGNAL_FLAGS_NONE,
+        on_setting_changed, NULL, NULL);
+}
+
+/* Drains glib's loop so a subscription can fire, and says whether the value moved.
+ *
+ * **The signal arrives on glib's loop while the window runs X11's**, which is the same situation
+ * `ibus.pump_raw` is in and the reason that function iterates the context by hand. Bounded, and
+ * non-blocking, so an idle window pays a handful of empty iterations. */
+static int portal_poll_changed(void) {
+    if (g_portal_absent || g_portal == NULL) return 0;
+    int turns = 0;
+    while (g_main_context_iteration(NULL, FALSE) && turns < 64) turns++;
+    if (!g_scheme_fresh) return 0;
+    g_scheme_fresh = 0;
+    return 1;
+}
+#endif /* ZIMAN_PORTAL */
+
 static int64_t *push_event(int64_t *out, int *count, int *capacity, const int64_t *fields) {
     if (*count + 1 > *capacity) {
         *capacity = *capacity == 0 ? 32 : *capacity * 2;
@@ -681,6 +819,18 @@ static Value native_window_poll_raw(Value *args, int argc, int line, int col) {
         if (have_extra) out = push_event(out, &count, &capacity, extra);
     }
 
+#ifdef ZIMAN_PORTAL
+    /* **The one event here that X11 never sent.** The desktop's appearance is a D-Bus setting, so
+     * it arrives on glib's loop; draining that loop here and appending the result is what lets an
+     * application hear about it through the same `poll` it already calls, instead of learning a
+     * second mechanism. See `portal_poll_changed`, and D11. */
+    portal_open();
+    if (portal_poll_changed()) {
+        int64_t scheme[EVENT_FIELDS] = { EV_SCHEME, g_scheme, 0, 0, 0 };
+        out = push_event(out, &count, &capacity, scheme);
+    }
+#endif
+
     /* `out` is still NULL when nothing happened, which is the common case in a render loop --
      * so the empty answer is built without it rather than handing a NULL to value_int_array. */
     int64_t none = 0;
@@ -921,6 +1071,34 @@ static Value native_window_display_scale_raw(Value *args, int argc, int line, in
 #endif
 }
 
+
+/* window.color_scheme_raw() -> int: what the desktop says it wants, as the portal's own numbering.
+ *
+ *     0 = no preference     1 = DARK     2 = LIGHT
+ *
+ * **1 is dark and 2 is light**, which is not alphabetical and is the easiest thing in this file to
+ * invert. It is the freedesktop portal's numbering and it is repeated in the Ziman half's comment
+ * so that neither side can drift from it quietly.
+ *
+ * A sentinel rather than an Option, for `display_scale_raw`'s reason: a native returning one is
+ * more machinery than this deserves, and 0 is a value the spec already defines as "no preference".
+ * **Anything this does not recognise is 0**, which the spec also asks for -- a portal that one day
+ * answers 3 should read as "no preference" and not as a crash.
+ *
+ * Without ZIMAN_PORTAL there is no GIO linked in, so this answers 0 and the library behaves on a
+ * machine with no portal exactly as it does in a build without one -- which is the same promise
+ * `display_scale_raw` makes about X11. */
+static Value native_window_color_scheme_raw(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+#ifndef ZIMAN_PORTAL
+    return value_int(0);
+#else
+    portal_open();
+    if (g_portal_absent) return value_int(0);
+    return value_int(g_scheme);
+#endif
+}
+
 /* window.present_premul_raw(handle, pixels, width, height): a frame of PREMULTIPLIED RGBA floats
  * straight onto the window, four doubles a pixel.
  *
@@ -1038,4 +1216,5 @@ void native_window_register(void) {
     native_register("window::set_cursor_raw", native_window_set_cursor_raw);
     native_register("window::close_raw", native_window_close_raw);
     native_register("window::display_scale_raw", native_window_display_scale_raw);
+    native_register("window::color_scheme_raw", native_window_color_scheme_raw);
 }

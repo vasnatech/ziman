@@ -69,6 +69,7 @@ fn describe(event: window.Event) -> string {
         FocusIn { "FocusIn" }
         FocusOut { "FocusOut" }
         Exposed { "Exposed" }
+        SchemeChanged(_) { "SchemeChanged" }
     }
 }
 
@@ -115,6 +116,36 @@ Close requested
 0
 ```
 
+### `Preference`
+
+```
+pub enum Preference {
+    NoPreference
+    Dark
+    Light
+}
+```
+
+What happened, as an application cares about it.
+
+**A key press and the text it produced are separate events**, and both are reported for one
+keystroke. A shortcut wants to know that `S` was pressed with Control held; a text field wants the
+character the layout and any dead keys actually produced. Deriving either from the other is how
+keyboard layouts go wrong -- a program that computes text from a keysym gets a German keyboard
+subtly wrong, and one that computes shortcuts from text cannot tell Ctrl-S from a typed `s`.
+
+**The `KeyDown` comes first and the `Char` second**, which is a promise rather than an accident: a
+program that decides from the key whether to consume the character needs to see the key first.
+They arrived the other way round until a real key press was finally synthesised against a real
+window (`tests/run_window_test.sh`), because the order is the backend's and no test over
+`decode_events` can see it.
+What appearance a desktop says its user wants.
+
+**Three answers, not a bool**, because "no preference" is a real state and not a missing one: a
+portal that is not running, a desktop that does not publish the setting, and a user who has not
+chosen are all of them, and a program that collapsed them to `false` would quietly impose a light
+theme on a user who had asked for neither.
+
 ### `Event`
 
 ```
@@ -135,6 +166,13 @@ pub enum Event {
     // request, not a fact**: nothing has closed, and a program that ignores it keeps running, which
     // is what makes "save before quitting?" possible.
     Close
+    // The desktop changed what appearance it asks for.
+    //
+    // **Delivered like a resize, and followed for the same reason.** GNOME's automatic dark mode
+    // switches at *sunset*, so a program that read the preference once at startup goes stale in the
+    // middle of an ordinary session and reads as ignoring the setting. A window that is open when
+    // the sun goes down gets this.
+    SchemeChanged(Preference)
     FocusIn
     FocusOut
     // The server wants a region drawn again. A program that repaints every frame can ignore it; one
@@ -142,20 +180,6 @@ pub enum Event {
     Exposed
 }
 ```
-
-What happened, as an application cares about it.
-
-**A key press and the text it produced are separate events**, and both are reported for one
-keystroke. A shortcut wants to know that `S` was pressed with Control held; a text field wants the
-character the layout and any dead keys actually produced. Deriving either from the other is how
-keyboard layouts go wrong -- a program that computes text from a keysym gets a German keyboard
-subtly wrong, and one that computes shortcuts from text cannot tell Ctrl-S from a typed `s`.
-
-**The `KeyDown` comes first and the `Char` second**, which is a promise rather than an accident: a
-program that decides from the key whether to consume the character needs to see the key first.
-They arrived the other way round until a real key press was finally synthesised against a real
-window (`tests/run_window_test.sh`), because the order is the backend's and no test over
-`decode_events` can see it.
 
 ### `KeyPress`
 
@@ -231,10 +255,10 @@ pub struct Window {
 
 A window, which is only a handle: the pixels and the connection live in C.
 
-### `display_scale`
+### `color_scheme`
 
 ```
-pub fn display_scale() -> Option<float>
+pub fn color_scheme() -> Preference
 ```
 
 How many pixels the display says a point is, or `None` when it will not say.
@@ -250,6 +274,26 @@ no window backend -- because in all three the answer is "fall through to the nex
 **Per display, not per monitor.** A laptop beside a HiDPI screen reports one number for both, and
 a window dragged between them does not change it. Per-monitor density needs RandR and the
 window's position, and is a different function that does not exist yet.
+What appearance the desktop asks for, or `NoPreference`.
+
+**The window layer reports and the application decides** (D11). This says what the user's desktop
+was set to; it does not pick a look, because that is policy and policy belongs to the program --
+the same split as `Style.window`, which the library names and the application hands to
+`raster.Options`. It is also what keeps `lib/ui/theme` pure data, and therefore testable on a
+machine with no desktop at all.
+
+`theme.Look.scheme` is the other half: an application matches this against the register rather
+than against the word "dark", which would be wrong for a look called "Midnight".
+
+**`NoPreference` is a real answer, not a failure.** No portal running, a desktop that does not
+publish the setting, a build with no window backend, and a user who has not chosen are four
+situations a caller treats identically: use your own default.
+
+### `display_scale`
+
+```
+pub fn display_scale() -> Option<float>
+```
 
 ### `with_window`
 

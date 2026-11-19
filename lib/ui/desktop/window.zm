@@ -37,6 +37,18 @@ use charset
 // They arrived the other way round until a real key press was finally synthesised against a real
 // window (`tests/run_window_test.sh`), because the order is the backend's and no test over
 // `decode_events` can see it.
+// What appearance a desktop says its user wants.
+//
+// **Three answers, not a bool**, because "no preference" is a real state and not a missing one: a
+// portal that is not running, a desktop that does not publish the setting, and a user who has not
+// chosen are all of them, and a program that collapsed them to `false` would quietly impose a light
+// theme on a user who had asked for neither.
+pub enum Preference {
+    NoPreference
+    Dark
+    Light
+}
+
 pub enum Event {
     KeyDown(KeyPress)
     KeyUp(KeyPress)
@@ -54,6 +66,13 @@ pub enum Event {
     // request, not a fact**: nothing has closed, and a program that ignores it keeps running, which
     // is what makes "save before quitting?" possible.
     Close
+    // The desktop changed what appearance it asks for.
+    //
+    // **Delivered like a resize, and followed for the same reason.** GNOME's automatic dark mode
+    // switches at *sunset*, so a program that read the preference once at startup goes stale in the
+    // middle of an ordinary session and reads as ignoring the setting. A window that is open when
+    // the sun goes down gets this.
+    SchemeChanged(Preference)
     FocusIn
     FocusOut
     // The server wants a region drawn again. A program that repaints every frame can ignore it; one
@@ -130,6 +149,7 @@ native fn set_icon_raw(handle: int, pixels: [byte], width: int, height: int) -> 
 native fn set_cursor_raw(handle: int, kind: int) -> Result<unit, string>
 native fn close_raw(handle: int)
 native fn display_scale_raw() -> float
+native fn color_scheme_raw() -> int
 
 // Five ints per event, matching src/native_window.c's EVENT_FIELDS.
 val fields_per_event = 5
@@ -146,6 +166,10 @@ val ev_close = 9
 val ev_focus_in = 10
 val ev_focus_out = 11
 val ev_exposed = 12
+// **13, and the only one that is not an X11 event.** The desktop's appearance is a D-Bus setting
+// and arrives on glib's loop, so the native stages it and `poll` hands it over here -- which is the
+// whole point: an application's loop does not learn a second shape to hear about it.
+val ev_scheme = 13
 
 // The modifier bits X11 reports, which the native passes through unchanged.
 val mod_shift = 1
@@ -166,6 +190,37 @@ val mod_meta = 64
 // **Per display, not per monitor.** A laptop beside a HiDPI screen reports one number for both, and
 // a window dragged between them does not change it. Per-monitor density needs RandR and the
 // window's position, and is a different function that does not exist yet.
+// What appearance the desktop asks for, or `NoPreference`.
+//
+// **The window layer reports and the application decides** (D11). This says what the user's desktop
+// was set to; it does not pick a look, because that is policy and policy belongs to the program --
+// the same split as `Style.window`, which the library names and the application hands to
+// `raster.Options`. It is also what keeps `lib/ui/theme` pure data, and therefore testable on a
+// machine with no desktop at all.
+//
+// `theme.Look.scheme` is the other half: an application matches this against the register rather
+// than against the word "dark", which would be wrong for a look called "Midnight".
+//
+// **`NoPreference` is a real answer, not a failure.** No portal running, a desktop that does not
+// publish the setting, a build with no window backend, and a user who has not chosen are four
+// situations a caller treats identically: use your own default.
+pub fn color_scheme() -> Preference {
+    return preference_of(color_scheme_raw())
+}
+
+// **1 is dark and 2 is light** -- the freedesktop portal's own numbering, which is not alphabetical
+// and is the easiest thing here to invert. Anything else is no preference, which is what the spec
+// asks for: a portal that one day answers 3 reads as "no preference" rather than as an error.
+fn preference_of(reported: int) -> Preference {
+    if reported == 1 {
+        return Preference.Dark
+    }
+    if reported == 2 {
+        return Preference.Light
+    }
+    return Preference.NoPreference
+}
+
 pub fn display_scale() -> Option<float> {
     val reported = display_scale_raw()
     if reported <= 0.0 {
@@ -415,6 +470,9 @@ fn decode_one(kind: int, a: int, b: int, c: int, d: int) -> Option<Event> {
     }
     if kind == ev_exposed {
         return Option<Event>.Some(Event.Exposed)
+    }
+    if kind == ev_scheme {
+        return Option<Event>.Some(Event.SchemeChanged(preference_of(a)))
     }
     return Option<Event>.None
 }

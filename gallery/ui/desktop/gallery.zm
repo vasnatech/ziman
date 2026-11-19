@@ -162,6 +162,7 @@ fn is_close(e: window.Event) -> bool {
         Resize(_) { false }
         FocusIn { false }
         FocusOut { false }
+        SchemeChanged(_) { false }
     }
 }
 
@@ -179,6 +180,7 @@ fn is_exposed(e: window.Event) -> bool {
         Resize(_) { false }
         FocusIn { false }
         FocusOut { false }
+        SchemeChanged(_) { false }
     }
 }
 
@@ -196,47 +198,97 @@ fn resized_to(e: window.Event) -> Option<window.Size> {
         Scroll(_) { Option<window.Size>.None }
         FocusIn { Option<window.Size>.None }
         FocusOut { Option<window.Size>.None }
+        SchemeChanged(_) { Option<window.Size>.None }
+    }
+}
+
+// The look to wear, for what the desktop says it wants.
+//
+// **Chosen from the register by scheme, not matched on a name** -- `theme.Look.scheme` exists for
+// exactly this, and a program that looked for the word "dark" would be one look called "Midnight"
+// away from being wrong. The gallery wears the modern family, which is also the only way anyone
+// finds out that it is wrong about something.
+//
+// **`NoPreference` keeps the light one**, which is a policy and therefore this file's to make:
+// the library reports and the application decides (D11).
+fn look_for(want: window.Preference) -> controls.Style {
+    val dark = switch want {
+        Dark { true }
+        Light { false }
+        NoPreference { false }
+    }
+    for one in theme.all() {
+        val is_dark = switch one.scheme {
+            Dark { true }
+            Light { false }
+        }
+        if one.name == "Modern" || one.name == "Modern dark" {
+            if is_dark == dark {
+                // The marks have to be characters the face actually has: `lib/ui` defaults to
+                // triangles, which is right for a toolkit and wrong for whatever font a machine
+                // happens to have. A face without U+25B8 would draw `.notdef` and every branch
+                // would look alike.
+                return with one.style { collapsed_mark: ">", expanded_mark: "v" }
+            }
+        }
+    }
+    return with theme.modern() { collapsed_mark: ">", expanded_mark: "v" }
+}
+
+// **The look's own colour behind every control, which this file used to argue was the renderer's.**
+// The window is the largest area in the window, so a look that cannot name it cannot be dark;
+// `Style.window` holds it and the clearing is still the application's, which is the part the old
+// argument had right. Rebuilt when the look changes, because the window behind a dark look is not
+// the window behind a light one.
+fn options_for(look: controls.Style, faces: [font.FontRef], scale: float) -> raster.Options {
+    return with raster.options() {
+        fonts: faces,
+        // The demo's own picture, made rather than loaded. See `pictures`.
+        images: images,
+        samples: 1,
+        background: Option<paint.Color>.Some(look.window),
+        max_pixels: ((8000000 as float) * scale * scale) as int,
+        px_per_pt: scale
+    }
+}
+
+// The preference a scheme change carries, or nothing for any other event.
+fn scheme_asked(e: window.Event) -> Option<window.Preference> {
+    return switch e {
+        SchemeChanged(p) { Option<window.Preference>.Some(p) }
+        Exposed { Option<window.Preference>.None }
+        Close { Option<window.Preference>.None }
+        KeyDown(_) { Option<window.Preference>.None }
+        KeyUp(_) { Option<window.Preference>.None }
+        Char(_) { Option<window.Preference>.None }
+        PointerDown(_) { Option<window.Preference>.None }
+        PointerUp(_) { Option<window.Preference>.None }
+        PointerMove(_) { Option<window.Preference>.None }
+        Scroll(_) { Option<window.Preference>.None }
+        Resize(_) { Option<window.Preference>.None }
+        FocusIn { Option<window.Preference>.None }
+        FocusOut { Option<window.Preference>.None }
     }
 }
 
 fn run() -> Result<unit, string> {
     val faces = try load_fonts()
     val m = try widget.metrics_for_faces(faces)
-    // The tree's marks have to be characters the face actually has: `lib/ui` defaults to
-    // triangles, which is right for a toolkit and wrong for whatever font a machine happens to
-    // have. A face without U+25B8 would draw `.notdef` and every branch would look alike.
-    // **The gallery wears the look the library is proudest of**, which is also the only way
-    // anyone finds out that `modern_style` is wrong about something. The two marks are replaced
-    // for the reason they always were: the faces a desktop ships have no triangles.
-    val style = with theme.modern() { collapsed_mark: ">", expanded_mark: "v" }
-    // **The frame every control in this window is drawn in**: the look, this window's
-    // measurements, and -- once `frame_at` fills them in -- the three names the window holds. The
-    // look and the metrics do not change while the window is open; the names change on every
-    // pointer move, which is the whole reason they are names here and not flags in the tree.
-    val resting = controls.frame_of(style, m)
     val density = chosen_density().density
     val scale = density.px_per_pt
-    val options = with raster.options() {
-        fonts: faces,
-        // The demo's own picture, made rather than loaded. See `pictures`.
-        images: images,
-        samples: 1,
-        // **The look's own colour, which this file used to argue was the renderer's.** The
-        // comment here said `Style` describes controls and what is behind them is what the window
-        // was cleared to -- and it was wrong for one reason: the window is the largest area in the
-        // window, so a look and feel that cannot name it cannot be dark. `Style.window` holds it
-        // now and the clearing is still the application's, which is the part the old argument had
-        // right. Same pixels: `modern()` carries the cool white that was written here.
-        background: Option<paint.Color>.Some(style.window),
-        max_pixels: ((8000000 as float) * scale * scale) as int,
-        px_per_pt: scale
-    }
     val outcome = window.with_window<unit>(
         "ziman gallery",
         ((start_width as float) * scale) as int,
         ((start_height as float) * scale) as int,
         fn(w: window.Window) -> Result<unit, string> {
             var painter = try desktop.painter_of(start_width as float, start_height as float, scale)
+            // **The desktop is asked once here and answered again whenever it changes.** GNOME's
+            // automatic dark mode switches at sunset, so a window that read this only at startup
+            // would go stale in the middle of an ordinary session -- which is why `poll` delivers
+            // a `SchemeChanged` and why these three are variables.
+            var style = look_for(window.color_scheme())
+            var resting = controls.frame_of(style, m)
+            var options = options_for(style, faces, scale)
             var st = with state.opening_state(resting) { window_width: start_width as float }
             // The accessibility bridge is optional and its absence is not an error: said once and
             // then left alone, which is what curly's window does with the same two calls.
@@ -327,6 +379,17 @@ fn run() -> Result<unit, string> {
                     // The contents are gone and the scene has not changed, so without this the
                     // window would stay as the compositor left it.
                     if is_exposed(e) {
+                        painter = desktop.forget(painter)
+                        dirty = true
+                    }
+                    if Some(want) = scheme_asked(e) {
+                        // **Everything the look touches is rebuilt**, which is three things: the
+                        // frame every control is drawn in, the colour behind them, and the painter,
+                        // whose last scene is in the old colours and would otherwise be diffed
+                        // against the new one and found "unchanged".
+                        style = look_for(want)
+                        resting = controls.frame_of(style, m)
+                        options = options_for(style, faces, scale)
                         painter = desktop.forget(painter)
                         dirty = true
                     }

@@ -37,6 +37,7 @@ fn describe(event: window.Event) -> string {
         FocusIn { "FocusIn" }
         FocusOut { "FocusOut" }
         Exposed { "Exposed" }
+        SchemeChanged(_) { "SchemeChanged" }
     }
 }
 

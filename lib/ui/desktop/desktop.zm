@@ -88,6 +88,11 @@ pub fn input_of(e: window.Event, d: Density) -> Option<controls.Input> {
         FocusIn { Option<controls.Input>.None }
         FocusOut { Option<controls.Input>.None }
         Exposed { Option<controls.Input>.None }
+        // **Not an input, and deliberately not translated into one.** A control takes keys and
+        // pointers; what the desktop wants to look like is the application's business, and the
+        // window hands it over as an event so that the application can answer it. See D11: the
+        // window layer reports and the application decides.
+        SchemeChanged(_) { Option<controls.Input>.None }
     }
 }
 

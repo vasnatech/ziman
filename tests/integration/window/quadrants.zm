@@ -109,6 +109,7 @@ fn report(e: window.Event) {
         FocusIn { print("event FocusIn") }
         FocusOut { print("event FocusOut") }
         Exposed { print("event Exposed") }
+        SchemeChanged(_) { print("event SchemeChanged") }
     }
 }
 
@@ -134,6 +135,7 @@ fn is_exposed(e: window.Event) -> bool {
         Resize(_) { false }
         FocusIn { false }
         FocusOut { false }
+        SchemeChanged(_) { false }
     }
 }
 
@@ -150,6 +152,7 @@ fn is_close(e: window.Event) -> bool {
         Resize(_) { false }
         FocusIn { false }
         FocusOut { false }
+        SchemeChanged(_) { false }
         Exposed { false }
     }
 }

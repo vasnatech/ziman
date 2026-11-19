@@ -130,6 +130,26 @@ fn the_window_s_own_events_are_not_control_inputs() {
     test.assert_eq(key_name_of(window.Event.FocusIn, d), "(nothing)")
     test.assert_eq(key_name_of(window.Event.FocusOut, d), "(nothing)")
     test.assert_eq(key_name_of(window.Event.Exposed, d), "(nothing)")
+    // **And what the desktop wants to look like is the most clearly not-an-input of all of them**:
+    // no control takes it, the application answers it by choosing a look. See D11.
+    test.assert_eq(
+        key_name_of(window.Event.SchemeChanged(window.Preference.Dark), d),
+        "(nothing)"
+    )
+}
+
+// **`NoPreference` is a real answer and the one a machine without a portal gives.** A caller that
+// treated it as "light" would impose a theme on a user who had asked for neither -- which is why
+// there are three and not a bool. This runs in the default build, which links no portal at all, so
+// it is the no-portal path under test rather than a mock of it.
+#[test]
+fn a_build_with_no_portal_says_so_rather_than_guessing() {
+    val answered = switch window.color_scheme() {
+        NoPreference { "no preference" }
+        Dark { "dark" }
+        Light { "light" }
+    }
+    test.assert_eq(answered, "no preference")
 }
 
 // ---- telling an input method where the caret is

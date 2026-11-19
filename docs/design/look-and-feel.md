@@ -1172,6 +1172,25 @@ and that the gate would need "a representative colour". Because a face is a span
 steps*, the honest check is every stop -- a gradient passes only if its text reads at both ends --
 and `theme_test` does exactly that for every live row of every look in the register.
 
+**D11 built, 2026-11-18 (F296), with one addition worth recording.**
+
+The portal was exactly as cheap as D11 claimed -- GIO was already linked, and the three calls are
+`native_ibus.c`'s three. What D11 did not say is **where the pump goes**. The signal arrives on
+glib's loop while the window runs X11's, which is the situation `ibus.pump_raw` is already in and
+the reason it iterates the context by hand. So `native_window_poll_raw` drains the same context,
+bounded and non-blocking, and appends an `EV_SCHEME` when the value moved -- which is what lets a
+change arrive "like a resize" without an application learning a second mechanism.
+
+**A third compatibility path, beyond the two D11 named.** A bus that fails must be remembered as
+absent, not merely handled: a machine with no portal would otherwise pay a failed connection on
+every frame. One flag, and the feature costs that machine a single failed connect for the life of
+the process.
+
+**Checked against the live service rather than reasoned about**: `gdbus … ReadOne` answers
+`(<uint32 1>,)` here, `ziman-gui` reports `dark`, the default `ziman` reports `no preference`, and
+the gallery opens dark with nothing set. That is the "1 is dark, 2 is light" trap closed by
+measurement instead of by care.
+
 ### 13.4 Build order
 
 **Raised as F291 to F297** in [docs/reviews/tasks/f291-f297.md](../reviews/tasks/f291-f297.md), one
