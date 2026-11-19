@@ -485,6 +485,18 @@ pub enum Paint {
 pub fn solid(c: Color) -> Paint
 ```
 
+### `flat_of`
+
+```
+pub fn flat_of(p: Paint) -> Color
+```
+
+The one colour a paint is, or the one it starts at.
+
+**For the callers that are structurally a colour**, not for painting: a run of text tinted under
+an input method's composition, a mark, anything a gradient would buy nothing. A caller that can
+draw a paint should draw the paint.
+
 ### `linear`
 
 ```

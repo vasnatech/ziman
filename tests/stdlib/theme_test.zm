@@ -14,6 +14,7 @@ use paint
 use paint.Color
 use test
 use theme
+use theme.step_solid
 use widget
 
 // ---- the register
@@ -73,10 +74,10 @@ fn body_text_reads_on_every_surface_of_every_look() {
         // them a state was a fill with no text colour of its own, so there was nothing to hold to
         // a ratio. `disabled` is exempt and that is WCAG's own exemption (SC 1.4.3) -- greyed text
         // is how a control says it is unavailable, and holding it to 4.5 would forbid saying so.
-        test.assert(paint.contrast_ratio(s.states.rest.ink, s.states.rest.face) >= 4.5)
-        test.assert(paint.contrast_ratio(s.states.hovered.ink, s.states.hovered.face) >= 4.5)
-        test.assert(paint.contrast_ratio(s.states.pressed.ink, s.states.pressed.face) >= 4.5)
-        test.assert(paint.contrast_ratio(s.states.selected.ink, s.states.selected.face) >= 4.5)
+        test.assert(reads_on_every_stop(s.states.rest))
+        test.assert(reads_on_every_stop(s.states.hovered))
+        test.assert(reads_on_every_stop(s.states.pressed))
+        test.assert(reads_on_every_stop(s.states.selected))
     }
 }
 
@@ -105,7 +106,7 @@ fn a_selected_row_is_visibly_not_an_unselected_one() {
     // Low on purpose: a selection is a tint, not a contrast. This catches a look that forgot to
     // set it and left it equal to the face, which is the failure that makes a list look broken.
     for one in theme.all() {
-        test.assert(paint.contrast_ratio(one.style.states.selected.face, one.style.face) >= 1.08)
+        test.assert(paint.contrast_ratio(paint.flat_of(one.style.states.selected.face), one.style.face) >= 1.08)
     }
 }
 
@@ -145,8 +146,8 @@ fn a_dark_look_lights_its_hover_rather_than_darkening_it() {
     // dark look whose hover veil is black is a dark look with no hover at all.
     for one in theme.all() {
         val dark = paint.relative_luminance(one.style.window) < 0.2
-        val rest = paint.relative_luminance(one.style.states.rest.face)
-        val hovered = paint.relative_luminance(one.style.states.hovered.face)
+        val rest = paint.relative_luminance(paint.flat_of(one.style.states.rest.face))
+        val hovered = paint.relative_luminance(paint.flat_of(one.style.states.hovered.face))
         // **The outcome rather than the ingredient.** This used to assert that a dark look's
         // `hover_tint` was light, which was a test of what the veil was made of; the veil is
         // resolved into the row when the look is built now, so the thing to assert is what a user
@@ -212,6 +213,39 @@ fn shadow_opacity(s: controls.Style) -> float {
         Some(cast) { cast.opacity }
         None { 0.0 }
     }
+}
+
+// **A row's ink against every stop of its face, not against a representative colour.**
+//
+// This is what D10 bought by making a face a span of *ramp steps* rather than an arbitrary
+// gradient: §12 worried that a gradient face has no luminance for a gate to check and that we
+// would end up picking "a representative colour", which is a gate going vague. A face is two known
+// steps, so the honest check is both ends -- a gradient passes only if its text reads at the top
+// and at the bottom. A flat face has one stop and this is the check it always was.
+fn reads_on_every_stop(p: controls.Parts) -> bool {
+    for stop in stops_of(p.face) {
+        if paint.contrast_ratio(p.ink, stop) < 4.5 {
+            return false
+        }
+    }
+    return true
+}
+
+fn stops_of(p: paint.Paint) -> [Color] {
+    return switch p {
+        Solid(c) { [c] }
+        LinearGradient(g) { colours_of(g.stops) }
+        RadialGradient(g) { colours_of(g.stops) }
+        Pattern(_) { [] }
+    }
+}
+
+fn colours_of(stops: [paint.Stop]) -> [Color] {
+    val out = mutable_array_new<Color>()
+    for one in stops {
+        push(out, one.color)
+    }
+    return snapshot(out)
 }
 
 fn edged(s: controls.Style) -> bool {
@@ -304,4 +338,136 @@ fn a_density_moves_the_leading_but_gently() {
     // three quarters of that overlaps one line's descenders with the next line's ascenders.
     test.assert(tight.text.body.line > 0.8)
     test.assert(loose.text.body.line < 1.25)
+}
+
+// ------------------------------------------------------- the ramps (F295, D8)
+
+fn blue() -> Color {
+    return paint.rgb(0.15, 0.4, 0.85)
+}
+
+fn grey() -> Color {
+    return paint.rgb(0.5, 0.5, 0.52)
+}
+
+fn lightness_of(c: Color) -> float {
+    return paint.to_oklch(c).lightness
+}
+
+// **A scale is monotone or it is a palette.** The step number is only a role if the steps run one
+// way: a ramp that wandered would make 4 "hovered" and 5 "active" mean nothing, and the rows that
+// index them would stop being derivable.
+#[test]
+fn every_ramp_runs_one_way() {
+    for one in [ramp_of_seed(blue(), theme.Scheme.Light), ramp_of_seed(grey(), theme.Scheme.Light)] {
+        var i = 1
+        while i < len(one) {
+            test.assert(lightness_of(one[i]) < lightness_of(one[i - 1]))
+            i = i + 1
+        }
+    }
+    for one in [ramp_of_seed(blue(), theme.Scheme.Dark), ramp_of_seed(grey(), theme.Scheme.Dark)] {
+        var i = 1
+        while i < len(one) {
+            test.assert(lightness_of(one[i]) > lightness_of(one[i - 1]))
+            i = i + 1
+        }
+    }
+}
+
+fn ramp_of_seed(seed: Color, s: theme.Scheme) -> [Color] {
+    return theme.ramp(seed, s)
+}
+
+// **The guarantee §11.2 quotes, in the units this library gates on.** Radix states steps 11 and 12
+// against step 2 in APCA; `paint.contrast_ratio` is WCAG 2, which is what EN 301 549 and Section
+// 508 reference and therefore what this library claims. So the claim is re-checked here rather
+// than inherited: 12 is text and 11 is the quieter text, both on the subtle background.
+#[test]
+fn the_text_steps_read_on_the_subtle_background() {
+    for s in [theme.Scheme.Light, theme.Scheme.Dark] {
+        val n = theme.ramp(grey(), s)
+        test.assert(paint.contrast_ratio(n[11], n[1]) >= 4.5)
+        test.assert(paint.contrast_ratio(n[10], n[1]) >= 4.5)
+    }
+}
+
+// A dark ramp is the light one read from the other end: the two share a seed and end up at
+// opposite ends of the same axis. **This is what makes dark a parameter rather than a second look**
+// -- see `Scheme`, which lists the four things `plain_dark` had to get right by hand.
+#[test]
+fn dark_is_the_same_scale_from_the_other_end() {
+    val light = theme.ramp(grey(), theme.Scheme.Light)
+    val dark = theme.ramp(grey(), theme.Scheme.Dark)
+    test.assert(lightness_of(light[0]) > 0.9)
+    test.assert(lightness_of(dark[0]) < 0.25)
+    test.assert(lightness_of(light[11]) < 0.3)
+    test.assert(lightness_of(dark[11]) > 0.9)
+}
+
+// **A seed gives its hue away and keeps nothing else.** The ramp is the roles; the seed says which
+// hue they are in, which is why one blue and one grey produce scales of the same shape.
+#[test]
+fn a_ramp_keeps_its_seed_s_hue() {
+    val n = theme.ramp(blue(), theme.Scheme.Light)
+    val want = paint.to_oklch(blue()).hue
+    for step in n {
+        val got = paint.to_oklch(step)
+        if got.chroma > 0.004 {
+            test.assert(got.hue - want < 1.0)
+            test.assert(want - got.hue < 1.0)
+        }
+    }
+}
+
+// **The accent ramp cannot share the neutral curve, and this is the test that says why.** At the
+// neutral table's step 9 a blue accent is too light for white text to sit on -- 3.41:1, under AA --
+// so step 9 of an accent ramp sits lower. A look's `on_accent` is derived from this, so if it ever
+// stops holding, every derived look loses its primary button's words rather than one test.
+#[test]
+fn a_solid_accent_step_can_carry_text() {
+    for s in [theme.Scheme.Light, theme.Scheme.Dark] {
+        val a = theme.accent_ramp(blue(), s)
+        val solid = a[step_solid - 1]
+        val pale = a[0]
+        val deep = a[11]
+        val best = if paint.contrast_ratio(pale, solid) < paint.contrast_ratio(deep, solid) {
+            paint.contrast_ratio(deep, solid)
+        } else {
+            paint.contrast_ratio(pale, solid)
+        }
+        test.assert(best >= 4.5)
+    }
+}
+
+// **The register is looks times schemes, so the gate cannot shrink.** A family states two seeds and
+// the register produces both its rows -- which is what stops a better mechanism from quietly
+// halving what `every_look_in_the_register_is_legible` tests.
+#[test]
+fn every_family_contributes_both_its_schemes() {
+    var light = 0
+    var dark = 0
+    for one in theme.all() {
+        switch one.scheme {
+            Light { light = light + 1 }
+            Dark { dark = dark + 1 }
+        }
+    }
+    test.assert_eq(light, dark)
+    test.assert(light >= 2)
+    test.assert_eq(len(theme.all()), light + dark)
+}
+
+// A dark row says so in the register rather than in its name. **This is what an application asks**
+// when it has a desktop preference to follow, and matching on the word "dark" would be a look
+// called "Midnight" away from being wrong.
+#[test]
+fn the_register_says_which_scheme_a_row_is() {
+    for one in theme.all() {
+        val window = paint.relative_luminance(one.style.window)
+        switch one.scheme {
+            Light { test.assert(window > 0.5) }
+            Dark { test.assert(window < 0.2) }
+        }
+    }
 }

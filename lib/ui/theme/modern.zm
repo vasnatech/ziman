@@ -3,58 +3,45 @@
 // **`plain` is the reference and this is the demonstration.** The default is deliberately the
 // plainest thing that is legible; this one is what the vocabulary is *for*: a surface that is
 // nearly white and edged rather than grey and flat, a corner radius, an accent that the focus ring
-// and the selection are both drawn from, a shadow under the things that are in front, and a hover
-// veil light enough to read on white.
+// and the selection are both drawn from, and a shadow under the things that are in front.
 //
-// **The numbers come from the systems that publish theirs.** Fluent 2's shape scale puts a button
-// at 4 points of radius and its large components at 8, so 6 sits between them and `Radius.Points`
-// caps it on anything small enough to need it; its stroke scale starts at 1. Its shadow table puts
-// a menu between `$shadow8` and `$shadow16`, which in its own units is a blur of 8 to 16 and an
-// opacity of 14 to 24 per cent -- 14 and 16 here. The accent is this project's own.
+// Its numbers come from the systems that publish them. The padding is Fluent's medium button, 8 by
+// 14 at 12 point. The shadow sits between Fluent's `$shadow8` and `$shadow16`, which in its own
+// units is a blur of 8 to 16 and an opacity of 14 to 24 per cent -- 14 and 16 here. The accent is
+// this project's own.
 //
-// **What it does not do is a gradient**, and that is a choice rather than a limit: `Surface.fill`
-// takes a colour where `scene` has had `LinearGradient` since it existed, and widening it would be
-// a morning's work. Flat surfaces with elevation and a state layer is what every current system
-// does, and a gradient on a control face is the one thing that would date this on sight.
+// **What it does not do is a gradient**, and that is a choice rather than a limit: since F295 a
+// `Fill` can name two ramp steps and `Surface` takes a paint, so a gradient face costs a look one
+// line. Flat surfaces with elevation and a state layer is what every current system does, and a
+// gradient on a control face is the one thing that would date this on sight.
+//
+// **Since F295 the colours are two seeds** (D8), and what is left below is the measurement D8 asks
+// for: three overrides, none of them a colour. Padding, shape and depth are what this look says
+// that `plain` does not -- they are its vocabulary, not a correction to the derivation.
+
+fn modern_seeds() -> Seeds {
+    return Seeds {
+        // Barely grey, and cool: the window, the panel and the face are three steps of this, which
+        // is what makes a white panel and a nearly white face both read as something laid *on* the
+        // window rather than as the window itself.
+        neutral: paint.oklch(0.5, 0.012, 265.0),
+        accent: paint.oklch(0.55, 0.215, 263.0),
+        // **White cards on a grey canvas**: the panel and the face take the top two steps and the
+        // window sits below them. The one thing a monotone ramp could not say, and the reason
+        // `Toward` exists -- see its comment, which carries the measurement.
+        surfaces: Toward.Away,
+        edged: true
+    }
+}
 
 pub fn modern() -> controls.Style {
-    return with plain() {
-        // **Room, which is the token nothing had.** Eight by four is a button of twenty-two
-        // points; every system draws one at about thirty-two, and the difference is entirely
-        // padding.
+    return with derive(modern_seeds(), Scheme.Light) {
+        // **Room, which is the token nothing had.** Eight by four is a button of twenty-two points
+        // at 12 point text; Fluent's medium is eight by fourteen, which is what a control needs
+        // before it reads as something you are meant to press rather than something written down.
         padding: widget.insets_of(14.0, 8.0, 14.0, 8.0),
-        ink: paint.rgb8(26, 29, 33),
-        // Nearly white and edged, rather than grey and flat: on a white window the border is what
-        // says "this is a control", and it costs no layout because a border is stroked inside.
-        face: paint.rgb8(252, 252, 253),
-        panel: paint.rgb8(255, 255, 255),
-        // Barely grey, so that a white panel and a nearly white face both read as something laid
-        // *on* the window. The colour the gallery wrote into its own `raster.Options` before
-        // `Style` could hold it.
-        window: paint.rgb8(246, 247, 249),
-        grid: paint.rgb8(232, 234, 237),
-        accent: paint.rgb8(37, 99, 235),
-        on_accent: paint.rgb8(255, 255, 255),
-        // The five rows. **The selection is a tint of the accent rather than a darker grey**,
-        // which is what makes a chosen row look chosen rather than pressed, and the veil is
-        // lighter than the plain look's tenth because these faces are nearly white and a tenth of
-        // black on white reads as pressed.
-        states: state_rows(Seeds {
-            face: paint.rgb8(252, 252, 253),
-            ink: paint.rgb8(26, 29, 33),
-            pressed: paint.rgb8(236, 238, 241),
-            selection: paint.rgb8(219, 228, 251),
-            panel: paint.rgb8(255, 255, 255),
-            faint: paint.rgb8(154, 160, 166),
-            veil: paint.rgb(0.0, 0.0, 0.0),
-            veil_at: 0.06,
-            edge: Option<widget.Border>.Some(widget.Border {
-                colour: paint.rgb8(208, 212, 218),
-                width: 1.0
-            })
-        }),
-        // Six on a face, four on a chosen row, eight on what floats in front of the window --
-        // the differences the single `corner` token could not express.
+        // Six on a face, four on a chosen row, eight on what floats in front of the window -- the
+        // differences the single `corner` token could not express.
         shape: controls.Shape {
             small: widget.Radius.Points(4.0),
             medium: widget.Radius.Points(6.0),
@@ -67,49 +54,21 @@ pub fn modern() -> controls.Style {
 
 // The same look on a dark window.
 //
-// **Built from `modern` and not from `plain_dark`**, which is the question a second dark variation
-// raises: inheriting the dark colours would have given this look the plain one's shape, and shape
-// is what distinguishes it. A variation varies the *surround*, so it starts from its own look and
-// answers the colour decisions again -- the radius, the border, the padding and the shadow
-// geometry are all `modern`'s and are not repeated here.
-//
-// The three traps `plain_dark`'s comment lists apply unchanged: a white hover veil, a deeper
-// shadow, and dark text on a light accent.
-//
-// **The faces are lighter than the window rather than darker**, which is the one place a dark look
-// is not an inversion of a light one. On white, a control is *paler* than its surround and a panel
-// paler still; flipping that literally would put a near-black control on a dark grey window, where
-// the edge does all the work and the fill says nothing. Every dark theme worth copying raises the
-// surface instead -- the further forward a thing is, the lighter it gets -- which is Material's
-// elevation overlay stated as colour.
+// **A dark look is not an inversion of a light one**, and this file used to be the proof: eleven
+// colours written out again, four of which were the things an inversion gets wrong. It is the
+// scheme now. On white a control is *paler* than its surround and a panel is paler still; on black
+// the same three steps come out darker than the window and the elevation reads the same way round
+// -- the further forward a thing is, the lighter it gets, which is Material's elevation overlay
+// stated as a ramp index.
 pub fn modern_dark() -> controls.Style {
-    return with modern() {
-        ink: paint.rgb8(226, 229, 233),
-        face: paint.rgb8(38, 41, 46),
-        panel: paint.rgb8(30, 33, 37),
-        window: paint.rgb8(24, 26, 29),
-        grid: paint.rgb8(56, 60, 66),
-        composing_face: paint.rgb8(32, 42, 60),
-        converting_face: paint.rgb8(44, 58, 86),
-        scrim: paint.rgba(0.0, 0.0, 0.0, 0.6),
-        accent: paint.rgb8(96, 150, 255),
-        on_accent: paint.rgb8(16, 18, 22),
-        // **A lighter face than the window, a white veil, and a darker edge** -- the three things
-        // a palette inversion gets wrong, stated once in the rows.
-        states: state_rows(Seeds {
-            face: paint.rgb8(38, 41, 46),
-            ink: paint.rgb8(226, 229, 233),
-            pressed: paint.rgb8(52, 56, 62),
-            selection: paint.rgb8(38, 60, 104),
-            panel: paint.rgb8(30, 33, 37),
-            faint: paint.rgb8(130, 136, 144),
-            veil: paint.rgb(1.0, 1.0, 1.0),
-            veil_at: 0.07,
-            edge: Option<widget.Border>.Some(widget.Border {
-                colour: paint.rgb8(62, 67, 74),
-                width: 1.0
-            })
-        }),
+    return with derive(modern_seeds(), Scheme.Dark) {
+        padding: widget.insets_of(14.0, 8.0, 14.0, 8.0),
+        shape: controls.Shape {
+            small: widget.Radius.Points(4.0),
+            medium: widget.Radius.Points(6.0),
+            large: widget.Radius.Points(8.0),
+            full: widget.Radius.Fraction(0.5)
+        },
         raised: Option<widget.Shadow>.Some(widget.shadow_of(3.0, 14.0, 0.45))
     }
 }

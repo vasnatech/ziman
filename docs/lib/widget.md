@@ -567,7 +567,12 @@ pub struct Surface {
     // Painted behind the children, before them. `None` draws nothing, which is what most
     // containers want -- a stack per level each painting a fill is how a UI ends up with twenty
     // overdraws per pixel.
-    fill: Option<Color>
+    // **A paint, not a colour, since F295.** A look can name a span of its own ramp as a face
+    // (`theme.Fill`), and `from == to` is a flat fill -- so solid and gradient are one form with no
+    // `Option` and no second field. A gradient's endpoints are *not* carried here: they are
+    // resolved against the box in `paint_surface`, the way `Radius` is, because the tree is built
+    // before anything knows how big a control turned out to be.
+    fill: Option<Paint>
     // Stroked **inside** the container's own bounds, which is the bargain `paint_focused`'s focus
     // ring already makes and for the same reason: a border outside the box overlaps whatever is
     // next to it, and in a dense form that is the neighbouring control. So a border costs **no
@@ -644,14 +649,27 @@ pub enum Radius {
 }
 ```
 
+### `paint_in`
+
+```
+pub fn paint_in(p: Paint, box: geom.Rect) -> Paint
+```
+
+The radius to draw with, for this rounding and this box. The one place the rules above are
+applied, so a painter, a focus ring and a test cannot disagree about them.
+A paint resolved against the box being painted.
+
+**The same bargain `radius_in` makes, and for the same reason**: a widget tree is built before
+anything knows how big a control will be, so a gradient cannot carry absolute endpoints. A look
+names a direction and this turns it into the two points the renderer wants, once, at paint time.
+
+A solid paint passes straight through, which is what every container and every flat look gets.
+
 ### `radius_in`
 
 ```
 pub fn radius_in(r: Radius, box: geom.Rect) -> float
 ```
-
-The radius to draw with, for this rounding and this box. The one place the rules above are
-applied, so a painter, a focus ring and a test cannot disagree about them.
 
 ### `no_surface`
 

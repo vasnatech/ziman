@@ -41,30 +41,12 @@ before.
 
 ## `theme.zm`
 
-### `Seeds`
+### `Scheme`
 
 ```
-pub struct Seeds {
-    face: Color
-    ink: Color
-    // What a press darkens (or lightens) the face to. Stated rather than derived **because a press
-    // is the one state every look already had an exact colour for** and derivation would move
-    // every shipped pixel to no end.
-    pressed: Color
-    // What a chosen row is filled with.
-    selection: Color
-    // What a disabled control recedes towards: the surface behind it.
-    panel: Color
-    // The ink of a disabled control.
-    faint: Color
-    // What a hover is veiled with -- **black on a light look and white on a dark one**, because a
-    // tenth of black over a dark grey is invisible; Material says the same of its state layer.
-    veil: Color
-    // How much of the veil. A tenth reads as lit without reading as pressed.
-    veil_at: float
-    // The look's edge, where it has one. **On the rows rather than on `Style`**, so that a look
-    // whose pressed state loses its border can say so.
-    edge: Option<widget.Border>
+pub enum Scheme {
+    Light
+    Dark
 }
 ```
 
@@ -73,39 +55,228 @@ A look and feel under the name an application offers it by.
 **A name and a style, not a constructor**, because the list is what a theme picker wants and a
 list of functions is not one -- and because `named` would otherwise be a switch that every new
 look has to be added to twice.
-What a look's five state rows are grown from.
+Which end of a ramp a look is read from.
 
-**A struct rather than nine arguments**, so that a look's rows read as the sentences they are at
-the call site and so that F295 can replace this with the two colour ramps without touching four
-looks. Each field is a colour some look was already stating; the two the rows *compute* --
-hovered and disabled -- are the two no look could state before, because a translucent veil and a
-text colour were all `Style` had to say them with.
+**A parameter rather than a second authored look** (D8). `plain_dark` was written by hand and had
+to discover four things an inversion gets wrong -- faces lighter than the window, a white hover
+veil, `on_accent` flipping, a deeper shadow. Every one of them is what a step *means* on a ramp
+read from the other end, so indexing is the whole of dark mode and there is nothing left to get
+wrong. Material's `fromSeed` takes a brightness for the same reason, and Radix ships each scale
+both ways.
 
-### `state_rows`
+### `Toward`
 
 ```
-pub fn state_rows(s: Seeds) -> controls.States
+pub enum Toward {
+    // A face is darker than the window it sits on: window 1, panel 2, face 3.
+    Ink
+    // A face is lighter than the window: panel 1, face 2, window 3.
+    Away
+}
 ```
 
-The five rows a look's seeds imply.
+Which way a surface moves from the window it sits on.
 
-**Two of the five are computed and that is the point of the exercise.** `hovered` is the face
-under the veil, resolved here rather than painted over a finished scene -- which is what lets a
-hover change an edge and a word and not only a fill. `disabled` recedes *as a face* towards the
-panel behind it: a disabled control that kept a live face and greyed only its text was the
-defect D5 names, and no platform draws it that way.
+**This is the one thing a 12-step ramp could not say, and it was measured rather than guessed.**
+Converting the four looks that were authored by hand to OKLab lightness shows both light looks
+using monotone steps 1 to 5 and disagreeing only about which role takes which step:
 
-Derivation happens once, when the look is built, and never at paint time (D2).
+
+```
+plain light    window .986   panel .970   face .923   hovered ~.87   pressed .808
+modern light   panel 1.000   face .991    window .976  hovered ~.96   pressed .948
+```
+
+So "white cards on a grey canvas" -- modern's defining choice, and what every elevation model
+since Material has meant -- is exactly "the window is step 3, not step 1". A permutation of three
+roles, not a second curve.
+
+**Read only in a light scheme.** Both dark looks measure monotone *ascending* from the window
+(plain .239/.302/.372/.458, modern .209/.246/.280/.339), because on an inverted ramp every step
+away from 1 is already lighter: "a face is lighter than its window" is what step 3 means there.
+There is nothing to choose, which is D8's claim about dark falling out mechanically, checked
+against the two looks that were written by hand before any of this existed.
+
+### `ramp`
+
+```
+pub fn ramp(seed: Color, s: Scheme) -> [Color]
+```
+
+Twelve steps from one seed, with Radix's roles: 1 is the app background, 3 an element, 4 hovered,
+5 selected, 7 a border, 9 a solid, 11 and 12 text.
+
+**The step number is the role**, which is the whole point of a scale and what makes D5's rows
+stop being independent choices: 4 *is* hovered and 5 *is* active by construction, so a dark
+variation has nothing to get wrong about them.
+
+The seed's hue is kept exactly; its chroma is a scale factor, not a target. Gamut is `paint`'s
+business -- it maps by reducing chroma rather than clipping channels, which F292 established
+after clipping moved `lighten(blue, 0.100)` by 0.060 and a test caught it.
+
+### `accent_ramp`
+
+```
+pub fn accent_ramp(seed: Color, s: Scheme) -> [Color]
+```
+
+The accent ramp of a seed: the same twelve roles on the curve a solid colour needs.
+
+### `step_hovered`
+
+```
+pub val step_hovered = 4
+```
+
+The step a role takes, named once so that no look and no test writes a bare index.
+
+**Named because a bare `n[4]` is a number twice**: once for the step and once for the meaning,
+and the second one is the one that rots. These are §11.2's table, and the three surfaces that
+move with `Toward` are not here -- they are `derive`'s business, because they are the one thing
+a look chooses.
+
+### `step_pressed`
+
+```
+pub val step_pressed = 5
+```
+
+### `step_border`
+
+```
+pub val step_border = 7
+```
+
+### `step_solid`
+
+```
+pub val step_solid = 9
+```
+
+### `step_ink`
+
+```
+pub val step_ink = 12
+```
+
+### `Fill`
+
+```
+pub struct Fill {
+    from: int
+    to: int
+    // Degrees clockwise from the top, which is CSS's convention and the one a designer will say
+    // out loud. Ignored when `from == to`.
+    angle: float
+}
+```
+
+A face, as a look writes it: a span of this look's own ramp.
+
+**Steps, not colours** (D10). A look that wanted a gradient would otherwise have to state two
+colours that the ramp already contains, and the gate would have to go looking for them; naming
+steps keeps the promise that **every stop in a built style is provably a ramp step**, so the
+ramp can be checked once instead of the stops being extracted per look.
+
+**`from == to` is a flat fill**, which is why there is no `Option` here and no second field:
+solid and gradient are one form, and every shipped look happens to write the flat one.
+
+### `flat`
+
+```
+pub fn flat(step: int) -> Fill
+```
+
+A flat fill of one step: what both shipped looks write.
+
+### `paint_of`
+
+```
+pub fn paint_of(f: Fill, steps: [Color]) -> Paint
+```
+
+The paint a `Fill` names, against a ramp.
+
+**Endpoints as fractions of the box**, resolved later by `widget.paint_in` against the control
+actually being painted -- a widget tree is built before anything knows how big a control is, so
+a gradient cannot carry absolute points. See `widget.radius_in`, the precedent this follows.
+
+### `Seeds`
+
+```
+pub struct Seeds {
+    neutral: Color
+    accent: Color
+    surfaces: Toward
+    // Whether a face wears its edge.
+    //
+    // **A ramp always has a border colour -- step 7 is "element border" by role -- but whether a
+    // look draws it is not something two colour seeds imply.** It is the same kind of choice as
+    // `Toward` and as the shape scale: `plain` is square, filled and unedged on purpose, so that
+    // an application replacing it has nothing to undo, and `modern` is edged because on a white
+    // window the border is what says "this is a control".
+    edged: bool
+}
+```
+
+The two colours a look is grown from, and which way its surfaces go.
+
+**Two seeds, not twenty colours** (D8). What a look used to state -- a face, a pressed face, a
+selection, a disabled ink, a veil, a border, an accent -- are steps of two ramps, so the only
+things left to choose are the hue of the neutrals, the hue of the accent, and whether a face sits
+above its window or below it.
+
+### `derive`
+
+```
+pub fn derive(seeds: Seeds, s: Scheme) -> controls.Style
+```
+
+A whole look, from two seeds and a scheme.
+
+**The override list is the measurement** (D8). `plain()` and `modern()` are this plus their
+deliberate exceptions, and if either needed twenty the derivation would be wrong -- which we
+would then know rather than argue about. The exceptions that remain are not colours: they are
+the padding, the shape scale and the shadow, which are a look's own vocabulary and not something
+two colour seeds could imply.
+
+**Derivation happens here, once, when the look is built** -- never at paint time (D2).
 
 ### `Look`
 
 ```
 pub struct Look {
-    // What to put in a menu. Capitalised as a title, because it is one.
+    // What to put in a menu. Capitalised as a title, because it is one. **Computed** for a dark
+    // row -- "Plain" and "Plain dark" are one family's two schemes, not two names someone typed.
     name: string
     style: controls.Style
+    // Which end of the ramp this row was read from.
+    //
+    // **Read off the register rather than set by hand**, which is what absorbs F7: an application
+    // asking "is the look I am showing a dark one" was answering it by matching the name, and a
+    // look called "Midnight" would have broken that. The register knows, because it built the row.
+    scheme: Scheme
 }
 ```
+
+### `Family`
+
+```
+pub struct Family {
+    name: string
+    light: controls.Style
+    dark: controls.Style
+}
+```
+
+A look's two schemes, which are one look.
+
+**Two seeds give two rows, and that is why the register is computed.** D4 could keep `all()` as
+a list because density changes no colour -- a dense look is the same look. A scheme *does* change
+colour, so a register of two entries would leave the AA gate testing only the light half: a gate
+that quietly stopped testing half the library because a mechanism got better is the worst
+outcome available here. Adding a family below adds two rows to the menu and two to the gate,
+without anyone remembering to.
 
 ### `Density`
 
@@ -216,21 +387,11 @@ pub fn plain_dark() -> controls.Style
 
 The same look on a dark window.
 
-**Three things change that a palette inversion would get wrong**, and they are the reason a
-variation lives beside the thing it varies rather than being computed from it:
-
-
-```
-* **the hover veil is white.** `Seeds.veil` is mixed into the face, and a tenth of black over
-  a dark grey is invisible -- the state layer has to come from the other end. Material says
-  the same in its own words: the overlay is `on-surface`, which flips with the surface;
-* **a shadow has to be deeper.** Depth is read as a darkening, and there is less room to
-  darken below a dark window, so the same geometry at the same opacity reads as nothing. This
-  is a half rather than a fifth;
-* **`on_accent` goes dark.** A dark look wants a lighter accent so it reads against the
-  window -- and dark text is what reads on a light blue, where white text on it does not.
-  Checked rather than chosen: `theme_test` asserts both ends of every pair.
-```
+**It used to be a list of overrides that had to discover four things an inversion gets wrong** --
+faces lighter than the window, a white hover veil, `on_accent` flipping, a deeper shadow. Every
+one of them is what a step *means* on a ramp read from the other end, so the whole of it is now
+the second argument. That is D8's claim about dark falling out mechanically, and this file is
+what it cost: one word.
 
 ## `modern.zm`
 
@@ -248,18 +409,9 @@ pub fn modern_dark() -> controls.Style
 
 The same look on a dark window.
 
-**Built from `modern` and not from `plain_dark`**, which is the question a second dark variation
-raises: inheriting the dark colours would have given this look the plain one's shape, and shape
-is what distinguishes it. A variation varies the *surround*, so it starts from its own look and
-answers the colour decisions again -- the radius, the border, the padding and the shadow
-geometry are all `modern`'s and are not repeated here.
-
-The three traps `plain_dark`'s comment lists apply unchanged: a white hover veil, a deeper
-shadow, and dark text on a light accent.
-
-**The faces are lighter than the window rather than darker**, which is the one place a dark look
-is not an inversion of a light one. On white, a control is *paler* than its surround and a panel
-paler still; flipping that literally would put a near-black control on a dark grey window, where
-the edge does all the work and the fill says nothing. Every dark theme worth copying raises the
-surface instead -- the further forward a thing is, the lighter it gets -- which is Material's
-elevation overlay stated as colour.
+**A dark look is not an inversion of a light one**, and this file used to be the proof: eleven
+colours written out again, four of which were the things an inversion gets wrong. It is the
+scheme now. On white a control is *paler* than its surround and a panel is paler still; on black
+the same three steps come out darker than the window and the elevation reads the same way round
+-- the further forward a thing is, the lighter it gets, which is Material's elevation overlay
+stated as a ramp index.

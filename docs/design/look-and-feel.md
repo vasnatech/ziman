@@ -1110,6 +1110,68 @@ evidence.
 **What this task did not do.** `theme.emphasised(style)` -- the emphasis axis D5 mentions -- waits
 for F295, where the ramp makes a row derivable instead of hand-written five times.
 
+**D20 (Q10, F295) -- a look is two seeds and two choices a ramp cannot make. 2026-11-18.**
+
+D8 said two ramps and a scheme would carry the shipped looks. Building it found two things a
+twelve-step ramp genuinely cannot say, and one place the derivation would have failed its own gate.
+All three were measured rather than argued.
+
+**The surface direction is a permutation, not a second curve.** Converting the four hand-written
+looks to OKLab lightness shows both light looks using monotone steps 1 to 5 and disagreeing only
+about which role takes which step:
+
+    plain light    window .986   panel .970   face .923   hovered ~.87   pressed .808
+    modern light   panel 1.000   face .991    window .976  hovered ~.96   pressed .948
+
+So "white cards on a grey canvas" -- modern's defining choice, and what every elevation model since
+Material means -- is exactly **"the window is step 3, not step 1"**. That is `Toward`, and it is read
+**only in a light scheme**: both dark looks measure monotone *ascending* from the window
+(plain .239/.302/.372/.458, modern .209/.246/.280/.339), because on an inverted ramp every step away
+from 1 is already lighter. D8's claim that dark falls out mechanically is therefore true, and this
+is the measurement that says so.
+
+**Whether a face wears its edge is a look's choice, not a ramp's.** Step 7 is "element border" by
+role, so a ramp always *has* one -- but `plain` is square, filled and unedged on purpose, so that an
+application replacing it has nothing to undo. Derived without a say in it, `plain` grew an edge and
+`a_dark_variation_varies_the_surround_and_not_the_shape` failed within a minute. `Seeds.edged` is
+that say. It belongs beside `Toward` for the same reason: both are vocabulary, like the shape scale,
+and neither is implied by two colours.
+
+**The accent ramp cannot share the neutral curve, and this nearly shipped.** At the neutral table's
+step 9 (lightness .643) a blue accent is `rgb8(73, 135, 255)` and white on it is **3.41:1** -- under
+AA, so every derived look would have failed `theme_test`'s own `on_accent` check. Step 9 is where a
+scale promises a solid colour that text can sit on, so an accent ramp's step 9 sits lower: .550
+light and .685 dark, within a hundredth of where both hand-written looks had already put theirs.
+
+**`on_accent` is derived, not stated.** §11.2 notes that most step 9s are built for white text while
+Sky, Mint, Lime, Yellow and Amber want dark text. Rather than a look asserting which, the accent
+ramp's two ends are measured against step 9 and the one that reads wins -- which picks white on both
+light looks and dark on both dark ones, reproducing what all four hand-written looks had chosen.
+
+**The override list, which D8 said would be the measurement:**
+
+| look | overrides | what they are |
+|---|---|---|
+| `plain()` | 0 | -- |
+| `plain_dark()` | 0 | the same seeds, the other scheme |
+| `modern()` | 3 | padding, shape, shadow |
+| `modern_dark()` | 3 | the same three |
+
+Not one of the six is a colour. Twenty written-out colours left `plain` and eleven left `modern`;
+`plain_dark`, which had to discover four things an inversion gets wrong, is one word.
+
+**What `Fill` cost and bought** (D10). `widget.Surface.fill` is an `Option<Paint>` and
+`controls.Parts.face` a `Paint`; a gradient's endpoints are fractions of the box, resolved in
+`paint_surface` by `widget.paint_in` -- the bargain `radius_in` already makes, because a widget tree
+is built before anything knows how big a control will be. `paint.flat_of` serves the callers that
+are structurally a colour: a run of glyphs tinted under an input method, a mark. Both shipped looks
+write flat fills, which is the right way round: the capability exists and the looks decline it.
+
+**And the gate got stricter rather than vaguer.** §12 worried that a gradient face has no luminance
+and that the gate would need "a representative colour". Because a face is a span of *known ramp
+steps*, the honest check is every stop -- a gradient passes only if its text reads at both ends --
+and `theme_test` does exactly that for every live row of every look in the register.
+
 ### 13.4 Build order
 
 **Raised as F291 to F297** in [docs/reviews/tasks/f291-f297.md](../reviews/tasks/f291-f297.md), one

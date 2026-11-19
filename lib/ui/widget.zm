@@ -432,7 +432,12 @@ pub struct Surface {
     // Painted behind the children, before them. `None` draws nothing, which is what most
     // containers want -- a stack per level each painting a fill is how a UI ends up with twenty
     // overdraws per pixel.
-    fill: Option<Color>
+    // **A paint, not a colour, since F295.** A look can name a span of its own ramp as a face
+    // (`theme.Fill`), and `from == to` is a flat fill -- so solid and gradient are one form with no
+    // `Option` and no second field. A gradient's endpoints are *not* carried here: they are
+    // resolved against the box in `paint_surface`, the way `Radius` is, because the tree is built
+    // before anything knows how big a control turned out to be.
+    fill: Option<Paint>
     // Stroked **inside** the container's own bounds, which is the bargain `paint_focused`'s focus
     // ring already makes and for the same reason: a border outside the box overlaps whatever is
     // next to it, and in a dense form that is the neighbouring control. So a border costs **no
@@ -501,6 +506,31 @@ pub enum Radius {
 
 // The radius to draw with, for this rounding and this box. The one place the rules above are
 // applied, so a painter, a focus ring and a test cannot disagree about them.
+// A paint resolved against the box being painted.
+//
+// **The same bargain `radius_in` makes, and for the same reason**: a widget tree is built before
+// anything knows how big a control will be, so a gradient cannot carry absolute endpoints. A look
+// names a direction and this turns it into the two points the renderer wants, once, at paint time.
+//
+// A solid paint passes straight through, which is what every container and every flat look gets.
+pub fn paint_in(p: Paint, box: geom.Rect) -> Paint {
+    return switch p {
+        Solid(_) { p }
+        LinearGradient(g) {
+            // **Endpoints as fractions of the box**, so one `Linear` serves a button and a dialog.
+            // They are 0..1 in the box's own space; anything already absolute would have to be
+            // rebuilt per control, which is the thing a widget tree cannot do.
+            paint.linear(
+                geom.point_of(box.x + g.from.x * box.width, box.y + g.from.y * box.height),
+                geom.point_of(box.x + g.to.x * box.width, box.y + g.to.y * box.height),
+                g.stops
+            )
+        }
+        RadialGradient(_) { p }
+        Pattern(_) { p }
+    }
+}
+
 pub fn radius_in(r: Radius, box: geom.Rect) -> float {
     val shorter = if box.width < box.height { box.width } else { box.height }
     if shorter <= 0.0 {
@@ -521,7 +551,7 @@ pub fn radius_in(r: Radius, box: geom.Rect) -> float {
 pub fn no_surface() -> Surface {
     return Surface {
         inset: 0.0,
-        fill: Option<Color>.None,
+        fill: Option<Paint>.None,
         border: Option<Border>.None,
         corner: Radius.Square,
         corners: Corners.All,
@@ -534,7 +564,7 @@ pub fn no_surface() -> Surface {
 pub fn filled(colour: Color) -> Surface {
     return Surface {
         inset: 0.0,
-        fill: Option<Color>.Some(colour),
+        fill: Option<Paint>.Some(Paint.Solid(colour)),
         border: Option<Border>.None,
         corner: Radius.Square,
         corners: Corners.All,
@@ -567,7 +597,7 @@ pub fn rounded(fill: Color, corner_radius: float) -> Surface {
 pub fn rounded(fill: Color, corner: Radius) -> Surface {
     return Surface {
         inset: 0.0,
-        fill: Option<Color>.Some(fill),
+        fill: Option<Paint>.Some(Paint.Solid(fill)),
         border: Option<Border>.None,
         corner: corner,
         corners: Corners.All,
@@ -583,7 +613,7 @@ pub fn outlined(border: Color, width: float, corner_radius: float) -> Surface {
 pub fn outlined(border: Color, width: float, corner: Radius) -> Surface {
     return Surface {
         inset: 0.0,
-        fill: Option<Color>.None,
+        fill: Option<Paint>.None,
         border: Option<Border>.Some(border_of(border, width)),
         corner: corner,
         corners: Corners.All,
@@ -598,7 +628,7 @@ pub fn edged(fill: Color, border: Color, width: float, corner_radius: float) -> 
 pub fn edged(fill: Color, border: Color, width: float, corner: Radius) -> Surface {
     return Surface {
         inset: 0.0,
-        fill: Option<Color>.Some(fill),
+        fill: Option<Paint>.Some(Paint.Solid(fill)),
         border: Option<Border>.Some(border_of(border, width)),
         corner: corner,
         corners: Corners.All,
@@ -2323,8 +2353,8 @@ fn paint_surface(s: Surface, whole: Rect, ops: MutableArray<Op>) {
     if Some(cast) = s.shadow {
         paint_shadow(cast, bounds, radius, ops)
     }
-    if Some(colour) = s.fill {
-        push(ops, scene.fill(box_path(s.corners, bounds, radius), Paint.Solid(colour)))
+    if Some(ink) = s.fill {
+        push(ops, scene.fill(box_path(s.corners, bounds, radius), paint_in(ink, bounds)))
     }
     if Some(edge) = s.border {
         val hole = geom.rect_of(

@@ -1024,6 +1024,20 @@ pub fn solid(c: Color) -> Paint {
     return Paint.Solid(c)
 }
 
+// The one colour a paint is, or the one it starts at.
+//
+// **For the callers that are structurally a colour**, not for painting: a run of text tinted under
+// an input method's composition, a mark, anything a gradient would buy nothing. A caller that can
+// draw a paint should draw the paint.
+pub fn flat_of(p: Paint) -> Color {
+    return switch p {
+        Solid(c) { c }
+        LinearGradient(g) { if len(g.stops) > 0 { g.stops[0].color } else { rgba(0.0, 0.0, 0.0, 0.0) } }
+        RadialGradient(g) { if len(g.stops) > 0 { g.stops[0].color } else { rgba(0.0, 0.0, 0.0, 0.0) } }
+        Pattern(_) { rgba(0.0, 0.0, 0.0, 0.0) }
+    }
+}
+
 pub fn linear(from: Point, to: Point, stops: [Stop]) -> Paint {
     return Paint.LinearGradient(Linear { from: from, to: to, stops: stops })
 }

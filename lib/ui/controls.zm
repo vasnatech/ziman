@@ -26,6 +26,7 @@ use geom.Rect
 use math.floor
 use paint
 use paint.Color
+use paint.Paint
 use scene
 use shape
 use widget
@@ -1297,7 +1298,15 @@ fn selected_runs(e: Entry, text: string, ink: Color, style: Style, line: float) 
     val from = edit.selection_start(e.editor)
     val to = edit.selection_end(e.editor)
     val middle = if edit.has_selection(e.editor) {
-        tinted(substring(text, from, to), style.states.selected.face, style.states.selected.ink, style, "selection")
+        tinted(
+            substring(text, from, to),
+            // **A colour, because this tints a run of glyphs** rather than filling a box: see
+            // `paint.flat_of`, which is for exactly the callers a gradient buys nothing.
+            paint.flat_of(style.states.selected.face),
+            style.states.selected.ink,
+            style,
+            "selection"
+        )
     } else {
         caret_box(ink, line)
     }
@@ -1455,7 +1464,7 @@ fn entry_line(
             direction: widget.Direction.Row,
             spacing: 0.0,
             padding: widget.no_insets(),
-            surface: widget.filled(style.states.selected.face),
+            surface: widget.filled(paint.flat_of(style.states.selected.face)),
             align: widget.stretched(),
             children: [inked_run(e, text, lo, hi, ink, style)],
             name: "selection"
@@ -4625,7 +4634,7 @@ pub fn radios_widget(r: Radios, f: Frame) -> widget.Widget {
                 // **Zero, because a circle is an ornament and not the control's frame.** The row a
                 // radio is in expands if a look says so; the dot inside it does not.
                 inset: 0.0,
-                fill: Option<Color>.Some(chosen_parts.face),
+                fill: Option<Paint>.Some(chosen_parts.face),
                 border: chosen_parts.border,
                 corner: style.shape.full,
                 corners: widget.Corners.All,
@@ -5436,7 +5445,11 @@ pub fn frame_of(style: Style, m: widget.Metrics) -> Frame {
 // disabled button kept a live-looking face and merely greyed its words, something no platform
 // does. A look that sets a row sets all of it.
 pub struct Parts {
-    face: Color
+    // **A paint, not a colour** (D10): a look can name a span of its own ramp as a face, and
+    // `from == to` is a flat fill -- so solid and gradient are one form with no `Option` and no
+    // second field. What a look *writes* is `theme.Fill`, two step numbers and an angle; this is
+    // what `derive` builds from it and what a control draws.
+    face: Paint
     ink: Color
     border: Option<widget.Border>
     // How far the drawn frame grows beyond its resting inset. **Paint time only**: see
@@ -5665,7 +5678,7 @@ fn surface_of(style: Style, p: Parts) -> widget.Surface {
         // The resting frame sits inside the reserved ring; a state that expands spends it,
         // and `reserve_of` is the largest any row asks for, so this is never negative.
         inset: reserve_of(style) - p.expansion,
-        fill: Option<Color>.Some(p.face),
+        fill: Option<Paint>.Some(p.face),
         border: p.border,
         // **The state's own radius where it has one, the scale's where it has not.** A state that
         // wanted to round a corner had no way to say so, and a scale that every state had to share
@@ -5690,7 +5703,7 @@ fn band_of(style: Style, p: Parts) -> widget.Surface {
         // The resting frame sits inside the reserved ring; a state that expands spends it,
         // and `reserve_of` is the largest any row asks for, so this is never negative.
         inset: reserve_of(style) - p.expansion,
-        fill: Option<Color>.Some(p.face),
+        fill: Option<Paint>.Some(p.face),
         border: Option<widget.Border>.None,
         corner: switch p.corner {
             Some(r) { r }
@@ -5709,7 +5722,7 @@ fn band_of(style: Style, p: Parts) -> widget.Surface {
 fn raised_of(style: Style, colour: Color) -> widget.Surface {
     // **The resting row in a colour of its own.** A popup's panel has no states -- nothing hovers
     // a panel -- but it wants the look's edge, and the resting row is where that edge lives now.
-    return with surface_of(style, with style.states.rest { face: colour }) {
+    return with surface_of(style, with style.states.rest { face: Paint.Solid(colour) }) {
         shadow: style.raised,
         corner: style.shape.large
     }
@@ -5738,7 +5751,7 @@ fn tab_face_of(style: Style, p: Parts, chosen: bool) -> widget.Surface {
         // the `selected` row is deliberately overruled: a tab strip says which pane you are
         // looking at by being continuous with it, so the chosen tab has to be the colour of the
         // thing below it. The row still governs its ink, its hover and its disabled state.
-        fill: Option<Color>.Some(if chosen { style.panel } else { p.face }),
+        fill: Option<Paint>.Some(if chosen { Paint.Solid(style.panel) } else { p.face }),
         // **No border on a chosen tab.** An edge all the way round it would draw a line between
         // the tab and the body it is supposed to be continuous with, which is the one line that
         // has to not be there.
@@ -5764,7 +5777,7 @@ fn tab_face_of(style: Style, p: Parts, chosen: bool) -> widget.Surface {
 fn highlight_of(style: Style, colour: Color) -> widget.Surface {
     return widget.Surface {
         inset: 0.0,
-        fill: Option<Color>.Some(colour),
+        fill: Option<Paint>.Some(Paint.Solid(colour)),
         border: Option<widget.Border>.None,
         corner: style.shape.small,
         corners: widget.Corners.All,

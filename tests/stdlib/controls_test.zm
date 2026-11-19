@@ -3450,16 +3450,37 @@ fn fill_red_at(l: widget.Laid, name: string) -> float {
 val ink_box = geom.rect_of(0.0, 0.0, 400.0, 60.0)
 
 // "val x = 1" with `val` in one colour and `1` in another: two spans, in order, not touching.
+fn keyword_ink() -> paint.Color {
+    return paint.rgb(0.1, 0.2, 0.9)
+}
+
+fn literal_ink() -> paint.Color {
+    return paint.rgb(0.2, 0.6, 0.3)
+}
+
 fn inked_field() -> controls.Entry {
     return with controls.entry_of("code", "Code", "val x = 1") {
         inks: [
-            controls.Ink { from: 0, to: 3, colour: paint.rgb(0.1, 0.2, 0.9) },
-            controls.Ink { from: 8, to: 9, colour: paint.rgb(0.2, 0.6, 0.3) }
+            controls.Ink { from: 0, to: 3, colour: keyword_ink() },
+            controls.Ink { from: 8, to: 9, colour: literal_ink() }
         ]
     }
 }
 
 // Every string the field drew, with the red channel of the colour it was drawn in.
+fn ink_named(c: paint.Color) -> string {
+    if same_colour(c, style().states.rest.ink) {
+        return "ink"
+    }
+    if same_colour(c, keyword_ink()) {
+        return "keyword"
+    }
+    if same_colour(c, literal_ink()) {
+        return "literal"
+    }
+    return str(c.red)
+}
+
 fn runs_of(e: controls.Entry) -> [string] {
     val laid = widget.layout(
         controls.entry_widget(e, frame()),
@@ -3474,7 +3495,11 @@ fn runs_of(e: controls.Entry) -> [string] {
             // nothing, and counting them would make every assertion here about the caret.
             if len(t.text) > 0 {
                 switch t.fill {
-                    Solid(c) { push(out, concat(t.text, "@", str(c.red))) }
+                    // **Named against the look rather than printed as a channel.** These used to
+                    // read `@0.1` -- plain's ink before F295 derived it from a ramp -- so every
+                    // one of them had to be rewritten the first time a look's colours moved. A
+                    // name cannot rot that way.
+                    Solid(c) { push(out, concat(t.text, "@", ink_named(c))) }
                     LinearGradient(_) { push(out, "?") }
                     RadialGradient(_) { push(out, "?") }
                     Pattern(_) { push(out, "?") }
@@ -3491,7 +3516,7 @@ fn runs_of(e: controls.Entry) -> [string] {
 #[test]
 fn a_field_with_no_inks_draws_one_run() {
     test.assert_len(1, runs_of(controls.entry_of("plain", "Plain", "val x = 1")))
-    test.assert_eq(runs_of(controls.entry_of("plain", "Plain", "val x = 1"))[0], "val x = 1@0.1")
+    test.assert_eq(runs_of(controls.entry_of("plain", "Plain", "val x = 1"))[0], "val x = 1@ink")
 }
 
 // Four runs: the keyword, the gap, the literal, and nothing after it -- so the text comes back in
@@ -3500,9 +3525,9 @@ fn a_field_with_no_inks_draws_one_run() {
 fn an_inked_field_draws_a_run_per_span() {
     val runs = runs_of(inked_field())
     test.assert_len(3, runs)
-    test.assert_eq(runs[0], "val@0.1")
-    test.assert_eq(runs[1], " x = @0.1")
-    test.assert_eq(runs[2], "1@0.2")
+    test.assert_eq(runs[0], "val@keyword")
+    test.assert_eq(runs[1], " x = @ink")
+    test.assert_eq(runs[2], "1@literal")
 }
 
 // **A masked field ignores its inks**, because the indices count characters of the text and a
@@ -3521,10 +3546,10 @@ fn a_masked_field_ignores_its_inks() {
 #[test]
 fn a_span_past_the_end_is_clipped() {
     val over = with controls.entry_of("code", "Code", "val") {
-        inks: [controls.Ink { from: 0, to: 99, colour: paint.rgb(0.1, 0.2, 0.9) }]
+        inks: [controls.Ink { from: 0, to: 99, colour: keyword_ink() }]
     }
     test.assert_len(1, runs_of(over))
-    test.assert_eq(runs_of(over)[0], "val@0.1")
+    test.assert_eq(runs_of(over)[0], "val@keyword")
 }
 
 // **A control drawn in a named face draws its text in that face**, which it did not: every label
@@ -4856,8 +4881,8 @@ fn button_face(f: controls.Frame) -> paint.Color {
 fn a_hovered_control_is_drawn_in_the_hovered_row() {
     val resting = button_face(frame())
     val hovered = button_face(with frame() { hovered: "go" })
-    test.assert(same_colour(resting, style().states.rest.face))
-    test.assert(same_colour(hovered, style().states.hovered.face))
+    test.assert(same_colour(resting, paint.flat_of(style().states.rest.face)))
+    test.assert(same_colour(hovered, paint.flat_of(style().states.hovered.face)))
     test.assert(!same_colour(resting, hovered))
 }
 
@@ -4875,8 +4900,14 @@ fn the_rows_are_ranked_disabled_then_pressed_then_hovered() {
     )
     val off_box = widget.layout(controls.button_widget(off, hovering), geom.rect_of(10.0, 20.0, 120.0, 30.0), metrics())
     val want = geom.rect_of(10.0, 20.0, 120.0, 30.0)
-    test.assert(same_colour(face_at(widget.paint(pressed_box, metrics()).ops, want), style().states.pressed.face))
-    test.assert(same_colour(face_at(widget.paint(off_box, metrics()).ops, want), style().states.disabled.face))
+    test.assert(same_colour(
+        face_at(widget.paint(pressed_box, metrics()).ops, want),
+        paint.flat_of(style().states.pressed.face)
+    ))
+    test.assert(same_colour(
+        face_at(widget.paint(off_box, metrics()).ops, want),
+        paint.flat_of(style().states.disabled.face)
+    ))
 }
 
 // **A part is a control too**, which is what lights a list's row and a menu's item: the name an
@@ -4890,8 +4921,8 @@ fn a_row_can_be_hovered_as_well_as_its_list() {
     // One row lights and **the others do not**, which is the half that used to be an accident of
     // where the pointer was rather than a property of the tree. Three at rest, not four: the box
     // shows four of the five rows.
-    test.assert_eq(1, fills_of(ops, style().states.hovered.face))
-    test.assert_eq(3, fills_of(ops, style().states.rest.face))
+    test.assert_eq(1, fills_of(ops, paint.flat_of(style().states.hovered.face)))
+    test.assert_eq(3, fills_of(ops, paint.flat_of(style().states.rest.face)))
 }
 
 // A name this tree does not hold draws nothing different rather than refusing: a pointer naming a
@@ -4916,7 +4947,7 @@ fn a_control_that_holds_controls_is_not_hovered() {
     val hovering = with frame() { hovered: "people" }
     val l = widget.layout(controls.list_widget(five(), hovering), list_box(), metrics())
     val ops = widget.paint(l, metrics()).ops
-    test.assert_eq(0, fills_of(ops, style().states.hovered.face))
+    test.assert_eq(0, fills_of(ops, paint.flat_of(style().states.hovered.face)))
 }
 
 // The words a tree draws in exactly this colour. **A face and a word out of two different rows is
@@ -4945,7 +4976,7 @@ fn accented_style() -> controls.Style {
     val base = theme.plain()
     return with base {
         states: with base.states {
-            selected: with base.states.selected { face: base.accent, ink: base.on_accent }
+            selected: with base.states.selected { face: paint.Paint.Solid(base.accent), ink: base.on_accent }
         }
     }
 }
@@ -5065,8 +5096,8 @@ fn an_expanding_state_draws_a_larger_frame_in_the_same_box() {
         ),
         metrics()
     )
-    val resting_frame = frame_box(rest_ops.ops, look.states.rest.face)
-    val hovered_frame = frame_box(over_ops.ops, look.states.hovered.face)
+    val resting_frame = frame_box(rest_ops.ops, paint.flat_of(look.states.rest.face))
+    val hovered_frame = frame_box(over_ops.ops, paint.flat_of(look.states.hovered.face))
     test.assert(hovered_frame.width > resting_frame.width)
     // ...and still inside the box the layout claimed.
     test.assert(hovered_frame.width < at.width + 0.001)

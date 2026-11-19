@@ -2534,7 +2534,11 @@ focused: st.focused }`.
 
 ```
 pub struct Parts {
-    face: Color
+    // **A paint, not a colour** (D10): a look can name a span of its own ramp as a face, and
+    // `from == to` is a flat fill -- so solid and gradient are one form with no `Option` and no
+    // second field. What a look *writes* is `theme.Fill`, two step numbers and an angle; this is
+    // what `derive` builds from it and what a control draws.
+    face: Paint
     ink: Color
     border: Option<widget.Border>
     // How far the drawn frame grows beyond its resting inset. **Paint time only**: see

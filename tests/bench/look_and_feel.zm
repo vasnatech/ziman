@@ -55,21 +55,19 @@ fn form(rows: int, style: controls.Style, m: widget.Metrics) -> widget.Widget {
 }
 
 fn edged() -> controls.Style {
-    return with theme.plain() {
-        // **The edge is on the five rows and the radius is on the scale** -- this file said
-        // `face_border` and `corner`, two fields F293 and F294 retired, and no make target builds
-        // it so nothing said so.
-        states: theme.state_rows(theme.Seeds {
-            face: paint.rgb(0.9, 0.9, 0.9),
-            ink: paint.rgb(0.1, 0.1, 0.1),
-            pressed: paint.rgb(0.75, 0.75, 0.78),
-            selection: paint.rgb(0.75, 0.75, 0.78),
-            panel: paint.rgb(0.96, 0.96, 0.97),
-            faint: paint.rgb(0.6, 0.6, 0.6),
-            veil: paint.rgb(0.0, 0.0, 0.0),
-            veil_at: 0.10,
-            edge: Option<widget.Border>.Some(widget.border_of(paint.rgb(0.4, 0.4, 0.45), 1.0))
-        }),
+    // **An edged, rounded look costs one word now.** This function has been rewritten three times
+    // -- `face_border` and `corner` in F293, the five rows in F294 -- because it stated what a look
+    // *is* instead of asking for one. It asks for one: the benchmark's whole point is the share a
+    // look and feel adds to a frame, and an edged look is a seed away.
+    return with theme.derive(
+        theme.Seeds {
+            neutral: paint.oklch(0.5, 0.010, 286.0),
+            accent: paint.oklch(0.55, 0.188, 261.0),
+            surfaces: theme.Toward.Ink,
+            edged: true
+        },
+        theme.Scheme.Light
+    ) {
         shape: with theme.plain().shape { medium: widget.Radius.Points(4.0) }
     }
 }

@@ -363,6 +363,8 @@ flowchart LR
     terminal --> io
     test --> regex
     theme --> controls
+    theme --> geom
+    theme --> math
     theme --> paint
     theme --> widget
     time --> clock
@@ -458,7 +460,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `focus` | `geom`, `widget` | `controls` |
 | `font` | `charset`, `truetype` | `layout`, `pdf`, `raster`, `widget` |
 | `fs` | `charset`, `io`, `os` | `csv`, `http`, `icons`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
-| `geom` | `math` | `a11y`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `svg`, `truetype`, `widget` |
+| `geom` | `math` | `a11y`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `svg`, `theme`, `truetype`, `widget` |
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `ibus` | `window` | - |
 | `icons` | `fs`, `ini`, `math`, `os`, `shape`, `svg` | - |
@@ -471,7 +473,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `locale` | - | `client`, `encoding`, `eql`, `http`, `ini`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `svg`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
-| `math` | - | `controls`, `geom`, `icons`, `image`, `json`, `markdown`, `paint`, `properties`, `raster`, `shape`, `stroker`, `svg` |
+| `math` | - | `controls`, `geom`, `icons`, `image`, `json`, `markdown`, `paint`, `properties`, `raster`, `shape`, `stroker`, `svg`, `theme` |
 | `memdb` | `db`, `locale`, `sql` | - |
 | `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `metrics` | `os` | `rest`, `server` |
@@ -505,7 +507,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `template` | `expr`, `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `terminal` | `charset`, `io` | - |
 | `test` | `regex` | - |
-| `theme` | `controls`, `paint`, `widget` | - |
+| `theme` | `controls`, `geom`, `math`, `paint`, `widget` | - |
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `batch`, `client`, `eql`, `migrate`, `schedule`, `toml` |
 | `toml` | `charset`, `json`, `locale`, `number`, `time` | `codec` |

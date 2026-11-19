@@ -35,8 +35,11 @@
 // that could not say what colour the window was is why dark variations could not be written here
 // before.
 use controls
+use geom
+use math
 use paint
 use paint.Color
+use paint.Paint
 use widget
 
 // A look and feel under the name an application offers it by.
@@ -44,68 +47,359 @@ use widget
 // **A name and a style, not a constructor**, because the list is what a theme picker wants and a
 // list of functions is not one -- and because `named` would otherwise be a switch that every new
 // look has to be added to twice.
-// What a look's five state rows are grown from.
+// Which end of a ramp a look is read from.
 //
-// **A struct rather than nine arguments**, so that a look's rows read as the sentences they are at
-// the call site and so that F295 can replace this with the two colour ramps without touching four
-// looks. Each field is a colour some look was already stating; the two the rows *compute* --
-// hovered and disabled -- are the two no look could state before, because a translucent veil and a
-// text colour were all `Style` had to say them with.
-pub struct Seeds {
-    face: Color
-    ink: Color
-    // What a press darkens (or lightens) the face to. Stated rather than derived **because a press
-    // is the one state every look already had an exact colour for** and derivation would move
-    // every shipped pixel to no end.
-    pressed: Color
-    // What a chosen row is filled with.
-    selection: Color
-    // What a disabled control recedes towards: the surface behind it.
-    panel: Color
-    // The ink of a disabled control.
-    faint: Color
-    // What a hover is veiled with -- **black on a light look and white on a dark one**, because a
-    // tenth of black over a dark grey is invisible; Material says the same of its state layer.
-    veil: Color
-    // How much of the veil. A tenth reads as lit without reading as pressed.
-    veil_at: float
-    // The look's edge, where it has one. **On the rows rather than on `Style`**, so that a look
-    // whose pressed state loses its border can say so.
-    edge: Option<widget.Border>
+// **A parameter rather than a second authored look** (D8). `plain_dark` was written by hand and had
+// to discover four things an inversion gets wrong -- faces lighter than the window, a white hover
+// veil, `on_accent` flipping, a deeper shadow. Every one of them is what a step *means* on a ramp
+// read from the other end, so indexing is the whole of dark mode and there is nothing left to get
+// wrong. Material's `fromSeed` takes a brightness for the same reason, and Radix ships each scale
+// both ways.
+pub enum Scheme {
+    Light
+    Dark
 }
 
-// The five rows a look's seeds imply.
+// Which way a surface moves from the window it sits on.
 //
-// **Two of the five are computed and that is the point of the exercise.** `hovered` is the face
-// under the veil, resolved here rather than painted over a finished scene -- which is what lets a
-// hover change an edge and a word and not only a fill. `disabled` recedes *as a face* towards the
-// panel behind it: a disabled control that kept a live face and greyed only its text was the
-// defect D5 names, and no platform draws it that way.
+// **This is the one thing a 12-step ramp could not say, and it was measured rather than guessed.**
+// Converting the four looks that were authored by hand to OKLab lightness shows both light looks
+// using monotone steps 1 to 5 and disagreeing only about which role takes which step:
 //
-// Derivation happens once, when the look is built, and never at paint time (D2).
-pub fn state_rows(s: Seeds) -> controls.States {
-    val rest = controls.Parts {
-        face: s.face,
-        ink: s.ink,
-        border: s.edge,
+//     plain light    window .986   panel .970   face .923   hovered ~.87   pressed .808
+//     modern light   panel 1.000   face .991    window .976  hovered ~.96   pressed .948
+//
+// So "white cards on a grey canvas" -- modern's defining choice, and what every elevation model
+// since Material has meant -- is exactly "the window is step 3, not step 1". A permutation of three
+// roles, not a second curve.
+//
+// **Read only in a light scheme.** Both dark looks measure monotone *ascending* from the window
+// (plain .239/.302/.372/.458, modern .209/.246/.280/.339), because on an inverted ramp every step
+// away from 1 is already lighter: "a face is lighter than its window" is what step 3 means there.
+// There is nothing to choose, which is D8's claim about dark falling out mechanically, checked
+// against the two looks that were written by hand before any of this existed.
+pub enum Toward {
+    // A face is darker than the window it sits on: window 1, panel 2, face 3.
+    Ink
+    // A face is lighter than the window: panel 1, face 2, window 3.
+    Away
+}
+
+// The twelve lightnesses a neutral ramp takes, in OKLab. Radix's gray scale, both ways round.
+//
+// **Tables rather than a formula**, which is what every system that ships a scale does -- Radix
+// publishes them, Material fixes thirteen tones -- because the curve is not linear in any space and
+// the places it bends are the roles. The seed supplies hue and chroma; these supply the role.
+//
+// Nothing here is trusted: `theme_test` asserts the two guarantees §11.2 states -- that the scale
+// is monotone, and that steps 11 and 12 read on step 2 -- against the ramp this builds.
+fn neutral_lightness(s: Scheme) -> [float] {
+    return switch s {
+        Light { [0.991, 0.982, 0.955, 0.931, 0.907, 0.885, 0.851, 0.792, 0.643, 0.610, 0.503, 0.244] }
+        Dark { [0.178, 0.213, 0.252, 0.285, 0.313, 0.348, 0.402, 0.489, 0.538, 0.583, 0.770, 0.949] }
+    }
+}
+
+// The same for an accent ramp, which **cannot share the neutral curve** -- the one place this was
+// nearly got wrong.
+//
+// At the neutral table's step 9 (lightness .643) a blue accent is `rgb8(73, 135, 255)`, and white
+// on it is **3.41:1**: below AA, so a derived look would have failed `theme_test`'s own
+// `on_accent` check. Step 9 is where a scale promises a solid colour text can sit on, so it sits
+// lower -- .550 light, .685 dark, which is within a hundredth of where both hand-written looks
+// already put their accents.
+fn accent_lightness(s: Scheme) -> [float] {
+    return switch s {
+        Light { [0.981, 0.965, 0.935, 0.900, 0.862, 0.820, 0.772, 0.700, 0.550, 0.505, 0.470, 0.300] }
+        Dark { [0.200, 0.240, 0.290, 0.340, 0.385, 0.430, 0.480, 0.560, 0.685, 0.730, 0.800, 0.930] }
+    }
+}
+
+// How much of the seed's own chroma each step keeps.
+//
+// **Pale at the ends and full at the solid steps**, which is what makes step 9 read as the colour
+// the seed names and step 1 read as a surface rather than a wash. A neutral seed carries almost no
+// chroma, so this barely tints it -- which is the slight warmth or coolness a grey needs to belong
+// to its accent instead of sitting beside it.
+fn chroma_curve(accent: bool) -> [float] {
+    if accent {
+        return [0.12, 0.18, 0.25, 0.33, 0.42, 0.52, 0.64, 0.80, 1.0, 1.0, 0.80, 0.45]
+    }
+    return [0.25, 0.30, 0.40, 0.50, 0.55, 0.60, 0.70, 0.80, 1.0, 1.0, 0.70, 0.40]
+}
+
+// Twelve steps from one seed, with Radix's roles: 1 is the app background, 3 an element, 4 hovered,
+// 5 selected, 7 a border, 9 a solid, 11 and 12 text.
+//
+// **The step number is the role**, which is the whole point of a scale and what makes D5's rows
+// stop being independent choices: 4 *is* hovered and 5 *is* active by construction, so a dark
+// variation has nothing to get wrong about them.
+//
+// The seed's hue is kept exactly; its chroma is a scale factor, not a target. Gamut is `paint`'s
+// business -- it maps by reducing chroma rather than clipping channels, which F292 established
+// after clipping moved `lighten(blue, 0.100)` by 0.060 and a test caught it.
+pub fn ramp(seed: Color, s: Scheme) -> [Color] {
+    return ramp_of(seed, neutral_lightness(s), chroma_curve(false))
+}
+
+// The accent ramp of a seed: the same twelve roles on the curve a solid colour needs.
+pub fn accent_ramp(seed: Color, s: Scheme) -> [Color] {
+    return ramp_of(seed, accent_lightness(s), chroma_curve(true))
+}
+
+fn ramp_of(seed: Color, lightness: [float], chroma: [float]) -> [Color] {
+    val want = paint.to_oklch(seed)
+    val out = mutable_array_new<Color>()
+    var i = 0
+    while i < len(lightness) {
+        push(out, paint.oklch(lightness[i], want.chroma * chroma[i], want.hue))
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
+// The step a role takes, named once so that no look and no test writes a bare index.
+//
+// **Named because a bare `n[4]` is a number twice**: once for the step and once for the meaning,
+// and the second one is the one that rots. These are §11.2's table, and the three surfaces that
+// move with `Toward` are not here -- they are `derive`'s business, because they are the one thing
+// a look chooses.
+pub val step_hovered = 4
+pub val step_pressed = 5
+pub val step_border = 7
+pub val step_solid = 9
+pub val step_ink = 12
+
+// A face, as a look writes it: a span of this look's own ramp.
+//
+// **Steps, not colours** (D10). A look that wanted a gradient would otherwise have to state two
+// colours that the ramp already contains, and the gate would have to go looking for them; naming
+// steps keeps the promise that **every stop in a built style is provably a ramp step**, so the
+// ramp can be checked once instead of the stops being extracted per look.
+//
+// **`from == to` is a flat fill**, which is why there is no `Option` here and no second field:
+// solid and gradient are one form, and every shipped look happens to write the flat one.
+pub struct Fill {
+    from: int
+    to: int
+    // Degrees clockwise from the top, which is CSS's convention and the one a designer will say
+    // out loud. Ignored when `from == to`.
+    angle: float
+}
+
+// A flat fill of one step: what both shipped looks write.
+pub fn flat(step: int) -> Fill {
+    return Fill { from: step, to: step, angle: 0.0 }
+}
+
+// The paint a `Fill` names, against a ramp.
+//
+// **Endpoints as fractions of the box**, resolved later by `widget.paint_in` against the control
+// actually being painted -- a widget tree is built before anything knows how big a control is, so
+// a gradient cannot carry absolute points. See `widget.radius_in`, the precedent this follows.
+pub fn paint_of(f: Fill, steps: [Color]) -> Paint {
+    val from = steps[f.from - 1]
+    val to = steps[f.to - 1]
+    if f.from == f.to {
+        return Paint.Solid(from)
+    }
+    val radians = (f.angle - 90.0) * 3.14159265358979 / 180.0
+    val dx = math.cos(radians) * 0.5
+    val dy = math.sin(radians) * 0.5
+    return paint.linear(
+        geom.point_of(0.5 - dx, 0.5 - dy),
+        geom.point_of(0.5 + dx, 0.5 + dy),
+        [paint.Stop { offset: 0.0, color: from }, paint.Stop { offset: 1.0, color: to }]
+    )
+}
+
+// The two colours a look is grown from, and which way its surfaces go.
+//
+// **Two seeds, not twenty colours** (D8). What a look used to state -- a face, a pressed face, a
+// selection, a disabled ink, a veil, a border, an accent -- are steps of two ramps, so the only
+// things left to choose are the hue of the neutrals, the hue of the accent, and whether a face sits
+// above its window or below it.
+pub struct Seeds {
+    neutral: Color
+    accent: Color
+    surfaces: Toward
+    // Whether a face wears its edge.
+    //
+    // **A ramp always has a border colour -- step 7 is "element border" by role -- but whether a
+    // look draws it is not something two colour seeds imply.** It is the same kind of choice as
+    // `Toward` and as the shape scale: `plain` is square, filled and unedged on purpose, so that
+    // an application replacing it has nothing to undo, and `modern` is edged because on a white
+    // window the border is what says "this is a control".
+    edged: bool
+}
+
+// A whole look, from two seeds and a scheme.
+//
+// **The override list is the measurement** (D8). `plain()` and `modern()` are this plus their
+// deliberate exceptions, and if either needed twenty the derivation would be wrong -- which we
+// would then know rather than argue about. The exceptions that remain are not colours: they are
+// the padding, the shape scale and the shadow, which are a look's own vocabulary and not something
+// two colour seeds could imply.
+//
+// **Derivation happens here, once, when the look is built** -- never at paint time (D2).
+pub fn derive(seeds: Seeds, s: Scheme) -> controls.Style {
+    val n = ramp(seeds.neutral, s)
+    val a = accent_ramp(seeds.accent, s)
+    // §11.2's three surface roles, permuted by `Toward`. Everything below indexes the ramp the
+    // same way in both looks and both schemes.
+    val window = switch seeds.surfaces {
+        Ink { n[0] }
+        Away { if is_light(s) { n[2] } else { n[0] } }
+    }
+    val panel = switch seeds.surfaces {
+        Ink { n[1] }
+        Away { if is_light(s) { n[0] } else { n[1] } }
+    }
+    val face = switch seeds.surfaces {
+        Ink { n[2] }
+        Away { if is_light(s) { n[1] } else { n[2] } }
+    }
+    val ink = n[step_ink - 1]
+    val faint = n[10]
+    val edge = if seeds.edged {
+        Option<widget.Border>.Some(widget.Border { colour: n[step_border - 1], width: 1.0 })
+    } else {
+        Option<widget.Border>.None
+    }
+    val accent = a[step_solid - 1]
+    return controls.Style {
+        padding: widget.insets_of(8.0, 4.0, 8.0, 4.0),
+        ink: ink,
+        face: face,
+        panel: panel,
+        window: window,
+        // Step 6 is "subtle border and separator" in §11.2's table, and a table's grid is exactly
+        // that: a line that has to recede and still be a line.
+        grid: n[5],
+        // The two an input method draws under text it has not committed. **Tints of the accent**,
+        // because what they say is "this is being composed" and the accent is what a look says
+        // anything with. Step 3 is an element's background and step 6 a separator -- far enough
+        // apart that the run being converted reads as the part the next keystroke changes.
+        composing_face: a[2],
+        converting_face: a[5],
+        collapsed_mark: "▸",
+        expanded_mark: "▾",
+        // **Deeper on a dark look**, because a dark window shows less through a scrim and the whole
+        // point of one is that what is behind it is plainly unavailable.
+        scrim: if is_light(s) { paint.rgba(0.0, 0.0, 0.0, 0.35) } else { paint.rgba(0.0, 0.0, 0.0, 0.55) },
+        accent: accent,
+        // **Derived, not stated, and this is the field that nearly broke the derivation.** §11.2
+        // notes that most step 9s are built for white text but Sky, Mint, Lime, Yellow and Amber
+        // want dark text: so rather than a look asserting which, the ramp's two ends are measured
+        // against step 9 and the one that reads wins. It picks white on both light looks and dark
+        // on both dark ones, which is what the four hand-written looks had already chosen.
+        on_accent: if paint.contrast_ratio(a[0], accent) < paint.contrast_ratio(a[11], accent) {
+            a[11]
+        } else {
+            a[0]
+        },
+        states: controls.States {
+            rest: row_of(Paint.Solid(face), ink, edge),
+            // 4 *is* hovered and 5 *is* active, by construction -- which is what stops a dark
+            // variation getting them wrong, because there is nothing left to get wrong.
+            hovered: with row_of(Paint.Solid(n[3]), ink, edge) {
+                // Step 8 is "hovered element border" in the same table, so **a look that edges its
+                // faces gets a brighter edge under the pointer for nothing** -- and one that does
+                // not stays unedged in every state rather than growing an edge on hover.
+                border: if seeds.edged {
+                    Option<widget.Border>.Some(widget.Border { colour: n[7], width: 1.0 })
+                } else {
+                    Option<widget.Border>.None
+                }
+            },
+            pressed: row_of(Paint.Solid(n[4]), ink, edge),
+            // **A disabled face recedes towards what is behind it**, which is the defect D5 named:
+            // a disabled control that keeps a live face and greys only its words is something no
+            // platform draws. Step 11 is "low-contrast text" by role, so the ink is a lookup and
+            // only the face is a mix.
+            disabled: with row_of(Paint.Solid(paint.mix(face, panel, 0.6)), faint, edge) {
+                // Step 6, the subtle separator: an edge that has stopped asking to be pressed.
+                border: if seeds.edged {
+                    Option<widget.Border>.Some(widget.Border { colour: n[5], width: 1.0 })
+                } else {
+                    Option<widget.Border>.None
+                }
+            },
+            selected: row_of(Paint.Solid(a[3]), ink, edge)
+        },
+        space: controls.Space { none: 0.0, xs: 2.0, s: 4.0, m: 8.0, l: 12.0, xl: 16.0 },
+        minimum: controls.Minimum { target: 24.0, thumb: 20.0 },
+        stroke: controls.Stroke { hair: 1.0, line: 2.0 },
+        // **Deeper on a dark look** for the reason the scrim is: depth reads as a darkening, and
+        // there is less room to darken below a dark window.
+        raised: Option<widget.Shadow>.Some(widget.shadow_of(2.0, 10.0, if is_light(s) { 0.22 } else { 0.5 })),
+        shape: controls.Shape {
+            small: widget.Radius.Square,
+            medium: widget.Radius.Square,
+            large: widget.Radius.Square,
+            full: widget.Radius.Fraction(0.5)
+        },
+        text: controls.TypeScale {
+            heading: controls.Type { face: 0, size: 12.0, line: 1.0 },
+            body: controls.Type { face: 0, size: 12.0, line: 1.0 },
+            label: controls.Type { face: 0, size: 12.0, line: 1.0 },
+            caption: controls.Type { face: 0, size: 11.0, line: 1.0 },
+            code: controls.Type { face: 0, size: 12.0, line: 1.0 }
+        },
+        icon_font: 0,
+        icon_gap: 6.0
+    }
+}
+
+fn is_light(s: Scheme) -> bool {
+    return switch s {
+        Light { true }
+        Dark { false }
+    }
+}
+
+fn row_of(face: Paint, ink: Color, edge: Option<widget.Border>) -> controls.Parts {
+    return controls.Parts {
+        face: face,
+        ink: ink,
+        border: edge,
         expansion: 0.0,
         corner: Option<widget.Radius>.None
-    }
-    return controls.States {
-        rest: rest,
-        hovered: with rest { face: paint.mix(s.face, s.veil, s.veil_at) },
-        pressed: with rest { face: s.pressed },
-        // **Three fifths of the way to the panel**: far enough that the control stops looking
-        // available, near enough that it is still a control and not a hole in the window.
-        disabled: with rest { face: paint.mix(s.face, s.panel, 0.6), ink: s.faint },
-        selected: with rest { face: s.selection }
     }
 }
 
 pub struct Look {
-    // What to put in a menu. Capitalised as a title, because it is one.
+    // What to put in a menu. Capitalised as a title, because it is one. **Computed** for a dark
+    // row -- "Plain" and "Plain dark" are one family's two schemes, not two names someone typed.
     name: string
     style: controls.Style
+    // Which end of the ramp this row was read from.
+    //
+    // **Read off the register rather than set by hand**, which is what absorbs F7: an application
+    // asking "is the look I am showing a dark one" was answering it by matching the name, and a
+    // look called "Midnight" would have broken that. The register knows, because it built the row.
+    scheme: Scheme
+}
+
+// A look's two schemes, which are one look.
+//
+// **Two seeds give two rows, and that is why the register is computed.** D4 could keep `all()` as
+// a list because density changes no colour -- a dense look is the same look. A scheme *does* change
+// colour, so a register of two entries would leave the AA gate testing only the light half: a gate
+// that quietly stopped testing half the library because a mechanism got better is the worst
+// outcome available here. Adding a family below adds two rows to the menu and two to the gate,
+// without anyone remembering to.
+pub struct Family {
+    name: string
+    light: controls.Style
+    dark: controls.Style
+}
+
+fn families() -> [Family] {
+    return [
+        Family { name: "Plain", light: plain(), dark: plain_dark() },
+        Family { name: "Modern", light: modern(), dark: modern_dark() }
+    ]
 }
 
 // How much room a look is given, as an axis over it rather than an entry in the register.
@@ -199,12 +493,12 @@ pub fn densities() -> [Density] {
 // map would sort by name and put "Modern dark" before "Plain". `named` searches it; nothing needs
 // the lookup to be fast, because a theme is chosen by a person.
 pub fn all() -> [Look] {
-    return [
-        Look { name: "Plain", style: plain() },
-        Look { name: "Plain dark", style: plain_dark() },
-        Look { name: "Modern", style: modern() },
-        Look { name: "Modern dark", style: modern_dark() }
-    ]
+    val out = mutable_array_new<Look>()
+    for one in families() {
+        push(out, Look { name: one.name, style: one.light, scheme: Scheme.Light })
+        push(out, Look { name: concat(one.name, " dark"), style: one.dark, scheme: Scheme.Dark })
+    }
+    return snapshot(out)
 }
 
 // The look and feel of that name, or nothing.
