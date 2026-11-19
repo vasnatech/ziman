@@ -339,9 +339,12 @@ pub enum IconSource {
     // window had loaded; the renderer has taken an index since it existed. `Style.icon_font` says
     // which face, so the control carries the character and the theme carries the font.
     //
-    // **The glyph is a string, not a code point**, for the reason `Style.collapsed_mark` is: a
-    // caller that has `"\u{e5ca}"` in a constant can put it here, and this layer never has to
-    // encode anything. It is one character by convention and nothing enforces that, because an
+    // **The glyph is a string, not a code point**: a caller that has `"\u{e5ca}"` in a constant
+    // can put it here, and this layer never has to encode anything.
+    //
+    // An icon font is asked for by name, so a missing glyph is the caller's to notice -- unlike
+    // the disclosure arrows, which were strings in `Style` until a face without them drew `.notdef`
+    // in every combo box, and are a path now. See `controls.chevron`. It is one character by convention and nothing enforces that, because an
     // icon font with a two-character ligature is a real thing.
     Glyph(string)
 }
@@ -1276,6 +1279,20 @@ pub enum Role {
     TableRow
     // The heading over a column, which is a control: it is what a column is sorted and resized by.
     ColumnHeader
+    // A switch is not a check box, and the distinction is the user's rather than the drawing's: a
+    // check box is a choice that is committed with the rest of a form, and a switch takes effect
+    // the moment it moves. Readers say "on" and "off" for one and "checked" for the other, which
+    // is the whole reason this is its own role rather than a check box that looks different.
+    Switch
+    // **A bar a user cannot operate**, which is the thing that makes it unlike every other role
+    // here: there is nothing to press, so it is not a tab stop -- and it still has to be in the
+    // tree, because "is it still going?" is exactly what a reader has to be able to answer.
+    ProgressBar
+    // A field with steppers. It is an editable text field as well -- which is why the role exists
+    // rather than the control borrowing `TextField`: a reader announces a range and a step for a
+    // spin button and nothing of the kind for a field, and the range is the thing a user most
+    // needs told before typing into it.
+    SpinButton
     // Two panes and the divider between them. **The divider is a `Separator` inside this**, which
     // is how both ATK and GTK have it: the pane is what contains the two halves and publishes
     // where the split sits, and the handle is the thin thing you take hold of.
@@ -1839,6 +1856,37 @@ What a laid node declares itself to be, or `Unknown` for anything that is not a 
 shape from it, so a control that declares its role properly gets a cursor for nothing and one
 that does not is visibly ordinary. The pointer and the screen reader should not be able to
 disagree about what a thing is.
+
+### `text_of`
+
+```
+pub fn text_of(l: Laid) -> string
+```
+
+The text this node draws, or "" when it draws none.
+
+**So that a tooltip can decline to repeat what is already on screen.** A tip under an ordinary
+labelled button, saying the label the user is reading, is noise with a delay on it -- and the
+only way to know is to ask whether the words are drawn anywhere under the control.
+
+### `tip_in`
+
+```
+pub fn tip_in(l: Laid) -> string
+```
+
+The words a tooltip shows for a control: **its description, or its label when it has none.**
+
+**Derived and not a field of its own, which is what makes a tooltip safe.** Every platform's
+tooltip advice is the same warning -- a tip that says something other than the accessible name is
+a control that reads one way to a sighted user and another to a reader, and the user who needs
+the name most gets the one nobody proofread. Taking the words from what the control already
+declares makes that disagreement unrepresentable: there is one string, and a tip is a second way
+of showing it rather than a second copy of it.
+
+It is also why adding a `tip` to twenty control structs was not the design. An icon button is the
+control that needs a tooltip, because its label is the thing a tooltip exists to reveal -- and it
+already declares one.
 
 ### `is_tab_stop`
 

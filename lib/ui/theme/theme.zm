@@ -295,8 +295,6 @@ pub fn derive(seeds: Seeds, s: Scheme) -> controls.Style {
         // apart that the run being converted reads as the part the next keystroke changes.
         composing_face: a[2],
         converting_face: a[5],
-        collapsed_mark: "▸",
-        expanded_mark: "▾",
         // **Deeper on a dark look**, because a dark window shows less through a scrim and the whole
         // point of one is that what is behind it is plainly unavailable.
         scrim: if is_light(s) { paint.rgba(0.0, 0.0, 0.0, 0.35) } else { paint.rgba(0.0, 0.0, 0.0, 0.55) },
@@ -515,6 +513,20 @@ fn stretched(t: controls.Type, by: float) -> controls.Type {
 }
 
 // Every density, in the order an application offers them.
+// What to call a density in a menu.
+//
+// **Here rather than in the application**, for `Look.name`'s reason: a density offered in two
+// applications under two spellings is the same axis described twice, and the one that invents its
+// own words is the one that calls `Comfortable` "Normal" and leaves a user wondering what it is
+// normal compared to.
+pub fn density_name(d: Density) -> string {
+    return switch d {
+        Compact { "Compact" }
+        Comfortable { "Comfortable" }
+        Spacious { "Spacious" }
+    }
+}
+
 pub fn densities() -> [Density] {
     return [Density.Compact, Density.Comfortable, Density.Spacious]
 }

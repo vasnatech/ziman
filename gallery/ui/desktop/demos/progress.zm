@@ -1,0 +1,75 @@
+// A progress bar, both kinds.
+//
+// **The busy bar is the only moving thing in the gallery**, and it moves because this demo is
+// asked for a new phase every frame -- not because `lib/ui` read a clock. That is the whole of the
+// decision in F299: an animation is a function of a number the application owns, so a test can
+// hand it 0.4 and a window can hand it the time.
+use boxes
+use controls
+use demos/progress_ui
+use widget
+
+// A sixtieth of a second's worth of a two-second cycle, which is what the gallery's loop sleeps.
+val step = 1.0 / 120.0
+
+pub struct Demo {
+    done: controls.ProgressBar
+    busy: controls.ProgressBar
+    finished: controls.ProgressBar
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        done: controls.progress_bar_of("progress-done", "Copying files", 0.4),
+        busy: controls.busy_bar_of("progress-busy", "Contacting the server", 0.0),
+        finished: controls.progress_bar_of("progress-finished", "Finished", 1.0)
+    }
+}
+
+// The next frame of the one bar that has one. Wrapping rather than clamping, because a phase is a
+// position in a cycle: at 1.0 the segment is off the right-hand end and the next frame starts it
+// again at the left.
+pub fn tick(d: Demo) -> Demo {
+    val moved = with d.busy { progress: controls.Progress.Busy(next_phase(d.busy)) }
+    return with d { busy: moved }
+}
+
+fn next_phase(b: controls.ProgressBar) -> float {
+    val now = switch b.progress {
+        Busy(p) { p }
+        Fraction(_) { 0.0 }
+    }
+    if now + step >= 1.0 {
+        return 0.0
+    }
+    return now + step
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return progress_ui.screen(
+        progress_ui.Screen {
+            done_label: "Copying files",
+            done: controls.progress_bar_widget(d.done, controls.frame_of(style, m)),
+            busy_label: "Contacting the server (no total, so no percentage)",
+            busy: controls.progress_bar_widget(d.busy, controls.frame_of(style, m)),
+            finished_label: "Finished",
+            finished: controls.progress_bar_widget(d.finished, controls.frame_of(style, m)),
+            said: "A determinate bar reads its percentage; an indeterminate one reads \"busy\", because there is no percentage to read."
+        },
+        f
+    )
+}
+
+// A progress bar takes no input -- there is nothing on it to press -- so this exists to say so
+// rather than to do anything. The gallery calls it for every demo.
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    return d
+}

@@ -190,6 +190,651 @@ fn a_disabled_check_box_does_not_toggle() {
     test.assert_false(click(off).toggled)
 }
 
+// --- the switch
+
+fn flick(s: controls.Switch) -> controls.SwitchStep {
+    val held = controls.switch_input(s, controls.Input.Press(inside()), box)
+    return controls.switch_input(held.control, controls.Input.Release(inside()), box)
+}
+
+// **"on", not "checked", and "switch", not "check box".** The two controls carry the same `Toggle`
+// and this is the whole difference a user can hear: a switch is the state of a thing, a check box
+// is a choice about to be submitted. Announcing a switch as "check box, Dark mode, checked" is the
+// reader describing the drawing instead of the control -- which is what it did before `Role.Switch`
+// existed, because a switch could only be a check box that looked different.
+#[test]
+fn a_switch_is_announced_as_a_switch_that_is_on_or_off() {
+    val off = controls.switch_of("dark", "Dark mode", widget.Toggle.Off)
+    test.assert_eq(
+        said_of(controls.switch_widget(off, frame()), "dark"),
+        "switch, Dark mode, off"
+    )
+    val on = flick(off)
+    test.assert(on.toggled)
+    test.assert_eq(
+        said_of(controls.switch_widget(on.control, frame()), "dark"),
+        "switch, Dark mode, on"
+    )
+    test.assert_eq(
+        said_of(controls.switch_widget(flick(on.control).control, frame()), "dark"),
+        "switch, Dark mode, off"
+    )
+}
+
+// The button's rules are the button's, not copies: a drag off cancels, and a disabled switch is
+// inert and does not stay held.
+#[test]
+fn a_switch_follows_the_button_s_rules() {
+    val s = controls.switch_of("dark", "Dark mode", widget.Toggle.Off)
+    val held = controls.switch_input(s, controls.Input.Press(inside()), box)
+    val gone = controls.switch_input(held.control, controls.Input.Release(outside()), box)
+    test.assert_false(gone.toggled)
+    test.assert_false(gone.control.held)
+    test.assert_false(flick(with s { disabled: true }).toggled)
+}
+
+// Space works it, because a control a pointer can reach and a keyboard cannot is not a control.
+//
+// **On the release, like every other button**, which is the behaviour and not an accident: Space
+// held is a button held, so a user who presses it and changes their mind has somewhere to go. The
+// first assertion is the one that would catch a switch wired to `KeyDown` -- it would toggle twice
+// for one keystroke on a platform that auto-repeats.
+#[test]
+fn space_works_a_switch_on_the_release() {
+    val s = controls.switch_of("dark", "Dark mode", widget.Toggle.Off)
+    val down = controls.switch_input(s, controls.Input.KeyDown(key(space)), box)
+    test.assert_false(down.toggled)
+    test.assert(down.control.held)
+    val up = controls.switch_input(down.control, controls.Input.KeyUp(key(space)), box)
+    test.assert(up.toggled)
+    test.assert(widget.Toggle.is_On(up.control.on))
+    test.assert_false(up.control.held)
+}
+
+// The switch, painted. A switch draws two fills and no text of its own but the label, so "the
+// smallest" is the knob and "the widest" is the track -- which is what these three read.
+fn switch_scene(s: controls.Switch) -> scene.Scene {
+    val laid = widget.layout(
+        controls.switch_widget(s, frame()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    return widget.paint(laid, metrics())
+}
+
+fn smallest_fill(s: controls.Switch) -> geom.Rect {
+    var best = geom.rect_of(0.0, 0.0, 100000.0, 100000.0)
+    for op in switch_scene(s).ops {
+        switch op {
+            Fill(f) {
+                val b = shape.path_bounds(f.path)
+                if b.width * b.height < best.width * best.height {
+                    best = b
+                }
+            }
+            StrokePath(_) { unit }
+            Text(_) { unit }
+            DrawImage(_) { unit }
+            Nested(_) { unit }
+        }
+    }
+    return best
+}
+
+fn widest_fill(s: controls.Switch) -> geom.Rect {
+    var best = geom.rect_of(0.0, 0.0, 0.0, 0.0)
+    for op in switch_scene(s).ops {
+        switch op {
+            Fill(f) {
+                val b = shape.path_bounds(f.path)
+                if b.width > best.width {
+                    best = b
+                }
+            }
+            StrokePath(_) { unit }
+            Text(_) { unit }
+            DrawImage(_) { unit }
+            Nested(_) { unit }
+        }
+    }
+    return best
+}
+
+// **The knob moves, and it is the only thing that says which way the switch is set.** A switch
+// whose knob does not move is a coloured capsule, and a user who cannot see colour -- or a look
+// whose accent is close to its face -- has nothing left to read. So this asserts the one thing a
+// screenshot would show: the knob sits on the other side.
+//
+// It is placed by a flexible gap rather than by arithmetic, so this also covers the thing that
+// would break silently if `Along` were wrong in one arm: both ends, not one.
+#[test]
+fn the_knob_sits_at_the_end_the_switch_is_set_to() {
+    val off = smallest_fill(controls.switch_of("dark", "Dark mode", widget.Toggle.Off))
+    val on = smallest_fill(controls.switch_of("dark", "Dark mode", widget.Toggle.On))
+    test.assert(on.x > off.x)
+    // Square, and the same square at either end: a knob that changed size would mean the track's
+    // padding was being applied to one side only.
+    test.assert_eq(str(off.width), str(off.height))
+    test.assert_eq(str(off.width), str(on.width))
+}
+
+// **Twice as wide as it is tall, and a line tall.** The height is the label's line box, which is
+// what makes the control exactly as tall as the words beside it at any density -- the check box's
+// reason, and the defect F286 found when the mark box was measured from a glyph instead.
+#[test]
+fn a_switch_is_a_line_tall_and_twice_as_wide() {
+    val widest = widest_fill(controls.switch_of("dark", "Dark mode", widget.Toggle.Off))
+    // **Asked of the metrics, which is the claim.** `style.text.label.size` would be a plausible
+    // height and a wrong one -- it is the type size, not the line box, and a control measured that
+    // way sits short beside its own label. That is the mistake the check box's mark box made until
+    // F286, so this pins the choice rather than restating it: the 2:1 ratio below is the
+    // independent half.
+    val line = controls.line_for(metrics(), theme.plain().text.label)
+    test.assert_eq(str(widest.height), str(line))
+    test.assert_eq(str(widest.width), str(widest.height * 2.0))
+}
+
+// **An on switch is the accent, because that is what the accent is for.** The five state rows
+// govern hovered, pressed and disabled -- the control's *state* -- and being on is its *value*, so
+// `states.selected.face` would have drawn it in F295's pale selection tint where every platform
+// draws a solid colour. The knob is `on_accent`, the one paint guaranteed to read on it.
+#[test]
+fn an_on_switch_is_drawn_in_the_look_s_accent() {
+    val style = theme.plain()
+    var track_colour = paint.black()
+    var widest = 0.0
+    for op in switch_scene(controls.switch_of("dark", "Dark mode", widget.Toggle.On)).ops {
+        switch op {
+            Fill(f) {
+                val b = shape.path_bounds(f.path)
+                if b.width > widest {
+                    widest = b.width
+                    track_colour = paint.flat_of(f.fill)
+                }
+            }
+            StrokePath(_) { unit }
+            Text(_) { unit }
+            DrawImage(_) { unit }
+            Nested(_) { unit }
+        }
+    }
+    test.assert_eq(str(track_colour.red), str(style.accent.red))
+    test.assert_eq(str(track_colour.green), str(style.accent.green))
+    test.assert_eq(str(track_colour.blue), str(style.accent.blue))
+}
+
+// --- the progress bar
+
+// The stops of the one gradient a bar paints. **The fraction is in the paint**, which is what the
+// gradient-as-fill decision buys: a test can read the number back out instead of counting pixels
+// or asserting a width that depends on the window.
+fn bar_stops(b: controls.ProgressBar) -> [paint.Stop] {
+    val laid = widget.layout(
+        controls.progress_bar_widget(b, frame()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    var found: [paint.Stop] = []
+    for op in widget.paint(laid, metrics()).ops {
+        switch op {
+            Fill(f) {
+                switch f.fill {
+                    LinearGradient(g) { found = g.stops }
+                    Solid(_) { unit }
+                    RadialGradient(_) { unit }
+                    Pattern(_) { unit }
+                }
+            }
+            StrokePath(_) { unit }
+            Text(_) { unit }
+            DrawImage(_) { unit }
+            Nested(_) { unit }
+        }
+    }
+    return found
+}
+
+// Where the fill ends: the last offset still drawn in the accent.
+fn done_upto(b: controls.ProgressBar) -> float {
+    val style = theme.plain()
+    var upto = 0.0
+    for s in bar_stops(b) {
+        if s.color.red == style.accent.red && s.color.green == style.accent.green && s.color.blue == style.accent.blue {
+            if s.offset > upto {
+                upto = s.offset
+            }
+        }
+    }
+    return upto
+}
+
+// **The fill is the fraction, at any width.** A bar is a proportion of whatever space it is given
+// and the widget tree has no proportional container, so the edge is a hard stop in a gradient
+// whose endpoints are fractions of the painted box. This asserts the thing that would be wrong if
+// that were done with arithmetic instead: the number, not a pixel count.
+#[test]
+fn a_bar_fills_the_fraction_it_was_given() {
+    test.assert_eq(str(done_upto(controls.progress_bar_of("copy", "Copying", 0.0))), str(0.0))
+    test.assert_eq(str(done_upto(controls.progress_bar_of("copy", "Copying", 0.4))), str(0.4))
+    test.assert_eq(str(done_upto(controls.progress_bar_of("copy", "Copying", 1.0))), str(1.0))
+}
+
+// **Out of range is held, not wrapped and not an error.** A caller computing 7 of 5 files has a
+// bug, and a bar that drew 140% or raised would turn it into a crash in the progress reporting
+// rather than a full bar.
+#[test]
+fn a_fraction_outside_the_range_is_held_at_the_ends() {
+    test.assert_eq(str(done_upto(controls.progress_bar_of("copy", "Copying", 0.0 - 2.0))), str(0.0))
+    test.assert_eq(str(done_upto(controls.progress_bar_of("copy", "Copying", 4.0))), str(1.0))
+}
+
+// **A hard stop, which is two stops at one offset.** The fill's edge is sharp because the stop
+// before it and the stop after it are at the same place; a single stop would be a gradient fading
+// from accent to track across the whole bar, which looks like a bar that is always half done.
+#[test]
+fn the_fill_s_edge_is_a_hard_stop() {
+    val stops = bar_stops(controls.progress_bar_of("copy", "Copying", 0.4))
+    test.assert_eq(len(stops), 4)
+    test.assert_eq(str(stops[1].offset), str(stops[2].offset))
+    val style = theme.plain()
+    test.assert_eq(str(stops[1].color.red), str(style.accent.red))
+    test.assert_eq(str(stops[2].color.red), str(style.states.disabled.ink.red))
+}
+
+// **A busy bar is a segment somewhere, and at the ends of its cycle it is nowhere.** The segment
+// travels from off the left to off the right so that the cycle has no visible stall; a segment
+// clamped inside the bar would sit still at both ends and read as the job having stopped twice a
+// second.
+#[test]
+fn a_busy_bar_moves_a_segment_across_and_off_both_ends() {
+    val early = done_upto(controls.busy_bar_of("wait", "Contacting", 0.3))
+    val later = done_upto(controls.busy_bar_of("wait", "Contacting", 0.6))
+    test.assert(later > early)
+    // At each end of the cycle the segment is entirely outside the bar, so nothing is in the
+    // accent at all -- which is two stops of track and no fill.
+    test.assert_eq(len(bar_stops(controls.busy_bar_of("wait", "Contacting", 0.0))), 2)
+    test.assert_eq(len(bar_stops(controls.busy_bar_of("wait", "Contacting", 1.0))), 2)
+}
+
+// **What a reader is told, which is the only thing a progress bar is for.** A determinate bar has
+// a percentage; an indeterminate one has "busy", because there is no percentage to read and a
+// reader that said "progress bar, Copying" and stopped would have described a job that might as
+// well be finished.
+#[test]
+fn a_bar_announces_a_percentage_or_that_it_is_busy() {
+    test.assert_eq(
+        said_of(controls.progress_bar_widget(controls.progress_bar_of("copy", "Copying files", 0.4), frame()), "copy"),
+        "progress bar, Copying files, 40%"
+    )
+    test.assert_eq(
+        said_of(controls.progress_bar_widget(controls.progress_bar_of("copy", "Copying files", 1.0), frame()), "copy"),
+        "progress bar, Copying files, 100%"
+    )
+    test.assert_eq(
+        said_of(controls.progress_bar_widget(controls.busy_bar_of("wait", "Contacting the server", 0.5), frame()), "wait"),
+        "progress bar, Contacting the server, busy"
+    )
+}
+
+// **Not a tab stop, and still in the tree.** A control a user cannot operate must not take a stop
+// on the way to one they can -- and it must still be announced, because "is it still going?" is
+// the question it exists to answer.
+#[test]
+fn a_progress_bar_is_read_but_not_tabbed_to() {
+    val laid = widget.layout(
+        controls.progress_bar_widget(controls.progress_bar_of("copy", "Copying", 0.4), frame()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    test.assert_eq(len(focus.controls(laid)), 0)
+    test.assert(len(a11y.tree_of(laid, "Records", "").nodes) > 1)
+}
+
+// --- the number field
+
+// Wide enough to have steppers at its right-hand edge and a line tall.
+val number_box = geom.rect_of(0.0, 0.0, 120.0, 24.0)
+
+fn port_field() -> controls.NumberField {
+    return controls.number_field_of("port", "Port", 8080.0, 1.0, 65535.0, 1.0)
+}
+
+fn typed(n: controls.NumberField, text: string) -> controls.NumberField {
+    var now = n
+    for ch in chars(text) {
+        now = controls.number_field_input(now, controls.Input.Text(ch), number_box, frame()).field
+    }
+    return now
+}
+
+fn text_in(n: controls.NumberField) -> string {
+    return n.entry.editor.text
+}
+
+fn cleared() -> controls.NumberField {
+    val all = controls.number_field_of("n", "Count", 0.0, 10.0, 20.0, 1.0)
+    return with all { entry: with all.entry { editor: edit.editor_of("") } }
+}
+
+// **The defect the whole design exists to avoid.** Into a field bounded 10 to 20, a user types
+// `1` and then `5`. A field that clamped each keystroke would hold `10` after the first and then
+// `105` -- clamped again to `20` -- so 15 would be unreachable and the field untypable. Nothing is
+// clamped until it is committed, so the text is simply what was typed.
+#[test]
+fn a_range_can_be_typed_into() {
+    val after = typed(cleared(), "15")
+    test.assert_eq(text_in(after), "15")
+    test.assert_eq(str(controls.number_or(after, 0.0)), str(15.0))
+}
+
+// **A number on its way is not a number, and the field says so rather than inventing one.** A
+// field holding `-` has no value; a caller handed `0.0` for it would write a zero into a config.
+#[test]
+fn a_half_typed_number_has_no_value_and_is_still_typable() {
+    val minus = typed(cleared(), "-")
+    test.assert_eq(text_in(minus), "-")
+    test.assert(Option.is_None(controls.number_in(minus)))
+    // And it carries on being typed into.
+    val whole = typed(minus, "12")
+    test.assert_eq(str(controls.number_or(whole, 0.0)), str(0.0 - 12.0))
+    // A trailing point is the same kind of thing.
+    val point = typed(cleared(), "1.")
+    test.assert_eq(text_in(point), "1.")
+}
+
+// **The one rule, applied to every edit: could this still become a number?** A character whitelist
+// would let `--` and `1.2.3` through; asking whether the text could still parse does not. It also
+// makes `inf` unreachable by typing, because `i` is not on the way to anything.
+#[test]
+fn an_edit_that_could_never_be_a_number_is_refused() {
+    test.assert_eq(text_in(typed(port_field(), "a")), "8080")
+    test.assert_eq(text_in(typed(cleared(), "--")), "-")
+    test.assert_eq(text_in(typed(cleared(), "1.2.3")), "1.23")
+    test.assert_eq(text_in(typed(cleared(), "i")), "")
+}
+
+// **A stepper commits, which is why it clamps where typing does not**: pressing it is not being in
+// the middle of anything, so there is no half-typed state to protect.
+#[test]
+fn a_stepper_moves_by_the_step_and_clamps() {
+    val up = controls.stepped(port_field(), 1.0)
+    test.assert_eq(text_in(up), "8081")
+    test.assert_eq(text_in(controls.stepped(up, 0.0 - 1.0)), "8080")
+    // At the top it stays at the top rather than going past it.
+    val top = controls.number_field_of("port", "Port", 65535.0, 1.0, 65535.0, 1.0)
+    test.assert_eq(text_in(controls.stepped(top, 1.0)), "65535")
+    // From text that is not a number at all it starts at the low end, which is the only answer
+    // that is not a guess.
+    test.assert_eq(text_in(controls.stepped(typed(cleared(), "-"), 1.0)), "11")
+}
+
+// A step that is not whole reads as the shortest exact text, so the field shows 1, 1.5, 2 -- never
+// 1.0, and never 8080.0 in a port field.
+#[test]
+fn a_fractional_step_reads_in_its_shortest_exact_form() {
+    val half = controls.number_field_of("gain", "Gain", 1.0, 0.0, 3.0, 0.5)
+    test.assert_eq(text_in(half), "1")
+    val up = controls.stepped(half, 1.0)
+    test.assert_eq(text_in(up), "1.5")
+    test.assert_eq(text_in(controls.stepped(up, 1.0)), "2")
+}
+
+// The arrow keys and the wheel are the stepper by another name, and **a wheel outside the field is
+// not the field's**: a number that changed while the user scrolled the page it sits on would be a
+// value altered by accident.
+#[test]
+fn the_arrows_step_and_a_wheel_only_counts_over_the_field() {
+    val up = controls.number_field_input(port_field(), controls.Input.KeyDown(key(controls.Key.Up)), number_box, frame())
+    test.assert(up.changed)
+    test.assert_eq(text_in(up.field), "8081")
+    val down = controls.number_field_input(port_field(), controls.Input.KeyDown(key(controls.Key.Down)), number_box, frame())
+    test.assert_eq(text_in(down.field), "8079")
+
+    val over = controls.Input.Wheel(controls.Wheel { at: geom.point_of(10.0, 10.0), vertical: 1, horizontal: 0 })
+    test.assert_eq(text_in(controls.number_field_input(port_field(), over, number_box, frame()).field), "8081")
+    val away = controls.Input.Wheel(controls.Wheel { at: geom.point_of(400.0, 400.0), vertical: 1, horizontal: 0 })
+    val unmoved = controls.number_field_input(port_field(), away, number_box, frame())
+    test.assert_false(unmoved.changed)
+    test.assert_eq(text_in(unmoved.field), "8080")
+}
+
+// A press on the upper half of the stepper column steps up and the lower half steps down, worked
+// out from the control's own bounds -- the scroll bar's pattern, so this is the one assertion that
+// the arithmetic agrees with what was drawn.
+#[test]
+fn a_press_on_a_stepper_steps_it() {
+    val right = number_box.x + number_box.width - 2.0
+    val up = controls.Input.Press(geom.point_of(right, 2.0))
+    val down = controls.Input.Press(geom.point_of(right, number_box.height - 2.0))
+    test.assert_eq(text_in(controls.number_field_input(port_field(), up, number_box, frame()).field), "8081")
+    test.assert_eq(text_in(controls.number_field_input(port_field(), down, number_box, frame()).field), "8079")
+}
+
+// **Enter commits**: it is the keystroke that means "I have finished", so it clamps and rewrites.
+// An empty field stays empty, because a user who cleared it has not given an out-of-range number
+// and filling it in on the way past would overwrite what they were about to type.
+#[test]
+fn enter_commits_and_clamps_but_leaves_an_empty_field_alone() {
+    val over = typed(cleared(), "99")
+    val sent = controls.number_field_input(over, controls.Input.KeyDown(key(enter)), number_box, frame())
+    test.assert_eq(text_in(sent.field), "20")
+    test.assert_eq(text_in(controls.committed(cleared())), "")
+    test.assert_eq(text_in(controls.committed(typed(cleared(), "-"))), "-")
+}
+
+// **`changed` is about the number, not the text.** Typing the `.` of `1.5` changes what is on
+// screen and not what the field is worth, and an application saving on every change would write a
+// half-typed number to disk.
+#[test]
+fn only_a_change_in_the_number_counts_as_a_change() {
+    val one = typed(cleared(), "1")
+    val point = controls.number_field_input(one, controls.Input.Text("."), number_box, frame())
+    test.assert_eq(text_in(point.field), "1.")
+    test.assert_false(point.changed)
+}
+
+// **The range is announced, because a user typing into a field bounded 1 to 65535 cannot see the
+// bounds** and learning them by being corrected is a form teaching nothing.
+//
+// The value comes before it, which is `announce`'s order and the platforms': name, role, value,
+// and then the help text. Worth asserting as a whole line rather than field by field -- what a
+// user hears is the sentence, and this is the only place it is written down.
+#[test]
+fn a_number_field_announces_its_range_and_its_value() {
+    test.assert_eq(
+        said_of(controls.number_field_widget(port_field(), frame()), "port"),
+        "spin button, Port, 8080, from 1 to 65535"
+    )
+}
+
+// **The steppers have extent, and the two of them agree.**
+//
+// This control's first version lost them: `fixed_of(w, 0.0, child)` means a height of *zero* and
+// survives only while a parent stretches it back out -- a row does, a column does not -- which is
+// the spelling that has cost this library ten controls now (see `widget.Fixed.constrains`). What
+// caught that was the gallery's `no_demo_paints_into_no_space`, and it had to be: the trap is
+// contextual, so a test can only catch it by wrapping the control the way the careless caller did,
+// which is asserting the caller.
+//
+// What is worth asserting here is the arithmetic that replaced asking the column how tall the
+// field came out -- half a line box and half the padding, twice. Zeroing it fails this test.
+#[test]
+fn a_number_field_in_a_column_still_has_extent() {
+    val laid = widget.layout(
+        widget.column_of(8.0, [
+            widget.label_of("Port", 12.0, paint.black()),
+            widget.row_of(0.0, [
+                widget.wide_of(160.0, controls.number_field_widget(port_field(), frame())),
+                widget.flex()
+            ])
+        ]),
+        geom.rect_of(0.0, 0.0, 400.0, 200.0),
+        metrics()
+    )
+    test.assert_eq(len(widget.measured_as_nothing(laid)), 0)
+    val up = boxes_named(laid, "port-up")
+    val down = boxes_named(laid, "port-down")
+    test.assert(up > 0.0)
+    test.assert_eq(str(up), str(down))
+}
+
+// The height of the first node with this name, or 0.
+fn boxes_named(l: widget.Laid, name: string) -> float {
+    if l.name == name {
+        return l.bounds.height
+    }
+    var found = 0.0
+    for c in l.children {
+        if found == 0.0 {
+            found = boxes_named(c, name)
+        }
+    }
+    return found
+}
+
+// One tab stop, not two: the field's text box is drawn under this control rather than under a
+// `TextField` of its own, so Tab reaches the number field and a reader announces one thing.
+#[test]
+fn a_number_field_is_one_tab_stop() {
+    val laid = widget.layout(
+        controls.number_field_widget(port_field(), frame()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    test.assert_eq(len(focus.controls(laid)), 1)
+}
+
+// --- the tooltip
+
+val tip_pause = 600
+
+// **A tip waits, and moving to another control starts the wait again.** A pointer crossing a
+// toolbar of eight buttons must not leave eight tips behind it, which is the whole reason the wait
+// is per-control rather than a single timer the window keeps.
+#[test]
+fn a_tip_waits_and_a_move_starts_the_wait_again() {
+    var h = controls.no_hover()
+    // **Arriving counts nothing**, which is the conservative reading: the pointer got there at some
+    // unknown point inside that frame, so the wait starts at zero rather than at a frame's worth.
+    h = controls.hovering(h, "save", 200)
+    test.assert_eq(h.waited, 0)
+    test.assert_false(controls.tip_due(h, tip_pause))
+    h = controls.hovering(h, "save", 200)
+    h = controls.hovering(h, "save", 200)
+    test.assert_false(controls.tip_due(h, tip_pause))
+    h = controls.hovering(h, "save", 200)
+    test.assert(controls.tip_due(h, tip_pause))
+    // Onto the next button: the count starts again, so nothing is showing.
+    h = controls.hovering(h, "open", 16)
+    test.assert_false(controls.tip_due(h, tip_pause))
+    // And off every control: no tip, whatever has been waited.
+    h = controls.hovering(h, "", 10000)
+    test.assert_false(controls.tip_due(h, tip_pause))
+}
+
+// A tree with one icon button -- a label nothing draws -- and one ordinary button, which draws its
+// own.
+fn two_buttons() -> widget.Laid {
+    return widget.layout(
+        widget.column_of(4.0, [
+            // **A true icon-only button: no label at all**, its name carried by the icon, which
+            // is where `announced_name` looks. That is the control a tooltip exists for -- the
+            // words are declared and nothing on screen shows them.
+            controls.button_widget(
+                controls.icon_button_of("save", "", widget.icon_of(dot_icon(), "Save")),
+                frame()
+            ),
+            controls.button_widget(controls.button_of("open", "Open"), frame())
+        ]),
+        geom.rect_of(0.0, 0.0, 200.0, 80.0),
+        metrics()
+    )
+}
+
+fn dot_icon() -> shape.Path {
+    return shape.ellipse_path(geom.rect_of(0.2, 0.2, 0.6, 0.6))
+}
+
+// **A tip says what the control declares, and says nothing when the control is already saying it.**
+// An icon button's label is the thing a tooltip exists to reveal; an ordinary button's is on its
+// face, and a tip repeating it is noise with a delay on it.
+#[test]
+fn a_tip_names_an_icon_button_and_stays_quiet_over_a_labelled_one() {
+    val laid = two_buttons()
+    val on_icon = controls.hovering(controls.no_hover(), "save", 1000)
+    test.assert_eq(controls.tip_words(on_icon, laid), "Save")
+    val on_label = controls.hovering(controls.no_hover(), "open", 1000)
+    test.assert_eq(controls.tip_words(on_label, laid), "")
+    // Over nothing, and over a name that is not in the tree: no words, not an error.
+    test.assert_eq(controls.tip_words(controls.no_hover(), laid), "")
+    test.assert_eq(controls.tip_words(controls.hovering(controls.no_hover(), "gone", 1000), laid), "")
+}
+
+// **A description beats a label**, which is what makes the number field's range appear over it: the
+// field already draws its value, and the words it does not draw are the bounds a user cannot see.
+#[test]
+fn a_description_is_what_a_tip_prefers() {
+    val laid = widget.layout(
+        controls.number_field_widget(port_field(), frame()),
+        geom.rect_of(0.0, 0.0, 200.0, 40.0),
+        metrics()
+    )
+    test.assert_eq(
+        controls.tip_words(controls.hovering(controls.no_hover(), "port", 1000), laid),
+        "from 1 to 65535"
+    )
+}
+
+fn tip_box(over: geom.Rect, within: geom.Rect) -> geom.Rect {
+    // Not `box`: that is a module-level val here, and a switch payload cannot shadow one. Fourth
+    // time this has cost a compile in this file.
+    return switch controls.tip_layer("Save", over, within, frame()).at {
+        Some(placed) { placed }
+        None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
+    }
+}
+
+// **Below the control, and inside the window.** A tip hanging off the right-hand edge is a tip with
+// its last word missing -- which is the half it was needed for -- and one below a control at the
+// foot of the window is not on screen at all.
+#[test]
+fn a_tip_sits_below_its_control_and_inside_the_window() {
+    val window = geom.rect_of(0.0, 0.0, 300.0, 200.0)
+    val middle = tip_box(geom.rect_of(40.0, 50.0, 60.0, 20.0), window)
+    test.assert(middle.y > 70.0)
+    test.assert_eq(str(middle.x), str(40.0))
+
+    // Against the right-hand edge: pushed back in, so its right side is the window's.
+    val right = tip_box(geom.rect_of(290.0, 50.0, 60.0, 20.0), window)
+    test.assert(right.x + right.width <= 300.0)
+    test.assert(right.x < 290.0)
+
+    // At the foot: flipped above the control rather than drawn off the bottom.
+    val low = tip_box(geom.rect_of(40.0, 190.0, 60.0, 20.0), window)
+    test.assert(low.y < 190.0)
+    test.assert(low.y >= 0.0)
+}
+
+// **A tip takes no keys and is not a control.**
+//
+// Taking the keyboard is the one thing it must never do: a tooltip is a consequence of the pointer
+// resting, so a layer that claimed the focus would move it somewhere the user never asked to go.
+//
+// Its words are in the tree the way any drawn text is -- which is why this asserts "no control"
+// rather than "no node". A `Role.Tooltip` would put a second thing in the tree saying the sentence
+// the control already says; see `tip_layer`.
+#[test]
+fn a_tip_is_not_a_control_and_takes_no_keys() {
+    val layer = controls.tip_layer("Save", geom.rect_of(0.0, 0.0, 40.0, 20.0), geom.rect_of(0.0, 0.0, 300.0, 200.0), frame())
+    test.assert_false(layer.takes_keys)
+    val laid = widget.layout(layer.content, geom.rect_of(0.0, 0.0, 100.0, 30.0), metrics())
+    test.assert_eq(len(focus.controls(laid)), 0)
+    // The window, and the words as static text: nothing claiming to be a control.
+    val tree = a11y.tree_of(laid, "Records", "")
+    test.assert_eq(len(tree.nodes), 2)
+    test.assert_eq(said_of_tree(tree, "@0"), "Save")
+}
+
 // --- routing
 
 fn laid_pair() -> widget.Laid {
@@ -4575,17 +5220,28 @@ fn a_collapsed_combo_box_draws_its_mark() {
         geom.rect_of(0.0, 0.0, 200.0, 30.0),
         metrics()
     )
-    var marks = 0
-    var mark_x = 0.0
+    // **The mark is a drawn path now, not a character.** It was `style.expanded_mark`, a string
+    // holding a triangle, and a face without that code point drew `.notdef` -- which is what
+    // Liberation Sans does, so on a machine where that is the first font found every combo box in
+    // the window drew a hollow box. The claim this test makes is unchanged; what carries it is a
+    // fill rather than a glyph. See `controls.chevron`.
     var value_x = 0.0
     for op in widget.paint_ops(laid, metrics()) {
         if Text(t) = op {
-            if t.text == style.expanded_mark {
-                marks = marks + 1
-                mark_x = t.at.x
-            }
             if t.text == controls.combo_box_value(combo()) {
                 value_x = t.at.x
+            }
+        }
+    }
+    // Every small fill right of the value: the face is the whole box, so the mark is the only one.
+    var marks = 0
+    var mark_x = 0.0
+    for op in widget.paint_ops(laid, metrics()) {
+        if Fill(f) = op {
+            val b = shape.path_bounds(f.path)
+            if b.x > value_x && b.width < 30.0 {
+                marks = marks + 1
+                mark_x = b.x
             }
         }
     }
@@ -4604,11 +5260,21 @@ fn a_tree_row_is_inset_from_its_own_edge() {
         geom.rect_of(0.0, 0.0, 200.0, 200.0),
         metrics()
     )
+    // **The arrow too, which is now a fill rather than a glyph** -- and it is the leftmost thing
+    // in a row, so a test that looked only at text would have stopped covering the very thing this
+    // was written for.
     var leftmost = 1000.0
     for op in widget.paint_ops(laid, metrics()) {
         if Text(t) = op {
             if t.at.x < leftmost {
                 leftmost = t.at.x
+            }
+        }
+        if Fill(f) = op {
+            val b = shape.path_bounds(f.path)
+            // The row's own band is the full width; the arrow is the small one.
+            if b.width < 30.0 && b.x < leftmost {
+                leftmost = b.x
             }
         }
     }

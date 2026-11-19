@@ -163,7 +163,12 @@ pub fn announce(n: Node) -> string {
         push(parts, "dimmed")
     }
     switch n.state.checked {
-        Some(t) { push(parts, toggle_word(t)) }
+        // **A switch says "on", a check box says "checked".** The two controls carry the same
+        // `Toggle` and mean different things by it: a check box is a choice committed with the
+        // rest of a form, a switch takes effect as it moves. Every reader on every platform says
+        // them differently, so saying "checked" for a switch would be the announcement describing
+        // the drawing rather than the control.
+        Some(t) { push(parts, toggle_word(t, n.role)) }
         None {}
     }
     switch n.state.expanded {
@@ -427,6 +432,9 @@ fn role_word(r: Role) -> string {
     return switch r {
         Button { "button" }
         CheckBox { "check box" }
+        Switch { "switch" }
+        ProgressBar { "progress bar" }
+        SpinButton { "spin button" }
         RadioButton { "radio button" }
         TextField { "text field" }
         Password { "password text" }
@@ -463,7 +471,21 @@ fn role_word(r: Role) -> string {
     }
 }
 
-fn toggle_word(t: Toggle) -> string {
+fn toggle_word(t: Toggle, r: Role) -> string {
+    // **Asked as a question, not switched over every role**, which is the one place that is right
+    // here: a role that is not a switch says "checked", and that is the answer for every role there
+    // will ever be rather than a decision each new one has to take. The exhaustive switches
+    // elsewhere earn their keep because a new role genuinely needs a word and a number; this one
+    // would only collect twenty-nine copies of the same arm.
+    if Role.is_Switch(r) {
+        return switch t {
+            Off { "off" }
+            On { "on" }
+            // Nothing sets a third state on a switch, but the enum has one, and "partly on" is what
+            // it would mean rather than a crash or a silence.
+            Mixed { "partly on" }
+        }
+    }
     return switch t {
         Off { "unchecked" }
         On { "checked" }

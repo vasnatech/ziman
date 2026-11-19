@@ -1,0 +1,94 @@
+// A switch, and the thing that makes it one.
+//
+// **Named `switches` because `switch` is a keyword**, which a module name cannot be: the demo is
+// titled "Switch" and its controls are named `switch-*`, and only the file had to give way.
+//
+// **A switch takes effect as it moves, and that is the whole demonstration.** Three capsules side
+// by side would show the drawing and teach nothing: a check box drawn as a capsule looks exactly
+// the same. So the master switch here *does* something the moment it moves -- the two below it go
+// dead, as they do in every settings panel on every platform -- which is the behaviour a check box
+// must not have, because a check box is a choice held until a form is submitted.
+//
+// It is also the case that catches a switch wired to the wrong edge: a control that only takes
+// effect on OK cannot be told apart from one that takes effect now, until something downstream of
+// it moves too.
+use boxes
+use controls
+use demos/switches_ui
+use widget
+use widget.Toggle
+
+pub struct Demo {
+    wifi: controls.Switch
+    hotspot: controls.Switch
+    roaming: controls.Switch
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        wifi: controls.switch_of("switch-wifi", "Wi-Fi", Toggle.On),
+        hotspot: controls.switch_of("switch-hotspot", "Personal hotspot", Toggle.Off),
+        roaming: controls.switch_of("switch-roaming", "Data roaming", Toggle.On)
+    }
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    // **Derived, not stored.** The two below are disabled because the master is off, so there is
+    // no second copy of that fact to fall out of step with the first -- the panel cannot be drawn
+    // in a state the switches do not say.
+    val dead = !Toggle.is_On(d.wifi.on)
+    return switches_ui.screen(
+        switches_ui.Screen {
+            master: controls.switch_widget(d.wifi, controls.frame_of(style, m)),
+            first: controls.switch_widget(with d.hotspot { disabled: dead }, controls.frame_of(style, m)),
+            second: controls.switch_widget(with d.roaming { disabled: dead }, controls.frame_of(style, m)),
+            said: said(d, dead)
+        },
+        f
+    )
+}
+
+fn said(d: Demo, dead: bool) -> string {
+    if dead {
+        return "Wi-Fi is off, so the two below it cannot be changed -- which happened the moment the switch moved, not when a form was submitted."
+    }
+    return concat(
+        "Personal hotspot is ",
+        word_of(d.hotspot.on),
+        ", data roaming is ",
+        word_of(d.roaming.on),
+        "."
+    )
+}
+
+fn word_of(t: Toggle) -> string {
+    return switch t {
+        On { "on" }
+        Off { "off" }
+        Mixed { "partly on" }
+    }
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    // The two below take input only while the master is on, for the reason the view draws them
+    // dead: a disabled control that still answers is the defect this arrangement exists to show.
+    val dead = !Toggle.is_On(d.wifi.on)
+    if name == "switch-wifi" {
+        return with d { wifi: controls.switch_input(d.wifi, input, boxes.bounds_of(laid, name)).control }
+    }
+    if name == "switch-hotspot" && !dead {
+        return with d { hotspot: controls.switch_input(d.hotspot, input, boxes.bounds_of(laid, name)).control }
+    }
+    if name == "switch-roaming" && !dead {
+        return with d { roaming: controls.switch_input(d.roaming, input, boxes.bounds_of(laid, name)).control }
+    }
+    return d
+}

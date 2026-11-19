@@ -276,6 +276,9 @@ fn cursor_for(node: Laid) -> widget.Cursor {
         }
         Button { widget.Cursor.Arrow }
         CheckBox { widget.Cursor.Arrow }
+        Switch { widget.Cursor.Arrow }
+        ProgressBar { widget.Cursor.Arrow }
+        SpinButton { widget.Cursor.Text }
         RadioButton { widget.Cursor.Arrow }
         Slider { widget.Cursor.Arrow }
         List { widget.Cursor.Arrow }
@@ -616,6 +619,148 @@ pub fn check_box_widget(c: CheckBox, f: Frame) -> widget.Widget {
     })
 }
 
+// ---------------------------------------------------------------- the switch
+
+// A setting that takes effect as it moves.
+//
+// **Not a check box that looks different**, which is the whole reason it is here. A check box is a
+// choice a user makes and commits with the rest of a form; a switch is the state of something, and
+// moving it *is* the action -- which is why every platform gives the two different roles and why a
+// reader says "on" for one and "checked" for the other. A dialog's "Remember me" is a check box; a
+// window's "Dark mode" is a switch.
+//
+// Same shape as `CheckBox` otherwise, down to `held`: it is a button that carries a `Toggle`.
+pub struct Switch {
+    name: string
+    label: string
+    disabled: bool
+    on: Toggle
+    held: bool
+}
+
+// **The field is `control` and not `switch`**, which is a keyword here and cannot be a field name.
+// Every other step names its field after its control -- `check_box`, `button`, `entry` -- so this
+// is the one place that convention cannot be followed, rather than a different idea.
+pub struct SwitchStep {
+    control: Switch
+    toggled: bool
+}
+
+pub fn switch_of(name: string, label: string, on: Toggle) -> Switch {
+    return Switch { name: name, label: label, disabled: false, on: on, held: false }
+}
+
+fn switch_as_button(s: Switch) -> Button {
+    return with button_of(s.name, s.label) {
+        disabled: s.disabled,
+        held: s.held
+    }
+}
+
+// A press or Space moves it, exactly as it does a check box: the difference between the two
+// controls is what it means, not how it is worked.
+pub fn switch_input(s: Switch, input: Input, bounds: Rect) -> SwitchStep {
+    val step = button_input(switch_as_button(s), input, bounds)
+    val moved = with s { held: step.button.held }
+    if !step.activated {
+        return SwitchStep { control: moved, toggled: false }
+    }
+    return SwitchStep { control: with moved { on: next(s.on) }, toggled: true }
+}
+
+// **The track is the accent when it is on**, which is what `accent` and `on_accent` are for: the
+// one colour a look is recognised by, and what reads on it. The five state rows still govern the
+// off track and the ink, so a hovered or disabled switch is the look's hovered or disabled face --
+// but an *on* switch is not a state of the control, it is its value, and a value that said
+// `states.selected.face` would be a pale tint of the accent where every platform draws a solid one.
+pub fn switch_widget(s: Switch, f: Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    val parts = parts_for(style, mood_of(s.disabled, s.held, false, hovered_in(f, s.name)))
+    val on = Toggle.is_On(s.on)
+    // One line tall and twice as wide, for the check box's reason: the line box is the only
+    // measurement that makes the control exactly as tall as the label beside it.
+    val tall = line_for(m, style.text.label)
+    val wide = tall * 2.0
+    val knob = tall - style.space.xs * 2.0
+    val track_ink = if s.disabled {
+        style.states.disabled.ink
+    } else {
+        if on { style.accent } else { paint.flat_of(parts.face) }
+    }
+    val knob_ink = if on && !s.disabled { style.on_accent } else { style.panel }
+    // **A capsule whichever shape scale is in force.** A switch that is not a capsule is a check
+    // box drawn wide, so this is `Fraction(0.5)` rather than `shape.full` -- the one control whose
+    // roundness is what tells it apart, the way a radio's circle is.
+    val track = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.insets_of(style.space.xs, style.space.xs, style.space.xs, style.space.xs),
+        surface: widget.Surface {
+            inset: 0.0,
+            fill: Option<Paint>.Some(Paint.Solid(track_ink)),
+            border: parts.border,
+            corner: widget.Radius.Fraction(0.5),
+            corners: widget.Corners.All,
+            shadow: Option<widget.Shadow>.None
+        },
+        // **The thumb is placed by a flexible gap, not by arithmetic.** `Along.Start` with the gap
+        // after it puts the knob left, `Along.End` puts it right; either way the track decides
+        // where its own ends are, so the knob stays inside a track of any width at any density.
+        align: widget.Alignment {
+            across: widget.Across.Centre,
+            along: if on { widget.Along.End } else { widget.Along.Start }
+        },
+        children: [widget.fixed_of(knob, knob, widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            surface: widget.Surface {
+                inset: 0.0,
+                fill: Option<Paint>.Some(Paint.Solid(knob_ink)),
+                border: Option<widget.Border>.None,
+                corner: widget.Radius.Fraction(0.5),
+                corners: widget.Corners.All,
+                shadow: Option<widget.Shadow>.None
+            },
+            align: widget.stretched(),
+            children: [],
+            name: ""
+        }))],
+        name: ""
+    })
+    val inside = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: style.text.label.size * 0.5,
+        padding: padded_for(style),
+        surface: widget.no_surface(),
+        // The check box's reason: a stretched row would hand the track the row's full height and
+        // the capsule would stop being one.
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+        children: [
+            widget.fixed_of(wide, tall, track),
+            widget.label_in_face(s.label, style.text.label.size, parts.ink, style.text.label.face)
+        ],
+        name: ""
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: s.name,
+        role: widget.Role.Switch,
+        // Declared, for the check box's reason: the text inside would otherwise be read as part of
+        // the name, and here there is none at all to take.
+        label: s.label,
+        description: "",
+        value: "",
+        state: with widget.no_state() {
+            disabled: s.disabled,
+            checked: Option<Toggle>.Some(s.on)
+        },
+        focus_part: "",
+        tab_stop: true,
+        child: inside
+    })
+}
+
 // What the box draws. Text rather than a drawn glyph, so that a check box needs no icon set and no
 // second rendering path -- F277's later instalments can replace it without the model changing.
 // A check box's mark, as a path in the unit box `widget.Drawn` scales into.
@@ -677,11 +822,705 @@ fn dash() -> shape.Path {
     return shape.rect_path(geom.rect_of(0.22, 0.5 - mark_weight * 0.5, 0.56, mark_weight))
 }
 
+// A disclosure arrow, in the unit box a `Drawn` scales into: pointing down when the thing it
+// belongs to is open, right when it is shut.
+//
+// **Drawn, and this is the argument the check box's mark made coming true a second time.** These
+// were `Style.collapsed_mark` and `Style.expanded_mark`, two strings holding "\u25b8" and
+// "\u25be" -- and a face that lacks those code points draws `.notdef`, a hollow box. Liberation
+// Sans lacks them, so on a machine where that is the first font found *every combo box and every
+// tree row in the window drew a box*. The library's answer was a comment saying applications
+// should replace the marks, and both applications did: five `with style { collapsed_mark: ">",
+// expanded_mark: "v" }` across two repositories, each a thing somebody had to know.
+//
+// A path needs no font, so there is nothing to know and nothing to replace. Two fields that could
+// be set wrong left `Style` with them.
+fn chevron(down: bool) -> shape.Path {
+    val b = shape.path_builder()
+    if down {
+        shape.move_to(b, geom.point_of(0.25, 0.4))
+        shape.line_to(b, geom.point_of(0.75, 0.4))
+        shape.line_to(b, geom.point_of(0.5, 0.68))
+    } else {
+        shape.move_to(b, geom.point_of(0.38, 0.25))
+        shape.line_to(b, geom.point_of(0.38, 0.75))
+        shape.line_to(b, geom.point_of(0.66, 0.5))
+    }
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+// The arrow at the size the text beside it is, so it grows with a theme that sets a larger type
+// scale -- the icon's rule, for the icon's reason.
+fn chevron_widget(down: bool, ink: Color, side: float) -> widget.Widget {
+    return widget.fixed_of(side, side, widget.drawn_of(chevron(down), ink))
+}
+
 // A radio's dot: a circle, because a radio is a circle and the thing inside it is too.
 fn dot() -> shape.Path {
     return shape.ellipse_path(geom.rect_of(0.3, 0.3, 0.4, 0.4))
 }
 
+// ---------------------------------------------------------- the progress bar
+
+// How far along something is, or only that it is going on at all.
+//
+// **Two cases, not a number with a sentinel.** A bar whose value is `-1.0` or `None` for "I do not
+// know" is a bar every caller must remember to check, and the one that forgets draws a job that is
+// finished as a job that has not started. They are also announced differently -- a determinate bar
+// has a percentage to read and an indeterminate one has only "busy" -- so the difference has to
+// survive as far as the reader, which a sentinel does not.
+//
+// `Busy` carries a **phase**, 0 to 1, and the application advances it. `lib/ui` has no clock and is
+// not going to grow one: a library that reads the time cannot be tested by handing it a value, and
+// every animation here is already a function of a number somebody else owns.
+pub enum Progress {
+    Fraction(float)
+    Busy(float)
+}
+
+pub struct ProgressBar {
+    name: string
+    label: string
+    progress: Progress
+}
+
+// **A name it can be announced by, and no input function at all.** A progress bar is the one
+// control here that a user cannot operate -- there is nothing to press and no state to change --
+// so it has no `*_input`, is not a tab stop, and still has to be in the accessibility tree,
+// because "is it still going?" is exactly the question a reader has to be able to answer.
+pub fn progress_bar_of(name: string, label: string, fraction: float) -> ProgressBar {
+    return ProgressBar { name: name, label: label, progress: Progress.Fraction(fraction) }
+}
+
+pub fn busy_bar_of(name: string, label: string, phase: float) -> ProgressBar {
+    return ProgressBar { name: name, label: label, progress: Progress.Busy(phase) }
+}
+
+fn held_to_unit(v: float) -> float {
+    if v < 0.0 {
+        return 0.0
+    }
+    if v > 1.0 {
+        return 1.0
+    }
+    return v
+}
+
+// How much of the bar the indeterminate segment covers.
+val busy_share = 0.3
+
+// **The fill is a hard-stopped gradient, and that is not a trick -- it is the only thing the model
+// can say.** A progress fill is a *proportion* of whatever width the bar is given, and the widget
+// tree has no proportional container: `Flex` is empty space and `Sized` is absolute, so a nested
+// box cannot be 40% of its parent. A gradient's endpoints, since F294, are fractions of the box
+// being painted -- so two stops at the same offset put the edge of the fill at exactly 40% of any
+// width, at any density, with no arithmetic and no second node. The fraction ends up literally in
+// the paint, which is also what lets a test read it back out.
+fn progress_stops(p: Progress, done: Color, rest: Color) -> [paint.Stop] {
+    return switch p {
+        Fraction(v) {
+            val at = held_to_unit(v)
+            [paint.stop_of(0.0, done), paint.stop_of(at, done), paint.stop_of(at, rest), paint.stop_of(1.0, rest)]
+        }
+        Busy(phase) {
+            // The segment travels from just off the left to just off the right, so the ends of the
+            // cycle look like the middle of it: a segment that stopped at the edges would read as
+            // the job having stalled twice per pass.
+            val travel = held_to_unit(phase) * (1.0 + busy_share) - busy_share
+            val lo = held_to_unit(travel)
+            val hi = held_to_unit(travel + busy_share)
+            if hi <= lo {
+                [paint.stop_of(0.0, rest), paint.stop_of(1.0, rest)]
+            } else {
+                [
+                    paint.stop_of(0.0, rest),
+                    paint.stop_of(lo, rest),
+                    paint.stop_of(lo, done),
+                    paint.stop_of(hi, done),
+                    paint.stop_of(hi, rest),
+                    paint.stop_of(1.0, rest)
+                ]
+            }
+        }
+    }
+}
+
+pub fn progress_bar_widget(b: ProgressBar, f: Frame) -> widget.Widget {
+    val style = f.style
+    // The accent for the done part, as the switch's on track is: being 40% along is the bar's
+    // value, and the state rows are about a control's state. The rest is the track the slider
+    // uses, so a bar and a slider in one window read as the same family of thing.
+    val stops = progress_stops(b.progress, style.accent, style.states.disabled.ink)
+    val bar = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.Surface {
+            inset: 0.0,
+            // Left to right across the middle, in the box's own fractions.
+            fill: Option<Paint>.Some(Paint.LinearGradient(paint.Linear {
+                from: geom.point_of(0.0, 0.5),
+                to: geom.point_of(1.0, 0.5),
+                stops: stops
+            })),
+            border: Option<widget.Border>.None,
+            // A capsule, so the fill's own end is rounded by the bar it is clipped to -- which is
+            // the other thing a nested box would have had to round for itself.
+            corner: widget.Radius.Fraction(0.5),
+            corners: widget.Corners.All,
+            shadow: Option<widget.Shadow>.None
+        },
+        align: widget.stretched(),
+        children: [],
+        name: ""
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: b.name,
+        role: widget.Role.ProgressBar,
+        label: b.label,
+        description: "",
+        // **"busy" is the value, because there is no state that says it.** An indeterminate bar has
+        // no percentage to read and a reader that said only "progress bar, Uploading" would have
+        // described a control that might as well be finished. This is what every platform does
+        // when a bar has no value of its own.
+        value: said_progress(b.progress),
+        state: widget.no_state(),
+        focus_part: "",
+        tab_stop: false,
+        // **A height and no width**, which is what a bar is: as wide as it is given, and a fixed
+        // few points tall. `0.0` is `fixed_of`'s "do not constrain this side", as the slider's
+        // track also uses.
+        child: widget.fixed_of(0.0, style.space.s, bar)
+    })
+}
+
+fn said_progress(p: Progress) -> string {
+    return switch p {
+        Fraction(v) { concat(str(floor(held_to_unit(v) * 100.0)), "%") }
+        Busy(_) { "busy" }
+    }
+}
+
+// ---------------------------------------------------------- the number field
+
+// A field that only ever holds something on its way to being a number, with a pair of steppers.
+//
+// **It carries text, not a number, and that is the decision the control exists to get right.** A
+// field holding a `float` cannot represent what a user is in the middle of typing: `-` is not a
+// number and is on the way to one, so is `1.`, so is an empty field. The spin buttons that
+// infuriate on every platform are the ones that store the number -- they rewrite `-` to `0`, or
+// refuse the keystroke, and either way the field cannot be typed into backwards.
+//
+// So the text is the truth while typing and the number is derived. **Nothing is clamped until it is
+// committed**, because clamping each keystroke makes a range impossible to type into: into a field
+// bounded 10 to 20, typing `1` would clamp to `10` and the `5` after it would arrive at `105`.
+pub struct NumberField {
+    entry: Entry
+    least: float
+    most: float
+    // What a stepper, an arrow key and a wheel notch move by.
+    step: float
+}
+
+pub struct NumberStep {
+    field: NumberField
+    // Whether the number this field holds is different from the one it held. **Not whether the text
+    // changed**: moving the caret through `100` changes neither, and typing the `.` of `1.5` changes
+    // the text while the number is still on its way.
+    changed: bool
+}
+
+pub fn number_field_of(
+    name: string,
+    label: string,
+    value: float,
+    least: float,
+    most: float,
+    step: float
+) -> NumberField {
+    return NumberField {
+        entry: entry_of(name, label, number_text(value)),
+        least: least,
+        most: most,
+        step: step
+    }
+}
+
+// **The shortest text that is exactly this number**, so a field stepping by 0.5 reads 1, 1.5, 2
+// rather than 1.0, 1.5, 2.0 -- and a port field never shows 8080.0.
+//
+// Local, and deliberately not `number.format`: that module is about locales, and a grouping
+// separator or a decimal comma in a field would be text `parse_float` cannot read back. A field is
+// not a label.
+fn number_text(v: float) -> string {
+    if v < 1.0e15 && v > 0.0 - 1.0e15 && v == (floor(v) as float) {
+        return str(v as int)
+    }
+    return str(v)
+}
+
+// The number the field holds, or nothing while its text is on the way to one.
+//
+// **An `Option`, because "no number yet" is a real state and zero is a lie.** A field showing `-`
+// has no value, and a caller handed `0.0` for it would write a port of zero into a config.
+pub fn number_in(n: NumberField) -> Option<float> {
+    return switch parse_float(n.entry.editor.text) {
+        Ok(v) { Option<float>.Some(v) }
+        Err(_) { Option<float>.None }
+    }
+}
+
+pub fn number_or(n: NumberField, fallback: float) -> float {
+    return switch number_in(n) {
+        Some(v) { v }
+        None { fallback }
+    }
+}
+
+fn held_between(v: float, least: float, most: float) -> float {
+    if most <= least {
+        return least
+    }
+    if v < least {
+        return least
+    }
+    if v > most {
+        return most
+    }
+    return v
+}
+
+// Whether this text could still become a number, which is **the one rule the field applies to
+// every edit**.
+//
+// A character whitelist was the obvious alternative and it is wrong in both directions: it lets
+// `--` and `1.2.3` through, and it has to special-case the sign and the point anyway. Asking
+// whether the text could still parse handles those, and has a property a whitelist does not --
+// `inf` and `nan` are unreachable by typing, because `i` and `n` are not on the way to anything.
+fn could_still_be_a_number(t: string) -> bool {
+    // Empty and a lone sign are on the way; so is a trailing point, which `parse_float` may not
+    // take, so it is asked about the number that point is on the way to.
+    if t == "" || t == "-" || t == "+" {
+        return true
+    }
+    if ends_with(t, ".") {
+        return switch parse_float(concat(t, "0")) {
+            Ok(_) { true }
+            Err(_) { false }
+        }
+    }
+    return switch parse_float(t) {
+        Ok(_) { true }
+        Err(_) { false }
+    }
+}
+
+// The field with its value moved by `by` steps, clamped and rewritten.
+//
+// **A stepper commits**, which is why it clamps where typing does not: pressing it is not being in
+// the middle of anything, so there is no half-typed state to protect. From a field whose text is
+// not a number at all it starts from the low end, which is the only answer that is not a guess.
+pub fn stepped(n: NumberField, by: float) -> NumberField {
+    val from = number_or(n, n.least)
+    val to = held_between(from + by * n.step, n.least, n.most)
+    return with n {
+        entry: with n.entry {
+            editor: edit.editor_of(number_text(to)),
+            typing: false
+        }
+    }
+}
+
+// The field with its text clamped into range and rewritten in the canonical form: what Enter and
+// losing the focus do.
+//
+// **Empty stays empty.** A field a user cleared has not been given an out-of-range number, and
+// filling it with the minimum on the way past would overwrite what they were about to type.
+pub fn committed(n: NumberField) -> NumberField {
+    if n.entry.editor.text == "" {
+        return n
+    }
+    return switch number_in(n) {
+        Some(v) { stepped_to(n, held_between(v, n.least, n.most)) }
+        // Text that is on its way and got no further -- `-`, `1.` -- is not a number, and the
+        // honest thing is to leave it alone rather than invent one.
+        None { n }
+    }
+}
+
+fn stepped_to(n: NumberField, v: float) -> NumberField {
+    return with n {
+        entry: with n.entry {
+            editor: edit.editor_of(number_text(v)),
+            typing: false
+        }
+    }
+}
+
+// Where the two steppers are: a column at the trailing edge, the up half above the down half.
+//
+// **Computed from the control's own bounds**, which is the scroll bar's pattern rather than a new
+// one: one control, one set of bounds, and the parts worked out from the style that drew them. The
+// alternative -- routing a press by a part's name -- would make this the only control whose input
+// function needs to be told which part was hit.
+fn stepper_width(style: Style) -> float {
+    return style.space.l
+}
+
+fn up_box(bounds: Rect, style: Style) -> Rect {
+    val w = stepper_width(style)
+    return geom.rect_of(bounds.x + bounds.width - w, bounds.y, w, bounds.height * 0.5)
+}
+
+fn down_box(bounds: Rect, style: Style) -> Rect {
+    val w = stepper_width(style)
+    val half = bounds.height * 0.5
+    return geom.rect_of(bounds.x + bounds.width - w, bounds.y + half, w, bounds.height - half)
+}
+
+fn number_still(n: NumberField) -> NumberStep {
+    return NumberStep { field: n, changed: false }
+}
+
+// **Only a change in the number counts as a change.** A caret that moved and a `.` that was typed
+// both leave the value where it was, and an application that saved on every `changed` would write a
+// half-typed number to disk.
+fn number_moved(before: NumberField, after: NumberField) -> NumberStep {
+    return NumberStep { field: after, changed: number_or(before, 0.0) != number_or(after, 0.0) }
+}
+
+pub fn number_field_input(n: NumberField, input: Input, bounds: Rect, f: Frame) -> NumberStep {
+    val style = f.style
+    if n.entry.disabled {
+        return number_still(n)
+    }
+    // The steppers first, because a press on one is not a press in the text.
+    if Some(p) = press_at(input) {
+        if widget.contains(up_box(bounds, style), p) {
+            return number_moved(n, stepped(n, 1.0))
+        }
+        if widget.contains(down_box(bounds, style), p) {
+            return number_moved(n, stepped(n, 0.0 - 1.0))
+        }
+    }
+    if Some(k) = key_down(input) {
+        if Key.is_Up(k.key) {
+            return number_moved(n, stepped(n, 1.0))
+        }
+        if Key.is_Down(k.key) {
+            return number_moved(n, stepped(n, 0.0 - 1.0))
+        }
+        // Enter commits, as it does in any field that validates: it is the keystroke that means
+        // "I have finished".
+        if is_enter(k) {
+            return number_moved(n, committed(n))
+        }
+    }
+    if Some(w) = wheel_on(input, bounds) {
+        return number_moved(n, stepped(n, w as float))
+    }
+    // **Everything else is the text field's, and then vetoed.** The editor handles the keystroke --
+    // a selection replaced, a paste, a delete, a caret moved -- and the result is kept only if it
+    // could still become a number. Predicting the text a keystroke would produce would have been a
+    // second copy of `edit`, wrong in a different way for each input.
+    val step = entry_input(n.entry, input, bounds, f)
+    if !could_still_be_a_number(step.entry.editor.text) {
+        return number_still(n)
+    }
+    return number_moved(n, with n { entry: step.entry })
+}
+
+fn press_at(input: Input) -> Option<Point> {
+    return switch input {
+        Press(p) { Option<Point>.Some(p) }
+        KeyDown(_) { Option<Point>.None }
+        KeyUp(_) { Option<Point>.None }
+        Text(_) { Option<Point>.None }
+        Paste(_) { Option<Point>.None }
+        Release(_) { Option<Point>.None }
+        Move(_) { Option<Point>.None }
+        Wheel(_) { Option<Point>.None }
+    }
+}
+
+fn key_down(input: Input) -> Option<Keystroke> {
+    return switch input {
+        KeyDown(k) { Option<Keystroke>.Some(k) }
+        Press(_) { Option<Keystroke>.None }
+        KeyUp(_) { Option<Keystroke>.None }
+        Text(_) { Option<Keystroke>.None }
+        Paste(_) { Option<Keystroke>.None }
+        Release(_) { Option<Keystroke>.None }
+        Move(_) { Option<Keystroke>.None }
+        Wheel(_) { Option<Keystroke>.None }
+    }
+}
+
+// A wheel notch, but **only over the field**: a wheel anywhere else belongs to whatever is
+// scrolling, and a number field that answered every wheel event would change a value while the
+// user was scrolling the page it sits on.
+fn wheel_on(input: Input, bounds: Rect) -> Option<int> {
+    return switch input {
+        Wheel(w) {
+            if widget.contains(bounds, w.at) {
+                Option<int>.Some(w.vertical)
+            } else {
+                Option<int>.None
+            }
+        }
+        Press(_) { Option<int>.None }
+        KeyDown(_) { Option<int>.None }
+        KeyUp(_) { Option<int>.None }
+        Text(_) { Option<int>.None }
+        Paste(_) { Option<int>.None }
+        Release(_) { Option<int>.None }
+        Move(_) { Option<int>.None }
+    }
+}
+
+pub fn number_field_widget(n: NumberField, f: Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    val up_name = concat(n.entry.name, "-up")
+    val down_name = concat(n.entry.name, "-down")
+    val w = stepper_width(style)
+    // **Half the field's own box each, so the two of them are exactly as tall as it is.** Worked
+    // out rather than given: the column cannot ask the field how tall it came out, and a stack
+    // shares leftover space only with `Flex`, which is empty space and cannot be a stepper. So
+    // both halves are measured from the same line box and the same padding the field is built
+    // from -- which is also what keeps them matching it at any density.
+    val pad = padded_for(style)
+    val half = (line_for(m, style.text.body) + pad.top + pad.bottom) * 0.5
+    val parts = parts_for(style, mood_of(n.entry.disabled, false, false, hovered_in(f, n.entry.name)))
+    val inside = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        children: [
+            // **The text box takes the leftover and the steppers keep their width**, which is
+            // what makes a number field given a width actually use it: without this the row is as
+            // wide as the digits in it, so `wide_of(160.0, field)` drew a 160-point box with a
+            // 50-point control sitting at its left-hand end.
+            //
+            // The field's own box, under this control rather than under a `TextField` of its own:
+            // two nested controls would be two tab stops and two things for a reader to announce.
+            widget.expand(entry_inside(field_runs(n.entry, style, parts, m), style, parts)),
+            // **`wide_of` and not `fixed_of(w, 0.0, ..)`**, which means a height of zero: it
+            // survives only while some parent stretches it back out, and this column's own
+            // children are sized rather than flexible. The library has lost nine controls to that
+            // spelling; see `widget.Fixed.constrains`.
+            widget.wide_of(w, widget.Widget.Group(widget.Stack {
+                direction: widget.Direction.Column,
+                spacing: 0.0,
+                padding: widget.no_insets(),
+                surface: widget.no_surface(),
+                align: widget.stretched(),
+                children: [
+                    stepper_widget(up_name, true, w, half, n, f),
+                    stepper_widget(down_name, false, w, half, n, f)
+                ],
+                name: ""
+            }))
+        ],
+        name: ""
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: n.entry.name,
+        role: widget.Role.SpinButton,
+        label: n.entry.label,
+        // **The range, said once.** A user typing into a field bounded 1 to 65535 cannot see the
+        // bounds, and finding them by being corrected is how a form teaches nothing. A reader says
+        // a description last, after the value, which is where help text belongs.
+        description: concat("from ", number_text(n.least), " to ", number_text(n.most)),
+        value: n.entry.editor.text,
+        state: with widget.no_state() { disabled: n.entry.disabled, readonly: n.entry.readonly },
+        focus_part: "",
+        tab_stop: true,
+        child: inside
+    })
+}
+
+fn stepper_widget(name: string, up: bool, wide: float, tall: float, n: NumberField, f: Frame) -> widget.Widget {
+    val style = f.style
+    val parts = parts_for(style, mood_of(n.entry.disabled, pressed_in(f, name), false, hovered_in(f, name)))
+    return widget.tall_of(tall, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: surface_of(style, parts),
+        align: widget.centred(),
+        children: [widget.fixed_of(wide * 0.5, tall * 0.5, widget.drawn_of(arrow_path(up), parts.ink))],
+        name: name
+    }))
+}
+
+// A stepper's arrow: a triangle in the unit box `widget.Drawn` scales into, pointing up or down.
+//
+// **Drawn and not typed**, for the check box's mark's reason: a glyph is placed on a baseline and
+// sits visibly low in the box it is centred in, where a path is centred by its own geometry.
+fn arrow_path(up: bool) -> shape.Path {
+    val b = shape.path_builder()
+    if up {
+        shape.move_to(b, geom.point_of(0.5, 0.25))
+        shape.line_to(b, geom.point_of(0.85, 0.7))
+        shape.line_to(b, geom.point_of(0.15, 0.7))
+    } else {
+        shape.move_to(b, geom.point_of(0.5, 0.75))
+        shape.line_to(b, geom.point_of(0.85, 0.3))
+        shape.line_to(b, geom.point_of(0.15, 0.3))
+    }
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+// -------------------------------------------------------------- the tooltip
+
+// How long the pointer has been still on one control.
+//
+// **The application's number, because `lib/ui` has no clock and is not going to grow one.** A
+// library that read the time could not be tested by handing it a value, and the pause before a
+// tooltip is the one thing about a tooltip that a test has to be able to control. So the window
+// says how much time has passed and this says what that means.
+//
+// It is a value threaded through the loop, like the focus: there is exactly one pointer, so there
+// is exactly one of these, and no two controls can both believe they are being hovered.
+pub struct Hover {
+    // The control the pointer is on, "" for none.
+    on: string
+    // Milliseconds the pointer has been on it without moving to another control.
+    waited: int
+}
+
+pub fn no_hover() -> Hover {
+    return Hover { on: "", waited: 0 }
+}
+
+// The hover after another `by` milliseconds, with the pointer now on `name`.
+//
+// **Moving to another control starts the wait again**, which is the behaviour that makes a tooltip
+// bearable: a pointer crossing a toolbar of eight buttons must not leave eight tips behind it, and
+// it will not, because each one resets the count the previous was accumulating.
+pub fn hovering(h: Hover, name: string, by: int) -> Hover {
+    if name != h.on {
+        return Hover { on: name, waited: 0 }
+    }
+    return Hover { on: name, waited: h.waited + by }
+}
+
+// Whether a tip should be showing: the pointer is on something and has been for long enough.
+pub fn tip_due(h: Hover, after: int) -> bool {
+    return h.on != "" && h.waited >= after
+}
+
+// The words to show for the control the hover is on, or "" when there are none.
+//
+// **"" is a real answer and the common one.** Most controls carry their name in their own face, and
+// a tip repeating a label a user is already reading is noise with a delay on it. So a tip appears
+// for a control whose words are not already on screen -- an icon button, a field with a range --
+// and for nothing else, without anything having to be switched off per control.
+pub fn tip_words(h: Hover, laid: Laid) -> string {
+    if h.on == "" {
+        return ""
+    }
+    return switch focus.node_of(laid, h.on) {
+        Some(node) { words_unless_shown(node) }
+        None { "" }
+    }
+}
+
+// A control's tip, unless the control is already showing those very words.
+fn words_unless_shown(node: Laid) -> string {
+    val words = widget.tip_in(node)
+    if words == "" {
+        return ""
+    }
+    if shows_text(node, words) {
+        return ""
+    }
+    return words
+}
+
+// Whether this node, or anything under it, draws exactly this text.
+fn shows_text(node: Laid, words: string) -> bool {
+    if widget.text_of(node) == words {
+        return true
+    }
+    for c in node.children {
+        if shows_text(c, words) {
+            return true
+        }
+    }
+    return false
+}
+
+// How far a tip sits from the control it describes, and how far from the window's edge.
+val tip_gap = 6.0
+
+// A tooltip over the window: the words in a raised panel, below the control if it fits and above it
+// if it does not.
+//
+// **It takes no keys, and it is static text rather than a control.** A layer that took the
+// keyboard would let a tooltip steal the focus by appearing, which is the one thing it must never
+// do -- it is a consequence of the pointer resting, and the user never asked for it.
+//
+// Its words are in the accessibility tree the way any drawn text is, and there is **no
+// `Role.Tooltip`** -- deliberately, not by omission. A tooltip here shows what the control already
+// declares (see `widget.tip_in`), so a reader gets those words from the control itself, announced
+// when the control is reached. A role of its own would add a second thing in the tree saying the
+// same sentence, and nothing would be reachable that is not reachable now.
+pub fn tip_layer(words: string, over: Rect, within: Rect, f: Frame) -> widget.Layer {
+    val style = f.style
+    val m = f.metrics
+    val pad = style.space.s
+    val wide = widget.width_in(m, face_for(m, style.text.caption.face), words, style.text.caption.size) + pad * 2.0
+    val tall = line_for(m, style.text.caption) + pad * 2.0
+    // Left-aligned with the control, then pushed back inside the window: a tip hanging off the
+    // right-hand edge is a tip with its last word missing, which is the half it was needed for.
+    val x = held_within(over.x, wide, within.x, within.width)
+    // Below, unless below is off the bottom -- in which case above, which is where a tip for a
+    // control near the foot of a window has to go.
+    val below = over.y + over.height + tip_gap
+    val y = if below + tall <= within.y + within.height {
+        below
+    } else {
+        over.y - tall - tip_gap
+    }
+    return widget.layer_at(
+        geom.rect_of(x, y, wide, tall),
+        false,
+        widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.insets_of(pad, pad, pad, pad),
+            surface: raised_of(style, style.panel),
+            align: widget.centred(),
+            children: [widget.label_in_face(
+                words,
+                style.text.caption.size,
+                style.ink,
+                style.text.caption.face
+            )],
+            name: ""
+        })
+    )
+}
+
+fn held_within(at: float, size: float, least: float, span: float) -> float {
+    val most = least + span - size
+    if most < least {
+        return least
+    }
+    if at < least {
+        return least
+    }
+    if at > most {
+        return most
+    }
+    return at
+}
 // ------------------------------------------------------------------ the entry
 
 // A single-line text field.
@@ -1543,6 +2382,36 @@ fn multi_line_widget(e: Entry, style: Style, parts: Parts, m: widget.Metrics) ->
     })
 }
 
+// The box a field's text is drawn in, without the control around it.
+//
+// **Separate so that a field can be something other than a text field.** The number field is a
+// text field in everything but what it draws beside itself, what `Role` it declares and what it
+// accepts -- which is the argument `masked` and `rows` already make -- so it needs this box under
+// a `SpinButton` rather than a second copy of the caret, the selection and the preedit.
+fn entry_inside(runs: [widget.Widget], style: Style, parts: Parts) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        // Zero, and it has to be: any spacing here would push the caret off the boundary it marks.
+        spacing: 0.0,
+        padding: padded_for(style),
+        surface: surface_of(style, parts),
+        align: widget.stretched(),
+        children: runs,
+        name: ""
+    })
+}
+
+// The runs a one-line field draws: its text, its selection and its caret. Shared with the number
+// field, which draws the same text in the same way under a different role.
+fn field_runs(e: Entry, style: Style, parts: Parts, m: widget.Metrics) -> [widget.Widget] {
+    val line = line_for(m, style.text.body)
+    val text = shown_text(e)
+    if Option.is_Some(e.preedit) {
+        return composed_runs(e, text, parts.ink, style, line)
+    }
+    return selected_runs(e, text, parts.ink, style, line)
+}
+
 pub fn entry_widget(e: Entry, f: Frame) -> widget.Widget {
     val style = f.style
     val m = f.metrics
@@ -1553,27 +2422,12 @@ pub fn entry_widget(e: Entry, f: Frame) -> widget.Widget {
     if e.rows > 1 && !e.masked {
         return multi_line_widget(e, style, parts, m)
     }
-    val ink = parts.ink
-    val line = line_for(m, style.text.body)
-    val text = shown_text(e)
     // **A field is never selecting and composing at once**, which is not a simplification taken
     // but one the model gives: `edit.compose` deletes a selection before it opens a composition,
-    // because that is what typing over one does. So the runs below are one case or the other.
-    val runs = if Option.is_Some(e.preedit) {
-        composed_runs(e, text, ink, style, line)
-    } else {
-        selected_runs(e, text, ink, style, line)
-    }
-    val inside = widget.Widget.Group(widget.Stack {
-        direction: widget.Direction.Row,
-        // Zero, and it has to be: any spacing here would push the caret off the boundary it marks.
-        spacing: 0.0,
-        padding: padded_for(style),
-        surface: surface_of(style, parts),
-        align: widget.stretched(),
-        children: runs,
-        name: ""
-    })
+    // because that is what typing over one does. So the runs are one case or the other.
+    val text = shown_text(e)
+    val runs = field_runs(e, style, parts, m)
+    val inside = entry_inside(runs, style, parts)
     return widget.Widget.Control(widget.Focusable {
         name: e.name,
         role: if e.masked { widget.Role.Password } else { widget.Role.TextField },
@@ -2470,9 +3324,9 @@ fn tree_row_box(t: Tree, which: int, row: TreeRow, f: Frame) -> widget.Widget {
     )
     val ink = parts.ink
     val mark = if row.expandable {
-        if row.expanded { style.expanded_mark } else { style.collapsed_mark }
+        chevron_widget(row.expanded, ink, line_for(m, style.text.body))
     } else {
-        ""
+        widget.Widget.Nothing
     }
     val indent = indent_for(style)
     return widget.fixed_of(0.0, row_height(m, style), widget.Widget.Group(widget.Stack {
@@ -2487,7 +3341,7 @@ fn tree_row_box(t: Tree, which: int, row: TreeRow, f: Frame) -> widget.Widget {
         align: widget.stretched(),
         children: [
             widget.fixed_of((row.depth as float) * indent, 0.0, widget.flex()),
-            widget.fixed_of(indent, 0.0, widget.label_in_face(mark, style.text.body.size, ink, style.text.body.face)),
+            widget.fixed_of(indent, 0.0, mark),
             widget.label_in_face(row.label, style.text.body.size, ink, style.text.body.face)
         ],
         name: ""
@@ -2934,10 +3788,8 @@ pub fn combo_box_widget(c: ComboBox, f: Frame) -> widget.Widget {
     // plain filled rectangle is a disabled text field to anyone who has not been told otherwise --
     // the arrow is the only thing on screen that says this one can be opened, and it was missing.
     //
-    // **`style.expanded_mark`, the downward one**, and not a third glyph in `Style`: it means "this
-    // opens downward" in a tree and it means the same thing here, so a theme that replaced the
-    // tree's triangles has replaced this too rather than leaving one control drawing a character
-    // its face may not have.
+    // **The downward arrow, the tree's own**: it means "this opens downward" in a tree and it means
+    // the same here, so there is one shape rather than two that could drift apart.
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
@@ -2947,7 +3799,7 @@ pub fn combo_box_widget(c: ComboBox, f: Frame) -> widget.Widget {
         children: [
             widget.label_in_face(combo_box_text(c), style.text.label.size, ink, style.text.label.face),
             widget.flex(),
-            widget.label_in_face(style.expanded_mark, style.text.label.size, ink, style.text.label.face)
+            chevron_widget(true, ink, line_for(f.metrics, style.text.label))
         ],
         name: ""
     })
@@ -5310,8 +6162,6 @@ pub struct Style {
     // font bytes an application found and cannot know what is in them: a face without triangles
     // would draw two empty boxes and leave every folder looking identical. An application that
     // knows its font can put anything here, including `">"` and `"v"`.
-    collapsed_mark: string
-    expanded_mark: string
     // What covers the window behind a dialog. **Translucent rather than opaque**, because a modal
     // dialog should say "this is waiting for you" and not "the window is gone" -- a user needs to
     // see what they were doing to decide what to answer.

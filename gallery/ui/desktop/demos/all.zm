@@ -21,15 +21,19 @@ use demos/link
 use demos/list
 use demos/look_and_feel
 use demos/menu
+use demos/number_field
 use demos/picture
+use demos/progress
 use demos/radios
 use demos/scroll_bar
 use demos/slider
 use demos/split_pane
+use demos/switches
 use demos/table
 use demos/tabs
 use demos/text_area
 use demos/text_field
+use demos/tooltip
 use demos/tree
 use geom
 use widget
@@ -37,6 +41,10 @@ use widget
 pub enum Demo {
     Button(button.Demo)
     CheckBox(check_box.Demo)
+    Switch(switches.Demo)
+    Progress(progress.Demo)
+    NumberField(number_field.Demo)
+    Tooltip(tooltip.Demo)
     Radios(radios.Demo)
     TextField(text_field.Demo)
     TextArea(text_area.Demo)
@@ -64,6 +72,10 @@ pub fn all() -> [Demo] {
     return [
         Demo.Button(button.demo()),
         Demo.CheckBox(check_box.demo()),
+        Demo.Switch(switches.demo()),
+        Demo.Progress(progress.demo()),
+        Demo.NumberField(number_field.demo()),
+        Demo.Tooltip(tooltip.demo()),
         Demo.Radios(radios.demo()),
         Demo.TextField(text_field.demo()),
         Demo.TextArea(text_area.demo()),
@@ -90,6 +102,10 @@ pub fn title_of(d: Demo) -> string {
     return switch d {
         Button(_) { "Button" }
         CheckBox(_) { "Check box" }
+        Switch(_) { "Switch" }
+        Progress(_) { "Progress bar" }
+        NumberField(_) { "Number field" }
+        Tooltip(_) { "Tooltip" }
         Radios(_) { "Radio group" }
         TextField(_) { "Text field" }
         TextArea(_) { "Text area" }
@@ -117,6 +133,10 @@ pub fn stem_of(d: Demo) -> string {
     return switch d {
         Button(_) { "button" }
         CheckBox(_) { "check_box" }
+        Switch(_) { "switches" }
+        Progress(_) { "progress" }
+        NumberField(_) { "number_field" }
+        Tooltip(_) { "tooltip" }
         Radios(_) { "radios" }
         TextField(_) { "text_field" }
         TextArea(_) { "text_area" }
@@ -145,10 +165,54 @@ pub fn files_of(d: Demo) -> [string] {
     return [concat(stem_of(d), ".zm"), concat(stem_of(d), "_ui.zm")]
 }
 
+// The demo's next frame, or nothing when it has none.
+//
+// **An `Option` and not a `Demo`**, because the window repaints what changed: a tick that always
+// answered with a demo would leave the loop unable to tell a gallery showing a moving bar from one
+// showing twenty still pictures, and it would repaint all of them sixty times a second forever.
+//
+// Every other arm is `None` by hand rather than by a default, which is the rule everywhere here --
+// and it earns its keep in this one: a demo that starts animating and forgets to say so is a demo
+// that is simply never redrawn, which looks like the animation being broken rather than unasked
+// for.
+pub fn tick_of(d: Demo, f: controls.Frame) -> Option<Demo> {
+    return switch d {
+        Button(_) { Option<Demo>.None }
+        CheckBox(_) { Option<Demo>.None }
+        Switch(_) { Option<Demo>.None }
+        Radios(_) { Option<Demo>.None }
+        TextField(_) { Option<Demo>.None }
+        TextArea(_) { Option<Demo>.None }
+        List(_) { Option<Demo>.None }
+        Tabs(_) { Option<Demo>.None }
+        Tree(_) { Option<Demo>.None }
+        Table(_) { Option<Demo>.None }
+        ScrollBar(_) { Option<Demo>.None }
+        Slider(_) { Option<Demo>.None }
+        SplitPane(_) { Option<Demo>.None }
+        ComboBox(_) { Option<Demo>.None }
+        Menu(_) { Option<Demo>.None }
+        Link(_) { Option<Demo>.None }
+        Dialog(_) { Option<Demo>.None }
+        Layout(_) { Option<Demo>.None }
+        Picture(_) { Option<Demo>.None }
+        LookAndFeel(_) { Option<Demo>.None }
+        Accessibility(_) { Option<Demo>.None }
+        Composing(_) { Option<Demo>.None }
+        Progress(it) { Option<Demo>.Some(Demo.Progress(progress.tick(it))) }
+        NumberField(_) { Option<Demo>.None }
+        Tooltip(it) { Option<Demo>.Some(Demo.Tooltip(tooltip.tick(it, f))) }
+    }
+}
+
 pub fn view_of(d: Demo, f: controls.Frame) -> widget.Widget {
     return switch d {
         Button(it) { button.view(it, f) }
         CheckBox(it) { check_box.view(it, f) }
+        Switch(it) { switches.view(it, f) }
+        Progress(it) { progress.view(it, f) }
+        NumberField(it) { number_field.view(it, f) }
+        Tooltip(it) { tooltip.view(it, f) }
         Radios(it) { radios.view(it, f) }
         TextField(it) { text_field.view(it, f) }
         TextArea(it) { text_area.view(it, f) }
@@ -181,6 +245,10 @@ pub fn input_to(
     return switch d {
         Button(it) { Demo.Button(button.input(it, name, input, laid, f)) }
         CheckBox(it) { Demo.CheckBox(check_box.input(it, name, input, laid, f)) }
+        Switch(it) { Demo.Switch(switches.input(it, name, input, laid, f)) }
+        Progress(it) { Demo.Progress(progress.input(it, name, input, laid, f)) }
+        NumberField(it) { Demo.NumberField(number_field.input(it, name, input, laid, f)) }
+        Tooltip(it) { Demo.Tooltip(tooltip.input(it, name, input, laid, f)) }
         Radios(it) { Demo.Radios(radios.input(it, name, input, laid, f)) }
         TextField(it) { Demo.TextField(text_field.input(it, name, input, laid, f)) }
         TextArea(it) { Demo.TextArea(text_area.input(it, name, input, laid, f)) }
@@ -220,6 +288,10 @@ pub fn anchor_of(d: Demo) -> string {
         Accessibility(it) { accessibility.anchor(it) }
         Button(_) { "" }
         CheckBox(_) { "" }
+        Switch(_) { "" }
+        Progress(_) { "" }
+        NumberField(_) { "" }
+        Tooltip(it) { tooltip.anchor(it) }
         Radios(_) { "" }
         Slider(_) { "" }
         Link(_) { "" }
@@ -239,7 +311,9 @@ pub fn anchor_of(d: Demo) -> string {
 
 // The layer this demo wants over the window, if any. `at` is the box of whatever `anchor_of`
 // named, which a modal dialog ignores: `dialog_layer` centres itself.
-pub fn layer_of(d: Demo, at: geom.Rect, f: controls.Frame) -> Option<widget.Layer> {
+// `laid` is the whole tree, not only the anchor's box: a tooltip's words come from the control the
+// pointer is on, which means asking the tree what that control declares. The popups ignore it.
+pub fn layer_of(d: Demo, at: geom.Rect, laid: widget.Laid, f: controls.Frame) -> Option<widget.Layer> {
     return switch d {
         ComboBox(it) {
             if combo_box.anchor(it) == "" {
@@ -285,6 +359,10 @@ pub fn layer_of(d: Demo, at: geom.Rect, f: controls.Frame) -> Option<widget.Laye
         }
         Button(_) { Option<widget.Layer>.None }
         CheckBox(_) { Option<widget.Layer>.None }
+        Switch(_) { Option<widget.Layer>.None }
+        Progress(_) { Option<widget.Layer>.None }
+        NumberField(_) { Option<widget.Layer>.None }
+        Tooltip(it) { tooltip.layer(it, at, laid, f) }
         Radios(_) { Option<widget.Layer>.None }
         Slider(_) { Option<widget.Layer>.None }
         Link(_) { Option<widget.Layer>.None }
@@ -316,6 +394,10 @@ pub fn group_of(d: Demo) -> string {
         Composing(_) { "Accessibility" }
         Button(_) { "Controls" }
         CheckBox(_) { "Controls" }
+        Switch(_) { "Controls" }
+        Progress(_) { "Controls" }
+        NumberField(_) { "Controls" }
+        Tooltip(_) { "Controls" }
         Radios(_) { "Controls" }
         Slider(_) { "Controls" }
         Link(_) { "Controls" }
@@ -354,6 +436,10 @@ pub fn cursor_of(
         Table(it) { table.cursor(it, laid, at, f) }
         Button(_) { widget.Cursor.Arrow }
         CheckBox(_) { widget.Cursor.Arrow }
+        Switch(_) { widget.Cursor.Arrow }
+        Progress(_) { widget.Cursor.Arrow }
+        NumberField(_) { widget.Cursor.Text }
+        Tooltip(_) { widget.Cursor.Arrow }
         Radios(_) { widget.Cursor.Arrow }
         Slider(_) { widget.Cursor.Arrow }
         Link(_) { widget.Cursor.Arrow }

@@ -43,6 +43,10 @@ fn code_of(r: Role) -> int {
     return switch r {
         Button { 1 }
         CheckBox { 2 }
+        // ATK has no switch of its own; a toggle button is what GTK's own switch reports.
+        Switch { 28 }
+        ProgressBar { 29 }
+        SpinButton { 30 }
         RadioButton { 3 }
         TextField { 4 }
         Password { 19 }

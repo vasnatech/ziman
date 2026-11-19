@@ -1,0 +1,136 @@
+// A tooltip, and the pause before it.
+//
+// **Rest the pointer on one of the icon buttons.** They have no words on them -- their names are
+// carried by their icons, which is where `announced_name` looks -- so a tip is the only way to find
+// out what they do with a pointer. Rest it on the labelled button instead and nothing appears: the
+// words are already on screen, and a tip repeating them is noise with a delay on it.
+//
+// **The pause is this demo's own arithmetic, not the library's.** `lib/ui` has no clock, so the
+// window says how many milliseconds have passed and `controls.hovering` says what that means --
+// which is the same arrangement the progress bar's phase uses, and the reason a test can hand the
+// pause a number instead of waiting for it.
+use boxes
+use controls
+use demos/tooltip_ui
+use geom
+use shape
+use widget
+
+// How long the pointer rests before a tip appears, in milliseconds. Long enough not to flicker when
+// the pointer crosses a toolbar, short enough not to feel broken.
+val pause = 500
+
+// The gallery's loop sleeps this long between frames.
+val per_frame = 16
+
+pub struct Demo {
+    save: controls.Button
+    open: controls.Button
+    trash: controls.Button
+    worded: controls.Button
+    hover: controls.Hover
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        save: controls.icon_button_of("tip-save", "", widget.icon_of(disc(), "Save the document")),
+        open: controls.icon_button_of("tip-open", "", widget.icon_of(folder(), "Open a document")),
+        trash: with controls.icon_button_of("tip-trash", "", widget.icon_of(bin(), "Delete")) {
+            disabled: true
+        },
+        worded: controls.button_of("tip-worded", "Save"),
+        hover: controls.no_hover()
+    }
+}
+
+// **A tip is a consequence of time passing, so it needs the frame to say where the pointer is.**
+// Nothing else in this demo moves, and it is still the tick that drives it: the pointer resting is
+// an event the window never sends.
+pub fn tick(d: Demo, f: controls.Frame) -> Demo {
+    return with d { hover: controls.hovering(d.hover, f.hovered, per_frame) }
+}
+
+// Which control the tip hangs under: whichever the pointer is on.
+pub fn anchor(d: Demo) -> string {
+    if controls.tip_due(d.hover, pause) {
+        return d.hover.on
+    }
+    return ""
+}
+
+pub fn layer(d: Demo, at: geom.Rect, laid: widget.Laid, f: controls.Frame) -> Option<widget.Layer> {
+    if !controls.tip_due(d.hover, pause) {
+        return Option<widget.Layer>.None
+    }
+    // **The words come from the control, not from this demo.** Nothing here says "Save the
+    // document" twice: the icon declares it, a reader announces it, and the tip shows the same
+    // string -- which is what makes it impossible for the two to disagree.
+    val words = controls.tip_words(d.hover, laid)
+    if words == "" {
+        return Option<widget.Layer>.None
+    }
+    return Option<widget.Layer>.Some(controls.tip_layer(words, at, laid.bounds, f))
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return tooltip_ui.screen(
+        tooltip_ui.Screen {
+            save: controls.button_widget(d.save, controls.frame_of(style, m)),
+            open: controls.button_widget(d.open, controls.frame_of(style, m)),
+            trash: controls.button_widget(d.trash, controls.frame_of(style, m)),
+            worded: controls.button_widget(d.worded, controls.frame_of(style, m)),
+            said: said(d)
+        },
+        f
+    )
+}
+
+fn said(d: Demo) -> string {
+    if d.hover.on == "" {
+        return "Rest the pointer on a button. The three on the left have no words of their own."
+    }
+    if !controls.tip_due(d.hover, pause) {
+        return concat("Waiting on ", d.hover.on, ": ", str(d.hover.waited), " of ", str(pause), " ms.")
+    }
+    // **The pause passing is not the same as a tip appearing**, and saying "showing the tip" over
+    // the labelled button would have told the reader the opposite of what they can see.
+    if d.hover.on == "tip-worded" {
+        return "The pause has passed over Save -- and no tip appears, because its word is already on the button."
+    }
+    return concat("Showing the tip for ", d.hover.on, ".")
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "tip-save" {
+        return with d { save: controls.button_input(d.save, input, boxes.bounds_of(laid, name)).button }
+    }
+    if name == "tip-open" {
+        return with d { open: controls.button_input(d.open, input, boxes.bounds_of(laid, name)).button }
+    }
+    if name == "tip-worded" {
+        return with d { worded: controls.button_input(d.worded, input, boxes.bounds_of(laid, name)).button }
+    }
+    return d
+}
+
+// Three marks, in the unit box an icon is scaled into. Drawn rather than from a font, so the demo
+// needs no icon set installed.
+fn disc() -> shape.Path {
+    return shape.ellipse_path(geom.rect_of(0.2, 0.2, 0.6, 0.6))
+}
+
+fn folder() -> shape.Path {
+    return shape.rect_path(geom.rect_of(0.15, 0.3, 0.7, 0.45))
+}
+
+fn bin() -> shape.Path {
+    return shape.rect_path(geom.rect_of(0.3, 0.2, 0.4, 0.6))
+}

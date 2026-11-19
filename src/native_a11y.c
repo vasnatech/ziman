@@ -237,6 +237,11 @@ static AtkRole role_for(int64_t code) {
         case 25: return ATK_ROLE_TABLE;
         case 26: return ATK_ROLE_TABLE_ROW;
         case 27: return ATK_ROLE_COLUMN_HEADER;
+        /* ATK has no role of its own for a switch; a toggle button is what GTK's GtkSwitch
+         * reports, and a reader says "on"/"off" from the state rather than from the role. */
+        case 28: return ATK_ROLE_TOGGLE_BUTTON;
+        case 29: return ATK_ROLE_PROGRESS_BAR;
+        case 30: return ATK_ROLE_SPIN_BUTTON;
         default: return ATK_ROLE_UNKNOWN;
     }
 }

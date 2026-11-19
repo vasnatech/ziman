@@ -1,0 +1,22 @@
+// The Tooltip demo, as design.
+use controls
+use widget
+
+val gap = 8.0
+val between = 16.0
+
+pub struct Screen {
+    save: widget.Widget
+    open: widget.Widget
+    trash: widget.Widget
+    worded: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(between, [
+        widget.row_of(gap, [it.save, it.open, it.trash, widget.flex()]),
+        widget.row_of(gap, [it.worded, widget.flex()]),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+    ])
+}

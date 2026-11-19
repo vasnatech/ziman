@@ -182,11 +182,16 @@ fn every_demo_lays_out_and_declares_at_least_one_control() {
         val laid = widget.layout(all.view_of(d, frame()), window, metrics())
         val tree = a11y.tree_of(laid, "gallery", "")
         test.assert(len(tree.nodes) > 1)
-        // **Every demo but one has something Tab can reach, and the exception is deliberate.** A
-        // scroll bar is not a tab stop: the content it scrolls is what a keyboard user moves
-        // through, and a stop on the bar would be one they tab to and cannot use. It is the only
-        // control in the set that is reachable by a pointer and by a reader but not by Tab.
-        if all.stem_of(d) != "scroll_bar" {
+        // **Two demos have nothing Tab can reach, and both exceptions are deliberate -- for
+        // different reasons.** A scroll bar is not a tab stop because the content it scrolls is
+        // what a keyboard user moves through, and a stop on the bar would be one they tab to and
+        // cannot use: it is reachable by a pointer and by a reader, but not by Tab. A progress bar
+        // is not a tab stop because there is nothing to operate at all -- it is reachable by a
+        // reader alone, which is the whole reason it is still in the tree.
+        //
+        // The list is spelled out rather than derived, so that a third demo with no focusable
+        // control has to be argued for here instead of joining a pattern.
+        if all.stem_of(d) != "scroll_bar" && all.stem_of(d) != "progress" {
             test.assert(len(focus.controls(laid)) > 0)
         }
     }
@@ -204,7 +209,7 @@ fn every_kind_of_widget_appears_in_some_demo() {
         gather_kinds(laid, seen)
         // A demo's layer counts too: a popup and a modal dialog are the only `Layered` in the
         // window, and only while they are open.
-        switch all.layer_of(d, geom.rect_of(0.0, 0.0, 100.0, 20.0), frame()) {
+        switch all.layer_of(d, geom.rect_of(0.0, 0.0, 100.0, 20.0), laid, frame()) {
             Some(over) {
                 gather_kinds(
                     widget.layout(
@@ -424,7 +429,9 @@ fn no_popup_paints_into_no_space() {
     val f = controls.frame_of(theme.plain(), metrics())
     val at = geom.rect_of(0.0, 0.0, 200.0, 120.0)
     for d in all.all() {
-        switch all.layer_of(d, at, f) {
+        // The demo's own tree, because a tooltip's words come from the control the pointer is on.
+        val base = widget.layout(all.view_of(d, f), window, metrics())
+        switch all.layer_of(d, at, base, f) {
             Some(over) {
                 val laid = widget.layout(
                     widget.layered_of([widget.base_layer(widget.Widget.Nothing), over]),

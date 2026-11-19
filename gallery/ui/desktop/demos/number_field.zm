@@ -1,0 +1,92 @@
+// A number field, and what it is worth while it is being typed.
+//
+// **The caption is the demonstration.** It shows what each field is worth and says so when a field
+// is worth nothing at all -- which is the state a spin button that stored a number could not have
+// and the reason this one stores text. Clear a field, or type a lone `-`, and the caption says
+// there is no number yet rather than claiming zero.
+//
+// Try typing `15` into the count: it is bounded 10 to 20, and a field that clamped each keystroke
+// would turn the `1` into `10` and then refuse to go anywhere useful.
+use boxes
+use controls
+use demos/number_field_ui
+use widget
+
+pub struct Demo {
+    port: controls.NumberField
+    timeout: controls.NumberField
+    count: controls.NumberField
+    gain: controls.NumberField
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        port: controls.number_field_of("number-port", "Port", 8080.0, 1.0, 65535.0, 1.0),
+        timeout: controls.number_field_of("number-timeout", "Timeout, seconds", 30.0, 0.0, 300.0, 5.0),
+        count: controls.number_field_of("number-count", "Count", 15.0, 10.0, 20.0, 1.0),
+        gain: controls.number_field_of("number-gain", "Gain", 1.0, 0.0, 3.0, 0.5)
+    }
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return number_field_ui.screen(
+        number_field_ui.Screen {
+            port_label: "Port, stepping by 1",
+            port: controls.number_field_widget(d.port, controls.frame_of(style, m)),
+            timeout_label: "Timeout, stepping by 5",
+            timeout: controls.number_field_widget(d.timeout, controls.frame_of(style, m)),
+            count_label: "Count, bounded 10 to 20 -- type 15 into it",
+            count: controls.number_field_widget(d.count, controls.frame_of(style, m)),
+            gain_label: "Gain, stepping by 0.5",
+            gain: controls.number_field_widget(d.gain, controls.frame_of(style, m)),
+            said: said(d)
+        },
+        f
+    )
+}
+
+fn said(d: Demo) -> string {
+    return concat(
+        "port ",
+        worth(d.port),
+        ", timeout ",
+        worth(d.timeout),
+        ", count ",
+        worth(d.count),
+        ", gain ",
+        worth(d.gain)
+    )
+}
+
+// **"no number yet" is an answer, and the one a field holding `-` gives.** A demo that printed zero
+// here would be the bug this control exists to avoid, on show.
+fn worth(n: controls.NumberField) -> string {
+    return switch controls.number_in(n) {
+        Some(v) { str(v) }
+        None { "(no number yet)" }
+    }
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "number-port" {
+        return with d { port: controls.number_field_input(d.port, input, boxes.bounds_of(laid, name), f).field }
+    }
+    if name == "number-timeout" {
+        return with d { timeout: controls.number_field_input(d.timeout, input, boxes.bounds_of(laid, name), f).field }
+    }
+    if name == "number-count" {
+        return with d { count: controls.number_field_input(d.count, input, boxes.bounds_of(laid, name), f).field }
+    }
+    if name == "number-gain" {
+        return with d { gain: controls.number_field_input(d.gain, input, boxes.bounds_of(laid, name), f).field }
+    }
+    return d
+}

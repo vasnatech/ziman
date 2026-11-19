@@ -286,7 +286,7 @@ pub fn layer_of(s: State, laid: widget.Laid, f: controls.Frame) -> Option<widget
         return Option<widget.Layer>.None
     }
     val d = s.demos[s.at]
-    return all.layer_of(d, boxes.bounds_of(laid, all.anchor_of(d)), f)
+    return all.layer_of(d, boxes.bounds_of(laid, all.anchor_of(d)), laid, f)
 }
 
 pub fn step(s: State, input: controls.Input, laid: widget.Laid, f: controls.Frame) -> State {
@@ -380,6 +380,18 @@ pub fn demo_at(s: State, row: int) -> int {
 // Moves the pane to whatever the tree row at  shows, which is nothing for a branch.
 pub fn showing_row(s: State, row: int, f: controls.Frame) -> State {
     return showing(s, demo_at(s, row), f)
+}
+
+// The next frame of the demo on show, or nothing when it does not move.
+//
+// **The window repaints what changed**, so this answers an `Option` and the loop marks the frame
+// dirty only when there is one: a gallery that ticked unconditionally would repaint twenty still
+// pictures sixty times a second to animate the one bar that moves.
+pub fn ticked(s: State, f: controls.Frame) -> Option<State> {
+    return switch all.tick_of(s.demos[s.at], f) {
+        Some(one) { Option<State>.Some(with s { demos: demo_set(s.demos, s.at, one) }) }
+        None { Option<State>.None }
+    }
 }
 
 fn demo_set(demos: [all.Demo], at: int, one: all.Demo) -> [all.Demo] {

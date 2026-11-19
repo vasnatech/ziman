@@ -709,6 +709,89 @@ pub fn check_box_input(c: CheckBox, input: Input, bounds: Rect) -> CheckStep
 
 pub fn check_box_widget(c: CheckBox, f: Frame) -> widget.Widget
 
+pub struct Switch {
+    name: string
+    label: string
+    disabled: bool
+    on: Toggle
+    held: bool
+}
+
+pub struct SwitchStep {
+    control: Switch
+    toggled: bool
+}
+
+pub fn switch_of(name: string, label: string, on: Toggle) -> Switch
+
+pub fn switch_input(s: Switch, input: Input, bounds: Rect) -> SwitchStep
+
+pub fn switch_widget(s: Switch, f: Frame) -> widget.Widget
+
+pub enum Progress {
+    Fraction(float)
+    Busy(float)
+}
+
+pub struct ProgressBar {
+    name: string
+    label: string
+    progress: Progress
+}
+
+pub fn progress_bar_of(name: string, label: string, fraction: float) -> ProgressBar
+
+pub fn busy_bar_of(name: string, label: string, phase: float) -> ProgressBar
+
+pub fn progress_bar_widget(b: ProgressBar, f: Frame) -> widget.Widget
+
+pub struct NumberField {
+    entry: Entry
+    least: float
+    most: float
+    // What a stepper, an arrow key and a wheel notch move by.
+    step: float
+}
+
+pub struct NumberStep {
+    field: NumberField
+    // Whether the number this field holds is different from the one it held. **Not whether the text
+    // changed**: moving the caret through `100` changes neither, and typing the `.` of `1.5` changes
+    // the text while the number is still on its way.
+    changed: bool
+}
+
+pub fn number_field_of(
+
+pub fn number_in(n: NumberField) -> Option<float>
+
+pub fn number_or(n: NumberField, fallback: float) -> float
+
+pub fn stepped(n: NumberField, by: float) -> NumberField
+
+pub fn committed(n: NumberField) -> NumberField
+
+pub fn number_field_input(n: NumberField, input: Input, bounds: Rect, f: Frame) -> NumberStep
+
+pub fn number_field_widget(n: NumberField, f: Frame) -> widget.Widget
+
+pub struct Hover {
+    // The control the pointer is on, "" for none.
+    on: string
+    // Milliseconds the pointer has been on it without moving to another control.
+    waited: int
+}
+
+pub fn no_hover() -> Hover
+
+pub fn hovering(h: Hover, name: string, by: int) -> Hover
+
+pub fn tip_due(h: Hover, after: int) -> bool
+
+pub fn tip_words(h: Hover, laid: Laid) -> string
+
+pub fn tip_layer(words: string, over: Rect, within: Rect, f: Frame) -> widget.Layer
+
 pub struct Ink {
     from: int
     to: int
@@ -1392,8 +1475,6 @@ pub struct Style {
     // font bytes an application found and cannot know what is in them: a face without triangles
     // would draw two empty boxes and leave every folder looking identical. An application that
     // knows its font can put anything here, including `">"` and `"v"`.
-    collapsed_mark: string
-    expanded_mark: string
     // What covers the window behind a dialog. **Translucent rather than opaque**, because a modal
     // dialog should say "this is waiting for you" and not "the window is gone" -- a user needs to
     // see what they were doing to decide what to answer.
@@ -6238,6 +6319,8 @@ pub enum Density {
 
 pub fn at_density(s: controls.Style, d: Density) -> controls.Style
 
+pub fn density_name(d: Density) -> string
+
 pub fn densities() -> [Density]
 
 pub fn all() -> [Look]
@@ -6885,9 +6968,12 @@ pub enum IconSource {
     // window had loaded; the renderer has taken an index since it existed. `Style.icon_font` says
     // which face, so the control carries the character and the theme carries the font.
     //
-    // **The glyph is a string, not a code point**, for the reason `Style.collapsed_mark` is: a
-    // caller that has `"\u{e5ca}"` in a constant can put it here, and this layer never has to
-    // encode anything. It is one character by convention and nothing enforces that, because an
+    // **The glyph is a string, not a code point**: a caller that has `"\u{e5ca}"` in a constant
+    // can put it here, and this layer never has to encode anything.
+    //
+    // An icon font is asked for by name, so a missing glyph is the caller's to notice -- unlike
+    // the disclosure arrows, which were strings in `Style` until a face without them drew `.notdef`
+    // in every combo box, and are a path now. See `controls.chevron`. It is one character by convention and nothing enforces that, because an
     // icon font with a two-character ligature is a real thing.
     Glyph(string)
 }
@@ -7207,6 +7293,20 @@ pub enum Role {
     TableRow
     // The heading over a column, which is a control: it is what a column is sorted and resized by.
     ColumnHeader
+    // A switch is not a check box, and the distinction is the user's rather than the drawing's: a
+    // check box is a choice that is committed with the rest of a form, and a switch takes effect
+    // the moment it moves. Readers say "on" and "off" for one and "checked" for the other, which
+    // is the whole reason this is its own role rather than a check box that looks different.
+    Switch
+    // **A bar a user cannot operate**, which is the thing that makes it unlike every other role
+    // here: there is nothing to press, so it is not a tab stop -- and it still has to be in the
+    // tree, because "is it still going?" is exactly what a reader has to be able to answer.
+    ProgressBar
+    // A field with steppers. It is an editable text field as well -- which is why the role exists
+    // rather than the control borrowing `TextField`: a reader announces a range and a step for a
+    // spin button and nothing of the kind for a field, and the range is the thing a user most
+    // needs told before typing into it.
+    SpinButton
     // Two panes and the divider between them. **The divider is a `Separator` inside this**, which
     // is how both ATK and GTK have it: the pane is what contains the two halves and publishes
     // where the split sits, and the handle is the thin thing you take hold of.
@@ -7414,6 +7514,10 @@ pub fn chain_at(l: Laid, p: Point) -> [Laid]
 pub fn contains(r: Rect, p: Point) -> bool
 
 pub fn role_of(l: Laid) -> Role
+
+pub fn text_of(l: Laid) -> string
+
+pub fn tip_in(l: Laid) -> string
 
 pub fn is_tab_stop(l: Laid) -> bool
 

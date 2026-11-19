@@ -22,6 +22,7 @@ pub struct Screen {
     accent_chroma: widget.Widget
     scheme: widget.Widget
     surfaces: widget.Widget
+    density: widget.Widget
     edged: widget.Widget
     // What to paste into a `.zm` file: the deliverable, and the reason there is no file format.
     // **A widget rather than a string**, because it is one line per line and a design file cannot
@@ -83,7 +84,10 @@ pub fn editor(it: Screen, f: controls.Frame) -> widget.Widget {
         knob("Accent chroma", it.accent_chroma, f),
         knob("Scheme", it.scheme, f),
         knob("Surfaces", it.surfaces, f),
-        knob("Edges", it.edged, f)
+        knob("Edges", it.edged, f),
+        // Last, and below the line the others are above: the seeds and the choices make the
+        // look, and this one does not -- it is how much room to show it in.
+        knob("Density", it.density, f)
     ])
 }
 

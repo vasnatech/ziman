@@ -12,9 +12,26 @@ cd "$(dirname "$0")/.."
 BIN=${1:-./ziman}
 
 pass=0 fail=0
+# A failure says how big the text it searched was, and what the listing's last line is.
+#
+# **Because one failure here could not be explained and that is its own defect.** On 2026-11-19 a
+# full `make check-fast` reported `fn mutable_array_new` missing from `--api builtins` while the
+# adjacent `fn mutable_array_filled` was found in the same captured output. It passed standalone,
+# never reproduced in twenty-five serial runs, and the listing is byte-for-byte identical across
+# runs -- so it is not ordering, and it cannot be plain truncation either, since `new` is printed
+# *before* `filled`. With the size and the tail printed, the next occurrence distinguishes a short
+# capture from a complete listing that genuinely lacks the line, which is the one thing that could
+# not be told apart after the fact.
 has() { # has <name> <pattern> <text>
     if printf '%s' "$3" | grep -qF -- "$2"; then pass=$((pass + 1)); echo "ok   $1"
-    else fail=$((fail + 1)); echo "FAIL $1: no '$2' in the output" >&2; fi
+    else
+        fail=$((fail + 1))
+        printf 'FAIL %s: no %s in the output (%s bytes, %s lines; last line: %s)\n' \
+            "$1" "'$2'" \
+            "$(printf '%s' "$3" | wc -c)" \
+            "$(printf '%s' "$3" | wc -l)" \
+            "$(printf '%s' "$3" | tail -n 1)" >&2
+    fi
 }
 
 listing=$("$BIN" --api 2>&1)

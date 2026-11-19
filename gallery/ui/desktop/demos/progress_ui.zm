@@ -1,0 +1,34 @@
+// The Progress demo, as design.
+use controls
+use widget
+
+val gap = 6.0
+val between = 16.0
+
+pub struct Screen {
+    done_label: string
+    done: widget.Widget
+    busy_label: string
+    busy: widget.Widget
+    finished_label: string
+    finished: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(between, [
+        widget.column_of(gap, [
+            widget.label_of(it.done_label, f.style.text.label.size, f.style.ink),
+            it.done
+        ]),
+        widget.column_of(gap, [
+            widget.label_of(it.busy_label, f.style.text.label.size, f.style.ink),
+            it.busy
+        ]),
+        widget.column_of(gap, [
+            widget.label_of(it.finished_label, f.style.text.label.size, f.style.ink),
+            it.finished
+        ]),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+    ])
+}

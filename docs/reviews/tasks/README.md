@@ -54,3 +54,4 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F287 — the box model learns to centre](f287.md)
 - [F288 to F290 — the split pane, the table, and the three roles that had no control](f288-f289.md)
 - [F291 to F297 — the look and feel decisions, built](f291-f297.md)
+- [F298 to F301 — four more controls](f298-f301.md)

@@ -527,6 +527,311 @@ pub fn check_box_widget(c: CheckBox, f: Frame) -> widget.Widget
 The check box as a widget: the mark, then the label, and the state declared so that a reader says
 "check box, Notify me, partly checked" without anything else being told.
 
+## The switch
+
+### `Switch`
+
+```
+pub struct Switch {
+    name: string
+    label: string
+    disabled: bool
+    on: Toggle
+    held: bool
+}
+```
+
+A setting that takes effect as it moves.
+
+**Not a check box that looks different**, which is the whole reason it is here. A check box is a
+choice a user makes and commits with the rest of a form; a switch is the state of something, and
+moving it *is* the action -- which is why every platform gives the two different roles and why a
+reader says "on" for one and "checked" for the other. A dialog's "Remember me" is a check box; a
+window's "Dark mode" is a switch.
+
+Same shape as `CheckBox` otherwise, down to `held`: it is a button that carries a `Toggle`.
+
+### `SwitchStep`
+
+```
+pub struct SwitchStep {
+    control: Switch
+    toggled: bool
+}
+```
+
+**The field is `control` and not `switch`**, which is a keyword here and cannot be a field name.
+Every other step names its field after its control -- `check_box`, `button`, `entry` -- so this
+is the one place that convention cannot be followed, rather than a different idea.
+
+### `switch_of`
+
+```
+pub fn switch_of(name: string, label: string, on: Toggle) -> Switch
+```
+
+### `switch_input`
+
+```
+pub fn switch_input(s: Switch, input: Input, bounds: Rect) -> SwitchStep
+```
+
+A press or Space moves it, exactly as it does a check box: the difference between the two
+controls is what it means, not how it is worked.
+
+### `switch_widget`
+
+```
+pub fn switch_widget(s: Switch, f: Frame) -> widget.Widget
+```
+
+**The track is the accent when it is on**, which is what `accent` and `on_accent` are for: the
+one colour a look is recognised by, and what reads on it. The five state rows still govern the
+off track and the ink, so a hovered or disabled switch is the look's hovered or disabled face --
+but an *on* switch is not a state of the control, it is its value, and a value that said
+`states.selected.face` would be a pale tint of the accent where every platform draws a solid one.
+
+## The progress bar
+
+### `Progress`
+
+```
+pub enum Progress {
+    Fraction(float)
+    Busy(float)
+}
+```
+
+How far along something is, or only that it is going on at all.
+
+**Two cases, not a number with a sentinel.** A bar whose value is `-1.0` or `None` for "I do not
+know" is a bar every caller must remember to check, and the one that forgets draws a job that is
+finished as a job that has not started. They are also announced differently -- a determinate bar
+has a percentage to read and an indeterminate one has only "busy" -- so the difference has to
+survive as far as the reader, which a sentinel does not.
+
+`Busy` carries a **phase**, 0 to 1, and the application advances it. `lib/ui` has no clock and is
+not going to grow one: a library that reads the time cannot be tested by handing it a value, and
+every animation here is already a function of a number somebody else owns.
+
+### `ProgressBar`
+
+```
+pub struct ProgressBar {
+    name: string
+    label: string
+    progress: Progress
+}
+```
+
+### `progress_bar_of`
+
+```
+pub fn progress_bar_of(name: string, label: string, fraction: float) -> ProgressBar
+```
+
+**A name it can be announced by, and no input function at all.** A progress bar is the one
+control here that a user cannot operate -- there is nothing to press and no state to change --
+so it has no `*_input`, is not a tab stop, and still has to be in the accessibility tree,
+because "is it still going?" is exactly the question a reader has to be able to answer.
+
+### `busy_bar_of`
+
+```
+pub fn busy_bar_of(name: string, label: string, phase: float) -> ProgressBar
+```
+
+### `progress_bar_widget`
+
+```
+pub fn progress_bar_widget(b: ProgressBar, f: Frame) -> widget.Widget
+```
+
+## The number field
+
+### `NumberField`
+
+```
+pub struct NumberField {
+    entry: Entry
+    least: float
+    most: float
+    // What a stepper, an arrow key and a wheel notch move by.
+    step: float
+}
+```
+
+A field that only ever holds something on its way to being a number, with a pair of steppers.
+
+**It carries text, not a number, and that is the decision the control exists to get right.** A
+field holding a `float` cannot represent what a user is in the middle of typing: `-` is not a
+number and is on the way to one, so is `1.`, so is an empty field. The spin buttons that
+infuriate on every platform are the ones that store the number -- they rewrite `-` to `0`, or
+refuse the keystroke, and either way the field cannot be typed into backwards.
+
+So the text is the truth while typing and the number is derived. **Nothing is clamped until it is
+committed**, because clamping each keystroke makes a range impossible to type into: into a field
+bounded 10 to 20, typing `1` would clamp to `10` and the `5` after it would arrive at `105`.
+
+### `NumberStep`
+
+```
+pub struct NumberStep {
+    field: NumberField
+    // Whether the number this field holds is different from the one it held. **Not whether the text
+    // changed**: moving the caret through `100` changes neither, and typing the `.` of `1.5` changes
+    // the text while the number is still on its way.
+    changed: bool
+}
+```
+
+### `number_field_of`
+
+```
+pub fn number_field_of(
+    name: string,
+    label: string,
+    value: float,
+    least: float,
+    most: float,
+    step: float
+) -> NumberField
+```
+
+### `number_in`
+
+```
+pub fn number_in(n: NumberField) -> Option<float>
+```
+
+The number the field holds, or nothing while its text is on the way to one.
+
+**An `Option`, because "no number yet" is a real state and zero is a lie.** A field showing `-`
+has no value, and a caller handed `0.0` for it would write a port of zero into a config.
+
+### `number_or`
+
+```
+pub fn number_or(n: NumberField, fallback: float) -> float
+```
+
+### `stepped`
+
+```
+pub fn stepped(n: NumberField, by: float) -> NumberField
+```
+
+The field with its value moved by `by` steps, clamped and rewritten.
+
+**A stepper commits**, which is why it clamps where typing does not: pressing it is not being in
+the middle of anything, so there is no half-typed state to protect. From a field whose text is
+not a number at all it starts from the low end, which is the only answer that is not a guess.
+
+### `committed`
+
+```
+pub fn committed(n: NumberField) -> NumberField
+```
+
+The field with its text clamped into range and rewritten in the canonical form: what Enter and
+losing the focus do.
+
+**Empty stays empty.** A field a user cleared has not been given an out-of-range number, and
+filling it with the minimum on the way past would overwrite what they were about to type.
+
+### `number_field_input`
+
+```
+pub fn number_field_input(n: NumberField, input: Input, bounds: Rect, f: Frame) -> NumberStep
+```
+
+### `number_field_widget`
+
+```
+pub fn number_field_widget(n: NumberField, f: Frame) -> widget.Widget
+```
+
+## The tooltip
+
+### `Hover`
+
+```
+pub struct Hover {
+    // The control the pointer is on, "" for none.
+    on: string
+    // Milliseconds the pointer has been on it without moving to another control.
+    waited: int
+}
+```
+
+How long the pointer has been still on one control.
+
+**The application's number, because `lib/ui` has no clock and is not going to grow one.** A
+library that read the time could not be tested by handing it a value, and the pause before a
+tooltip is the one thing about a tooltip that a test has to be able to control. So the window
+says how much time has passed and this says what that means.
+
+It is a value threaded through the loop, like the focus: there is exactly one pointer, so there
+is exactly one of these, and no two controls can both believe they are being hovered.
+
+### `no_hover`
+
+```
+pub fn no_hover() -> Hover
+```
+
+### `hovering`
+
+```
+pub fn hovering(h: Hover, name: string, by: int) -> Hover
+```
+
+The hover after another `by` milliseconds, with the pointer now on `name`.
+
+**Moving to another control starts the wait again**, which is the behaviour that makes a tooltip
+bearable: a pointer crossing a toolbar of eight buttons must not leave eight tips behind it, and
+it will not, because each one resets the count the previous was accumulating.
+
+### `tip_due`
+
+```
+pub fn tip_due(h: Hover, after: int) -> bool
+```
+
+Whether a tip should be showing: the pointer is on something and has been for long enough.
+
+### `tip_words`
+
+```
+pub fn tip_words(h: Hover, laid: Laid) -> string
+```
+
+The words to show for the control the hover is on, or "" when there are none.
+
+**"" is a real answer and the common one.** Most controls carry their name in their own face, and
+a tip repeating a label a user is already reading is noise with a delay on it. So a tip appears
+for a control whose words are not already on screen -- an icon button, a field with a range --
+and for nothing else, without anything having to be switched off per control.
+
+### `tip_layer`
+
+```
+pub fn tip_layer(words: string, over: Rect, within: Rect, f: Frame) -> widget.Layer
+```
+
+A tooltip over the window: the words in a raised panel, below the control if it fits and above it
+if it does not.
+
+**It takes no keys, and it is static text rather than a control.** A layer that took the
+keyboard would let a tooltip steal the focus by appearing, which is the one thing it must never
+do -- it is a consequence of the pointer resting, and the user never asked for it.
+
+Its words are in the accessibility tree the way any drawn text is, and there is **no
+`Role.Tooltip`** -- deliberately, not by omission. A tooltip here shows what the control already
+declares (see `widget.tip_in`), so a reader gets those words from the control itself, announced
+when the control is reached. A role of its own would add a second thing in the tree saying the
+same sentence, and nothing would be reachable that is not reachable now.
+
 ## The entry
 
 ### `Ink`
@@ -2402,8 +2707,6 @@ pub struct Style {
     // font bytes an application found and cannot know what is in them: a face without triangles
     // would draw two empty boxes and leave every folder looking identical. An application that
     // knows its font can put anything here, including `">"` and `"v"`.
-    collapsed_mark: string
-    expanded_mark: string
     // What covers the window behind a dialog. **Translucent rather than opaque**, because a modal
     // dialog should say "this is waiting for you" and not "the window is gone" -- a user needs to
     // see what they were doing to decide what to answer.

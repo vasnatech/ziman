@@ -36,7 +36,21 @@ pub struct Demo {
     accent_chroma: controls.Slider
     scheme: controls.ComboBox
     surfaces: controls.ComboBox
-    edged: controls.CheckBox
+    // **The one axis that moves the space scale**, and deliberately not six sliders on the six
+    // steps. `Space` is `none`/`xs`/`s`/`m`/`l`/`xl` and `theme.Seeds` cannot carry any of them:
+    // a look does not state a scale, `theme.at_density` multiplies one. D4 wrote down why --
+    // "a scale written out per density is three places for a step to drift: `xs` could end up
+    // larger than `s` in exactly one of them and nothing would say so" -- and six sliders would
+    // be a fourth place, in a window, with nothing checking the order.
+    //
+    // So the editor shows the look at each density instead, which is what someone adjusting
+    // spacing actually wants to see, and the pasted source says that density is not part of it.
+    density: controls.ComboBox
+    // **A switch, not a check box.** It is a setting that takes effect the moment it moves --
+    // the whole point of this editor being live -- which is the distinction F298 gave its own
+    // role. The check box below it is a *preview* of what a check box looks like in the look
+    // being edited, and that is the difference between the two in one screen.
+    edged: controls.Switch
     press: controls.Button
     notify: controls.CheckBox
     field: controls.Entry
@@ -78,7 +92,8 @@ pub fn demo() -> Demo {
             ["Darker than the window", "Lighter than the window"],
             1
         ),
-        edged: controls.check_box_of("look-edged", "Edged faces", Toggle.On),
+        edged: controls.switch_of("look-edged", "Edged faces", Toggle.On),
+        density: controls.combo_box_of("look-density", "Density", density_names(), 1),
         press: controls.button_of("look-press", "Send"),
         notify: controls.check_box_of("look-notify", "Notify me", Toggle.On),
         field: controls.entry_of("look-field", "Your name", "Ada Lovelace")
@@ -107,7 +122,7 @@ fn seeds_of(d: Demo) -> theme.Seeds {
         neutral: paint.oklch(0.5, d.neutral_chroma.value, d.neutral_hue.value),
         accent: paint.oklch(0.55, d.accent_chroma.value, d.accent_hue.value),
         surfaces: if d.surfaces.items.selected == 0 { theme.Toward.Ink } else { theme.Toward.Away },
-        edged: Toggle.is_On(d.edged.checked)
+        edged: Toggle.is_On(d.edged.on)
     }
 }
 
@@ -142,8 +157,20 @@ pub fn source_lines(d: Demo) -> [string] {
             "),"
         ),
         concat("    surfaces: Toward.", if d.surfaces.items.selected == 0 { "Ink" } else { "Away" }, ","),
-        concat("    edged: ", if Toggle.is_On(d.edged.checked) { "true" } else { "false" }),
-        "}"
+        concat("    edged: ", if Toggle.is_On(d.edged.on) { "true" } else { "false" }),
+        "}",
+        "",
+        // **The one line that says what is NOT here.** Density changes the look on screen and does
+        // not appear in these seeds, which would otherwise read as this editor having forgotten
+        // it: it is an axis applied to a look (`theme.at_density`), not a number a look states --
+        // the same reason a scheme is not in here either.
+        concat(
+            "// Shown at ",
+            theme.density_name(density_of(d)),
+            " density. Density is an axis, not a seed: theme.at_density(style, Density.",
+            theme.density_name(density_of(d)),
+            ")."
+        )
     ]
 }
 
@@ -174,7 +201,31 @@ pub fn look_of_demo(d: Demo) -> controls.Style {
     return look_of(d, theme.plain())
 }
 
+// **The density is applied to every look the editor shows, designed or built in**, because it is
+// a property of the preview rather than of the look: picking "Compact" asks what *this* look is
+// like with less room, and that question is as fair of Plain as of the one on the sliders.
 fn look_of(d: Demo, style: controls.Style) -> controls.Style {
+    return theme.at_density(undensed(d, style), density_of(d))
+}
+
+fn density_of(d: Demo) -> theme.Density {
+    val all = theme.densities()
+    val which = d.density.items.selected
+    if which < 0 || which >= len(all) {
+        return theme.Density.Comfortable
+    }
+    return all[which]
+}
+
+fn density_names() -> [string] {
+    val names = mutable_array_new<string>()
+    for one in theme.densities() {
+        push(names, theme.density_name(one))
+    }
+    return snapshot(names)
+}
+
+fn undensed(d: Demo, style: controls.Style) -> controls.Style {
     val looks = theme.all()
     val which = d.picker.items.selected
     // **The last row is the one being designed**, derived from the sliders on every frame. That is
@@ -217,7 +268,8 @@ pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
             accent_chroma: controls.slider_widget(d.accent_chroma, controls.frame_of(style, m)),
             scheme: controls.combo_box_widget(d.scheme, controls.frame_of(style, m)),
             surfaces: controls.combo_box_widget(d.surfaces, controls.frame_of(style, m)),
-            edged: controls.check_box_widget(d.edged, controls.frame_of(style, m)),
+            density: controls.combo_box_widget(d.density, controls.frame_of(style, m)),
+            edged: controls.switch_widget(d.edged, controls.frame_of(style, m)),
             source: source_widget(d, style),
             designing: designing(d)
         },
@@ -346,8 +398,19 @@ pub fn input(
             ).combo
         }
     }
+    if name == "look-density" || name == "look-density/items" {
+        return with d {
+            density: controls.combo_box_input(
+                d.density,
+                input,
+                boxes.bounds_of(laid, "look-density"),
+                boxes.bounds_of(laid, "look-density/items"),
+                controls.frame_of(style, m)
+            ).combo
+        }
+    }
     if name == "look-edged" {
-        return with d { edged: controls.check_box_input(d.edged, input, boxes.bounds_of(laid, name)).check_box }
+        return with d { edged: controls.switch_input(d.edged, input, boxes.bounds_of(laid, name)).control }
     }
     if name == "look-press" {
         return with d { press: controls.button_input(d.press, input, boxes.bounds_of(laid, name)).button }

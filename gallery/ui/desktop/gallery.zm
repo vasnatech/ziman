@@ -228,11 +228,11 @@ fn look_for(want: window.Preference) -> controls.Style {
                 // triangles, which is right for a toolkit and wrong for whatever font a machine
                 // happens to have. A face without U+25B8 would draw `.notdef` and every branch
                 // would look alike.
-                return with one.style { collapsed_mark: ">", expanded_mark: "v" }
+                return one.style
             }
         }
     }
-    return with theme.modern() { collapsed_mark: ">", expanded_mark: "v" }
+    return theme.modern()
 }
 
 // **The look's own colour behind every control, which this file used to argue was the renderer's.**
@@ -450,6 +450,14 @@ fn run() -> Result<unit, string> {
                         dirty = true
                         st = state.step(st, input, laid, frame_at(resting, st))
                     }
+                }
+                // **The one demo that moves gets its next frame**, and says so by answering at
+                // all: a demo with no animation returns nothing and the window stays as it was.
+                // This is the only thing in the gallery that repaints without an event, which is
+                // what an animation is.
+                if Some(moved) = state.ticked(st, frame_at(resting, st)) {
+                    st = moved
+                    dirty = true
                 }
                 // A frame budget, not a frame rate.
                 clock.sleep_millis(16)

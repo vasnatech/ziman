@@ -316,13 +316,25 @@ thickened in a spacious theme would stop being a grid line and start being a bor
 is three places for a step to drift: `xs` could end up larger than `s` in exactly one of them and
 nothing would say so.
 
+### `density_name`
+
+```
+pub fn density_name(d: Density) -> string
+```
+
+Every density, in the order an application offers them.
+What to call a density in a menu.
+
+**Here rather than in the application**, for `Look.name`'s reason: a density offered in two
+applications under two spellings is the same axis described twice, and the one that invents its
+own words is the one that calls `Comfortable` "Normal" and leaves a user wondering what it is
+normal compared to.
+
 ### `densities`
 
 ```
 pub fn densities() -> [Density]
 ```
-
-Every density, in the order an application offers them.
 
 ### `all`
 

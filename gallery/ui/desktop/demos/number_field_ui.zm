@@ -1,0 +1,40 @@
+// The Number field demo, as design.
+use controls
+use widget
+
+val gap = 6.0
+val between = 14.0
+val wide = 160.0
+
+pub struct Screen {
+    port_label: string
+    port: widget.Widget
+    timeout_label: string
+    timeout: widget.Widget
+    count_label: string
+    count: widget.Widget
+    gain_label: string
+    gain: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(between, [
+        one(it.port_label, it.port, f),
+        one(it.timeout_label, it.timeout, f),
+        one(it.count_label, it.count, f),
+        one(it.gain_label, it.gain, f),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+    ])
+}
+
+// A field is given a width, because a number field stretched across a window is a window-wide box
+// holding four digits.
+fn one(label: string, field: widget.Widget, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.label_of(label, f.style.text.label.size, f.style.ink),
+        // **`wide_of`, not `fixed_of(wide, 0.0, ..)`** -- the second means a height of zero, and
+        // a column does not stretch its children's heights back out, so the field vanished.
+        widget.row_of(0.0, [widget.wide_of(wide, field), widget.flex()])
+    ])
+}
