@@ -6,6 +6,18 @@
 // recursion. The buffer now grows by doubling and the trace prints the innermost 32 frames, a count
 // of what was left out, and the outermost 8: an 8 MB error message is useless even when produced
 // quickly. Takes about two seconds now, so this fixture also guards the harness timeout.
+//
+// **The stack is pinned in `.env` because the default is computed from the memory available**, and
+// that made this fixture's runtime depend on how much RAM happened to be free. On an idle machine
+// with 78 GB free the stack came out at 512 MB, the recursion had to go that much deeper, and the
+// run took 5.12 seconds against the harness's 5 -- failing by a tenth of a second, on a machine
+// that was doing nothing else. Earlier the same day, with builds occupying memory, it passed.
+//
+// A test whose result depends on free RAM fails on someone else's machine and not on yours, which
+// is the kind of red that gets a hook bypassed with `--no-verify`. Pinned at 128 MB it takes about
+// a third of a second and still guards what it exists to guard: the quadratic trace-building this
+// fixture was written for took 402 seconds at 512 MB, which is twenty-five seconds at this size --
+// five times the timeout, so the regression it watches for would still be unmistakable.
 fn deep(n: int) -> int {
     return deep(n + 1)
 }
