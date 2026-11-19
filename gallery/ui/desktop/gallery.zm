@@ -274,7 +274,36 @@ fn scheme_asked(e: window.Event) -> Option<window.Preference> {
 fn run() -> Result<unit, string> {
     val faces = try load_fonts()
     val m = try widget.metrics_for_faces(faces)
-    val density = chosen_density().density
+    // **The window says which density it chose and where that came from.**
+    //
+    // `resolve_density` has always answered with a `Source` -- UserSetting, Display or Default --
+    // and nothing read it, so a run that fell back to 1.0 because the display said nothing looked
+    // exactly like a run on a 1x display. That is why "display_scale answers 1x or 2x
+    // inconsistently" sat unchased for weeks: the evidence was a screenshot of the wrong size,
+    // taken after the fact, with nothing to say whether `Xft.dpi` had been read or missed.
+    //
+    // One line on stderr, once, at startup. The next time it happens it says so.
+    val resolved = chosen_density()
+    val density = resolved.density
+    // **Through `/dev/stderr` rather than `print`, and that is the trap this diagnostic exists to
+    // survive.** `print` is block-buffered when standard output is a file, and a window never
+    // exits, so a line printed at startup sits in the buffer for the life of the program -- which
+    // is exactly how instrumentation disappears when someone redirects a run to a log in order to
+    // read it later. Opening, writing and closing flushes.
+    switch fs.append_text("/dev/stderr", concat(
+        "gallery: ",
+        format("{:.3}", density.px_per_pt),
+        "x from ",
+        switch resolved.from {
+            UserSetting { "ZIMAN_GALLERY_SCALE" }
+            Display { "the display" }
+            Default { "nothing -- the display did not say, so 1x" }
+        },
+        "\n"
+    )) {
+        Ok(_) { unit }
+        Err(_) { unit }
+    }
     val scale = density.px_per_pt
     val outcome = window.with_window<unit>(
         "ziman gallery",
