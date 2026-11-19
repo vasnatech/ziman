@@ -14,11 +14,11 @@ pub struct Screen {
     lines: [widget.Widget]
 }
 
-pub fn line(said: string, style: controls.Style) -> widget.Widget {
-    return widget.label_of(said, style.text.caption.size, style.ink)
+pub fn line(said: string, f: controls.Frame) -> widget.Widget {
+    return widget.label_of(said, f.style.text.caption.size, f.style.ink)
 }
 
-pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
         widget.row_of(gap, [
             widget.wide_of(button_width, it.press),
@@ -28,9 +28,9 @@ pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Wi
         ]),
         widget.tall_of(
             row_height,
-            widget.label_of("What a screen reader says about them", style.text.heading.size, style.ink)
+            widget.label_of("What a screen reader says about them", f.style.text.heading.size, f.style.ink)
         ),
         widget.column_of(2.0, it.lines),
-        widget.label_of(it.said, style.text.caption.size, style.ink)
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
     ])
 }

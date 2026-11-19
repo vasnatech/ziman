@@ -108,6 +108,15 @@ fn first_of(paths: [string]) -> Option<font.FontRef> {
     return Option<font.FontRef>.None
 }
 
+// The resting frame with this frame's three names filled in.
+//
+// **One place, so the three cannot be filled in differently in two of them.** A paint that read
+// `st.hovered` and an input routed with an empty one would disagree about what the pointer is on,
+// and the symptom is a control that lights up and does not respond.
+fn frame_at(resting: controls.Frame, st: state.State) -> controls.Frame {
+    return with resting { hovered: st.hovered, pressed: st.pressed, focused: st.focused }
+}
+
 fn load_one(paths: [string], what: string) -> Result<font.FontRef, string> {
     switch first_of(paths) {
         Some(f) { return ok(f) }
@@ -200,6 +209,11 @@ fn run() -> Result<unit, string> {
     // anyone finds out that `modern_style` is wrong about something. The two marks are replaced
     // for the reason they always were: the faces a desktop ships have no triangles.
     val style = with theme.modern() { collapsed_mark: ">", expanded_mark: "v" }
+    // **The frame every control in this window is drawn in**: the look, this window's
+    // measurements, and -- once `frame_at` fills them in -- the three names the window holds. The
+    // look and the metrics do not change while the window is open; the names change on every
+    // pointer move, which is the whole reason they are names here and not flags in the tree.
+    val resting = controls.frame_of(style, m)
     val density = chosen_density().density
     val scale = density.px_per_pt
     val options = with raster.options() {
@@ -223,12 +237,12 @@ fn run() -> Result<unit, string> {
         ((start_height as float) * scale) as int,
         fn(w: window.Window) -> Result<unit, string> {
             var painter = try desktop.painter_of(start_width as float, start_height as float, scale)
-            var st = with state.opening_state(style) { window_width: start_width as float }
+            var st = with state.opening_state(resting) { window_width: start_width as float }
             // The accessibility bridge is optional and its absence is not an error: said once and
             // then left alone, which is what curly's window does with the same two calls.
             var readable = switch atspi.publish(a11y.tree_of(
                 widget.layout(
-                    state.view(st, style, m),
+                    state.view(st, frame_at(resting, st)),
                     geom.rect_of(0.0, 0.0, start_width as float, start_height as float),
                     m
                 ),
@@ -245,7 +259,7 @@ fn run() -> Result<unit, string> {
             // what an input is routed by, and an idle window needs the second long after it has
             // stopped needing the first.
             var laid = widget.layout(
-                state.view(st, style, m),
+                state.view(st, frame_at(resting, st)),
                 geom.rect_of(0.0, 0.0, width_pt, height_pt),
                 m
             )
@@ -265,33 +279,33 @@ fn run() -> Result<unit, string> {
                     // puts the popup there. A modal dialog needs the second pass too, though it
                     // centres itself -- it is a layer either way.
                     val whole = geom.rect_of(0.0, 0.0, width_pt, height_pt)
-                    val base = state.view(st, style, m)
+                    val f = frame_at(resting, st)
+                    val base = state.view(st, f)
                     val first = widget.layout(base, whole, m)
-                    laid = switch state.layer_of(st, style, m, first) {
+                    laid = switch state.layer_of(st, first, f) {
                         Some(over) { widget.layout(widget.layered_of([widget.base_layer(base), over]), whole, m) }
                         None { first }
                     }
                     // The focus is drawn: Tab moves it and every control takes its keys, so a
                     // window that looked identical either way would make the focus invisible.
-                    // **The hover tint over the painted tree, then the focus ring.** Both are
-                    // facts about something outside the widget -- the pointer and the keyboard --
-                    // and both are painted from a name the window holds rather than from a flag in
-                    // the tree.
-                    val with_focus = widget.paint_hovered(
-                        laid,
-                        // **The theme's accent, not a blue written here.** This call site was
-                        // the only place the identity colour lived, which is what made it worth
-                        // a token.
-                        widget.paint_focused(laid, m, st.focused, style.accent, 2.0),
-                        st.hovered,
-                        style.hover_tint
-                    )
+                    //
+                    // **The hover is no longer painted here, and that is F294.** This used to lay
+                    // a translucent veil over the finished tree from `st.hovered`, because a veil
+                    // was the only thing a post-pass could do; the name now reaches the control in
+                    // the frame and the control draws itself in its hovered row, edge, corner,
+                    // words and all. The focus ring stays a pass, because focus is *additive* --
+                    // a control can be focused and hovered and pressed at once, so it cannot be
+                    // one of five exclusive rows.
+                    //
+                    // **The theme's accent, not a blue written here.** This call site was the only
+                    // place the identity colour lived, which is what made it worth a token.
+                    val with_focus = widget.paint_focused(laid, m, st.focused, style.accent, 2.0)
                     // Painted after the layout, because only the layout knows how tall a viewport
                     // turned out to be -- and a thumb's length is the view's share of the content.
                     val painted = try desktop.repaint(
                         painter,
                         w,
-                        controls.paint_scroll_bars(laid, with_focus, style),
+                        controls.paint_scroll_bars(laid, with_focus, f),
                         options
                     )
                     painter = painted.next
@@ -342,7 +356,7 @@ fn run() -> Result<unit, string> {
                         // control that changed nothing is the cheap wrong answer, and one that
                         // changed something and did not say so is a window that stops repainting.
                         dirty = true
-                        st = state.step(st, input, laid, style, m)
+                        st = state.step(st, input, laid, frame_at(resting, st))
                     }
                 }
                 // A frame budget, not a frame rate.

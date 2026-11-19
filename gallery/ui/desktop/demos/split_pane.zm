@@ -27,17 +27,22 @@ pub fn demo() -> Demo {
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return split_pane_ui.screen(split_pane_ui.Screen {
-        pane: controls.split_pane_widget(
-            d.split,
-            style,
-            extent,
-            split_pane_ui.half("Leading", style),
-            split_pane_ui.half("Trailing", style)
-        ),
-        said: said(d, style)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return split_pane_ui.screen(
+        split_pane_ui.Screen {
+            pane: controls.split_pane_widget(
+                d.split,
+                extent,
+                split_pane_ui.half("Leading", f),
+                split_pane_ui.half("Trailing", f),
+                controls.frame_of(style, m)
+            ),
+            said: said(d, style)
+        },
+        f
+    )
 }
 
 fn said(d: Demo, style: controls.Style) -> string {
@@ -53,7 +58,8 @@ fn said(d: Demo, style: controls.Style) -> string {
 }
 
 // What the pointer is over, asked of the control so that the shape and the gesture cannot disagree about where the divider is.
-pub fn cursor(d: Demo, style: controls.Style, laid: widget.Laid, at: geom.Point) -> widget.Cursor {
+pub fn cursor(d: Demo, laid: widget.Laid, at: geom.Point, f: controls.Frame) -> widget.Cursor {
+    val style = f.style
     return controls.split_pane_cursor(d.split, style, boxes.bounds_of(laid, "split-demo"), at)
 }
 
@@ -62,15 +68,16 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "split-demo/divider" {
         return with d { split: controls.split_pane_input(
             d.split,
             input,
-            style,
-            boxes.bounds_of(laid, "split-demo")
+            boxes.bounds_of(laid, "split-demo"),
+            controls.frame_of(style, m)
         ).split }
     }
     return d

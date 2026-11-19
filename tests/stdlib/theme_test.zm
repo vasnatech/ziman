@@ -69,8 +69,14 @@ fn body_text_reads_on_every_surface_of_every_look() {
         test.assert(paint.contrast_ratio(s.ink, s.face) >= 4.5)
         test.assert(paint.contrast_ratio(s.ink, s.panel) >= 4.5)
         test.assert(paint.contrast_ratio(s.ink, s.window) >= 4.5)
-        test.assert(paint.contrast_ratio(s.ink, s.selection) >= 4.5)
-        test.assert(paint.contrast_ratio(s.ink, s.pressed_face) >= 4.5)
+        // **Every live row, against its own ink**, which is what the rows made possible: before
+        // them a state was a fill with no text colour of its own, so there was nothing to hold to
+        // a ratio. `disabled` is exempt and that is WCAG's own exemption (SC 1.4.3) -- greyed text
+        // is how a control says it is unavailable, and holding it to 4.5 would forbid saying so.
+        test.assert(paint.contrast_ratio(s.states.rest.ink, s.states.rest.face) >= 4.5)
+        test.assert(paint.contrast_ratio(s.states.hovered.ink, s.states.hovered.face) >= 4.5)
+        test.assert(paint.contrast_ratio(s.states.pressed.ink, s.states.pressed.face) >= 4.5)
+        test.assert(paint.contrast_ratio(s.states.selected.ink, s.states.selected.face) >= 4.5)
     }
 }
 
@@ -99,7 +105,7 @@ fn a_selected_row_is_visibly_not_an_unselected_one() {
     // Low on purpose: a selection is a tint, not a contrast. This catches a look that forgot to
     // set it and left it equal to the face, which is the failure that makes a list look broken.
     for one in theme.all() {
-        test.assert(paint.contrast_ratio(one.style.selection, one.style.face) >= 1.08)
+        test.assert(paint.contrast_ratio(one.style.states.selected.face, one.style.face) >= 1.08)
     }
 }
 
@@ -134,13 +140,22 @@ fn a_dark_look_is_darker_than_its_light_one_everywhere_it_counts() {
 
 #[test]
 fn a_dark_look_lights_its_hover_rather_than_darkening_it() {
-    // **The trap this module's header names.** `hover_tint` is painted over a face, and a tenth of
+    // **The trap this module's header names.** The veil is mixed into the face, and a tenth of
     // black over a dark grey is invisible -- the state layer has to come from the other end. A
     // dark look whose hover veil is black is a dark look with no hover at all.
     for one in theme.all() {
         val dark = paint.relative_luminance(one.style.window) < 0.2
+        val rest = paint.relative_luminance(one.style.states.rest.face)
+        val hovered = paint.relative_luminance(one.style.states.hovered.face)
+        // **The outcome rather than the ingredient.** This used to assert that a dark look's
+        // `hover_tint` was light, which was a test of what the veil was made of; the veil is
+        // resolved into the row when the look is built now, so the thing to assert is what a user
+        // sees: a hovered face moves *away* from the window it sits on, which on a dark look means
+        // lighter and on a light one means darker.
         if dark {
-            test.assert(paint.relative_luminance(one.style.hover_tint) > 0.5)
+            test.assert(hovered > rest)
+        } else {
+            test.assert(hovered < rest)
         }
     }
 }
@@ -200,7 +215,7 @@ fn shadow_opacity(s: controls.Style) -> float {
 }
 
 fn edged(s: controls.Style) -> bool {
-    return switch s.face_border {
+    return switch s.states.rest.border {
         Some(_) { true }
         None { false }
     }

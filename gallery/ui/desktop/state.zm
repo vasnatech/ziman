@@ -77,7 +77,8 @@ pub struct State {
 // picked fixed hexes would be unreadable the moment a theme changed the surface under them, which
 // is exactly what the first version of this did: ziman.dev's light-theme values on a light
 // control face, at 2.2:1. See `highlight.legible`.
-pub fn opening_state(style: controls.Style) -> State {
+pub fn opening_state(f: controls.Frame) -> State {
+    val style = f.style
     val demos = all.all()
     val begin = State {
         split: with controls.split_pane_of(
@@ -104,7 +105,7 @@ pub fn opening_state(style: controls.Style) -> State {
         hovered: "",
         pressed: ""
     }
-    return showing(begin, 0, style)
+    return showing(begin, 0, f)
 }
 
 // A branch per group, with its demos under it.
@@ -176,23 +177,28 @@ fn code_entry(text: string, style: controls.Style) -> controls.Entry {
 }
 
 // Moves to a demo: its files name the sub-tabs, and the first of them is loaded.
-fn showing(s: State, at: int, style: controls.Style) -> State {
+fn showing(s: State, at: int, f: controls.Frame) -> State {
     if at < 0 || at >= len(s.demos) {
         return s
     }
     val d = s.demos[at]
     val names = all.files_of(d)
-    return loaded(with s {
-        at: at,
-        files: with controls.tabs_of("files", "Files", names) {
-            tab_width: file_tab_width
+    return loaded(
+        with s {
+            at: at,
+            files: with controls.tabs_of("files", "Files", names) {
+                tab_width: file_tab_width
+            },
+            status: all.title_of(d)
         },
-        status: all.title_of(d)
-    }, 0, style)
+        0,
+        f
+    )
 }
 
 // Loads one of the chosen demo's files into the code pane.
-fn loaded(s: State, file: int, style: controls.Style) -> State {
+fn loaded(s: State, file: int, f: controls.Frame) -> State {
+    val style = f.style
     val d = s.demos[s.at]
     val names = all.files_of(d)
     if file < 0 || file >= len(names) {
@@ -211,7 +217,8 @@ fn as_code(style: controls.Style) -> controls.Style {
     return with style { text: with style.text { body: mono } }
 }
 
-pub fn view(s: State, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn view(s: State, f: controls.Frame) -> widget.Widget {
+    val style = f.style
     // **Which tab is showing is a conditional, and a conditional is not design.** The design file
     // takes a slot; this is what fills it.
     val body = if s.tabs.selected == code_tab {
@@ -220,18 +227,24 @@ pub fn view(s: State, style: controls.Style, m: widget.Metrics) -> widget.Widget
         // it a style whose body *is* the code role. Before F293 this said
         // `with style { text_font: code_face }` -- an index poked into the one font field there
         // was, with nothing to say what it meant.
-        gallery_ui.code_pane(s.files, s.source, as_code(style), m)
+        // **The same frame in a different look**, which is what a frame being a value buys: the
+        // pointer, the press and the focus are unchanged, and only the style the pane reads is
+        // the code one. Before the frame this was a fourth argument that could disagree.
+        gallery_ui.code_pane(s.files, s.source, with f { style: as_code(style) })
     } else {
-        gallery_ui.demo_box(all.view_of(s.demos[s.at], style, m))
+        gallery_ui.demo_box(all.view_of(s.demos[s.at], f))
     }
-    return gallery_ui.screen(gallery_ui.Screen {
-        split: s.split,
-        split_extent: s.window_width - frame_width,
-        tree: s.tree,
-        tabs: s.tabs,
-        body: body,
-        status: s.status
-    }, style, m)
+    return gallery_ui.screen(
+        gallery_ui.Screen {
+            split: s.split,
+            split_extent: s.window_width - frame_width,
+            tree: s.tree,
+            tabs: s.tabs,
+            body: body,
+            status: s.status
+        },
+        f
+    )
 }
 
 // The layer the demo on show wants over the window, if any -- a combo box's list, a menu's
@@ -241,15 +254,17 @@ pub fn view(s: State, style: controls.Style, m: widget.Metrics) -> widget.Widget
 // control that opened it, and where that is is a fact about the laid tree; and a popup over the
 // Code tab would hang under a control that is not drawn, which is a box of zero at the corner of
 // the window.
-pub fn layer_of(s: State, style: controls.Style, m: widget.Metrics, laid: widget.Laid) -> Option<widget.Layer> {
+pub fn layer_of(s: State, laid: widget.Laid, f: controls.Frame) -> Option<widget.Layer> {
     if s.tabs.selected != demo_tab {
         return Option<widget.Layer>.None
     }
     val d = s.demos[s.at]
-    return all.layer_of(d, style, m, boxes.bounds_of(laid, all.anchor_of(d)))
+    return all.layer_of(d, boxes.bounds_of(laid, all.anchor_of(d)), f)
 }
 
-pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.Style, m: widget.Metrics) -> State {
+pub fn step(s: State, input: controls.Input, laid: widget.Laid, f: controls.Frame) -> State {
+    val style = f.style
+    val m = f.metrics
     // Tab moves the focus and reaches no control, which is why it is taken before `target`.
     if is_tab(input) {
         val forward = !shift_held(input)
@@ -277,12 +292,17 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.
         return with here { split: controls.split_pane_input(
             here.split,
             input,
-            style,
-            boxes.bounds_of(laid, "layout")
+            boxes.bounds_of(laid, "layout"),
+            controls.frame_of(style, m)
         ).split }
     }
     if name == "catalogue" {
-        val taken = controls.tree_input(here.tree, input, style, boxes.bounds_of(laid, "catalogue"), m)
+        val taken = controls.tree_input(
+            here.tree,
+            input,
+            boxes.bounds_of(laid, "catalogue"),
+            controls.frame_of(style, m)
+        )
         val moved = with here { tree: taken.tree }
         // **Selecting shows it; there is nothing to activate.** A tree whose rows had to be
         // opened as well as reached would make the catalogue two gestures deep for no gain --
@@ -292,7 +312,7 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.
         // "whatever was last in the group" would change the pane for a gesture that was about
         // the tree.
         if taken.moved {
-            return showing_row(moved, moved.tree.selected, style)
+            return showing_row(moved, moved.tree.selected, f)
         }
         return moved
     }
@@ -302,7 +322,7 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.
     if name == "files" {
         val taken = controls.tabs_input(here.files, input, boxes.bounds_of(laid, "files"))
         if taken.moved {
-            return loaded(with here { files: taken.tabs }, taken.tabs.selected, style)
+            return loaded(with here { files: taken.tabs }, taken.tabs.selected, f)
         }
         return with here { files: taken.tabs }
     }
@@ -311,13 +331,12 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, style: controls.
             here.source,
             input,
             boxes.bounds_of(laid, "source"),
-            style,
-            m
+            controls.frame_of(style, m)
         ).entry }
     }
     // Anything else belongs to the demo on show, which routes it by name itself.
     return with here {
-        demos: demo_set(here.demos, here.at, all.input_to(here.demos[here.at], name, input, laid, style, m))
+        demos: demo_set(here.demos, here.at, all.input_to(here.demos[here.at], name, input, laid, f))
     }
 }
 
@@ -332,8 +351,8 @@ pub fn demo_at(s: State, row: int) -> int {
 }
 
 // Moves the pane to whatever the tree row at  shows, which is nothing for a branch.
-pub fn showing_row(s: State, row: int, style: controls.Style) -> State {
-    return showing(s, demo_at(s, row), style)
+pub fn showing_row(s: State, row: int, f: controls.Frame) -> State {
+    return showing(s, demo_at(s, row), f)
 }
 
 fn demo_set(demos: [all.Demo], at: int, one: all.Demo) -> [all.Demo] {

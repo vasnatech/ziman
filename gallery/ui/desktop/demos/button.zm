@@ -26,13 +26,16 @@ pub fn demo() -> Demo {
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return button_ui.screen(button_ui.Screen {
-        press: d.press,
-        stamped: d.stamped,
-        off: d.off,
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return button_ui.screen(
+        button_ui.Screen {
+            press: d.press,
+            stamped: d.stamped,
+            off: d.off,
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -50,8 +53,7 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
     if name == "button-press" {
         val taken = controls.button_input(d.press, input, boxes.bounds_of(laid, name))

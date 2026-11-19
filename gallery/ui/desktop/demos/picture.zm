@@ -47,21 +47,27 @@ fn picture(side: float) -> widget.Widget {
     ))
 }
 
-fn drawing(side: float, style: controls.Style) -> widget.Widget {
+fn drawing(side: float, f: controls.Frame) -> widget.Widget {
+    val style = f.style
     switch star {
         Some(path) { return widget.fixed_of(side, side, widget.drawn_of(path, style.ink)) }
         None { return widget.Widget.Nothing }
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return picture_ui.screen(picture_ui.Screen {
-        size: controls.slider_widget(d.size, style),
-        size_said: concat(str(floor(d.size.value)), " points"),
-        picture: picture(d.size.value),
-        drawing: drawing(d.size.value, style),
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return picture_ui.screen(
+        picture_ui.Screen {
+            size: controls.slider_widget(d.size, controls.frame_of(style, m)),
+            size_said: concat(str(floor(d.size.value)), " points"),
+            picture: picture(d.size.value),
+            drawing: drawing(d.size.value, f),
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -76,8 +82,7 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
     if name == "picture-size" {
         return with d { size: controls.slider_input(d.size, input, boxes.bounds_of(laid, name)).slider }

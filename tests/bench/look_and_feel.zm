@@ -40,25 +40,37 @@ fn form(rows: int, style: controls.Style, m: widget.Metrics) -> widget.Widget {
     val children = mutable_array_new<widget.Widget>()
     for i in 0..rows {
         push(children, widget.row_of(6.0, [
-            controls.button_widget(controls.button_of(concat("b", str(i)), "Label"), style),
+            controls.button_widget(controls.button_of(concat("b", str(i)), "Label"), controls.frame_of(style, m)),
             widget.expand(controls.entry_widget(
                 controls.entry_of(concat("f", str(i)), "Field", "a value"),
-                style,
-                m
+                controls.frame_of(style, m)
             ))
         ]))
     }
     push(children, widget.row_of(6.0, [
-        controls.button_widget(controls.button_of("ok", "Save"), style),
-        controls.button_widget(controls.button_of("no", "Cancel"), style)
+        controls.button_widget(controls.button_of("ok", "Save"), controls.frame_of(style, m)),
+        controls.button_widget(controls.button_of("no", "Cancel"), controls.frame_of(style, m))
     ]))
     return widget.column_of(4.0, snapshot(children))
 }
 
 fn edged() -> controls.Style {
     return with theme.plain() {
-        face_border: Option<widget.Border>.Some(widget.border_of(paint.rgb(0.4, 0.4, 0.45), 1.0)),
-        corner: widget.Radius.Points(4.0)
+        // **The edge is on the five rows and the radius is on the scale** -- this file said
+        // `face_border` and `corner`, two fields F293 and F294 retired, and no make target builds
+        // it so nothing said so.
+        states: theme.state_rows(theme.Seeds {
+            face: paint.rgb(0.9, 0.9, 0.9),
+            ink: paint.rgb(0.1, 0.1, 0.1),
+            pressed: paint.rgb(0.75, 0.75, 0.78),
+            selection: paint.rgb(0.75, 0.75, 0.78),
+            panel: paint.rgb(0.96, 0.96, 0.97),
+            faint: paint.rgb(0.6, 0.6, 0.6),
+            veil: paint.rgb(0.0, 0.0, 0.0),
+            veil_at: 0.10,
+            edge: Option<widget.Border>.Some(widget.border_of(paint.rgb(0.4, 0.4, 0.45), 1.0))
+        }),
+        shape: with theme.plain().shape { medium: widget.Radius.Points(4.0) }
     }
 }
 

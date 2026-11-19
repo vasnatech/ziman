@@ -25,11 +25,24 @@ pub fn demo() -> Demo {
     return Demo { bar: controls.scroll_bar_of("bar-demo", 20.0), offset: 0.0 }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return scroll_bar_ui.screen(scroll_bar_ui.Screen {
-        bar: controls.scroll_bar_widget(d.bar, style, bar_width, view_extent, content, view_extent, d.offset),
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return scroll_bar_ui.screen(
+        scroll_bar_ui.Screen {
+            bar: controls.scroll_bar_widget(
+                d.bar,
+                bar_width,
+                view_extent,
+                content,
+                view_extent,
+                d.offset,
+                controls.frame_of(style, m)
+            ),
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -47,12 +60,21 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "bar-demo" {
         val at = boxes.bounds_of(laid, name)
-        val taken = controls.scroll_bar_input(d.bar, input, style, at, content, view_extent, d.offset)
+        val taken = controls.scroll_bar_input(
+            d.bar,
+            input,
+            at,
+            content,
+            view_extent,
+            d.offset,
+            controls.frame_of(style, m)
+        )
         return with d { bar: taken.bar, offset: taken.offset }
     }
     return d

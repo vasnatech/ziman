@@ -35,7 +35,8 @@ fn chosen(d: Demo) -> widget.Along {
 // Three fixed blocks in a row, with the spare room placed by the picker. **Nothing flexible**,
 // which is the condition for an alignment to mean anything: a `flex()` eats the spare room by
 // definition, so a stack holding one is already full.
-fn a_row(d: Demo, style: controls.Style) -> widget.Widget {
+fn a_row(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
     return widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 8.0,
@@ -53,7 +54,8 @@ fn a_row(d: Demo, style: controls.Style) -> widget.Widget {
 
 // The same row with the middle block expanded, which is what every toolbar is: a thing of its own
 // size, a thing that fills, and another thing of its own size.
-fn a_filled_row(style: controls.Style) -> widget.Widget {
+fn a_filled_row(f: controls.Frame) -> widget.Widget {
+    val style = f.style
     return widget.row_of(8.0, [
         layout_ui.block("fixed", style),
         widget.expand(layout_ui.block("expand -- takes what is left", style)),
@@ -61,13 +63,18 @@ fn a_filled_row(style: controls.Style) -> widget.Widget {
     ])
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return layout_ui.screen(layout_ui.Screen {
-        picker: controls.combo_box_widget(d.along, style),
-        row: a_row(d, style),
-        column: a_filled_row(style),
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return layout_ui.screen(
+        layout_ui.Screen {
+            picker: controls.combo_box_widget(d.along, controls.frame_of(style, m)),
+            row: a_row(d, f),
+            column: a_filled_row(f),
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -85,13 +92,19 @@ pub fn anchor(d: Demo) -> string {
     return ""
 }
 
-pub fn layer(d: Demo, style: controls.Style, at: geom.Rect, m: widget.Metrics) -> widget.Layer {
-    return controls.combo_box_popup_layer(d.along, style, geom.rect_of(
-        at.x,
-        at.y + at.height,
-        at.width,
-        (len(d.along.items.items) as float) * controls.row_height(m, style)
-    ), m)
+pub fn layer(d: Demo, at: geom.Rect, f: controls.Frame) -> widget.Layer {
+    val style = f.style
+    val m = f.metrics
+    return controls.combo_box_popup_layer(
+        d.along,
+        geom.rect_of(
+            at.x,
+            at.y + at.height,
+            at.width,
+            (len(d.along.items.items) as float) * controls.row_height(m, style)
+        ),
+        controls.frame_of(style, m)
+    )
 }
 
 pub fn input(
@@ -99,19 +112,18 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "layout-along" || name == "layout-along/items" {
         return with d {
             along: controls.combo_box_input(
                 d.along,
                 input,
-                style,
                 boxes.bounds_of(laid, "layout-along"),
-                boxes.bounds_of(laid, "layout-along/items")
-                ,
-                m
+                boxes.bounds_of(laid, "layout-along/items"),
+                controls.frame_of(style, m)
             ).combo
         }
     }

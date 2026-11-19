@@ -28,13 +28,18 @@ pub fn demo() -> Demo {
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return link_ui.screen(link_ui.Screen {
-        syntax: controls.link_widget(d.syntax, style, m),
-        library: controls.link_widget(d.library, style, m),
-        off: controls.link_widget(d.off, style, m),
-        said: d.went
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return link_ui.screen(
+        link_ui.Screen {
+            syntax: controls.link_widget(d.syntax, controls.frame_of(style, m)),
+            library: controls.link_widget(d.library, controls.frame_of(style, m)),
+            off: controls.link_widget(d.off, controls.frame_of(style, m)),
+            said: d.went
+        },
+        f
+    )
 }
 
 pub fn input(
@@ -42,8 +47,7 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
     if name == "link-syntax" {
         val taken = controls.link_input(d.syntax, input, boxes.bounds_of(laid, name))

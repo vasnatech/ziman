@@ -58,19 +58,24 @@ fn look_of(d: Demo, style: controls.Style) -> controls.Style {
     return looks[which].style
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
     val look = look_of(d, style)
-    return look_and_feel_ui.screen(look_and_feel_ui.Screen {
-        // **The picker keeps the window's own style** so that it stays where the eye expects it
-        // while everything beside it changes: a control that restyles itself is harder to find
-        // again, and this one is how you get back.
-        picker: controls.combo_box_widget(d.picker, style),
-        button: controls.button_widget(d.press, look),
-        check: controls.check_box_widget(d.notify, look, m),
-        field: controls.entry_widget(d.field, look, m),
-        said: said(d),
-        look: look
-    }, style, m)
+    return look_and_feel_ui.screen(
+        look_and_feel_ui.Screen {
+            // **The picker keeps the window's own style** so that it stays where the eye expects it
+            // while everything beside it changes: a control that restyles itself is harder to find
+            // again, and this one is how you get back.
+            picker: controls.combo_box_widget(d.picker, controls.frame_of(style, m)),
+            button: controls.button_widget(d.press, controls.frame_of(look, m)),
+            check: controls.check_box_widget(d.notify, controls.frame_of(look, m)),
+            field: controls.entry_widget(d.field, controls.frame_of(look, m)),
+            said: said(d),
+            look: look
+        },
+        f
+    )
 }
 
 // What the chosen look is, **read off the look itself** rather than written out per name.
@@ -93,7 +98,7 @@ fn said(d: Demo) -> string {
 }
 
 fn edge_word(look: controls.Style) -> string {
-    return switch look.face_border {
+    return switch look.states.rest.border {
         Some(_) { "Edged faces" }
         None { "Flat faces" }
     }
@@ -121,13 +126,19 @@ pub fn anchor(d: Demo) -> string {
     return ""
 }
 
-pub fn layer(d: Demo, style: controls.Style, at: geom.Rect, m: widget.Metrics) -> widget.Layer {
-    return controls.combo_box_popup_layer(d.picker, style, geom.rect_of(
-        at.x,
-        at.y + at.height,
-        at.width,
-        (len(d.picker.items.items) as float) * controls.row_height(m, style)
-    ), m)
+pub fn layer(d: Demo, at: geom.Rect, f: controls.Frame) -> widget.Layer {
+    val style = f.style
+    val m = f.metrics
+    return controls.combo_box_popup_layer(
+        d.picker,
+        geom.rect_of(
+            at.x,
+            at.y + at.height,
+            at.width,
+            (len(d.picker.items.items) as float) * controls.row_height(m, style)
+        ),
+        controls.frame_of(style, m)
+    )
 }
 
 pub fn input(
@@ -135,19 +146,18 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "look-picker" || name == "look-picker/items" {
         return with d {
             picker: controls.combo_box_input(
                 d.picker,
                 input,
-                style,
                 boxes.bounds_of(laid, "look-picker"),
-                boxes.bounds_of(laid, "look-picker/items")
-                ,
-                m
+                boxes.bounds_of(laid, "look-picker/items"),
+                controls.frame_of(style, m)
             ).combo
         }
     }
@@ -159,7 +169,12 @@ pub fn input(
     }
     if name == "look-field" {
         return with d {
-            field: controls.entry_input(d.field, input, boxes.bounds_of(laid, name), look_of(d, style), m).entry
+            field: controls.entry_input(
+                d.field,
+                input,
+                boxes.bounds_of(laid, name),
+                controls.frame_of(look_of(d, style), m)
+            ).entry
         }
     }
     return d

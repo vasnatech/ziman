@@ -551,6 +551,19 @@ pub fn shadow_of(offset: float, blur: float, opacity: float) -> Shadow
 
 ```
 pub struct Surface {
+    // How far **inside** its node's bounds this surface is drawn, on every side.
+    //
+    // **Paint time only, and that is an invariant rather than a note.** Nothing in layout and
+    // nothing in a hit test reads this: a control reserves a ring of room in its padding, draws
+    // its resting frame inset by the whole ring, and spends that inset when a state wants a bigger
+    // frame. So the drawn frame grows and **the box never does** -- which is what keeps a control
+    // from being hovered at a pixel its layout never claimed, and two neighbours from both
+    // claiming the boundary between them. egui concedes the wart in its own documentation, saying
+    // its `expansion` "makes hovered things misaligned"; it gets away with it by laying out every
+    // frame, which this does not.
+    //
+    // Zero is the whole surface, which is what every container wants.
+    inset: float
     // Painted behind the children, before them. `None` draws nothing, which is what most
     // containers want -- a stack per level each painting a fill is how a UI ends up with twenty
     // overdraws per pixel.
@@ -1345,8 +1358,8 @@ pub struct Focusable {
     // highlighting a row, which is what every platform does. A tab strip is the exception, so it
     // is the one that says so.
     //
-    // An unknown name rings the control, which is the same forgiving rule `paint_focused` and
-    // `paint_hovered` already follow for a name the tree no longer holds.
+    // An unknown name rings the control, which is the same forgiving rule `paint_focused` follows
+    // for a name the tree no longer holds.
     focus_part: string
     // Whether **Tab** can land here, as opposed to whether this is a control at all.
     //
@@ -1834,50 +1847,6 @@ same answer it gives for the focus ring. An application that wants either calls 
 Before that rule existed every field drew one at once, which is what a window full of text
 fields each carrying a blinking-looking bar turns out to be: `curly gui` showed eight carets in
 one frame with the focus on a tree.
-
-### `paint_hovered`
-
-```
-pub fn paint_hovered(l: Laid, over: scene.Scene, hovered: string, tint: Color) -> scene.Scene
-```
-
-The tree as a `Scene`, with a ring around whichever control has the focus.
-
-**A keyboard user has to be able to see where they are, and nothing drew that.** Tab moved the
-focus, every control took its keys correctly, and the window looked identical either way -- so
-the only way to find out what was focused was to type into it. It was found by an application
-whose accessibility tree published a focus that the pixels never showed.
-
-**Here rather than on each control**, which is the whole reason this is one function and not a
-`focused: bool` on every `*_widget`: a control does not know whether it has the focus and should
-not have to be told. The application knows, the layout knows where everything is, and this is
-where the two meet -- the same seam `a11y.tree_of` already uses, which takes the focus for the
-same reason.
-
-An unknown name draws nothing rather than refusing: a focus naming a control this tree no longer
-holds is an ordinary moment between two frames, not an error.
-**It draws the caret as well as the ring**, both for the named control only. They are the same
-kind of thing -- painting that depends on who has the focus -- and this is the only seam that
-knows, so putting one here and the other in the widget tree is what let every field in a window
-draw a caret at once.
-A tint over the control the pointer is on.
-
-**A translucent overlay, not a second face colour**, which is what Material calls a state layer
-and what makes hover cost nothing structural: there is no `hovered` flag on any control, no
-enter and leave events to deliver, and no way for a control to be left lit after the pointer has
-gone. The application holds one name -- exactly as it holds `focused`, and for the same reason:
-hover is a fact about the pointer, not about the widget, so storing it in the tree would be a
-second copy free to disagree with the first.
-
-**It takes a scene and adds to it**, as `controls.paint_scroll_bars` does, because the overlay
-has to go over the control it tints and the tree has already been painted by then.
-
-**A part is a control too**, which is what makes a menu item and a list row light up for free:
-the name an application gets from `focus.control_at` is the innermost one under the pointer, and
-that is the row rather than the list.
-
-An unknown name draws nothing, for `paint_focused`'s reason: a pointer naming a control this
-tree no longer holds is an ordinary moment between two frames.
 
 ### `paint_focused`
 

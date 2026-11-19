@@ -27,11 +27,16 @@ pub fn demo() -> Demo {
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return radios_ui.screen(radios_ui.Screen {
-        group: controls.radios_widget(d.how_often, style, m),
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return radios_ui.screen(
+        radios_ui.Screen {
+            group: controls.radios_widget(d.how_often, controls.frame_of(style, m)),
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -50,15 +55,16 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "radios-often" {
         return with d { how_often: controls.radios_input(
             d.how_often,
             input,
-            style,
-            boxes.bounds_of(laid, name)
+            boxes.bounds_of(laid, name),
+            controls.frame_of(style, m)
         ).radios }
     }
     return d

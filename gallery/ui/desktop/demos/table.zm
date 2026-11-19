@@ -52,11 +52,16 @@ fn rows() -> [[string]] {
     ]
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return table_ui.screen(table_ui.Screen {
-        table: controls.table_widget(d.table, style, m),
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return table_ui.screen(
+        table_ui.Screen {
+            table: controls.table_widget(d.table, controls.frame_of(style, m)),
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -67,7 +72,9 @@ fn said(d: Demo) -> string {
 }
 
 // What the pointer is over, asked of the control so the pointer cannot show arrows where a drag would select a row.
-pub fn cursor(d: Demo, style: controls.Style, laid: widget.Laid, at: geom.Point, m: widget.Metrics) -> widget.Cursor {
+pub fn cursor(d: Demo, laid: widget.Laid, at: geom.Point, f: controls.Frame) -> widget.Cursor {
+    val style = f.style
+    val m = f.metrics
     return controls.table_cursor(d.table, style, boxes.bounds_of(laid, "table-demo"), at, m)
 }
 
@@ -76,11 +83,17 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "table-demo" {
-        return with d { table: controls.table_input(d.table, input, style, boxes.bounds_of(laid, name), m).table }
+        return with d { table: controls.table_input(
+            d.table,
+            input,
+            boxes.bounds_of(laid, name),
+            controls.frame_of(style, m)
+        ).table }
     }
     return d
 }

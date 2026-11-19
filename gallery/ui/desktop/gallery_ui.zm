@@ -36,23 +36,23 @@ pub val file_tab_width = 170.0
 // dialect allows it: the lint caught this as a `*` inside `code_pane`, where it is not.
 val file_strip_width = file_tab_width * 2.0
 
-pub fn label(text: string, size: float, style: controls.Style) -> widget.Widget {
-    return widget.label_of(text, size, style.ink)
+pub fn label(text: string, size: float, f: controls.Frame) -> widget.Widget {
+    return widget.label_of(text, size, f.style.ink)
 }
 
 // The leading pane: a heading and the tree of everything the gallery knows how to show.
-pub fn catalogue(tree: controls.Tree, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn catalogue(tree: controls.Tree, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
         widget.tall_of(gap, widget.flex()),
-        widget.tall_of(heading_height, label("Controls", style.text.heading.size, style)),
-        widget.expand(controls.tree_widget(tree, style, m))
+        widget.tall_of(heading_height, label("Controls", f.style.text.heading.size, f)),
+        widget.expand(controls.tree_widget(tree, controls.frame_of(f.style, f.metrics)))
     ])
 }
 
 // A tab strip that takes its own width and leaves the rest of the line alone.
-pub fn strip(tabs: controls.Tabs, width: float, style: controls.Style) -> widget.Widget {
+pub fn strip(tabs: controls.Tabs, width: float, f: controls.Frame) -> widget.Widget {
     return widget.tall_of(row_height, widget.row_of(gap, [
-        widget.wide_of(width, controls.tabs_widget(tabs, style)),
+        widget.wide_of(width, controls.tabs_widget(tabs, f)),
         widget.expand(widget.flex())
     ]))
 }
@@ -77,27 +77,27 @@ pub struct Screen {
     status: string
 }
 
-pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.row_of(gap, [
         widget.wide_of(gap, widget.flex()),
         widget.expand(controls.split_pane_widget(
             it.split,
-            style,
             it.split_extent,
-            catalogue(it.tree, style, m),
-            demo_pane(it, style, m)
+            catalogue(it.tree, f),
+            demo_pane(it, f),
+            controls.frame_of(f.style, f.metrics)
         )),
         widget.wide_of(gap, widget.flex())
     ])
 }
 
 // The trailing pane: the two tabs, whatever they chose, and a line saying what is selected.
-pub fn demo_pane(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn demo_pane(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
         widget.tall_of(gap, widget.flex()),
-        strip(it.tabs, demo_strip_width, style),
+        strip(it.tabs, demo_strip_width, f),
         widget.expand(it.body),
-        widget.tall_of(status_height, label(it.status, style.text.caption.size, style)),
+        widget.tall_of(status_height, label(it.status, f.style.text.caption.size, f)),
         widget.tall_of(gap, widget.flex())
     ])
 }
@@ -109,12 +109,11 @@ pub fn demo_pane(it: Screen, style: controls.Style, m: widget.Metrics) -> widget
 pub fn code_pane(
     files: controls.Tabs,
     source: controls.Entry,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> widget.Widget {
     return widget.column_of(gap, [
-        strip(files, file_strip_width, style),
-        widget.expand(controls.entry_widget(source, style, m))
+        strip(files, file_strip_width, f),
+        widget.expand(controls.entry_widget(source, controls.frame_of(f.style, f.metrics)))
     ])
 }
 

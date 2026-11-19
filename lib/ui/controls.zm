@@ -424,9 +424,12 @@ fn announced_name(b: Button) -> string {
     }
 }
 
-pub fn button_widget(b: Button, style: Style) -> widget.Widget {
-    val ink = if b.disabled { style.disabled_ink } else { style.ink }
-    val face = if b.held { style.pressed_face } else { style.face }
+pub fn button_widget(b: Button, f: Frame) -> widget.Widget {
+    val style = f.style
+    // **One question, asked once**: `held` is the button's own fact, the pointer's name comes
+    // from the frame, and the row decides everything that follows.
+    val parts = parts_for(style, mood_of(b.disabled, b.held, false, hovered_in(f, b.name)))
+    val ink = parts.ink
     // **The icon is inked with the label and sized from the text**, which is what makes it part of
     // the control rather than a picture beside it: a disabled button's icon greys with its words,
     // and a theme that sets a larger `text_size` gets a larger icon without saying so.
@@ -460,8 +463,8 @@ pub fn button_widget(b: Button, style: Style) -> widget.Widget {
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: gap,
-        padding: style.padding,
-        surface: face_of(style, face),
+        padding: padded_for(style),
+        surface: surface_of(style, parts),
         // **Centred, which it could not be until `widget` had an alignment rule.** A button given
         // more width than its text -- one in a row of equal columns, one stretched to a panel's
         // edge -- put its label hard against the left padding, and had since F271. It was never
@@ -543,9 +546,11 @@ fn next(t: Toggle) -> Toggle {
 
 // The check box as a widget: the mark, then the label, and the state declared so that a reader says
 // "check box, Notify me, partly checked" without anything else being told.
-pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.Widget {
-    val ink = if c.disabled { style.disabled_ink } else { style.ink }
-    val face = if c.held { style.pressed_face } else { style.face }
+pub fn check_box_widget(c: CheckBox, f: Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    val parts = parts_for(style, mood_of(c.disabled, c.held, false, hovered_in(f, c.name)))
+    val ink = parts.ink
     // **A square, and it takes the metrics to be one.** The mark box used to be a stack holding
     // one glyph, so it measured one glyph's advance wide and one line tall -- 9x22 points at the
     // default style, because a glyph is always narrower than a line is tall. Nothing noticed while
@@ -569,7 +574,7 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
         // into a blob. That cap is now what `widget.Radius.Points` *means*, applied against
         // whatever box is painted, so the check box is an ordinary face again -- and a theme asking
         // for a capsule (`Fraction(0.5)`) gets one here too, which the old cap made impossible.
-        surface: face_of(style, face),
+        surface: surface_of(style, parts),
         // Centred both ways inside the square -- which is the thing F287 existed to make possible
         // and the reason this could not be fixed before it.
         align: widget.centred(),
@@ -582,7 +587,7 @@ pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: style.text.label.size * 0.5,
-        padding: style.padding,
+        padding: padded_for(style),
         surface: widget.no_surface(),
         // **`Across.Centre` rather than the default, or the square is not square.** A stretched
         // row hands every child its full height, so the fixed box would come out `side` wide and
@@ -901,7 +906,9 @@ fn following_caret(step: EntryStep, bounds: Rect, style: Style, m: widget.Metric
     }
 }
 
-pub fn entry_input(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metrics) -> EntryStep {
+pub fn entry_input(e: Entry, input: Input, bounds: Rect, f: Frame) -> EntryStep {
+    val style = f.style
+    val m = f.metrics
     if e.disabled {
         return kept(with e { dragging: false })
     }
@@ -1290,7 +1297,7 @@ fn selected_runs(e: Entry, text: string, ink: Color, style: Style, line: float) 
     val from = edit.selection_start(e.editor)
     val to = edit.selection_end(e.editor)
     val middle = if edit.has_selection(e.editor) {
-        tinted(substring(text, from, to), style.pressed_face, ink, style, "selection")
+        tinted(substring(text, from, to), style.states.selected.face, style.states.selected.ink, style, "selection")
     } else {
         caret_box(ink, line)
     }
@@ -1448,7 +1455,7 @@ fn entry_line(
             direction: widget.Direction.Row,
             spacing: 0.0,
             padding: widget.no_insets(),
-            surface: widget.filled(style.pressed_face),
+            surface: widget.filled(style.states.selected.face),
             align: widget.stretched(),
             children: [inked_run(e, text, lo, hi, ink, style)],
             name: "selection"
@@ -1483,8 +1490,8 @@ fn entry_line(
     }))
 }
 
-fn multi_line_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget {
-    val ink = if e.disabled { style.disabled_ink } else { style.ink }
+fn multi_line_widget(e: Entry, style: Style, parts: Parts, m: widget.Metrics) -> widget.Widget {
+    val ink = parts.ink
     val line = line_for(m, style.text.body)
     val text = e.editor.text
     val caret_line = edit.line_index(text, e.editor.caret)
@@ -1508,8 +1515,8 @@ fn multi_line_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Column,
         spacing: 0.0,
-        padding: style.padding,
-        surface: face_of(style, style.face),
+        padding: padded_for(style),
+        surface: surface_of(style, parts),
         align: widget.stretched(),
         children: snapshot(lines),
         name: ""
@@ -1527,14 +1534,17 @@ fn multi_line_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget
     })
 }
 
-pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget {
+pub fn entry_widget(e: Entry, f: Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
     // **A masked field takes the one-line path whatever `rows` says.** A multi-line password is
     // not a thing, and `multi_line_widget` draws the text -- so leaving `rows` able to decide
     // would leave a way to build a field that masks in one place and not the other.
+    val parts = parts_for(style, mood_of(e.disabled, false, false, hovered_in(f, e.name)))
     if e.rows > 1 && !e.masked {
-        return multi_line_widget(e, style, m)
+        return multi_line_widget(e, style, parts, m)
     }
-    val ink = if e.disabled { style.disabled_ink } else { style.ink }
+    val ink = parts.ink
     val line = line_for(m, style.text.body)
     val text = shown_text(e)
     // **A field is never selecting and composing at once**, which is not a simplification taken
@@ -1549,8 +1559,8 @@ pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget 
         direction: widget.Direction.Row,
         // Zero, and it has to be: any spacing here would push the caret off the boundary it marks.
         spacing: 0.0,
-        padding: style.padding,
-        surface: face_of(style, style.face),
+        padding: padded_for(style),
+        surface: surface_of(style, parts),
         align: widget.stretched(),
         children: runs,
         name: ""
@@ -1637,7 +1647,9 @@ pub struct ListStep {
 // `bounds` is the box the layout gave it, needed for two things: turning a click's y into a row,
 // and knowing how far one page is. `m` is what a row is measured with: see `row_height`, which the
 // widget lays the rows out by, so the hit test and the layout cannot disagree.
-pub fn list_input(l: List, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> ListStep {
+pub fn list_input(l: List, input: Input, bounds: Rect, f: Frame) -> ListStep {
+    val style = f.style
+    val m = f.metrics
     if l.disabled {
         return held_still(l)
     }
@@ -1645,7 +1657,7 @@ pub fn list_input(l: List, input: Input, style: Style, bounds: Rect, m: widget.M
     // The bar first, and a drag in progress before anything else -- see `tree_input`, which has
     // the same three lines for the same reasons.
     if Option.is_Some(l.bar.grabbed) || list_for_the_bar(l, input, style, bounds, tall) {
-        return list_bar_step(l, input, style, bounds, tall)
+        return list_bar_step(l, input, bounds, tall, f)
     }
     val last = len(l.items) - 1
     return switch input {
@@ -1682,15 +1694,16 @@ fn list_content(l: List, tall: float) -> float {
     return (len(l.items) as float) * tall
 }
 
-fn list_bar_step(l: List, input: Input, style: Style, bounds: Rect, tall: float) -> ListStep {
+fn list_bar_step(l: List, input: Input, bounds: Rect, tall: float, f: Frame) -> ListStep {
+    val style = f.style
     val taken = scroll_bar_input(
         l.bar,
         input,
-        style,
         bar_box(style, bounds),
         list_content(l, tall),
         bounds.height,
-        l.offset
+        l.offset,
+        f
     )
     // A bar moves the view and never the selection, as a tree's does.
     return ListStep {
@@ -1765,14 +1778,23 @@ fn held_still(l: List) -> ListStep {
 // **The rows carry `selected` rather than the list carrying an index**, because that is what a
 // reader reads: it announces "list item, Ada, selected", and an index on the container would make
 // every adapter work out for itself which child the number meant.
-pub fn list_widget(l: List, style: Style, m: widget.Metrics) -> widget.Widget {
-    val ink = if l.disabled { style.disabled_ink } else { style.ink }
+pub fn list_widget(l: List, f: Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
     val tall = row_height(m, style)
     val rows = mutable_array_new<widget.Widget>()
     var i = 0
     while i < len(l.items) {
         val chosen = i == l.selected
-        val face = if chosen { style.selection } else { style.face }
+        val row_parts = parts_for(
+            style,
+            mood_of(
+                l.disabled,
+                pressed_in(f, row_name(l, i)),
+                chosen,
+                hovered_in(f, row_name(l, i))
+            )
+        )
         val row = widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: 0.0,
@@ -1781,9 +1803,12 @@ pub fn list_widget(l: List, style: Style, m: widget.Metrics) -> widget.Widget {
             // is also what keeps a row from clipping its label: `row_height` is a line plus `s`,
             // and `xs` twice is `s` on any scale where `xs` is half of it.
             padding: widget.insets_of(style.space.s, style.space.xs, style.space.s, style.space.xs),
-            surface: highlight_of(style, face),
+            surface: band_of(style, row_parts),
             align: widget.stretched(),
-            children: [widget.label_in_face(l.items[i], style.text.body.size, ink, style.text.body.face)],
+            // **The row's own ink, not the list's.** A face from one row and a word from another
+            // is the half-implemented state the rows exist to prevent -- and a look whose
+            // selection is the accent needs `on_accent` here or the text vanishes into it.
+            children: [widget.label_in_face(l.items[i], style.text.body.size, row_parts.ink, style.text.body.face)],
             name: ""
         })
         push(rows, widget.fixed_of(
@@ -1934,12 +1959,16 @@ fn tabs_still(t: Tabs) -> TabStep {
 // The parts carry `selected`, as a list's rows do, because that is what a reader reads -- "tab,
 // History, selected" -- and an index on the container would make every adapter work out for itself
 // which child the number meant.
-pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget {
-    val ink = if t.disabled { style.disabled_ink } else { style.ink }
+pub fn tabs_widget(t: Tabs, f: Frame) -> widget.Widget {
+    val style = f.style
     val cells = mutable_array_new<widget.Widget>()
     var i = 0
     while i < len(t.items) {
         val chosen = i == t.selected
+        val tab_parts = parts_for(
+            style,
+            mood_of(t.disabled, pressed_in(f, tab_name(t, i)), chosen, hovered_in(f, tab_name(t, i)))
+        )
         // **A card, not a face.** See `tab_face_of`: the chosen tab wears the body's own colour
         // and is rounded along its top only, which is what makes a strip read as index cards
         // instead of as a segmented button.
@@ -1955,9 +1984,9 @@ pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget {
                 style.padding.right,
                 style.padding.bottom - style.space.s
             ),
-            surface: tab_face_of(style, chosen),
+            surface: tab_face_of(style, tab_parts, chosen),
             align: widget.stretched(),
-            children: [widget.label_in_face(t.items[i], style.text.label.size, ink, style.text.label.face)],
+            children: [widget.label_in_face(t.items[i], style.text.label.size, tab_parts.ink, style.text.label.face)],
             name: ""
         })
         // **`wide_of`, not `fixed_of(width, 0)`.** A tab states its width so the strip divides
@@ -2104,7 +2133,9 @@ pub struct TreeStep {
 // the mark at the left of a branch opens or closes it, and a press anywhere else on the row selects
 // it. Both computed from `indent_for`, which the widget also lays out by, as `row_height` is for
 // the rows -- and `m` is what measures a row: see `row_height`.
-pub fn tree_input(t: Tree, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> TreeStep {
+pub fn tree_input(t: Tree, input: Input, bounds: Rect, f: Frame) -> TreeStep {
+    val style = f.style
+    val m = f.metrics
     if t.disabled {
         return tree_still(t)
     }
@@ -2114,7 +2145,7 @@ pub fn tree_input(t: Tree, input: Input, style: Style, bounds: Rect, m: widget.M
     // here -- and they have to reach the bar wherever the pointer has wandered to, or a thumb
     // dragged off the strip is left holding on while the rows move under the pointer instead.
     if dragging_bar(t) || for_the_bar(t, input, style, bounds, tall) {
-        return bar_step(t, input, style, bounds, tall)
+        return bar_step(t, input, bounds, tall, f)
     }
     return switch input {
         Wheel(w) { tree_scrolled(t, t.offset - (w.vertical as float) * tall, bounds, tall) }
@@ -2145,15 +2176,16 @@ fn tree_content(t: Tree, tall: float) -> float {
     return (len(visible_rows(t)) as float) * tall
 }
 
-fn bar_step(t: Tree, input: Input, style: Style, bounds: Rect, tall: float) -> TreeStep {
+fn bar_step(t: Tree, input: Input, bounds: Rect, tall: float, f: Frame) -> TreeStep {
+    val style = f.style
     val taken = scroll_bar_input(
         t.bar,
         input,
-        style,
         bar_box(style, bounds),
         tree_content(t, tall),
         bounds.height,
-        t.offset
+        t.offset,
+        f
     )
     return TreeStep {
         tree: with t { bar: taken.bar, offset: taken.offset },
@@ -2347,9 +2379,9 @@ fn tree_still(t: Tree) -> TreeStep {
 // Nesting costs nothing in layout, because a part adds no box of its own and the rows keep their
 // absolute indent: a column of columns of fixed-height rows stacks exactly as one column of them
 // does, which is what keeps the hit test's `y / row_height` true.
-pub fn tree_widget(t: Tree, style: Style, m: widget.Metrics) -> widget.Widget {
+pub fn tree_widget(t: Tree, f: Frame) -> widget.Widget {
     val shown = visible_rows(t)
-    val built = tree_level(t, shown, 0, 0, style, m)
+    val built = tree_level(t, shown, 0, 0, f)
     return widget.Widget.Control(widget.Focusable {
         name: t.name,
         role: widget.Role.Tree,
@@ -2370,7 +2402,7 @@ struct TreeLevel {
     next: int
 }
 
-fn tree_level(t: Tree, shown: [int], from: int, depth: int, style: Style, m: widget.Metrics) -> TreeLevel {
+fn tree_level(t: Tree, shown: [int], from: int, depth: int, f: Frame) -> TreeLevel {
     val out = mutable_array_new<widget.Widget>()
     var i = from
     while i < len(shown) && t.rows[shown[i]].depth >= depth {
@@ -2383,9 +2415,9 @@ fn tree_level(t: Tree, shown: [int], from: int, depth: int, style: Style, m: wid
         // nothing at all. Every sidebar built here starts at 0, which is why no test and no
         // screenshot showed it; a profiler reporting that a layout benchmark had no work to do
         // is what showed it.
-        val kids = tree_level(t, shown, i + 1, row.depth + 1, style, m)
+        val kids = tree_level(t, shown, i + 1, row.depth + 1, f)
         i = kids.next
-        val own = tree_row_box(t, which, row, style, m)
+        val own = tree_row_box(t, which, row, f)
         val inside = if len(kids.rows) == 0 {
             own
         } else {
@@ -2415,9 +2447,19 @@ fn tree_level(t: Tree, shown: [int], from: int, depth: int, style: Style, m: wid
 // One row: its indent, the mark a branch draws, and its label. **The indent is absolute rather
 // than one level per nesting**, so the column the hit test computes from `depth * indent` is the
 // column the mark was drawn in whatever the parts do around it.
-fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style, m: widget.Metrics) -> widget.Widget {
-    val ink = if t.disabled { style.disabled_ink } else { style.ink }
-    val face = if which == t.selected { style.selection } else { style.face }
+fn tree_row_box(t: Tree, which: int, row: TreeRow, f: Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    val parts = parts_for(
+        style,
+        mood_of(
+            t.disabled,
+            pressed_in(f, tree_row_name(t, which)),
+            which == t.selected,
+            hovered_in(f, tree_row_name(t, which))
+        )
+    )
+    val ink = parts.ink
     val mark = if row.expandable {
         if row.expanded { style.expanded_mark } else { style.collapsed_mark }
     } else {
@@ -2432,7 +2474,7 @@ fn tree_row_box(t: Tree, which: int, row: TreeRow, style: Style, m: widget.Metri
         // two-point ring, which paints after the rows and so over them. The arrow was there and
         // the ring was on top of it.
         padding: widget.insets_of(style.space.s, style.space.xs, style.space.s, style.space.xs),
-        surface: highlight_of(style, face),
+        surface: band_of(style, parts),
         align: widget.stretched(),
         children: [
             widget.fixed_of((row.depth as float) * indent, 0.0, widget.flex()),
@@ -2556,12 +2598,13 @@ pub struct ScrollBarStep {
 pub fn scroll_bar_input(
     b: ScrollBar,
     input: Input,
-    style: Style,
     bounds: Rect,
     content: float,
     view: float,
-    offset: float
+    offset: float,
+    f: Frame
 ) -> ScrollBarStep {
+    val style = f.style
     if b.disabled {
         return bar_still(b, offset)
     }
@@ -2629,15 +2672,18 @@ fn bar_still(b: ScrollBar, offset: float) -> ScrollBarStep {
 // gap, so the layout and `scroll_bar_input` are reading the one calculation.
 pub fn scroll_bar_widget(
     b: ScrollBar,
-    style: Style,
     width: float,
     track: float,
     content: float,
     view: float,
-    offset: float
+    offset: float,
+    f: Frame
 ) -> widget.Widget {
+    val style = f.style
     val thumb = thumb_of(style, track, content, view, offset)
-    val face = if b.disabled { style.disabled_ink } else { style.ink }
+    // **The thumb is drawn in the ink and not in a face**, so its state comes from the row's ink:
+    // a thumb the colour of a button would disappear into the trough behind it.
+    val face = parts_for(style, mood_of(b.disabled, grabbing(b.grabbed), false, hovered_in(f, b.name))).ink
     val parts = mutable_array_new<widget.Widget>()
     push(parts, widget.fixed_of(0.0, thumb.start, widget.flex()))
     if scrolls(content, view) {
@@ -2645,7 +2691,7 @@ pub fn scroll_bar_widget(
             direction: widget.Direction.Column,
             spacing: 0.0,
             padding: widget.insets_of(2.0, 0.0, 2.0, 0.0),
-            surface: face_of(style, face),
+            surface: highlight_of(style, face),
             align: widget.stretched(),
             children: [],
             name: thumb_name
@@ -2666,7 +2712,7 @@ pub fn scroll_bar_widget(
             direction: widget.Direction.Column,
             spacing: 0.0,
             padding: widget.no_insets(),
-            surface: face_of(style, style.face),
+            surface: surface_of(style, parts_for(style, mood_of(false, false, false, false))),
             align: widget.stretched(),
             children: snapshot(parts),
             name: ""
@@ -2695,7 +2741,8 @@ pub val thumb_name = "thumb"
 // Drawn **inside** the viewport's right edge, which is where an overlay bar goes and why it is
 // translucent: a few points of the content are behind it, and over a list of text that is the
 // trailing end of a line nobody reads.
-pub fn paint_scroll_bars(l: Laid, over: scene.Scene, style: Style) -> scene.Scene {
+pub fn paint_scroll_bars(l: Laid, over: scene.Scene, f: Frame) -> scene.Scene {
+    val style = f.style
     val ops = mutable_array_new<scene.Op>()
     for op in over.ops {
         push(ops, op)
@@ -2723,7 +2770,7 @@ fn collect_bars(l: Laid, style: Style, ops: MutableArray<scene.Op>) {
                         style.space.m - style.space.xs,
                         thumb.length
                     )),
-                    paint.Paint.Solid(style.disabled_ink)
+                    paint.Paint.Solid(style.states.disabled.ink)
                 ))
             }
         }
@@ -2870,8 +2917,10 @@ pub fn combo_box_text(c: ComboBox) -> string {
 }
 
 // The collapsed control: what it shows, and the same face every other control wears.
-pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget {
-    val ink = if c.disabled { style.disabled_ink } else { style.ink }
+pub fn combo_box_widget(c: ComboBox, f: Frame) -> widget.Widget {
+    val style = f.style
+    val parts = parts_for(style, mood_of(c.disabled, c.open, false, hovered_in(f, c.name)))
+    val ink = parts.ink
     // **A mark at the trailing edge, which says the box opens.** A collapsed combo box drawn as a
     // plain filled rectangle is a disabled text field to anyone who has not been told otherwise --
     // the arrow is the only thing on screen that says this one can be opened, and it was missing.
@@ -2883,8 +2932,8 @@ pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget {
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
-        padding: style.padding,
-        surface: face_of(style, style.face),
+        padding: padded_for(style),
+        surface: surface_of(style, parts),
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
         children: [
             widget.label_in_face(combo_box_text(c), style.text.label.size, ink, style.text.label.face),
@@ -2912,8 +2961,9 @@ pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget {
 }
 
 // The popup, as a layer. The same one a menu uses -- a list is a list.
-pub fn combo_box_popup_layer(c: ComboBox, style: Style, at: Rect, m: widget.Metrics) -> widget.Layer {
-    return widget.layer_at(at, true, popped(list_widget(c.items, style, m), style))
+pub fn combo_box_popup_layer(c: ComboBox, at: Rect, f: Frame) -> widget.Layer {
+    val style = f.style
+    return widget.layer_at(at, true, popped(list_widget(c.items, f), style))
 }
 
 // A popup's own surface: a panel with the theme's shadow behind it.
@@ -3054,10 +3104,9 @@ fn closed_combo_input(c: ComboBox, input: Input, at: Rect) -> ComboBoxStep {
 pub fn combo_box_input(
     c: ComboBox,
     input: Input,
-    style: Style,
     at: Rect,
     popup_at: Rect,
-    m: widget.Metrics
+    f: Frame
 ) -> ComboBoxStep {
     if c.disabled {
         return combo_unchanged(c)
@@ -3069,7 +3118,7 @@ pub fn combo_box_input(
     // the highlight, a click outside dismisses, a release over a row chooses it, and the arrows
     // belong to the list. Shared with `Menu` rather than copied, which is the half of that struct's
     // old argument this control keeps.
-    val step = open_popup_input(c.items, input, style, at, popup_at, m)
+    val step = open_popup_input(c.items, input, at, popup_at, f)
     return ComboBoxStep {
         combo: with c { items: step.items, open: step.open },
         chosen: step.chosen,
@@ -3098,10 +3147,9 @@ pub struct MenuStep {
 pub fn menu_input(
     menu: Menu,
     input: Input,
-    style: Style,
     title_bounds: Rect,
     popup_bounds: Rect,
-    m: widget.Metrics
+    f: Frame
 ) -> MenuStep {
     if menu.disabled {
         return menu_unchanged(menu)
@@ -3109,7 +3157,7 @@ pub fn menu_input(
     if !menu.open {
         return closed_menu_input(menu, input, title_bounds)
     }
-    return open_menu_input(menu, input, style, title_bounds, popup_bounds, m)
+    return open_menu_input(menu, input, title_bounds, popup_bounds, f)
 }
 
 fn closed_menu_input(m: Menu, input: Input, title_bounds: Rect) -> MenuStep {
@@ -3164,10 +3212,9 @@ fn popup_dismissed(l: List) -> PopupStep {
 fn open_popup_input(
     items: List,
     input: Input,
-    style: Style,
     title_bounds: Rect,
     popup_bounds: Rect,
-    m: widget.Metrics
+    f: Frame
 ) -> PopupStep {
     // `Other("")` for an input that is not a keystroke, so the tests below read as one list rather
     // than as a key check wrapped in an input check.
@@ -3220,7 +3267,7 @@ fn open_popup_input(
         }
     }
     // Everything else is the list's: arrows, Home, End, the wheel, and a press on a row.
-    val step = list_input(items, input, style, popup_bounds, m)
+    val step = list_input(items, input, popup_bounds, f)
     return popup_held(step.list)
 }
 
@@ -3230,12 +3277,11 @@ fn open_popup_input(
 fn open_menu_input(
     menu: Menu,
     input: Input,
-    style: Style,
     title_bounds: Rect,
     popup_bounds: Rect,
-    m: widget.Metrics
+    f: Frame
 ) -> MenuStep {
-    val step = open_popup_input(menu.items, input, style, title_bounds, popup_bounds, m)
+    val step = open_popup_input(menu.items, input, title_bounds, popup_bounds, f)
     return MenuStep {
         menu: with menu { items: step.items, open: step.open },
         chosen: step.chosen,
@@ -3262,22 +3308,25 @@ fn menu_unchanged(m: Menu) -> MenuStep {
 
 // The title as it sits on the bar. A control in its own right, so Tab reaches the menu and a reader
 // announces it.
-pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
-    val ink = if m.disabled { style.disabled_ink } else { style.ink }
-    val face = if m.open { style.pressed_face } else { style.face }
+pub fn menu_title_widget(menu: Menu, f: Frame) -> widget.Widget {
+    val style = f.style
+    // **An open menu is a pressed menu.** Its title stays held down for as long as its popup is
+    // up, which is what every menu bar does and what `open` already recorded.
+    val parts = parts_for(style, mood_of(menu.disabled, menu.open, false, hovered_in(f, menu.name)))
+    val ink = parts.ink
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
-        padding: style.padding,
-        surface: face_of(style, face),
+        padding: padded_for(style),
+        surface: surface_of(style, parts),
         align: widget.stretched(),
-        children: [widget.label_in_face(collapsed_text(m), style.text.label.size, ink, style.text.label.face)],
+        children: [widget.label_in_face(collapsed_text(menu), style.text.label.size, ink, style.text.label.face)],
         name: ""
     })
     return widget.Widget.Control(widget.Focusable {
-        name: m.name,
+        name: menu.name,
         role: widget.Role.Menu,
-        label: m.label,
+        label: menu.label,
         description: "",
         // **A choice announces its value and a menu has none to announce.** This is the whole
         // behavioural difference between the two once the role is right: a reader says the label,
@@ -3286,8 +3335,8 @@ pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
         // reader needs. A picker's value is `combo_box_value`, on the control that has one.
         value: "",
         state: with widget.no_state() {
-            disabled: m.disabled,
-            expanded: Option<bool>.Some(m.open)
+            disabled: menu.disabled,
+            expanded: Option<bool>.Some(menu.open)
         },
         focus_part: "",
         tab_stop: true,
@@ -3302,8 +3351,9 @@ pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget {
 // to what is beneath as well as closing the menu.
 //
 // Takes the keyboard while it is open, because an open menu owns the arrows.
-pub fn menu_popup_layer(menu: Menu, style: Style, at: Rect, m: widget.Metrics) -> widget.Layer {
-    return widget.layer_at(at, true, popped(list_widget(menu.items, style, m), style))
+pub fn menu_popup_layer(menu: Menu, at: Rect, f: Frame) -> widget.Layer {
+    val style = f.style
+    return widget.layer_at(at, true, popped(list_widget(menu.items, f), style))
 }
 
 // ------------------------------------------------------------------ dialogs
@@ -3341,11 +3391,12 @@ pub fn dialog_keys(input: Input) -> DialogAnswer {
 //
 // The content is the caller's: a dialog is a frame and a pair of keys, not a thing that knows what
 // it is asking.
-pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: Style) -> widget.Layer {
+pub fn dialog_layer(name: string, title: string, content: widget.Widget, f: Frame) -> widget.Layer {
+    val style = f.style
     val framed = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Column,
         spacing: style.text.body.size * 0.5,
-        padding: style.padding,
+        padding: padded_for(style),
         // **The panel, not a face.** See `Style.panel`: a dialog whose panel is the colour of a
         // button is a dialog whose buttons cannot be seen. Raised, because a modal dialog is the
         // thing in front of everything -- the scrim says the window is blocked and the shadow says
@@ -3574,7 +3625,8 @@ fn split_to(s: SplitPane, want: float, style: Style, extent: float) -> SplitStep
 // Up and Down for a `Column`. The other pair is left alone rather than treated as the same thing,
 // because a divider that moved sideways when you pressed Down would be reporting that this control
 // does not know which way it is facing.
-pub fn split_pane_input(s: SplitPane, input: Input, style: Style, bounds: Rect) -> SplitStep {
+pub fn split_pane_input(s: SplitPane, input: Input, bounds: Rect, f: Frame) -> SplitStep {
+    val style = f.style
     if s.disabled {
         return split_still(s)
     }
@@ -3652,7 +3704,7 @@ fn split_key(s: SplitPane, k: Keystroke, style: Style, extent: float) -> SplitSt
 // unsure whether they took hold of anything -- the divider is the one control here with no other
 // way to show that it is being used.
 fn divider_line_widget(s: SplitPane, style: Style, held: bool) -> widget.Widget {
-    val colour = if held { style.ink } else { style.disabled_ink }
+    val colour = if held { style.ink } else { style.states.disabled.ink }
     val line = widget.Widget.Group(widget.Stack {
         direction: s.direction,
         spacing: 0.0,
@@ -3684,11 +3736,12 @@ fn divider_line_widget(s: SplitPane, style: Style, held: bool) -> widget.Widget 
 // them, on some window widths and not others.
 pub fn split_pane_widget(
     s: SplitPane,
-    style: Style,
     extent: float,
     first: widget.Widget,
-    second: widget.Widget
+    second: widget.Widget,
+    f: Frame
 ) -> widget.Widget {
+    val style = f.style
     val at = split_at(s, style, extent)
     val held = switch s.grabbed {
         Some(_) { true }
@@ -3985,7 +4038,9 @@ fn table_still(t: Table) -> TableStep {
 // **Three gestures in order of who owns the pointer**, the opening `list_input` has for the same
 // reason: a resize in progress keeps it, then the scroll bar, then the rows. A press that is none
 // of those -- on a header, on empty space below the last row -- does nothing at all.
-pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> TableStep {
+pub fn table_input(t: Table, input: Input, bounds: Rect, f: Frame) -> TableStep {
+    val style = f.style
+    val m = f.metrics
     if t.disabled {
         return table_still(t)
     }
@@ -3995,7 +4050,7 @@ pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect, m: widget
         return table_resized(t, input, style, bounds)
     }
     if Option.is_Some(t.bar.grabbed) || table_for_the_bar(t, style, body, input, tall) {
-        return table_bar_step(t, input, style, body, tall)
+        return table_bar_step(t, input, body, tall, f)
     }
     val last = len(t.rows) - 1
     return switch input {
@@ -4069,15 +4124,16 @@ fn table_content(t: Table, tall: float) -> float {
     return (len(t.rows) as float) * tall
 }
 
-fn table_bar_step(t: Table, input: Input, style: Style, body: Rect, tall: float) -> TableStep {
+fn table_bar_step(t: Table, input: Input, body: Rect, tall: float, f: Frame) -> TableStep {
+    val style = f.style
     val taken = scroll_bar_input(
         t.bar,
         input,
-        style,
         bar_box(style, body),
         table_content(t, tall),
         body.height,
-        t.offset
+        t.offset,
+        f
     )
     return TableStep {
         table: with t { bar: taken.bar, offset: taken.offset },
@@ -4296,7 +4352,7 @@ fn header_widget(t: Table, style: Style, ink: Color, m: widget.Metrics) -> widge
         direction: widget.Direction.Column,
         spacing: 0.0,
         padding: widget.no_insets(),
-        surface: face_of(style, style.face),
+        surface: surface_of(style, parts_for(style, mood_of(false, false, false, false))),
         align: widget.stretched(),
         // The band, then the line that separates it from the rows -- which is the one grid line a
         // table must have even when the others are too quiet to see.
@@ -4311,17 +4367,31 @@ fn header_widget(t: Table, style: Style, ink: Color, m: widget.Metrics) -> widge
 // it. The rows are `part_of` -- something a click and a reader reach and Tab does not -- and so are
 // the column headers, which is what will make a header sortable without a second tab stop per
 // column.
-pub fn table_widget(t: Table, style: Style, m: widget.Metrics) -> widget.Widget {
-    val ink = if t.disabled { style.disabled_ink } else { style.ink }
+pub fn table_widget(t: Table, f: Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    val ink = parts_for(style, mood_of(t.disabled, false, false, false)).ink
     val tall = row_height(m, style)
     val rows = mutable_array_new<widget.Widget>()
     var r = 0
     while r < len(t.rows) {
         val chosen = r == t.selected
+        val row_parts = parts_for(
+            style,
+            mood_of(
+                t.disabled,
+                pressed_in(f, table_row_name(t, r)),
+                chosen,
+                hovered_in(f, table_row_name(t, r))
+            )
+        )
         val cells = mutable_array_new<widget.Widget>()
         var c = 0
         while c < len(t.columns) {
-            push(cells, cell_widget(t, style, c, cell_at(t, r, c), ink))
+            // **The row's ink, so a cell's text follows the band under it.** A chosen row on an
+            // accented selection needs `on_accent` here, and the table was the one control that
+            // drew its words from the control and its band from the row.
+            push(cells, cell_widget(t, style, c, cell_at(t, r, c), row_parts.ink))
             c = c + 1
         }
         val body = widget.part_of(
@@ -4334,7 +4404,7 @@ pub fn table_widget(t: Table, style: Style, m: widget.Metrics) -> widget.Widget 
                 spacing: 0.0,
                 padding: widget.no_insets(),
                 surface: if chosen {
-                    highlight_of(style, style.selection)
+                    band_of(style, row_parts)
                 } else {
                     widget.no_surface()
                 },
@@ -4460,7 +4530,8 @@ fn radio_to(r: Radios, want: int) -> RadioStep {
 // **Both pairs of arrows, unlike a split pane.** A column of options is navigated with Up and Down
 // by every keyboard user and with Left and Right by every one who learned radios on a form where
 // they were in a row; neither is wrong about what "the next option" means.
-pub fn radios_input(r: Radios, input: Input, style: Style, bounds: Rect) -> RadioStep {
+pub fn radios_input(r: Radios, input: Input, bounds: Rect, f: Frame) -> RadioStep {
+    val style = f.style
     if r.disabled {
         return radios_still(r)
     }
@@ -4525,13 +4596,22 @@ fn radios_key(r: Radios, k: Keystroke) -> RadioStep {
 // **The options carry `checked`, and the group carries nothing**, which is what a reader reads:
 // it announces "radio button, Weekly, checked" for the one you are on. A group holding an index
 // would make every adapter work out for itself which child the number meant.
-pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widget {
-    val ink = if r.disabled { style.disabled_ink } else { style.ink }
+pub fn radios_widget(r: Radios, f: Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    val ink = parts_for(style, mood_of(r.disabled, false, false, false)).ink
     val side = line_for(m, style.text.label)
     val rows = mutable_array_new<widget.Widget>()
     var i = 0
     while i < len(r.items) {
         val chosen = i == r.selected
+        // **Each option is its own control for the purpose of a state**, which is why the mood
+        // is computed per option and not per group: one of five circles is chosen, one may be
+        // under the pointer, and they are rarely the same one.
+        val chosen_parts = parts_for(
+            style,
+            mood_of(r.disabled, pressed_in(f, radio_name(r, i)), chosen, hovered_in(f, radio_name(r, i)))
+        )
         val dot = widget.fixed_of(side, side, widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: 0.0,
@@ -4542,8 +4622,11 @@ pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widge
             // than a theme's consistency. `Fraction(0.5)` is a capsule of any size, and the box
             // is a square, so it is a circle.
             surface: widget.Surface {
-                fill: Option<Color>.Some(if chosen { style.pressed_face } else { style.face }),
-                border: style.face_border,
+                // **Zero, because a circle is an ornament and not the control's frame.** The row a
+                // radio is in expands if a look says so; the dot inside it does not.
+                inset: 0.0,
+                fill: Option<Color>.Some(chosen_parts.face),
+                border: chosen_parts.border,
                 corner: style.shape.full,
                 corners: widget.Corners.All,
                 shadow: Option<widget.Shadow>.None
@@ -4570,7 +4653,8 @@ pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widge
             padding: widget.insets_of(4.0, 2.0, 0.0, 2.0),
             surface: widget.no_surface(),
             align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
-            children: [dot, widget.label_in_face(r.items[i], style.text.label.size, ink, style.text.label.face)],
+            children: [dot,
+                widget.label_in_face(r.items[i], style.text.label.size, chosen_parts.ink, style.text.label.face)],
             name: ""
         })
         push(rows, widget.fixed_of(0.0, style.minimum.target, widget.part_of(
@@ -4817,17 +4901,18 @@ fn slider_key(s: Slider, k: Keystroke) -> SliderStep {
 // children, and the leftover room here is exactly the track less the thumb -- so the thumb lands
 // where `slider_at` says in whatever box the layout gives it, by construction, with no width for
 // anyone to pass wrongly.
-pub fn slider_widget(s: Slider, style: Style) -> widget.Widget {
+pub fn slider_widget(s: Slider, f: Frame) -> widget.Widget {
+    val style = f.style
     val held = switch s.grabbed {
         Some(_) { true }
         None { false }
     }
-    val face = if held { style.pressed_face } else { style.face }
+    val parts = parts_for(style, mood_of(s.disabled, held, false, hovered_in(f, s.name)))
     val track = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.no_insets(),
-        surface: highlight_of(style, style.disabled_ink),
+        surface: highlight_of(style, style.states.disabled.ink),
         align: widget.stretched(),
         children: [],
         name: ""
@@ -4836,7 +4921,7 @@ pub fn slider_widget(s: Slider, style: Style) -> widget.Widget {
         direction: widget.Direction.Row,
         spacing: 0.0,
         padding: widget.no_insets(),
-        surface: face_of(style, face),
+        surface: surface_of(style, parts),
         align: widget.stretched(),
         children: [],
         name: ""
@@ -4946,8 +5031,13 @@ pub fn link_input(l: Link, input: Input, bounds: Rect) -> LinkStep {
 // layout is the whole window. So the underline ran the width of the pane with the words at one
 // end of it. A control that wants to be the size of its text has to ask how wide its text is;
 // `check_box_widget` takes a `Metrics` to make a square for the same kind of reason.
-pub fn link_widget(l: Link, style: Style, m: widget.Metrics) -> widget.Widget {
-    val ink = if l.disabled { style.disabled_ink } else { style.ink }
+pub fn link_widget(l: Link, f: Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    // A link shows its states with a band rather than a face: see the surface below.
+    val mood = mood_of(l.disabled, l.held, false, hovered_in(f, l.name))
+    val parts = parts_for(style, mood)
+    val ink = parts.ink
     val rule = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
@@ -4982,8 +5072,8 @@ pub fn link_widget(l: Link, style: Style, m: widget.Metrics) -> widget.Widget {
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
-        padding: style.padding,
-        surface: if l.held { highlight_of(style, style.pressed_face) } else { widget.no_surface() },
+        padding: padded_for(style),
+        surface: if marked(mood) { band_of(style, parts) } else { widget.no_surface() },
         // **`Along.Start`, so the text stays at the start of whatever box the link is given.** A
         // link centred in a wide row would be a link that moves when the window is resized.
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
@@ -5164,7 +5254,6 @@ pub struct Style {
     padding: Insets
     ink: Color
     face: Color
-    pressed_face: Color
     // The surface a control is drawn **on**, as against `face`, which is what a control is drawn
     // **as**.
     //
@@ -5199,7 +5288,6 @@ pub struct Style {
     // recede, dark enough to be a line: it has to read against both the row's own face and the
     // window behind it.
     grid: Color
-    disabled_ink: Color
     // Under the text being composed through an input method, and under the run of it the method
     // is converting right now. **Two, because they mean different things to the person typing**:
     // the first says "this is not committed yet" and the second says "this is the part your next
@@ -5219,35 +5307,6 @@ pub struct Style {
     // dialog should say "this is waiting for you" and not "the window is gone" -- a user needs to
     // see what they were doing to decide what to answer.
     scrim: Color
-    // How a control's face is edged, and how far its corners are rounded.
-    //
-    // **The two properties a second look and feel needs that a palette could never express.** Every
-    // other field here is a colour, and swapping all of them gives a different *theme* of the same
-    // widgets -- which is why an application could ship a dark palette long before it could ship a
-    // button that looked different. What distinguishes a flat look from a bevelled one, or a
-    // rounded field from a square one, is shape, and until `widget.Surface` existed this layer had
-    // no way to ask for any.
-    //
-    // **Absent and zero in `default_style`, on purpose**: the default look is byte-for-byte what it
-    // was before this widened, so nothing that compared pixels had to be re-blessed and nothing an
-    // application already ships moved by a point. A look and feel is what you get by setting them.
-    // What falls behind a surface that is in front of the window: a menu's popup, a combo box's
-    // list, a dialog's panel.
-    //
-    // **Only those three, and that is the rule rather than an omission.** A shadow says "this is
-    // in front of that", so a window where every control had one would be saying nothing at all --
-    // and would pay eight extra fills per control to say it. `None` turns it off for a flat look
-    // and feel, which is what a theme following GNOME's Adwaita would want.
-    // What is laid over the control the pointer is on.
-    //
-    // **Translucent, and that is the whole design.** A second face colour per control would mean a
-    // `hovered` flag on every one of them, enter and leave events to deliver, and a control left
-    // lit after the pointer had gone. An overlay is a property of the pointer rather than of the
-    // widget, so it is painted from the one name the application already holds -- which is what
-    // Material calls a state layer, and what `widget.paint_hovered` does with it.
-    //
-    // **Dark rather than light, so one number serves both themes.** A white veil disappears on a
-    // white face; black at a tenth darkens a light face and a dark one alike.
     // The one colour a look and feel is recognised by: a focus ring, a selected row, whatever a
     // theme wants to say is *this application's*.
     //
@@ -5260,21 +5319,31 @@ pub struct Style {
     // because a light accent wants dark text and a dark one wants light, and guessing from
     // luminance is how a theme ends up with grey-on-grey at exactly one value.
     on_accent: Color
-    // The face of a chosen row in a list, a tree or a table.
+    // The five state rows: what this control is drawn as at rest, hovered, pressed, disabled and
+    // selected. See `States`, and D5 in docs/design/look-and-feel.md.
     //
-    // **Separate from `pressed_face`**, which it used to be: pressing a button and selecting a row
-    // are different events and every system colours them differently -- a selection is usually a
-    // tint of the accent, where a press is a darkening of the face. Sharing one colour meant a
-    // theme could not say so.
-    selection: Color
+    // **This replaced four loose fields** -- `pressed_face`, `disabled_ink`, `selection` and
+    // `hover_tint` -- and `face_border` with them, because an edge is part of what a state looks
+    // like and two sources for one border is a disagreement waiting to happen. Each of the four
+    // could say one thing about one state: a fill, or a text colour, or a translucent veil painted
+    // over a finished scene that could change neither an edge nor a word.
+    states: States
     // The spacing scale, the floors density may not cross, and the widths of lines. See each
     // struct above: they are three groups rather than one because only the first scales.
     space: Space
     minimum: Minimum
     stroke: Stroke
-    hover_tint: Color
+    // What falls behind a surface that is in front of the window: a menu's popup, a combo box's
+    // list, a dialog's panel.
+    //
+    // **Only those three, and that is the rule rather than an omission.** A shadow says "this is
+    // in front of that", so a window where every control had one would be saying nothing at all --
+    // and would pay eight extra fills per control to say it. `None` turns it off for a flat look
+    // and feel, which is what a theme following GNOME's Adwaita would want.
+    //
+    // **Not a state's business**, unlike the border and the corner `Parts` carries: a popup is in
+    // front of the window whatever the pointer is doing.
     raised: Option<widget.Shadow>
-    face_border: Option<widget.Border>
     // The rounding scale. **This was one number**, shared by every control's face and by a list's
     // and a tree's chosen row, on the argument that a theme with four-point buttons and square
     // selection is not a theme but two. The argument was right and the conclusion too narrow: a
@@ -5316,6 +5385,217 @@ pub struct Style {
 // readers, in one 5,000-line file. `controls` defines `Style` and never builds one, so the
 // dependency points one way and the split cost nothing: `theme.plain()` is what the one
 // called `default_style` was, and `theme.modern()` what `modern_style` was.
+
+// The look, the window's measurements, and the three names the window holds: everything a control
+// needs to draw itself that is not the control.
+//
+// **One value rather than a longer parameter list, and this is the third time the question came
+// up.** D16 gave twenty functions a `Style` when a look had to reach them; D18 gave thirteen of
+// them a `widget.Metrics` when a row's height became a measurement rather than a number; F294
+// needed the pointer to reach a paint function, and F296 (the desktop's scheme) and F297 (the
+// designer's live overrides) each want to hand one more fact down the same path. A fourth and a
+// fifth parameter is not a design, it is a queue -- so the facts travel together and the signature
+// stops moving. Those later tasks add a **field** here.
+//
+// **The three names, and why they are names.** Hover, the press and the focus are facts about the
+// pointer and the keyboard rather than about any widget: a `hovered` flag inside the tree would be
+// a second copy of each, free to disagree, and a control left lit after the pointer had gone is
+// exactly how that disagreement shows. The window holds one of each and they arrive here, which is
+// what `widget.paint_hovered` used to do for the one case a translucent veil could serve. See D5
+// and D19 in docs/design/look-and-feel.md.
+//
+// **`pressed` is for the controls that do not model their own press.** A button, a check box and a
+// link carry `held`, and a scroll bar, a split pane, a table's column edge and a slider carry a
+// `grabbed` that holds the grab's offset and not merely a bool -- those read their own field. A
+// menu's item, a list's row and a tab have no such field and read this one. One source each, never
+// both: `mood_of` is handed a bool either way.
+pub struct Frame {
+    style: Style
+    metrics: widget.Metrics
+    hovered: string
+    pressed: string
+    focused: string
+}
+
+// A frame with nothing hovered, pressed or focused: what a control looks like at rest.
+//
+// **The resting frame is the one tests and one-shot renderers want**, and naming it here keeps the
+// three empty strings out of thirty call sites. An application fills the names in from what it
+// already holds: `with controls.frame_of(style, m) { hovered: st.hovered, pressed: st.pressed,
+// focused: st.focused }`.
+pub fn frame_of(style: Style, m: widget.Metrics) -> Frame {
+    return Frame { style: style, metrics: m, hovered: "", pressed: "", focused: "" }
+}
+
+// What a control is drawn as in one state: its fill, its text, its edge, and the two shape
+// properties a state is allowed to change.
+//
+// **One struct, so a state cannot be half-implemented.** Before this, a state was whichever of
+// four loose fields happened to cover it: `pressed_face` was a fill and could not say the text
+// changed, `disabled_ink` was a text colour and could not say the fill receded -- which is why a
+// disabled button kept a live-looking face and merely greyed its words, something no platform
+// does. A look that sets a row sets all of it.
+pub struct Parts {
+    face: Color
+    ink: Color
+    border: Option<widget.Border>
+    // How far the drawn frame grows beyond its resting inset. **Paint time only**: see
+    // `widget.Surface.inset` and the invariant in D5 -- no state may change a control's bounds,
+    // because a hit test has to read the same calculation the layout did.
+    expansion: float
+    // This state's own rounding, where it differs from the shape scale. `None` is the scale's
+    // answer, which is what every state wants until one does not.
+    corner: Option<widget.Radius>
+}
+
+// The five states a control can be in, each with its own parts.
+//
+// **Five rows and one question.** Every paint function asks `parts_for` once -- what are my parts
+// in this state -- rather than reaching for a different field per state, so a look cannot forget
+// one and a control cannot invent its own answer. See D5 in docs/design/look-and-feel.md.
+//
+// **Focus and emphasis are deliberately not rows here.** A control can be focused *and* hovered
+// *and* pressed at once, so focus cannot be one of five exclusive rows: it stays a ring drawn over
+// whatever state applies, from `accent`. Emphasis is an axis over a whole look -- a primary button
+// is emphasised at rest, hovered, pressed and disabled alike.
+pub struct States {
+    rest: Parts
+    hovered: Parts
+    pressed: Parts
+    disabled: Parts
+    selected: Parts
+}
+
+// Which row a control is in. **Exclusive, which is the point**: one question with one answer, so
+// two states cannot both be half-painted.
+pub enum Mood {
+    Rest
+    Hovered
+    Pressed
+    Disabled
+    Selected
+}
+
+// The one place the precedence lives.
+//
+// **`disabled` beats `pressed` beats `selected` beats `hovered`.** With five exclusive rows one of
+// them has to win, and each of these is the answer a desktop gives: a disabled control is disabled
+// whatever the pointer is doing; a press is the most recent thing the user did; and **a selected
+// row keeps its colour while the pointer crosses it**, because a selection that vanishes under the
+// pointer reads as the selection being lost -- GTK and macOS both keep it.
+//
+// Every control calls this with its own four facts, so the ordering cannot drift between two
+// controls that happen to disagree about which matters more.
+pub fn mood_of(disabled: bool, pressed: bool, selected: bool, hovered: bool) -> Mood {
+    if disabled {
+        return Mood.Disabled
+    }
+    if pressed {
+        return Mood.Pressed
+    }
+    if selected {
+        return Mood.Selected
+    }
+    if hovered {
+        return Mood.Hovered
+    }
+    return Mood.Rest
+}
+
+// The parts of a control in one mood: an index into the look's five rows, and nothing else.
+pub fn parts_for(style: Style, mood: Mood) -> Parts {
+    return switch mood {
+        Rest { style.states.rest }
+        Hovered { style.states.hovered }
+        Pressed { style.states.pressed }
+        Disabled { style.states.disabled }
+        Selected { style.states.selected }
+    }
+}
+
+// Whether the pointer is on the control with this name.
+//
+// **A comparison rather than a flag**, which is the whole reason the frame carries names: the
+// window holds one name and every control compares itself against it, so no two controls can both
+// think they are hovered and none can be left lit after the pointer has gone.
+pub fn hovered_in(f: Frame, name: string) -> bool {
+    return f.hovered == name
+}
+
+// The ring of room a control leaves for a state that wants a bigger frame: the largest expansion
+// any of the five rows asks for.
+//
+// **Derived rather than a token**, for D18's reason: a number a look had to set is a number a look
+// could set wrong -- too small and a hovered frame clips, too large and every control grows for
+// nothing -- and the rows already say how far they expand. It is also what makes
+// `reserve_of(style) - p.expansion` non-negative for every row, which **is** the expansion
+// invariant: no state can push a frame outside the box its layout claimed.
+pub fn reserve_of(style: Style) -> float {
+    var most = style.states.rest.expansion
+    if most < style.states.hovered.expansion {
+        most = style.states.hovered.expansion
+    }
+    if most < style.states.pressed.expansion {
+        most = style.states.pressed.expansion
+    }
+    if most < style.states.disabled.expansion {
+        most = style.states.disabled.expansion
+    }
+    if most < style.states.selected.expansion {
+        most = style.states.selected.expansion
+    }
+    return most
+}
+
+// The control's own padding with that ring added.
+//
+// **This is how a drawn frame grows while the box stays put.** The room is claimed once, inside the
+// control, and a state that expands spends it outwards from the resting inset -- so layout and the
+// hit test read one geometry whatever the pointer is doing. A look whose rows expand by nothing
+// reserves nothing, which is why no pixel in either shipped look moves.
+fn padded_for(style: Style) -> Insets {
+    val ring = reserve_of(style)
+    if ring == 0.0 {
+        return style.padding
+    }
+    return widget.insets_of(
+        style.padding.left + ring,
+        style.padding.top + ring,
+        style.padding.right + ring,
+        style.padding.bottom + ring
+    )
+}
+
+// Whether a grab is in hand. **Four controls model their press as the offset they were grabbed
+// at** -- a scroll bar, a split pane, a table's column edge and a slider -- because a drag has to
+// remember where it started; this is that fact as the bool `mood_of` asks for.
+fn grabbing(g: Option<float>) -> bool {
+    return switch g {
+        Some(_) { true }
+        None { false }
+    }
+}
+
+// Whether this mood is one a control marks with a band of its own: a link's highlight, a row's.
+// **Rest and disabled draw nothing extra** -- a link at rest is text, and a disabled one says so
+// with its ink rather than by lighting up.
+fn marked(mood: Mood) -> bool {
+    return switch mood {
+        Rest { false }
+        Hovered { true }
+        Pressed { true }
+        Disabled { false }
+        Selected { true }
+    }
+}
+
+// Whether the pointer is being held on the control with this name. For the controls that do not
+// model their own press -- a menu's item, a list's row, a tab. A button, a check box and a link
+// carry `held`, and a scroll bar, a split pane, a table's column and a slider carry a `grabbed`
+// that holds the grab's offset: those read their own field, and never this.
+pub fn pressed_in(f: Frame, name: string) -> bool {
+    return f.pressed == name
+}
 
 // A control's own face: its fill, edged and rounded as the style asks.
 //
@@ -5380,11 +5660,42 @@ pub fn indent_for(style: Style) -> float {
     return style.space.xl
 }
 
-fn face_of(style: Style, colour: Color) -> widget.Surface {
+fn surface_of(style: Style, p: Parts) -> widget.Surface {
     return widget.Surface {
-        fill: Option<Color>.Some(colour),
-        border: style.face_border,
-        corner: style.shape.medium,
+        // The resting frame sits inside the reserved ring; a state that expands spends it,
+        // and `reserve_of` is the largest any row asks for, so this is never negative.
+        inset: reserve_of(style) - p.expansion,
+        fill: Option<Color>.Some(p.face),
+        border: p.border,
+        // **The state's own radius where it has one, the scale's where it has not.** A state that
+        // wanted to round a corner had no way to say so, and a scale that every state had to share
+        // could not express a look whose pressed state squares off.
+        corner: switch p.corner {
+            Some(r) { r }
+            None { style.shape.medium }
+        },
+        corners: widget.Corners.All,
+        shadow: Option<widget.Shadow>.None
+    }
+}
+
+// The band a row, a menu's item, a link or a selected run of text is drawn on: the same parts, at
+// the smaller radius of the shape scale, and never edged.
+//
+// **A row is not a face.** Rounding a row the way a button is rounded leaves gaps the eye reads as
+// stripes down a list, and an edge round every row is a table nobody asked for -- which is why
+// this was a second function before the rows existed and stays one now.
+fn band_of(style: Style, p: Parts) -> widget.Surface {
+    return widget.Surface {
+        // The resting frame sits inside the reserved ring; a state that expands spends it,
+        // and `reserve_of` is the largest any row asks for, so this is never negative.
+        inset: reserve_of(style) - p.expansion,
+        fill: Option<Color>.Some(p.face),
+        border: Option<widget.Border>.None,
+        corner: switch p.corner {
+            Some(r) { r }
+            None { style.shape.small }
+        },
         corners: widget.Corners.All,
         shadow: Option<widget.Shadow>.None
     }
@@ -5396,7 +5707,12 @@ fn face_of(style: Style, colour: Color) -> widget.Surface {
 // the reason those two are separate: what makes a surface raised is not a property of its colour,
 // and a caller that had to remember to pass `false` everywhere would eventually not.
 fn raised_of(style: Style, colour: Color) -> widget.Surface {
-    return with face_of(style, colour) { shadow: style.raised, corner: style.shape.large }
+    // **The resting row in a colour of its own.** A popup's panel has no states -- nothing hovers
+    // a panel -- but it wants the look's edge, and the resting row is where that edge lives now.
+    return with surface_of(style, with style.states.rest { face: colour }) {
+        shadow: style.raised,
+        corner: style.shape.large
+    }
 }
 
 // A tab's face: a card, rounded along its top and square where it meets the page.
@@ -5415,14 +5731,22 @@ fn raised_of(style: Style, colour: Color) -> widget.Surface {
 // The body has to be `Style.panel` for the join to land, which is what `lib/ui` draws a tabbed
 // pane's body in -- an application that puts something else under a strip gets a card on a
 // different colour, which is a look rather than a defect.
-fn tab_face_of(style: Style, chosen: bool) -> widget.Surface {
+fn tab_face_of(style: Style, p: Parts, chosen: bool) -> widget.Surface {
     return widget.Surface {
-        fill: Option<Color>.Some(if chosen { style.panel } else { style.face }),
+        inset: reserve_of(style) - p.expansion,
+        // **A chosen tab is the panel's colour and not the selection's**, which is the one place
+        // the `selected` row is deliberately overruled: a tab strip says which pane you are
+        // looking at by being continuous with it, so the chosen tab has to be the colour of the
+        // thing below it. The row still governs its ink, its hover and its disabled state.
+        fill: Option<Color>.Some(if chosen { style.panel } else { p.face }),
         // **No border on a chosen tab.** An edge all the way round it would draw a line between
         // the tab and the body it is supposed to be continuous with, which is the one line that
         // has to not be there.
-        border: if chosen { Option<widget.Border>.None } else { style.face_border },
-        corner: style.shape.medium,
+        border: if chosen { Option<widget.Border>.None } else { p.border },
+        corner: switch p.corner {
+            Some(r) { r }
+            None { style.shape.medium }
+        },
         corners: widget.Corners.Top,
         shadow: Option<widget.Shadow>.None
     }
@@ -5434,8 +5758,12 @@ fn tab_face_of(style: Style, chosen: bool) -> widget.Surface {
 // reads as a table rather than a selection -- where the rounded pill is what a modern look and feel
 // actually does. So these two share the radius and part company over the border, which is why this
 // is a second function rather than a parameter on the first.
+// A flat band in a colour of its own: a slider's track, a scroll bar's trough -- an ornament
+// inside a control rather than the control's face. **Not a state row**, because none of these has
+// five states: a track looks the same whatever the thumb is doing.
 fn highlight_of(style: Style, colour: Color) -> widget.Surface {
     return widget.Surface {
+        inset: 0.0,
         fill: Option<Color>.Some(colour),
         border: Option<widget.Border>.None,
         corner: style.shape.small,

@@ -11,11 +11,11 @@ pub struct Screen {
     said: string
 }
 
-pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
         it.on,
         it.mixed,
         it.off,
-        widget.label_of(it.said, style.text.caption.size, style.ink)
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
     ])
 }

@@ -44,14 +44,14 @@ pub fn band(it: Screen) -> widget.Widget {
     })
 }
 
-pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
         widget.row_of(gap, [
-            widget.wide_of(label_width, widget.label_of("Look and feel", style.text.caption.size, style.ink)),
+            widget.wide_of(label_width, widget.label_of("Look and feel", f.style.text.caption.size, f.style.ink)),
             widget.wide_of(picker_width, it.picker),
             widget.expand(widget.flex())
         ]),
         band(it),
-        widget.label_of(it.said, style.text.caption.size, style.ink)
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
     ])
 }

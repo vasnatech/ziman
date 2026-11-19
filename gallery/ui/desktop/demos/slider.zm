@@ -26,14 +26,19 @@ pub fn demo() -> Demo {
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return slider_ui.screen(slider_ui.Screen {
-        volume: controls.slider_widget(d.volume, style),
-        volume_said: str(floor(d.volume.value)),
-        steps: controls.slider_widget(d.quarters, style),
-        steps_said: str(floor(d.quarters.value)),
-        said: "Arrows move by one step, PageUp and PageDown by a tenth of the range, Home and End to the ends."
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return slider_ui.screen(
+        slider_ui.Screen {
+            volume: controls.slider_widget(d.volume, controls.frame_of(style, m)),
+            volume_said: str(floor(d.volume.value)),
+            steps: controls.slider_widget(d.quarters, controls.frame_of(style, m)),
+            steps_said: str(floor(d.quarters.value)),
+            said: "Arrows move by one step, PageUp and PageDown by a tenth of the range, Home and End to the ends."
+        },
+        f
+    )
 }
 
 pub fn input(
@@ -41,8 +46,7 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
     if name == "slider-volume" {
         return with d { volume: controls.slider_input(d.volume, input, boxes.bounds_of(laid, name)).slider }

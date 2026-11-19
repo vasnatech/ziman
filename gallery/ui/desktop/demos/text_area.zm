@@ -31,11 +31,16 @@ fn starting_text() -> string {
     ])
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return text_area_ui.screen(text_area_ui.Screen {
-        area: controls.entry_widget(d.body, style, m),
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return text_area_ui.screen(
+        text_area_ui.Screen {
+            area: controls.entry_widget(d.body, controls.frame_of(style, m)),
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -51,11 +56,17 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "area-body" {
-        return with d { body: controls.entry_input(d.body, input, boxes.bounds_of(laid, name), style, m).entry }
+        return with d { body: controls.entry_input(
+            d.body,
+            input,
+            boxes.bounds_of(laid, name),
+            controls.frame_of(style, m)
+        ).entry }
     }
     return d
 }

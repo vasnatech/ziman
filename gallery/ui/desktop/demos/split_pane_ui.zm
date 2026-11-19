@@ -11,21 +11,21 @@ pub struct Screen {
 }
 
 // A pane's contents: a word in a box, so the two halves can be told apart while they resize.
-pub fn half(title: string, style: controls.Style) -> widget.Widget {
+pub fn half(title: string, f: controls.Frame) -> widget.Widget {
     return widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Column,
         spacing: 0.0,
         padding: widget.insets_of(gap, gap, gap, gap),
-        surface: widget.filled(style.face),
+        surface: widget.filled(f.style.face),
         align: widget.stretched(),
-        children: [widget.label_of(title, style.text.caption.size, style.ink)],
+        children: [widget.label_of(title, f.style.text.caption.size, f.style.ink)],
         name: ""
     })
 }
 
-pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
         widget.tall_of(pane_height, it.pane),
-        widget.label_of(it.said, style.text.caption.size, style.ink)
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
     ])
 }

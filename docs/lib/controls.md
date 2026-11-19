@@ -60,13 +60,15 @@ struct Window {
 }
 
 fn view(w: Window) -> widget.Widget {
-    val style = theme.plain()
+    // **The frame, not a style and a metrics**: the look, the window's measurements and the three
+    // names the window holds, so that a control can tell what state it is in. See `controls.Frame`.
+    val f = with controls.frame_of(theme.plain(), metrics()) { focused: w.focused, pressed: w.pressed }
     return widget.column_of(
         6.0,
         [
-            controls.entry_widget(w.email, style, metrics()),
-            controls.check_box_widget(w.notify, style, metrics()),
-            controls.button_widget(w.save, style)
+            controls.entry_widget(w.email, f),
+            controls.check_box_widget(w.notify, f),
+            controls.button_widget(w.save, f)
         ]
     )
 }
@@ -81,7 +83,7 @@ fn step(w: Window, input: controls.Input) -> Window {
         None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
     }
     if name == "email" {
-        val done = controls.entry_input(w.email, input, bounds, theme.plain(), metrics())
+        val done = controls.entry_input(w.email, input, bounds, controls.frame_of(theme.plain(), metrics()))
         val board = if done.copied == "" { w.clipboard } else { done.copied }
         return with w { email: done.entry, focused: name, pressed: held, clipboard: board }
     }
@@ -471,7 +473,7 @@ platforms' own and is deliberate here.
 ### `button_widget`
 
 ```
-pub fn button_widget(b: Button, style: Style) -> widget.Widget
+pub fn button_widget(b: Button, f: Frame) -> widget.Widget
 ```
 
 ## The check box
@@ -519,7 +521,7 @@ already made.
 ### `check_box_widget`
 
 ```
-pub fn check_box_widget(c: CheckBox, style: Style, m: widget.Metrics) -> widget.Widget
+pub fn check_box_widget(c: CheckBox, f: Frame) -> widget.Widget
 ```
 
 The check box as a widget: the mark, then the label, and the state declared so that a reader says
@@ -700,7 +702,7 @@ pub struct EntryStep {
 ### `entry_input`
 
 ```
-pub fn entry_input(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metrics) -> EntryStep
+pub fn entry_input(e: Entry, input: Input, bounds: Rect, f: Frame) -> EntryStep
 ```
 
 ### `caret_at_x`
@@ -736,7 +738,7 @@ and only on the text where the two faces differ.
 ### `entry_widget`
 
 ```
-pub fn entry_widget(e: Entry, style: Style, m: widget.Metrics) -> widget.Widget
+pub fn entry_widget(e: Entry, f: Frame) -> widget.Widget
 ```
 
 ## The list
@@ -802,7 +804,7 @@ pub struct ListStep {
 ### `list_input`
 
 ```
-pub fn list_input(l: List, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> ListStep
+pub fn list_input(l: List, input: Input, bounds: Rect, f: Frame) -> ListStep
 ```
 
 What an input does to a list.
@@ -814,7 +816,7 @@ widget lays the rows out by, so the hit test and the layout cannot disagree.
 ### `list_widget`
 
 ```
-pub fn list_widget(l: List, style: Style, m: widget.Metrics) -> widget.Widget
+pub fn list_widget(l: List, f: Frame) -> widget.Widget
 ```
 
 The list as a widget: a control holding a viewport of rows, each row a part of the list.
@@ -908,7 +910,7 @@ to be rather than an action to commit to, so there is nothing to cancel.
 ### `tabs_widget`
 
 ```
-pub fn tabs_widget(t: Tabs, style: Style) -> widget.Widget
+pub fn tabs_widget(t: Tabs, f: Frame) -> widget.Widget
 ```
 
 The strip as a widget: a `TabList` control holding one `Tab` part per label.
@@ -1025,7 +1027,7 @@ pub struct TreeStep {
 ### `tree_input`
 
 ```
-pub fn tree_input(t: Tree, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> TreeStep
+pub fn tree_input(t: Tree, input: Input, bounds: Rect, f: Frame) -> TreeStep
 ```
 
 What an input does to a tree.
@@ -1046,7 +1048,7 @@ The row this one hangs under: the nearest earlier row one level shallower. -1 at
 ### `tree_widget`
 
 ```
-pub fn tree_widget(t: Tree, style: Style, m: widget.Metrics) -> widget.Widget
+pub fn tree_widget(t: Tree, f: Frame) -> widget.Widget
 ```
 
 The tree as a widget: a `Tree` control over one `TreeItem` part per visible row.
@@ -1177,11 +1179,11 @@ pub struct ScrollBarStep {
 pub fn scroll_bar_input(
     b: ScrollBar,
     input: Input,
-    style: Style,
     bounds: Rect,
     content: float,
     view: float,
-    offset: float
+    offset: float,
+    f: Frame
 ) -> ScrollBarStep
 ```
 
@@ -1196,12 +1198,12 @@ release lets go. A wheel scrolls by `step`.
 ```
 pub fn scroll_bar_widget(
     b: ScrollBar,
-    style: Style,
     width: float,
     track: float,
     content: float,
     view: float,
-    offset: float
+    offset: float,
+    f: Frame
 ) -> widget.Widget
 ```
 
@@ -1222,7 +1224,7 @@ The name the thumb's box carries in the laid-out tree, so a test can find it.
 ### `paint_scroll_bars`
 
 ```
-pub fn paint_scroll_bars(l: Laid, over: scene.Scene, style: Style) -> scene.Scene
+pub fn paint_scroll_bars(l: Laid, over: scene.Scene, f: Frame) -> scene.Scene
 ```
 
 Every viewport in a laid-out tree gets a bar, painted over the scene that is already there.
@@ -1380,7 +1382,7 @@ nothing is chosen, where an eye needs something in the box to read.
 ### `combo_box_widget`
 
 ```
-pub fn combo_box_widget(c: ComboBox, style: Style) -> widget.Widget
+pub fn combo_box_widget(c: ComboBox, f: Frame) -> widget.Widget
 ```
 
 The collapsed control: what it shows, and the same face every other control wears.
@@ -1388,7 +1390,7 @@ The collapsed control: what it shows, and the same face every other control wear
 ### `combo_box_popup_layer`
 
 ```
-pub fn combo_box_popup_layer(c: ComboBox, style: Style, at: Rect, m: widget.Metrics) -> widget.Layer
+pub fn combo_box_popup_layer(c: ComboBox, at: Rect, f: Frame) -> widget.Layer
 ```
 
 The popup, as a layer. The same one a menu uses -- a list is a list.
@@ -1399,10 +1401,9 @@ The popup, as a layer. The same one a menu uses -- a list is a list.
 pub fn combo_box_input(
     c: ComboBox,
     input: Input,
-    style: Style,
     at: Rect,
     popup_at: Rect,
-    m: widget.Metrics
+    f: Frame
 ) -> ComboBoxStep
 ```
 
@@ -1425,10 +1426,9 @@ pub struct MenuStep {
 pub fn menu_input(
     menu: Menu,
     input: Input,
-    style: Style,
     title_bounds: Rect,
     popup_bounds: Rect,
-    m: widget.Metrics
+    f: Frame
 ) -> MenuStep
 ```
 
@@ -1445,7 +1445,7 @@ one that knows where it went.
 ### `menu_title_widget`
 
 ```
-pub fn menu_title_widget(m: Menu, style: Style) -> widget.Widget
+pub fn menu_title_widget(menu: Menu, f: Frame) -> widget.Widget
 ```
 
 The title as it sits on the bar. A control in its own right, so Tab reaches the menu and a reader
@@ -1454,7 +1454,7 @@ announces it.
 ### `menu_popup_layer`
 
 ```
-pub fn menu_popup_layer(menu: Menu, style: Style, at: Rect, m: widget.Metrics) -> widget.Layer
+pub fn menu_popup_layer(menu: Menu, at: Rect, f: Frame) -> widget.Layer
 ```
 
 The open popup, as a layer for the **root's** layer list.
@@ -1495,7 +1495,7 @@ focus's, or tabbing to Cancel and pressing Enter would confirm.
 ### `dialog_layer`
 
 ```
-pub fn dialog_layer(name: string, title: string, content: widget.Widget, style: Style) -> widget.Layer
+pub fn dialog_layer(name: string, title: string, content: widget.Widget, f: Frame) -> widget.Layer
 ```
 
 A modal layer holding `content` under a title.
@@ -1624,7 +1624,7 @@ pub struct SplitStep {
 ### `split_pane_input`
 
 ```
-pub fn split_pane_input(s: SplitPane, input: Input, style: Style, bounds: Rect) -> SplitStep
+pub fn split_pane_input(s: SplitPane, input: Input, bounds: Rect, f: Frame) -> SplitStep
 ```
 
 What an input does to a split pane, given the box the whole pane occupies.
@@ -1645,10 +1645,10 @@ does not know which way it is facing.
 ```
 pub fn split_pane_widget(
     s: SplitPane,
-    style: Style,
     extent: float,
     first: widget.Widget,
-    second: widget.Widget
+    second: widget.Widget,
+    f: Frame
 ) -> widget.Widget
 ```
 
@@ -1864,7 +1864,7 @@ pub struct TableStep {
 ### `table_input`
 
 ```
-pub fn table_input(t: Table, input: Input, style: Style, bounds: Rect, m: widget.Metrics) -> TableStep
+pub fn table_input(t: Table, input: Input, bounds: Rect, f: Frame) -> TableStep
 ```
 
 What an input does to a table.
@@ -1876,7 +1876,7 @@ of those -- on a header, on empty space below the last row -- does nothing at al
 ### `table_widget`
 
 ```
-pub fn table_widget(t: Table, style: Style, m: widget.Metrics) -> widget.Widget
+pub fn table_widget(t: Table, f: Frame) -> widget.Widget
 ```
 
 The table as a widget: a header over a viewport of rows.
@@ -1942,7 +1942,7 @@ pub struct RadioStep {
 ### `radios_input`
 
 ```
-pub fn radios_input(r: Radios, input: Input, style: Style, bounds: Rect) -> RadioStep
+pub fn radios_input(r: Radios, input: Input, bounds: Rect, f: Frame) -> RadioStep
 ```
 
 What an input does to a group.
@@ -1959,7 +1959,7 @@ they were in a row; neither is wrong about what "the next option" means.
 ### `radios_widget`
 
 ```
-pub fn radios_widget(r: Radios, style: Style, m: widget.Metrics) -> widget.Widget
+pub fn radios_widget(r: Radios, f: Frame) -> widget.Widget
 ```
 
 The group as a widget: an option per row, each a part of the group.
@@ -2081,7 +2081,7 @@ a drag are one gesture.
 ### `slider_widget`
 
 ```
-pub fn slider_widget(s: Slider, style: Style) -> widget.Widget
+pub fn slider_widget(s: Slider, f: Frame) -> widget.Widget
 ```
 
 The slider as a widget: a track with a thumb on it.
@@ -2152,7 +2152,7 @@ pub fn link_input(l: Link, input: Input, bounds: Rect) -> LinkStep
 ### `link_widget`
 
 ```
-pub fn link_widget(l: Link, style: Style, m: widget.Metrics) -> widget.Widget
+pub fn link_widget(l: Link, f: Frame) -> widget.Widget
 ```
 
 The link as a widget: its text, underlined.
@@ -2355,7 +2355,6 @@ pub struct Style {
     padding: Insets
     ink: Color
     face: Color
-    pressed_face: Color
     // The surface a control is drawn **on**, as against `face`, which is what a control is drawn
     // **as**.
     //
@@ -2390,7 +2389,6 @@ pub struct Style {
     // recede, dark enough to be a line: it has to read against both the row's own face and the
     // window behind it.
     grid: Color
-    disabled_ink: Color
     // Under the text being composed through an input method, and under the run of it the method
     // is converting right now. **Two, because they mean different things to the person typing**:
     // the first says "this is not committed yet" and the second says "this is the part your next
@@ -2410,35 +2408,6 @@ pub struct Style {
     // dialog should say "this is waiting for you" and not "the window is gone" -- a user needs to
     // see what they were doing to decide what to answer.
     scrim: Color
-    // How a control's face is edged, and how far its corners are rounded.
-    //
-    // **The two properties a second look and feel needs that a palette could never express.** Every
-    // other field here is a colour, and swapping all of them gives a different *theme* of the same
-    // widgets -- which is why an application could ship a dark palette long before it could ship a
-    // button that looked different. What distinguishes a flat look from a bevelled one, or a
-    // rounded field from a square one, is shape, and until `widget.Surface` existed this layer had
-    // no way to ask for any.
-    //
-    // **Absent and zero in `default_style`, on purpose**: the default look is byte-for-byte what it
-    // was before this widened, so nothing that compared pixels had to be re-blessed and nothing an
-    // application already ships moved by a point. A look and feel is what you get by setting them.
-    // What falls behind a surface that is in front of the window: a menu's popup, a combo box's
-    // list, a dialog's panel.
-    //
-    // **Only those three, and that is the rule rather than an omission.** A shadow says "this is
-    // in front of that", so a window where every control had one would be saying nothing at all --
-    // and would pay eight extra fills per control to say it. `None` turns it off for a flat look
-    // and feel, which is what a theme following GNOME's Adwaita would want.
-    // What is laid over the control the pointer is on.
-    //
-    // **Translucent, and that is the whole design.** A second face colour per control would mean a
-    // `hovered` flag on every one of them, enter and leave events to deliver, and a control left
-    // lit after the pointer had gone. An overlay is a property of the pointer rather than of the
-    // widget, so it is painted from the one name the application already holds -- which is what
-    // Material calls a state layer, and what `widget.paint_hovered` does with it.
-    //
-    // **Dark rather than light, so one number serves both themes.** A white veil disappears on a
-    // white face; black at a tenth darkens a light face and a dark one alike.
     // The one colour a look and feel is recognised by: a focus ring, a selected row, whatever a
     // theme wants to say is *this application's*.
     //
@@ -2451,21 +2420,31 @@ pub struct Style {
     // because a light accent wants dark text and a dark one wants light, and guessing from
     // luminance is how a theme ends up with grey-on-grey at exactly one value.
     on_accent: Color
-    // The face of a chosen row in a list, a tree or a table.
+    // The five state rows: what this control is drawn as at rest, hovered, pressed, disabled and
+    // selected. See `States`, and D5 in docs/design/look-and-feel.md.
     //
-    // **Separate from `pressed_face`**, which it used to be: pressing a button and selecting a row
-    // are different events and every system colours them differently -- a selection is usually a
-    // tint of the accent, where a press is a darkening of the face. Sharing one colour meant a
-    // theme could not say so.
-    selection: Color
+    // **This replaced four loose fields** -- `pressed_face`, `disabled_ink`, `selection` and
+    // `hover_tint` -- and `face_border` with them, because an edge is part of what a state looks
+    // like and two sources for one border is a disagreement waiting to happen. Each of the four
+    // could say one thing about one state: a fill, or a text colour, or a translucent veil painted
+    // over a finished scene that could change neither an edge nor a word.
+    states: States
     // The spacing scale, the floors density may not cross, and the widths of lines. See each
     // struct above: they are three groups rather than one because only the first scales.
     space: Space
     minimum: Minimum
     stroke: Stroke
-    hover_tint: Color
+    // What falls behind a surface that is in front of the window: a menu's popup, a combo box's
+    // list, a dialog's panel.
+    //
+    // **Only those three, and that is the rule rather than an omission.** A shadow says "this is
+    // in front of that", so a window where every control had one would be saying nothing at all --
+    // and would pay eight extra fills per control to say it. `None` turns it off for a flat look
+    // and feel, which is what a theme following GNOME's Adwaita would want.
+    //
+    // **Not a state's business**, unlike the border and the corner `Parts` carries: a popup is in
+    // front of the window whatever the pointer is doing.
     raised: Option<widget.Shadow>
-    face_border: Option<widget.Border>
     // The rounding scale. **This was one number**, shared by every control's face and by a list's
     // and a tree's chosen row, on the argument that a theme with four-point buttons and square
     // selection is not a theme but two. The argument was right and the conclusion too narrow: a
@@ -2501,6 +2480,182 @@ pub struct Style {
     icon_gap: float
 }
 ```
+
+### `Frame`
+
+```
+pub struct Frame {
+    style: Style
+    metrics: widget.Metrics
+    hovered: string
+    pressed: string
+    focused: string
+}
+```
+
+The look, the window's measurements, and the three names the window holds: everything a control
+needs to draw itself that is not the control.
+
+**One value rather than a longer parameter list, and this is the third time the question came
+up.** D16 gave twenty functions a `Style` when a look had to reach them; D18 gave thirteen of
+them a `widget.Metrics` when a row's height became a measurement rather than a number; F294
+needed the pointer to reach a paint function, and F296 (the desktop's scheme) and F297 (the
+designer's live overrides) each want to hand one more fact down the same path. A fourth and a
+fifth parameter is not a design, it is a queue -- so the facts travel together and the signature
+stops moving. Those later tasks add a **field** here.
+
+**The three names, and why they are names.** Hover, the press and the focus are facts about the
+pointer and the keyboard rather than about any widget: a `hovered` flag inside the tree would be
+a second copy of each, free to disagree, and a control left lit after the pointer had gone is
+exactly how that disagreement shows. The window holds one of each and they arrive here, which is
+what `widget.paint_hovered` used to do for the one case a translucent veil could serve. See D5
+and D19 in docs/design/look-and-feel.md.
+
+**`pressed` is for the controls that do not model their own press.** A button, a check box and a
+link carry `held`, and a scroll bar, a split pane, a table's column edge and a slider carry a
+`grabbed` that holds the grab's offset and not merely a bool -- those read their own field. A
+menu's item, a list's row and a tab have no such field and read this one. One source each, never
+both: `mood_of` is handed a bool either way.
+
+### `frame_of`
+
+```
+pub fn frame_of(style: Style, m: widget.Metrics) -> Frame
+```
+
+A frame with nothing hovered, pressed or focused: what a control looks like at rest.
+
+**The resting frame is the one tests and one-shot renderers want**, and naming it here keeps the
+three empty strings out of thirty call sites. An application fills the names in from what it
+already holds: `with controls.frame_of(style, m) { hovered: st.hovered, pressed: st.pressed,
+focused: st.focused }`.
+
+### `Parts`
+
+```
+pub struct Parts {
+    face: Color
+    ink: Color
+    border: Option<widget.Border>
+    // How far the drawn frame grows beyond its resting inset. **Paint time only**: see
+    // `widget.Surface.inset` and the invariant in D5 -- no state may change a control's bounds,
+    // because a hit test has to read the same calculation the layout did.
+    expansion: float
+    // This state's own rounding, where it differs from the shape scale. `None` is the scale's
+    // answer, which is what every state wants until one does not.
+    corner: Option<widget.Radius>
+}
+```
+
+What a control is drawn as in one state: its fill, its text, its edge, and the two shape
+properties a state is allowed to change.
+
+**One struct, so a state cannot be half-implemented.** Before this, a state was whichever of
+four loose fields happened to cover it: `pressed_face` was a fill and could not say the text
+changed, `disabled_ink` was a text colour and could not say the fill receded -- which is why a
+disabled button kept a live-looking face and merely greyed its words, something no platform
+does. A look that sets a row sets all of it.
+
+### `States`
+
+```
+pub struct States {
+    rest: Parts
+    hovered: Parts
+    pressed: Parts
+    disabled: Parts
+    selected: Parts
+}
+```
+
+The five states a control can be in, each with its own parts.
+
+**Five rows and one question.** Every paint function asks `parts_for` once -- what are my parts
+in this state -- rather than reaching for a different field per state, so a look cannot forget
+one and a control cannot invent its own answer. See D5 in docs/design/look-and-feel.md.
+
+**Focus and emphasis are deliberately not rows here.** A control can be focused *and* hovered
+*and* pressed at once, so focus cannot be one of five exclusive rows: it stays a ring drawn over
+whatever state applies, from `accent`. Emphasis is an axis over a whole look -- a primary button
+is emphasised at rest, hovered, pressed and disabled alike.
+
+### `Mood`
+
+```
+pub enum Mood {
+    Rest
+    Hovered
+    Pressed
+    Disabled
+    Selected
+}
+```
+
+Which row a control is in. **Exclusive, which is the point**: one question with one answer, so
+two states cannot both be half-painted.
+
+### `mood_of`
+
+```
+pub fn mood_of(disabled: bool, pressed: bool, selected: bool, hovered: bool) -> Mood
+```
+
+The one place the precedence lives.
+
+**`disabled` beats `pressed` beats `selected` beats `hovered`.** With five exclusive rows one of
+them has to win, and each of these is the answer a desktop gives: a disabled control is disabled
+whatever the pointer is doing; a press is the most recent thing the user did; and **a selected
+row keeps its colour while the pointer crosses it**, because a selection that vanishes under the
+pointer reads as the selection being lost -- GTK and macOS both keep it.
+
+Every control calls this with its own four facts, so the ordering cannot drift between two
+controls that happen to disagree about which matters more.
+
+### `parts_for`
+
+```
+pub fn parts_for(style: Style, mood: Mood) -> Parts
+```
+
+The parts of a control in one mood: an index into the look's five rows, and nothing else.
+
+### `hovered_in`
+
+```
+pub fn hovered_in(f: Frame, name: string) -> bool
+```
+
+Whether the pointer is on the control with this name.
+
+**A comparison rather than a flag**, which is the whole reason the frame carries names: the
+window holds one name and every control compares itself against it, so no two controls can both
+think they are hovered and none can be left lit after the pointer has gone.
+
+### `reserve_of`
+
+```
+pub fn reserve_of(style: Style) -> float
+```
+
+The ring of room a control leaves for a state that wants a bigger frame: the largest expansion
+any of the five rows asks for.
+
+**Derived rather than a token**, for D18's reason: a number a look had to set is a number a look
+could set wrong -- too small and a hovered frame clips, too large and every control grows for
+nothing -- and the rows already say how far they expand. It is also what makes
+`reserve_of(style) - p.expansion` non-negative for every row, which **is** the expansion
+invariant: no state can push a frame outside the box its layout claimed.
+
+### `pressed_in`
+
+```
+pub fn pressed_in(f: Frame, name: string) -> bool
+```
+
+Whether the pointer is being held on the control with this name. For the controls that do not
+model their own press -- a menu's item, a list's row, a tab. A button, a check box and a link
+carry `held`, and a scroll bar, a split pane, a table's column and a slider carry a `grabbed`
+that holds the grab's offset: those read their own field, and never this.
 
 ### `face_for`
 

@@ -40,20 +40,22 @@ fn main() {
         // nothing about the value -- which is the half this fixture exists to cover now.
         controls.combo_box_widget(
             controls.combo_box_of("env", "Environment", ["(global)", "staging"], 1),
-            theme.plain()
+            controls.frame_of(theme.plain(), metrics())
         ),
         // **A real text area, not a label claiming to be one.** A reader that thinks a multi-line
         // field is single-line reads it as one line, so the state has to be published -- and it is
         // only asserted here because the control genuinely sets it.
-        controls.entry_widget(controls.text_area_of("body", "Body", "a\nb", 4), theme.plain(), metrics()),
+        controls.entry_widget(
+            controls.text_area_of("body", "Body", "a\nb", 4),
+            controls.frame_of(theme.plain(), metrics())
+        ),
         // **A value that is not ASCII, because AT-SPI offsets are characters and C strings are
         // bytes.** Every other value here is ASCII, where the two are the same number -- so a text
         // interface measuring bytes passed every check and would hand a reader a cut-in-half
         // character the first time anyone typed an accent.
         controls.entry_widget(
             controls.entry_of("note", "Note", "café ☕"),
-            theme.plain(),
-            metrics()
+            controls.frame_of(theme.plain(), metrics())
         ),
         // **A password, because the one thing this control promises is that its text does not
         // leave the process -- and the accessibility bus is the way out nobody looks at.** A
@@ -61,8 +63,7 @@ fn main() {
         // screenshot and read the secret out loud.
         controls.entry_widget(
             controls.password_of("pass", "Password", "hunter2"),
-            theme.plain(),
-            metrics()
+            controls.frame_of(theme.plain(), metrics())
         ),
         // **A disabled control, because "cannot be used" is a fact a reader must be told.** Without
         // one here, publishing every node as enabled passed every check -- the absence of a state
@@ -87,28 +88,26 @@ fn main() {
                 controls.tree_row("login", 1),
                 controls.tree_branch("archive", 0, false)
             ]),
-            theme.plain(),
-            metrics()
+            controls.frame_of(theme.plain(), metrics())
         ),
         // **A scroll bar, which is here to prove it is NOT a tab stop.** It declares a role and
         // takes no focus, so the only way to check that is a tree a reader walks: the node has to
         // be there, and `focus` has to not offer it.
         controls.scroll_bar_widget(
             controls.scroll_bar_of("scroll", 20.0),
-            theme.plain(),
             12.0,
             60.0,
             250.0,
             60.0,
-            30.0
+            30.0,
+            controls.frame_of(theme.plain(), metrics())
         ),
         // **A real list, not two labels standing in for one.** `control_of` sets no state, so a
         // hand-built list asserts the roles and nothing about the selection -- and a reader that
         // cannot tell which row is selected tells a user nothing as they arrow through it.
         controls.list_widget(
             with controls.list_of("rows", "Rows", ["first", "second"]) { selected: 1 },
-            theme.plain(),
-            metrics()
+            controls.frame_of(theme.plain(), metrics())
         )
     ])
     val laid = widget.layout(form, geom.rect_of(0.0, 0.0, 300.0, 200.0), metrics())

@@ -24,11 +24,16 @@ fn items() -> [string] {
     ]
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return list_ui.screen(list_ui.Screen {
-        list: controls.list_widget(d.list, style, m),
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return list_ui.screen(
+        list_ui.Screen {
+            list: controls.list_widget(d.list, controls.frame_of(style, m)),
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -43,11 +48,17 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "list-demo" {
-        return with d { list: controls.list_input(d.list, input, style, boxes.bounds_of(laid, name), m).list }
+        return with d { list: controls.list_input(
+            d.list,
+            input,
+            boxes.bounds_of(laid, name),
+            controls.frame_of(style, m)
+        ).list }
     }
     return d
 }

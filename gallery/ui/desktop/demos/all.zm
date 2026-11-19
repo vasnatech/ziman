@@ -145,29 +145,29 @@ pub fn files_of(d: Demo) -> [string] {
     return [concat(stem_of(d), ".zm"), concat(stem_of(d), "_ui.zm")]
 }
 
-pub fn view_of(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn view_of(d: Demo, f: controls.Frame) -> widget.Widget {
     return switch d {
-        Button(it) { button.view(it, style, m) }
-        CheckBox(it) { check_box.view(it, style, m) }
-        Radios(it) { radios.view(it, style, m) }
-        TextField(it) { text_field.view(it, style, m) }
-        TextArea(it) { text_area.view(it, style, m) }
-        List(it) { list.view(it, style, m) }
-        Tabs(it) { tabs.view(it, style, m) }
-        Tree(it) { tree.view(it, style, m) }
-        Table(it) { table.view(it, style, m) }
-        ScrollBar(it) { scroll_bar.view(it, style, m) }
-        Slider(it) { slider.view(it, style, m) }
-        SplitPane(it) { split_pane.view(it, style, m) }
-        ComboBox(it) { combo_box.view(it, style, m) }
-        Menu(it) { menu.view(it, style, m) }
-        Link(it) { link.view(it, style, m) }
-        Dialog(it) { dialog.view(it, style, m) }
-        Layout(it) { layout.view(it, style, m) }
-        Picture(it) { picture.view(it, style, m) }
-        LookAndFeel(it) { look_and_feel.view(it, style, m) }
-        Accessibility(it) { accessibility.view(it, style, m) }
-        Composing(it) { composing.view(it, style, m) }
+        Button(it) { button.view(it, f) }
+        CheckBox(it) { check_box.view(it, f) }
+        Radios(it) { radios.view(it, f) }
+        TextField(it) { text_field.view(it, f) }
+        TextArea(it) { text_area.view(it, f) }
+        List(it) { list.view(it, f) }
+        Tabs(it) { tabs.view(it, f) }
+        Tree(it) { tree.view(it, f) }
+        Table(it) { table.view(it, f) }
+        ScrollBar(it) { scroll_bar.view(it, f) }
+        Slider(it) { slider.view(it, f) }
+        SplitPane(it) { split_pane.view(it, f) }
+        ComboBox(it) { combo_box.view(it, f) }
+        Menu(it) { menu.view(it, f) }
+        Link(it) { link.view(it, f) }
+        Dialog(it) { dialog.view(it, f) }
+        Layout(it) { layout.view(it, f) }
+        Picture(it) { picture.view(it, f) }
+        LookAndFeel(it) { look_and_feel.view(it, f) }
+        Accessibility(it) { accessibility.view(it, f) }
+        Composing(it) { composing.view(it, f) }
     }
 }
 
@@ -176,31 +176,30 @@ pub fn input_to(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
     return switch d {
-        Button(it) { Demo.Button(button.input(it, name, input, laid, style, m)) }
-        CheckBox(it) { Demo.CheckBox(check_box.input(it, name, input, laid, style, m)) }
-        Radios(it) { Demo.Radios(radios.input(it, name, input, laid, style, m)) }
-        TextField(it) { Demo.TextField(text_field.input(it, name, input, laid, style, m)) }
-        TextArea(it) { Demo.TextArea(text_area.input(it, name, input, laid, style, m)) }
-        List(it) { Demo.List(list.input(it, name, input, laid, style, m)) }
-        Tabs(it) { Demo.Tabs(tabs.input(it, name, input, laid, style, m)) }
-        Tree(it) { Demo.Tree(tree.input(it, name, input, laid, style, m)) }
-        Table(it) { Demo.Table(table.input(it, name, input, laid, style, m)) }
-        ScrollBar(it) { Demo.ScrollBar(scroll_bar.input(it, name, input, laid, style, m)) }
-        Slider(it) { Demo.Slider(slider.input(it, name, input, laid, style, m)) }
-        SplitPane(it) { Demo.SplitPane(split_pane.input(it, name, input, laid, style, m)) }
-        ComboBox(it) { Demo.ComboBox(combo_box.input(it, name, input, laid, style, m)) }
-        Menu(it) { Demo.Menu(menu.input(it, name, input, laid, style, m)) }
-        Link(it) { Demo.Link(link.input(it, name, input, laid, style, m)) }
-        Dialog(it) { Demo.Dialog(dialog.input(it, name, input, laid, style, m)) }
-        Layout(it) { Demo.Layout(layout.input(it, name, input, laid, style, m)) }
-        Picture(it) { Demo.Picture(picture.input(it, name, input, laid, style, m)) }
-        LookAndFeel(it) { Demo.LookAndFeel(look_and_feel.input(it, name, input, laid, style, m)) }
-        Accessibility(it) { Demo.Accessibility(accessibility.input(it, name, input, laid, style, m)) }
-        Composing(it) { Demo.Composing(composing.input(it, name, input, laid, style, m)) }
+        Button(it) { Demo.Button(button.input(it, name, input, laid, f)) }
+        CheckBox(it) { Demo.CheckBox(check_box.input(it, name, input, laid, f)) }
+        Radios(it) { Demo.Radios(radios.input(it, name, input, laid, f)) }
+        TextField(it) { Demo.TextField(text_field.input(it, name, input, laid, f)) }
+        TextArea(it) { Demo.TextArea(text_area.input(it, name, input, laid, f)) }
+        List(it) { Demo.List(list.input(it, name, input, laid, f)) }
+        Tabs(it) { Demo.Tabs(tabs.input(it, name, input, laid, f)) }
+        Tree(it) { Demo.Tree(tree.input(it, name, input, laid, f)) }
+        Table(it) { Demo.Table(table.input(it, name, input, laid, f)) }
+        ScrollBar(it) { Demo.ScrollBar(scroll_bar.input(it, name, input, laid, f)) }
+        Slider(it) { Demo.Slider(slider.input(it, name, input, laid, f)) }
+        SplitPane(it) { Demo.SplitPane(split_pane.input(it, name, input, laid, f)) }
+        ComboBox(it) { Demo.ComboBox(combo_box.input(it, name, input, laid, f)) }
+        Menu(it) { Demo.Menu(menu.input(it, name, input, laid, f)) }
+        Link(it) { Demo.Link(link.input(it, name, input, laid, f)) }
+        Dialog(it) { Demo.Dialog(dialog.input(it, name, input, laid, f)) }
+        Layout(it) { Demo.Layout(layout.input(it, name, input, laid, f)) }
+        Picture(it) { Demo.Picture(picture.input(it, name, input, laid, f)) }
+        LookAndFeel(it) { Demo.LookAndFeel(look_and_feel.input(it, name, input, laid, f)) }
+        Accessibility(it) { Demo.Accessibility(accessibility.input(it, name, input, laid, f)) }
+        Composing(it) { Demo.Composing(composing.input(it, name, input, laid, f)) }
     }
 }
 
@@ -240,25 +239,25 @@ pub fn anchor_of(d: Demo) -> string {
 
 // The layer this demo wants over the window, if any. `at` is the box of whatever `anchor_of`
 // named, which a modal dialog ignores: `dialog_layer` centres itself.
-pub fn layer_of(d: Demo, style: controls.Style, m: widget.Metrics, at: geom.Rect) -> Option<widget.Layer> {
+pub fn layer_of(d: Demo, at: geom.Rect, f: controls.Frame) -> Option<widget.Layer> {
     return switch d {
         ComboBox(it) {
             if combo_box.anchor(it) == "" {
                 Option<widget.Layer>.None
             } else {
-                Option<widget.Layer>.Some(combo_box.layer(it, style, at, m))
+                Option<widget.Layer>.Some(combo_box.layer(it, at, f))
             }
         }
         Menu(it) {
             if menu.anchor(it) == "" {
                 Option<widget.Layer>.None
             } else {
-                Option<widget.Layer>.Some(menu.layer(it, style, at, m))
+                Option<widget.Layer>.Some(menu.layer(it, at, f))
             }
         }
         Dialog(it) {
             if dialog.showing(it) {
-                Option<widget.Layer>.Some(dialog.layer(it, style, m))
+                Option<widget.Layer>.Some(dialog.layer(it, f))
             } else {
                 Option<widget.Layer>.None
             }
@@ -267,21 +266,21 @@ pub fn layer_of(d: Demo, style: controls.Style, m: widget.Metrics, at: geom.Rect
             if layout.anchor(it) == "" {
                 Option<widget.Layer>.None
             } else {
-                Option<widget.Layer>.Some(layout.layer(it, style, at, m))
+                Option<widget.Layer>.Some(layout.layer(it, at, f))
             }
         }
         LookAndFeel(it) {
             if look_and_feel.anchor(it) == "" {
                 Option<widget.Layer>.None
             } else {
-                Option<widget.Layer>.Some(look_and_feel.layer(it, style, at, m))
+                Option<widget.Layer>.Some(look_and_feel.layer(it, at, f))
             }
         }
         Accessibility(it) {
             if accessibility.anchor(it) == "" {
                 Option<widget.Layer>.None
             } else {
-                Option<widget.Layer>.Some(accessibility.layer(it, style, at, m))
+                Option<widget.Layer>.Some(accessibility.layer(it, at, f))
             }
         }
         Button(_) { Option<widget.Layer>.None }
@@ -346,14 +345,13 @@ pub fn groups() -> [string] {
 // edge make that promise. See `controls.split_pane_cursor`.
 pub fn cursor_of(
     d: Demo,
-    style: controls.Style,
     laid: widget.Laid,
     at: geom.Point,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> widget.Cursor {
     return switch d {
-        SplitPane(it) { split_pane.cursor(it, style, laid, at) }
-        Table(it) { table.cursor(it, style, laid, at, m) }
+        SplitPane(it) { split_pane.cursor(it, laid, at, f) }
+        Table(it) { table.cursor(it, laid, at, f) }
         Button(_) { widget.Cursor.Arrow }
         CheckBox(_) { widget.Cursor.Arrow }
         Radios(_) { widget.Cursor.Arrow }

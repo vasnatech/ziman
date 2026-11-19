@@ -20,11 +20,16 @@ pub fn demo() -> Demo {
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return tabs_ui.screen(tabs_ui.Screen {
-        strip: controls.tabs_widget(d.tabs, style),
-        panel: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return tabs_ui.screen(
+        tabs_ui.Screen {
+            strip: controls.tabs_widget(d.tabs, controls.frame_of(style, m)),
+            panel: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -40,8 +45,7 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
     if name == "tabs-demo" {
         return with d { tabs: controls.tabs_input(d.tabs, input, boxes.bounds_of(laid, name)).tabs }

@@ -35,11 +35,16 @@ fn rows() -> [controls.TreeRow] {
     ]
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return tree_ui.screen(tree_ui.Screen {
-        tree: controls.tree_widget(d.tree, style, m),
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return tree_ui.screen(
+        tree_ui.Screen {
+            tree: controls.tree_widget(d.tree, controls.frame_of(style, m)),
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -64,11 +69,17 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "tree-demo" {
-        return with d { tree: controls.tree_input(d.tree, input, style, boxes.bounds_of(laid, name), m).tree }
+        return with d { tree: controls.tree_input(
+            d.tree,
+            input,
+            boxes.bounds_of(laid, name),
+            controls.frame_of(style, m)
+        ).tree }
     }
     return d
 }

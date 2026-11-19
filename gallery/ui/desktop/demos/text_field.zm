@@ -20,12 +20,17 @@ pub fn demo() -> Demo {
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return text_field_ui.screen(text_field_ui.Screen {
-        plain: controls.entry_widget(d.name, style, m),
-        secret: controls.entry_widget(d.secret, style, m),
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return text_field_ui.screen(
+        text_field_ui.Screen {
+            plain: controls.entry_widget(d.name, controls.frame_of(style, m)),
+            secret: controls.entry_widget(d.secret, controls.frame_of(style, m)),
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -43,14 +48,25 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "entry-name" {
-        return with d { name: controls.entry_input(d.name, input, boxes.bounds_of(laid, name), style, m).entry }
+        return with d { name: controls.entry_input(
+            d.name,
+            input,
+            boxes.bounds_of(laid, name),
+            controls.frame_of(style, m)
+        ).entry }
     }
     if name == "entry-secret" {
-        return with d { secret: controls.entry_input(d.secret, input, boxes.bounds_of(laid, name), style, m).entry }
+        return with d { secret: controls.entry_input(
+            d.secret,
+            input,
+            boxes.bounds_of(laid, name),
+            controls.frame_of(style, m)
+        ).entry }
     }
     return d
 }

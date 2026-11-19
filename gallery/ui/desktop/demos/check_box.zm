@@ -23,13 +23,18 @@ pub fn demo() -> Demo {
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return check_box_ui.screen(check_box_ui.Screen {
-        on: controls.check_box_widget(d.notify, style, m),
-        mixed: controls.check_box_widget(d.some, style, m),
-        off: controls.check_box_widget(d.off, style, m),
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return check_box_ui.screen(
+        check_box_ui.Screen {
+            on: controls.check_box_widget(d.notify, controls.frame_of(style, m)),
+            mixed: controls.check_box_widget(d.some, controls.frame_of(style, m)),
+            off: controls.check_box_widget(d.off, controls.frame_of(style, m)),
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -49,8 +54,7 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
     if name == "check-notify" {
         return with d { notify: controls.check_box_input(d.notify, input, boxes.bounds_of(laid, name)).check_box }

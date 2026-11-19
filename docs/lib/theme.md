@@ -41,6 +41,62 @@ before.
 
 ## `theme.zm`
 
+### `Seeds`
+
+```
+pub struct Seeds {
+    face: Color
+    ink: Color
+    // What a press darkens (or lightens) the face to. Stated rather than derived **because a press
+    // is the one state every look already had an exact colour for** and derivation would move
+    // every shipped pixel to no end.
+    pressed: Color
+    // What a chosen row is filled with.
+    selection: Color
+    // What a disabled control recedes towards: the surface behind it.
+    panel: Color
+    // The ink of a disabled control.
+    faint: Color
+    // What a hover is veiled with -- **black on a light look and white on a dark one**, because a
+    // tenth of black over a dark grey is invisible; Material says the same of its state layer.
+    veil: Color
+    // How much of the veil. A tenth reads as lit without reading as pressed.
+    veil_at: float
+    // The look's edge, where it has one. **On the rows rather than on `Style`**, so that a look
+    // whose pressed state loses its border can say so.
+    edge: Option<widget.Border>
+}
+```
+
+A look and feel under the name an application offers it by.
+
+**A name and a style, not a constructor**, because the list is what a theme picker wants and a
+list of functions is not one -- and because `named` would otherwise be a switch that every new
+look has to be added to twice.
+What a look's five state rows are grown from.
+
+**A struct rather than nine arguments**, so that a look's rows read as the sentences they are at
+the call site and so that F295 can replace this with the two colour ramps without touching four
+looks. Each field is a colour some look was already stating; the two the rows *compute* --
+hovered and disabled -- are the two no look could state before, because a translucent veil and a
+text colour were all `Style` had to say them with.
+
+### `state_rows`
+
+```
+pub fn state_rows(s: Seeds) -> controls.States
+```
+
+The five rows a look's seeds imply.
+
+**Two of the five are computed and that is the point of the exercise.** `hovered` is the face
+under the veil, resolved here rather than painted over a finished scene -- which is what lets a
+hover change an edge and a word and not only a fill. `disabled` recedes *as a face* towards the
+panel behind it: a disabled control that kept a live face and greyed only its text was the
+defect D5 names, and no platform draws it that way.
+
+Derivation happens once, when the look is built, and never at paint time (D2).
+
 ### `Look`
 
 ```
@@ -50,12 +106,6 @@ pub struct Look {
     style: controls.Style
 }
 ```
-
-A look and feel under the name an application offers it by.
-
-**A name and a style, not a constructor**, because the list is what a theme picker wants and a
-list of functions is not one -- and because `named` would otherwise be a switch that every new
-look has to be added to twice.
 
 ### `Density`
 
@@ -171,7 +221,7 @@ variation lives beside the thing it varies rather than being computed from it:
 
 
 ```
-* **the hover veil is white.** `hover_tint` is painted over a face, and a tenth of black over
+* **the hover veil is white.** `Seeds.veil` is mixed into the face, and a tenth of black over
   a dark grey is invisible -- the state layer has to come from the other end. Material says
   the same in its own words: the overlay is `on-surface`, which flips with the surface;
 * **a shadow has to be deeper.** Depth is read as a darkening, and there is less room to

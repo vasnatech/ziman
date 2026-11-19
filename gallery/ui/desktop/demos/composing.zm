@@ -79,15 +79,20 @@ fn at_stage(at: int) -> controls.Entry {
     return controls.entry_composing_marked(blank, stages()[at], len(stages()[at]), mark[0], mark[1]).entry
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return composing_ui.screen(composing_ui.Screen {
-        field: controls.entry_widget(d.field, style, m),
-        back: controls.button_widget(d.back, style),
-        on: controls.button_widget(d.on, style),
-        stage: concat("Stage ", str(d.at + 1), " of ", str(len(stages()))),
-        said: names()[d.at],
-        note: note_of(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return composing_ui.screen(
+        composing_ui.Screen {
+            field: controls.entry_widget(d.field, controls.frame_of(style, m)),
+            back: controls.button_widget(d.back, controls.frame_of(style, m)),
+            on: controls.button_widget(d.on, controls.frame_of(style, m)),
+            stage: concat("Stage ", str(d.at + 1), " of ", str(len(stages()))),
+            said: names()[d.at],
+            note: note_of(d)
+        },
+        f
+    )
 }
 
 fn note_of(d: Demo) -> string {
@@ -121,9 +126,10 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "composing-on" {
         val taken = controls.button_input(d.on, input, boxes.bounds_of(laid, name))
         return with moved(d, if taken.activated { d.at + 1 } else { d.at }) { on: taken.button }
@@ -133,7 +139,12 @@ pub fn input(
         return with moved(d, if taken.activated { d.at - 1 } else { d.at }) { back: taken.button }
     }
     if name == "composing-field" {
-        return with d { field: controls.entry_input(d.field, input, boxes.bounds_of(laid, name), style, m).entry }
+        return with d { field: controls.entry_input(
+            d.field,
+            input,
+            boxes.bounds_of(laid, name),
+            controls.frame_of(style, m)
+        ).entry }
     }
     return d
 }

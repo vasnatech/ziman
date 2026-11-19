@@ -1030,6 +1030,86 @@ re-blessed. In the control tests, where the metrics make a line twice the point 
 which is why those tests now read `row_tall()`, `on_row(n, x)` and `in_body(n, x)` instead of the
 literal 20s and the y values that only meant "row one" while a row was twenty tall.
 
+**D19 (Q9, F294) -- one frame, not a third parameter; and the five rows that needed it.
+2026-11-18.**
+
+D5 wanted every paint function to ask one question -- what are my parts in this state. Four of the
+five states a control could already answer for itself: `disabled` and `held` are fields on the
+control and `selected` is an index. **`hovered` was not a fact any widget held**, and deliberately
+so: the window holds one name (`st.hovered`) precisely because a flag per control is a second copy
+that can disagree, and a control left lit after the pointer has gone is how that disagreement
+shows. `widget.paint_hovered` then laid a translucent veil over the finished scene from that name.
+
+**A veil cannot change an edge, a corner, an expansion or a word.** So the commonest hover
+treatment in any toolkit -- a menu item whose face goes to `accent` and whose text goes to
+`on_accent` -- was not expressible, and every hover in this library was a grey wash. That is the
+whole reason the pointer had to reach the paint function.
+
+    pub struct Frame {
+        style: Style
+        metrics: widget.Metrics
+        hovered: string
+        pressed: string
+        focused: string
+    }
+
+**Why one value and not a third parameter.** The parameter list is where the last two decisions
+landed: D16/Q6 gave twenty functions a `Style`, D18/Q8 gave thirteen of them a `widget.Metrics`, and
+F296 (the desktop's scheme) and F297 (the designer's live overrides) each want to hand one more fact
+down the same path. A fourth and a fifth parameter is not a design, it is a queue. **This is the
+last sweep**: those tasks add a field.
+
+Twenty-seven public functions take it (fourteen `*_widget`, nine `*_input` that already took a style
+or a metrics, three `*_layer`, `paint_scroll_bars`), and five private helpers with them. Call sites:
+about 130 in the control tests, 24 gallery demos, 22 gallery design files, 62 in curly. **The five
+`*_input` functions that read neither a style nor a metrics keep their signatures** -- D16's rule,
+that a parameter goes where it is read -- and so do the geometry functions (`split_at`, `thumb_of`,
+`edge_at`, `table_body`, the two `*_cursor`s), which answer the same before and after a pointer
+moves and should say so.
+
+**What the three names are for, and where a press comes from.** `hovered` and `focused` are read
+only through `hovered_in(f, name)` and `paint_focused`. `pressed` is for the controls that do not
+model their own press: a menu's item, a list's row, a tab. A button, a check box and a link carry
+`held`, and a scroll bar, a split pane, a table's column and a slider carry a `grabbed` that holds
+the grab's *offset* and not merely a bool -- those read their own field and never the frame's.
+`mood_of` is handed a bool either way, so the rule is visible at each of the eighteen call sites and
+nowhere else.
+
+**The rows, and the precedence.** `mood_of(disabled, pressed, selected, hovered)` is the one place
+the order lives: **disabled beats pressed beats selected beats hovered.** Selected outranks hovered
+on purpose -- with five exclusive rows one has to win, and a selection that vanishes under the
+pointer reads as the selection being lost, which is why GTK and macOS both keep it.
+
+**Five fields left `Style`, not four.** `pressed_face`, `disabled_ink`, `selection` and `hover_tint`
+as D5 said -- and `face_border` with them, because an edge is part of what a state looks like and
+two sources for one border is a disagreement waiting to happen. `Style.ink` and `Style.face` stay:
+they are the look's base colours, and the ornaments that are not a control's own face (a slider's
+track, a scroll bar's trough, a split pane's divider dots) read `style.states.disabled.ink` for the
+look's faintest ink rather than pretending to have five states of their own.
+
+**Two of the five rows are computed, and that is the exercise.** `theme.state_rows(Seeds)` resolves
+`hovered` as the face under the veil -- *when the look is built*, per D2, not at paint time -- and
+`disabled` as a face three fifths of the way towards the panel behind it, with the faint ink. The
+second is D5's named defect fixed: a disabled button kept a live-looking face and merely greyed its
+words, which no platform does. `theme_test` now holds **every live row of every shipped look** to
+AA against its own ink, and exempts `disabled` on WCAG's own exemption (SC 1.4.3) -- greyed text is
+how a control says it is unavailable.
+
+**The expansion invariant holds by construction, not by care.** `widget.Surface` gained one
+paint-time field, `inset`, read in `paint_surface` and nowhere else. `controls.reserve_of(style)` is
+the largest expansion any row asks for; a control reserves that ring inside its padding
+(`padded_for`) and draws its frame at `reserve_of(style) - p.expansion`, which is non-negative for
+every row **because the reserve is the maximum**. The drawn frame grows, the box never does, and
+layout and the hit test read one geometry whatever the pointer is doing. Three tests assert it
+directly against a look whose every row expands, since neither shipped look does.
+
+**What moved.** Hover stops being a wash and disabled faces recede, which D5 said outright. Nothing
+geometric moved: curly's `window_geometry.txt` is byte-identical, which is the invariant's own
+evidence.
+
+**What this task did not do.** `theme.emphasised(style)` -- the emphasis axis D5 mentions -- waits
+for F295, where the ramp makes a row derivable instead of hand-written five times.
+
 ### 13.4 Build order
 
 **Raised as F291 to F297** in [docs/reviews/tasks/f291-f297.md](../reviews/tasks/f291-f297.md), one

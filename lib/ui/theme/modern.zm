@@ -27,25 +27,31 @@ pub fn modern() -> controls.Style {
         // Nearly white and edged, rather than grey and flat: on a white window the border is what
         // says "this is a control", and it costs no layout because a border is stroked inside.
         face: paint.rgb8(252, 252, 253),
-        pressed_face: paint.rgb8(236, 238, 241),
         panel: paint.rgb8(255, 255, 255),
         // Barely grey, so that a white panel and a nearly white face both read as something laid
         // *on* the window. The colour the gallery wrote into its own `raster.Options` before
         // `Style` could hold it.
         window: paint.rgb8(246, 247, 249),
         grid: paint.rgb8(232, 234, 237),
-        disabled_ink: paint.rgb8(154, 160, 166),
         accent: paint.rgb8(37, 99, 235),
         on_accent: paint.rgb8(255, 255, 255),
-        // A tint of the accent rather than a darker grey, which is what makes a selected row look
-        // chosen rather than pressed. Light enough that `ink` still reads on it.
-        selection: paint.rgb8(219, 228, 251),
-        // Lighter than the plain look's tenth, because these faces are nearly white and a tenth of
+        // The five rows. **The selection is a tint of the accent rather than a darker grey**,
+        // which is what makes a chosen row look chosen rather than pressed, and the veil is
+        // lighter than the plain look's tenth because these faces are nearly white and a tenth of
         // black on white reads as pressed.
-        hover_tint: paint.rgba(0.0, 0.0, 0.0, 0.06),
-        face_border: Option<widget.Border>.Some(widget.Border {
-            colour: paint.rgb8(208, 212, 218),
-            width: 1.0
+        states: state_rows(Seeds {
+            face: paint.rgb8(252, 252, 253),
+            ink: paint.rgb8(26, 29, 33),
+            pressed: paint.rgb8(236, 238, 241),
+            selection: paint.rgb8(219, 228, 251),
+            panel: paint.rgb8(255, 255, 255),
+            faint: paint.rgb8(154, 160, 166),
+            veil: paint.rgb(0.0, 0.0, 0.0),
+            veil_at: 0.06,
+            edge: Option<widget.Border>.Some(widget.Border {
+                colour: paint.rgb8(208, 212, 218),
+                width: 1.0
+            })
         }),
         // Six on a face, four on a chosen row, eight on what floats in front of the window --
         // the differences the single `corner` token could not express.
@@ -80,21 +86,29 @@ pub fn modern_dark() -> controls.Style {
     return with modern() {
         ink: paint.rgb8(226, 229, 233),
         face: paint.rgb8(38, 41, 46),
-        pressed_face: paint.rgb8(52, 56, 62),
         panel: paint.rgb8(30, 33, 37),
         window: paint.rgb8(24, 26, 29),
         grid: paint.rgb8(56, 60, 66),
-        disabled_ink: paint.rgb8(130, 136, 144),
         composing_face: paint.rgb8(32, 42, 60),
         converting_face: paint.rgb8(44, 58, 86),
         scrim: paint.rgba(0.0, 0.0, 0.0, 0.6),
         accent: paint.rgb8(96, 150, 255),
         on_accent: paint.rgb8(16, 18, 22),
-        selection: paint.rgb8(38, 60, 104),
-        hover_tint: paint.rgba(1.0, 1.0, 1.0, 0.07),
-        face_border: Option<widget.Border>.Some(widget.Border {
-            colour: paint.rgb8(62, 67, 74),
-            width: 1.0
+        // **A lighter face than the window, a white veil, and a darker edge** -- the three things
+        // a palette inversion gets wrong, stated once in the rows.
+        states: state_rows(Seeds {
+            face: paint.rgb8(38, 41, 46),
+            ink: paint.rgb8(226, 229, 233),
+            pressed: paint.rgb8(52, 56, 62),
+            selection: paint.rgb8(38, 60, 104),
+            panel: paint.rgb8(30, 33, 37),
+            faint: paint.rgb8(130, 136, 144),
+            veil: paint.rgb(1.0, 1.0, 1.0),
+            veil_at: 0.07,
+            edge: Option<widget.Border>.Some(widget.Border {
+                colour: paint.rgb8(62, 67, 74),
+                width: 1.0
+            })
         }),
         raised: Option<widget.Shadow>.Some(widget.shadow_of(3.0, 14.0, 0.45))
     }

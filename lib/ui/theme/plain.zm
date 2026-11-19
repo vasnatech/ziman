@@ -22,7 +22,6 @@ pub fn plain() -> controls.Style {
         padding: widget.insets_of(8.0, 4.0, 8.0, 4.0),
         ink: paint.rgb(0.1, 0.1, 0.1),
         face: paint.rgb(0.9, 0.9, 0.9),
-        pressed_face: paint.rgb(0.75, 0.75, 0.78),
         // Lighter than a face and darker than the white a window is painted on, so a panel reads
         // as a raised surface and a control on it still reads as a control.
         panel: paint.rgb(0.96, 0.96, 0.97),
@@ -30,7 +29,6 @@ pub fn plain() -> controls.Style {
         // exactly so that moving this token changed no application's pixels.
         window: paint.rgb(0.98, 0.98, 0.99),
         grid: paint.rgb(0.80, 0.80, 0.82),
-        disabled_ink: paint.rgb(0.6, 0.6, 0.6),
         composing_face: paint.rgb(0.88, 0.91, 0.97),
         converting_face: paint.rgb(0.70, 0.78, 0.93),
         collapsed_mark: "▸",
@@ -40,9 +38,20 @@ pub fn plain() -> controls.Style {
         // the token is for: the one place it lived was a call site in an application.
         accent: paint.rgb(0.15, 0.4, 0.85),
         on_accent: paint.rgb(1.0, 1.0, 1.0),
-        // The same grey a press has used all along, so a plain window's pixels do not move. A look
-        // that wants an accented selection says so; see `modern`.
-        selection: paint.rgb(0.75, 0.75, 0.78),
+        // The five rows. **The press and the selection are the greys they always were**, so a
+        // plain window's resting and pressed pixels do not move; the hover and the disabled face
+        // are computed, because nothing could state them before.
+        states: state_rows(Seeds {
+            face: paint.rgb(0.9, 0.9, 0.9),
+            ink: paint.rgb(0.1, 0.1, 0.1),
+            pressed: paint.rgb(0.75, 0.75, 0.78),
+            selection: paint.rgb(0.75, 0.75, 0.78),
+            panel: paint.rgb(0.96, 0.96, 0.97),
+            faint: paint.rgb(0.6, 0.6, 0.6),
+            veil: paint.rgb(0.0, 0.0, 0.0),
+            veil_at: 0.10,
+            edge: Option<widget.Border>.None
+        }),
         // The scale, at the step the single `space` token used to be: 4 is `s`, and every other
         // step is the number some control was carrying privately.
         space: controls.Space { none: 0.0, xs: 2.0, s: 4.0, m: 8.0, l: 12.0, xl: 16.0 },
@@ -50,15 +59,11 @@ pub fn plain() -> controls.Style {
         // were already exactly that. `at_density` does not touch these.
         minimum: controls.Minimum { target: 24.0, thumb: 20.0 },
         stroke: controls.Stroke { hair: 1.0, line: 2.0 },
-        // A tenth of black: enough that a row lights under the pointer, little enough that a
-        // button does not look pressed when it is only being passed over.
-        hover_tint: paint.rgba(0.0, 0.0, 0.0, 0.10),
         // Two points down and ten of spread, at just over a fifth. **Shallower than Fluent's
         // `$shadow16` and deeper than its `$shadow2`**, which is the range its own table puts a
         // menu and a dialog in; the exact numbers are a look's to set and these are the ones that
         // read on a light window without turning the corner of a popup into a smudge.
         raised: Option<widget.Shadow>.Some(widget.shadow_of(2.0, 10.0, 0.22)),
-        face_border: Option<widget.Border>.None,
         // Square everywhere, and **round where round is a role**: a radio's dot is a circle in
         // the plainest look too, because a square one is a check box.
         shape: controls.Shape {
@@ -80,7 +85,7 @@ pub fn plain() -> controls.Style {
 // **Three things change that a palette inversion would get wrong**, and they are the reason a
 // variation lives beside the thing it varies rather than being computed from it:
 //
-//   * **the hover veil is white.** `hover_tint` is painted over a face, and a tenth of black over
+//   * **the hover veil is white.** `Seeds.veil` is mixed into the face, and a tenth of black over
 //     a dark grey is invisible -- the state layer has to come from the other end. Material says
 //     the same in its own words: the overlay is `on-surface`, which flips with the surface;
 //   * **a shadow has to be deeper.** Depth is read as a darkening, and there is less room to
@@ -93,11 +98,9 @@ pub fn plain_dark() -> controls.Style {
     return with plain() {
         ink: paint.rgb(0.92, 0.92, 0.93),
         face: paint.rgb(0.25, 0.25, 0.27),
-        pressed_face: paint.rgb(0.34, 0.34, 0.37),
         panel: paint.rgb(0.18, 0.18, 0.19),
         window: paint.rgb(0.12, 0.12, 0.13),
         grid: paint.rgb(0.33, 0.33, 0.36),
-        disabled_ink: paint.rgb(0.58, 0.58, 0.61),
         composing_face: paint.rgb(0.20, 0.24, 0.33),
         converting_face: paint.rgb(0.26, 0.33, 0.47),
         // Deeper than the light look's, because a dark window shows less through a scrim and the
@@ -105,8 +108,19 @@ pub fn plain_dark() -> controls.Style {
         scrim: paint.rgba(0.0, 0.0, 0.0, 0.55),
         accent: paint.rgb(0.45, 0.65, 1.0),
         on_accent: paint.rgb(0.08, 0.09, 0.11),
-        selection: paint.rgb(0.28, 0.34, 0.46),
-        hover_tint: paint.rgba(1.0, 1.0, 1.0, 0.08),
+        // **The veil goes white here**, which is the first of the three things an inversion gets
+        // wrong: a tenth of black over a dark grey is invisible.
+        states: state_rows(Seeds {
+            face: paint.rgb(0.25, 0.25, 0.27),
+            ink: paint.rgb(0.92, 0.92, 0.93),
+            pressed: paint.rgb(0.34, 0.34, 0.37),
+            selection: paint.rgb(0.28, 0.34, 0.46),
+            panel: paint.rgb(0.18, 0.18, 0.19),
+            faint: paint.rgb(0.58, 0.58, 0.61),
+            veil: paint.rgb(1.0, 1.0, 1.0),
+            veil_at: 0.08,
+            edge: Option<widget.Border>.None
+        }),
         raised: Option<widget.Shadow>.Some(widget.shadow_of(2.0, 10.0, 0.5))
     }
 }

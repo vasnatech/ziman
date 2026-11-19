@@ -11,17 +11,17 @@ pub struct Screen {
     said: string
 }
 
-pub fn row(title: string, field: widget.Widget, style: controls.Style) -> widget.Widget {
+pub fn row(title: string, field: widget.Widget, f: controls.Frame) -> widget.Widget {
     return widget.row_of(gap, [
-        widget.wide_of(label_width, widget.label_of(title, style.text.caption.size, style.ink)),
+        widget.wide_of(label_width, widget.label_of(title, f.style.text.caption.size, f.style.ink)),
         widget.expand(field)
     ])
 }
 
-pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
-        row("Your name", it.plain, style),
-        row("Password", it.secret, style),
-        widget.label_of(it.said, style.text.caption.size, style.ink)
+        row("Your name", it.plain, f),
+        row("Password", it.secret, f),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
     ])
 }

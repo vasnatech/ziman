@@ -29,11 +29,16 @@ pub fn demo() -> Demo {
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return dialog_ui.screen(dialog_ui.Screen {
-        open: controls.button_widget(d.open, style),
-        said: d.said
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return dialog_ui.screen(
+        dialog_ui.Screen {
+            open: controls.button_widget(d.open, controls.frame_of(style, m)),
+            said: d.said
+        },
+        f
+    )
 }
 
 // A dialog is centred by `dialog_layer` itself, so it anchors to nothing.
@@ -45,17 +50,19 @@ pub fn showing(d: Demo) -> bool {
     return d.showing
 }
 
-pub fn layer(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Layer {
+pub fn layer(d: Demo, f: controls.Frame) -> widget.Layer {
+    val style = f.style
+    val m = f.metrics
     return controls.dialog_layer(
         "dialog-demo",
         "Delete this request?",
         dialog_ui.body(
             "This cannot be undone.",
-            controls.button_widget(d.confirm, style),
-            controls.button_widget(d.cancel, style),
-            style
+            controls.button_widget(d.confirm, controls.frame_of(style, m)),
+            controls.button_widget(d.cancel, controls.frame_of(style, m)),
+            f
         ),
-        style
+        controls.frame_of(style, m)
     )
 }
 
@@ -64,8 +71,7 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
     if d.showing {
         // **The keys first, and the buttons after.** Escape cancels and Enter confirms wherever

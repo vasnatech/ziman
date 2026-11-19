@@ -24,12 +24,17 @@ pub fn demo() -> Demo {
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return menu_ui.screen(menu_ui.Screen {
-        file: controls.menu_title_widget(d.file, style),
-        edit: controls.menu_title_widget(d.edit, style),
-        said: d.said
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return menu_ui.screen(
+        menu_ui.Screen {
+            file: controls.menu_title_widget(d.file, controls.frame_of(style, m)),
+            edit: controls.menu_title_widget(d.edit, controls.frame_of(style, m)),
+            said: d.said
+        },
+        f
+    )
 }
 
 // Whichever is open, if either. **Only one can be**, because opening one closes the other: a
@@ -51,15 +56,21 @@ pub fn anchor(d: Demo) -> string {
     }
 }
 
-pub fn layer(d: Demo, style: controls.Style, at: geom.Rect, m: widget.Metrics) -> widget.Layer {
+pub fn layer(d: Demo, at: geom.Rect, f: controls.Frame) -> widget.Layer {
+    val style = f.style
+    val m = f.metrics
     switch open_menu(d) {
         Some(one) {
-            return controls.menu_popup_layer(one, style, geom.rect_of(
-                at.x,
-                at.y + at.height,
-                at.width,
-                (len(one.items.items) as float) * controls.row_height(m, style)
-            ), m)
+            return controls.menu_popup_layer(
+                one,
+                geom.rect_of(
+                    at.x,
+                    at.y + at.height,
+                    at.width,
+                    (len(one.items.items) as float) * controls.row_height(m, style)
+                ),
+                controls.frame_of(style, m)
+            )
         }
         None { return widget.layer_at(geom.rect_of(0.0, 0.0, 0.0, 0.0), false, widget.Widget.Nothing) }
     }
@@ -70,18 +81,17 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "menu-file" || name == "menu-file/items" {
         val taken = controls.menu_input(
             d.file,
             input,
-            style,
             boxes.bounds_of(laid, "menu-file"),
-            boxes.bounds_of(laid, "menu-file/items")
-            ,
-            m
+            boxes.bounds_of(laid, "menu-file/items"),
+            controls.frame_of(style, m)
         )
         return with d { file: taken.menu, said: word_of(taken, d) }
     }
@@ -89,11 +99,9 @@ pub fn input(
         val taken = controls.menu_input(
             d.edit,
             input,
-            style,
             boxes.bounds_of(laid, "menu-edit"),
-            boxes.bounds_of(laid, "menu-edit/items")
-            ,
-            m
+            boxes.bounds_of(laid, "menu-edit/items"),
+            controls.frame_of(style, m)
         )
         return with d { edit: taken.menu, said: word_of(taken, d) }
     }

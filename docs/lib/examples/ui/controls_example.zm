@@ -32,13 +32,15 @@ struct Window {
 }
 
 fn view(w: Window) -> widget.Widget {
-    val style = theme.plain()
+    // **The frame, not a style and a metrics**: the look, the window's measurements and the three
+    // names the window holds, so that a control can tell what state it is in. See `controls.Frame`.
+    val f = with controls.frame_of(theme.plain(), metrics()) { focused: w.focused, pressed: w.pressed }
     return widget.column_of(
         6.0,
         [
-            controls.entry_widget(w.email, style, metrics()),
-            controls.check_box_widget(w.notify, style, metrics()),
-            controls.button_widget(w.save, style)
+            controls.entry_widget(w.email, f),
+            controls.check_box_widget(w.notify, f),
+            controls.button_widget(w.save, f)
         ]
     )
 }
@@ -53,7 +55,7 @@ fn step(w: Window, input: controls.Input) -> Window {
         None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
     }
     if name == "email" {
-        val done = controls.entry_input(w.email, input, bounds, theme.plain(), metrics())
+        val done = controls.entry_input(w.email, input, bounds, controls.frame_of(theme.plain(), metrics()))
         val board = if done.copied == "" { w.clipboard } else { done.copied }
         return with w { email: done.entry, focused: name, pressed: held, clipboard: board }
     }

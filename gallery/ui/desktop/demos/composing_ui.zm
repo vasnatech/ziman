@@ -15,18 +15,18 @@ pub struct Screen {
     note: string
 }
 
-pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
         widget.row_of(gap, [
-            widget.wide_of(label_width, widget.label_of("Your name", style.text.caption.size, style.ink)),
+            widget.wide_of(label_width, widget.label_of("Your name", f.style.text.caption.size, f.style.ink)),
             widget.expand(it.field)
         ]),
         widget.row_of(gap, [
             widget.wide_of(button_width, it.back),
             widget.wide_of(button_width, it.on),
-            widget.expand(widget.label_of(it.stage, style.text.heading.size, style.ink))
+            widget.expand(widget.label_of(it.stage, f.style.text.heading.size, f.style.ink))
         ]),
-        widget.label_of(it.said, style.text.caption.size, style.ink),
-        widget.label_of(it.note, style.text.caption.size, style.ink)
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink),
+        widget.label_of(it.note, f.style.text.caption.size, f.style.ink)
     ])
 }

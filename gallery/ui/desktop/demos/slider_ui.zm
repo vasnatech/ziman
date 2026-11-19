@@ -14,18 +14,18 @@ pub struct Screen {
     said: string
 }
 
-pub fn row(title: string, slider: widget.Widget, value: string, style: controls.Style) -> widget.Widget {
+pub fn row(title: string, slider: widget.Widget, value: string, f: controls.Frame) -> widget.Widget {
     return widget.row_of(gap, [
-        widget.wide_of(label_width, widget.label_of(title, style.text.caption.size, style.ink)),
+        widget.wide_of(label_width, widget.label_of(title, f.style.text.caption.size, f.style.ink)),
         widget.expand(slider),
-        widget.wide_of(value_width, widget.label_of(value, style.text.caption.size, style.ink))
+        widget.wide_of(value_width, widget.label_of(value, f.style.text.caption.size, f.style.ink))
     ])
 }
 
-pub fn screen(it: Screen, style: controls.Style, m: widget.Metrics) -> widget.Widget {
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
-        row("Volume", it.volume, it.volume_said, style),
-        row("Quarters", it.steps, it.steps_said, style),
-        widget.label_of(it.said, style.text.caption.size, style.ink)
+        row("Volume", it.volume, it.volume_said, f),
+        row("Quarters", it.steps, it.steps_said, f),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
     ])
 }

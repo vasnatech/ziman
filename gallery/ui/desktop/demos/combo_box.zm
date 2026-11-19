@@ -25,11 +25,16 @@ pub fn demo() -> Demo {
     }
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    return combo_box_ui.screen(combo_box_ui.Screen {
-        picker: controls.combo_box_widget(d.picker, style),
-        said: said(d)
-    }, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val style = f.style
+    val m = f.metrics
+    return combo_box_ui.screen(
+        combo_box_ui.Screen {
+            picker: controls.combo_box_widget(d.picker, controls.frame_of(style, m)),
+            said: said(d)
+        },
+        f
+    )
 }
 
 fn said(d: Demo) -> string {
@@ -49,13 +54,19 @@ pub fn anchor(d: Demo) -> string {
     return ""
 }
 
-pub fn layer(d: Demo, style: controls.Style, at: geom.Rect, m: widget.Metrics) -> widget.Layer {
-    return controls.combo_box_popup_layer(d.picker, style, geom.rect_of(
-        at.x,
-        at.y + at.height,
-        at.width,
-        (len(d.picker.items.items) as float) * controls.row_height(m, style)
-    ), m)
+pub fn layer(d: Demo, at: geom.Rect, f: controls.Frame) -> widget.Layer {
+    val style = f.style
+    val m = f.metrics
+    return controls.combo_box_popup_layer(
+        d.picker,
+        geom.rect_of(
+            at.x,
+            at.y + at.height,
+            at.width,
+            (len(d.picker.items.items) as float) * controls.row_height(m, style)
+        ),
+        controls.frame_of(style, m)
+    )
 }
 
 pub fn input(
@@ -63,19 +74,18 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     if name == "combo-demo" || name == "combo-demo/items" {
         return with d {
             picker: controls.combo_box_input(
                 d.picker,
                 input,
-                style,
                 boxes.bounds_of(laid, "combo-demo"),
-                boxes.bounds_of(laid, "combo-demo/items")
-                ,
-                m
+                boxes.bounds_of(laid, "combo-demo/items"),
+                controls.frame_of(style, m)
             ).combo
         }
     }

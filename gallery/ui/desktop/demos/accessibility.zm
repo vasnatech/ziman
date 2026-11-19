@@ -39,16 +39,19 @@ pub fn demo() -> Demo {
     }
 }
 
-fn controls_row(d: Demo, style: controls.Style, m: widget.Metrics) -> [widget.Widget] {
+fn controls_row(d: Demo, f: controls.Frame) -> [widget.Widget] {
+    val style = f.style
+    val m = f.metrics
     return [
-        controls.button_widget(d.press, style),
-        controls.check_box_widget(d.notify, style, m),
-        controls.combo_box_widget(d.picker, style)
+        controls.button_widget(d.press, controls.frame_of(style, m)),
+        controls.check_box_widget(d.notify, controls.frame_of(style, m)),
+        controls.combo_box_widget(d.picker, controls.frame_of(style, m))
     ]
 }
 
-pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget {
-    val row = controls_row(d, style, m)
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val m = f.metrics
+    val row = controls_row(d, f)
     val laid = widget.layout(
         widget.row_of(8.0, row),
         geom.rect_of(0.0, 0.0, probe, 40.0),
@@ -64,18 +67,21 @@ pub fn view(d: Demo, style: controls.Style, m: widget.Metrics) -> widget.Widget 
             // lands on, so saying "focused" would be a word on every line a user ever hears.
             // Which line that is, though, is the whole point of the demo -- so the arrow is the
             // gallery's, pointing at the one sentence a reader would actually say.
-            push(lines, accessibility_ui.line(concat(if node.focused { "> " } else { "  " }, said), style))
+            push(lines, accessibility_ui.line(concat(if node.focused { "> " } else { "  " }, said), f))
         }
     }
-    return accessibility_ui.screen(accessibility_ui.Screen {
-        press: row[0],
-        check: row[1],
-        picker: row[2],
-        said: concat(
-            "A reader says one of these -- the one the focus is on. Click a control to move it."
-        ),
-        lines: snapshot(lines)
-    }, style, m)
+    return accessibility_ui.screen(
+        accessibility_ui.Screen {
+            press: row[0],
+            check: row[1],
+            picker: row[2],
+            said: concat(
+                "A reader says one of these -- the one the focus is on. Click a control to move it."
+            ),
+            lines: snapshot(lines)
+        },
+        f
+    )
 }
 
 pub fn anchor(d: Demo) -> string {
@@ -85,13 +91,19 @@ pub fn anchor(d: Demo) -> string {
     return ""
 }
 
-pub fn layer(d: Demo, style: controls.Style, at: geom.Rect, m: widget.Metrics) -> widget.Layer {
-    return controls.combo_box_popup_layer(d.picker, style, geom.rect_of(
-        at.x,
-        at.y + at.height,
-        at.width,
-        (len(d.picker.items.items) as float) * controls.row_height(m, style)
-    ), m)
+pub fn layer(d: Demo, at: geom.Rect, f: controls.Frame) -> widget.Layer {
+    val style = f.style
+    val m = f.metrics
+    return controls.combo_box_popup_layer(
+        d.picker,
+        geom.rect_of(
+            at.x,
+            at.y + at.height,
+            at.width,
+            (len(d.picker.items.items) as float) * controls.row_height(m, style)
+        ),
+        controls.frame_of(style, m)
+    )
 }
 
 pub fn input(
@@ -99,9 +111,10 @@ pub fn input(
     name: string,
     input: controls.Input,
     laid: widget.Laid,
-    style: controls.Style,
-    m: widget.Metrics
+    f: controls.Frame
 ) -> Demo {
+    val style = f.style
+    val m = f.metrics
     // **The focus the reader follows is this demo's own**, not the window's: the point is to show
     // what "focused" does to an announcement, and the window's focus is on whatever was last
     // clicked, which may be the tree on the left.
@@ -121,11 +134,9 @@ pub fn input(
             picker: controls.combo_box_input(
                 here.picker,
                 input,
-                style,
                 boxes.bounds_of(laid, "a11y-picker"),
-                boxes.bounds_of(laid, "a11y-picker/items")
-                ,
-                m
+                boxes.bounds_of(laid, "a11y-picker/items"),
+                controls.frame_of(style, m)
             ).combo
         }
     }
