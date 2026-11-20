@@ -6158,10 +6158,23 @@ fn badge_inside(b: Badge, style: Style) -> widget.Widget {
         // **A capsule whatever shape scale is in force**, which is the switch's argument: a badge
         // that is not a capsule is a label with a background, and the roundness is what makes it
         // read as a count rather than as part of the text.
+        //
+        // **And an edge on the quiet one, which is the card's defect over again** (F323). The
+        // resting face is a *control's* colour and a badge is drawn straight onto the page: in the
+        // modern look that is a contrast of **1.08:1** against `Style.window`, so a quiet badge
+        // was a word with no capsule round it at all -- which is a label, and the whole of what
+        // tells a reader this is a badge is the capsule. Found by porting a screen whose status
+        // words are quiet badges, where "Unable to assess House dust mite" read as one phrase.
+        // `style.grid` is the hairline a table already draws with, for the same reason the card
+        // borrowed it rather than inventing a second opinion about what a line is.
         surface: widget.Surface {
             inset: 0.0,
             fill: Option<Paint>.Some(Paint.Solid(face)),
-            border: Option<widget.Border>.None,
+            border: if b.loud {
+                Option<widget.Border>.None
+            } else {
+                Option<widget.Border>.Some(widget.Border { colour: style.grid, width: style.stroke.hair })
+            },
             corner: widget.Radius.Fraction(0.5),
             corners: widget.Corners.All,
             shadow: Option<widget.Shadow>.None

@@ -7229,6 +7229,59 @@ fn badge_words(b: Option<controls.Badge>) -> string {
     }
 }
 
+// **A quiet badge has to be visible against the page it is drawn on.**
+//
+// Its fill is the resting *control* face and a badge is drawn straight onto the window, which in
+// the modern look is a contrast of 1.08:1 -- so for as long as this had no edge, a quiet badge was
+// a word with nothing round it. That is a label, and the capsule is the whole of what says
+// "badge". Found by porting a screen whose status words are quiet badges; the loud one was always
+// fine, because the accent is the one colour that stands out by construction.
+//
+// The assertion is the contrast of *something* -- fill or edge -- against the window, because the
+// fix is allowed to be either and the defect is the same whichever is missing.
+#[test]
+fn a_quiet_badge_can_be_seen_against_the_page() {
+    val style = theme.modern()
+    val quiet = badge_surface(controls.badge_widget(controls.badge_of("Low"), frame()))
+    test.assert_gt(seen_against(quiet, style.window), 1.2)
+}
+
+#[test]
+fn a_loud_badge_can_be_seen_against_the_page() {
+    val style = theme.modern()
+    val loud = badge_surface(controls.badge_widget(
+        with controls.badge_of("High") { loud: true },
+        frame()
+    ))
+    test.assert_gt(seen_against(loud, style.window), 1.2)
+}
+
+// The best contrast the capsule manages: its fill, or its edge if it has one.
+fn seen_against(s: widget.Surface, page: paint.Color) -> float {
+    var best = 0.0
+    switch s.fill {
+        Some(p) { best = paint.contrast_ratio(paint.flat_of(p), page) }
+        None { unit }
+    }
+    switch s.border {
+        Some(b) {
+            val edge = paint.contrast_ratio(b.colour, page)
+            if edge > best {
+                best = edge
+            }
+        }
+        None { unit }
+    }
+    return best
+}
+
+fn badge_surface(w: widget.Widget) -> widget.Surface {
+    if Group(it) = w {
+        return it.surface
+    }
+    return widget.no_surface()
+}
+
 // **A search field is exactly as tall as an ordinary field.** It stands next to ordinary fields in
 // every form the port has, so any difference reads as a mistake -- and the first version was a
 // padding taller, two ways at once: it sized its marks by adding the field's *horizontal* padding

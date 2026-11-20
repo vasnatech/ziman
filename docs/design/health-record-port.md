@@ -4,7 +4,7 @@ Status: **in progress, 2026-11-20.** §4.1 is **closed**: F322, F324-F329 are bu
 the gallery. Of §4.2's five, **three are built** -- charts (F332, F333), navigation (F331) and the
 virtualised list, which was closed by measuring it out of existence (F334) -- message catalogues
 are designed with the build deliberately deferred, and **the file chooser is the one item left**.
-P1, P2 and P3 are answered; **P4 is still owed**. No screen of the target has been ported yet.
+P1, P2 and P3 are answered; **P4 is still owed**. The port itself has begun: §7.
 
 ## 1. Why this document
 
@@ -28,7 +28,7 @@ How often each appears across files says what matters:
 
 | thing | files |
 |---|---|
-| `Card` | 62 |
+| `Card` | ~~62~~ **22 + 7, and they are two different things -- see §7** |
 | `Modal` | 51 |
 | `Loading` | 48 |
 | `Section` | 30 |
@@ -43,6 +43,11 @@ How often each appears across files says what matters:
 application is *card-based*: a record is a card in a list, not a row in a grid. `controls.Table`
 is therefore far less central to this port than it looks, and `Card` -- which `lib/ui` does not
 have -- is the single most used thing in the application.
+
+**The `Card` count was wrong and the first ported screen is what found it** (§7). 62 was a grep for
+the word, and it ran together two components: `CardShell`, a titled box with its own loading and
+empty states (**22** files), and `UIPrimitives.Card`, a row with trailing actions (**7**). Only the
+first is `controls.Card`.
 
 ## 3. What `lib/ui` already covers
 
@@ -189,4 +194,43 @@ drag-to-reorder (dnd-kit, 1 file -- dashboard card order).
 3. **The platform gates** -- catalogues, navigation, the file chooser -- which are what decide
    whether the port is a port or a demonstration. Navigation is built, catalogues are designed,
    **the file chooser is the one left**.
-4. **Then the port itself**, which is where the work now is.
+4. **Then the port itself**, which is where the work now is: §7.
+
+## 7. The port
+
+The application lives in `health-record/health-record-frontend-ziman` and **not in this
+repository**, which is the whole of the rule it is held to: `lib/ui` is a general toolkit and the
+port is what *finds* its gaps, never what shapes it. Its own README records what each screen found.
+
+### Ported
+
+| screen | lines in the target | |
+|---|---|---|
+| `AllergiesView.tsx` | 63 | **the read half**: the fetch on a spawned thread, the four states, a row per record. The add, edit and delete dialogs are not ported and those buttons say so. |
+
+**It was chosen for being the smallest real one**, and it was not a toy: `Section`, `Card`,
+`Loading`, `Empty`, a criticality pill, a modal and a confirm dialog, in 63 lines.
+
+### What the first screen found
+
+One defect fixed ([F335](../reviews/tasks/f335.md)): **a quiet badge was invisible**, at 1.0005:1
+against the window. Fixed in `lib/ui` with the hairline F323 used for the same defect, with a test
+that reddens without it.
+
+And one correction to this document. **§2's "`Card` | 62 files" counted two different components
+as one.** `CardShell` -- a titled box with its own loading and empty states, which is what
+`controls.Card` models -- is used in **22** files. `UIPrimitives.Card` -- a *row*, content leading,
+edit and delete trailing, a hairline beneath, no title -- is used in **7**. The 62 came from a
+grep for the word. The row is the one this screen needed, and `lib/ui` has no control for it.
+
+Four more findings are recorded in the application's README and deliberately not acted on, because
+one screen is not evidence enough to change a toolkit. The two that look like real gaps rather
+than preferences:
+
+- **No scrollable container.** Everything that scrolls in `lib/ui` is a control that draws its own
+  rows. A column of arbitrary widgets uses `widget.named_scroll` directly -- and then the wheel
+  does not reach it, because `controls.target` routes a wheel to the nearest *tab stop*.
+- **The application loop, written out for the third time.** Fonts, density, look, window, poll, lay
+  out, paint, publish, diff, sleep: the same ~200 lines as the gallery and as `curly gui`.
+
+Both should wait for a second screen to say the same thing.
