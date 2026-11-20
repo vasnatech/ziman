@@ -106,6 +106,7 @@ flowchart LR
         focus["ui.focus"]
         ibus["ui.ibus"]
         icons["ui.icons"]
+        navigate["ui.navigate"]
         terminal["ui.terminal"]
         theme["ui.theme"]
         widget["ui.widget"]
@@ -265,6 +266,10 @@ flowchart LR
     mysql --> db
     mysql --> net
     mysql --> number
+    navigate --> a11y
+    navigate --> controls
+    navigate --> focus
+    navigate --> widget
     ndjson --> charset
     ndjson --> json
     number --> locale
@@ -426,13 +431,13 @@ otherwise: everything on a layer depends only on lower layers.
 | 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `icons`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml`, `widget` |
 | 6 | `a11y`, `codec`, `derive_repository`, `focus` |
 | 7 | `atspi`, `controls`, `paging`, `server` |
-| 8 | `desktop`, `rest`, `theme` |
+| 8 | `desktop`, `navigate`, `rest`, `theme` |
 
 ## Each module
 
 | Module | Uses | Used by |
 |---|---|---|
-| `a11y` | `geom`, `widget` | `atspi`, `controls` |
+| `a11y` | `geom`, `widget` | `atspi`, `controls`, `navigate` |
 | `atspi` | `a11y`, `widget` | - |
 | `batch` | `datasource`, `db`, `time`, `uuid` | - |
 | `bits` | - | `image` |
@@ -441,7 +446,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `charset`, `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
-| `controls` | `a11y`, `edit`, `focus`, `geom`, `locale`, `math`, `number`, `paint`, `scene`, `shape`, `time`, `widget` | `desktop`, `theme` |
+| `controls` | `a11y`, `edit`, `focus`, `geom`, `locale`, `math`, `number`, `paint`, `scene`, `shape`, `time`, `widget` | `desktop`, `navigate`, `theme` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `charset`, `fs`, `io`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `batch`, `eql`, `migrate` |
@@ -461,7 +466,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `expr` | `json`, `regex` | `template` |
-| `focus` | `geom`, `widget` | `controls` |
+| `focus` | `geom`, `widget` | `controls`, `navigate` |
 | `font` | `charset`, `truetype` | `layout`, `pdf`, `raster`, `widget` |
 | `fs` | `charset`, `io`, `os` | `csv`, `http`, `icons`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
 | `geom` | `math` | `a11y`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `svg`, `theme`, `truetype`, `widget` |
@@ -484,6 +489,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `migrate` | `crypto`, `datasource`, `db`, `encoding`, `fs`, `os`, `time` | - |
 | `mime` | `locale` | `client`, `codec`, `http`, `paging`, `rest`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | - |
+| `navigate` | `a11y`, `controls`, `focus`, `widget` | - |
 | `ndjson` | `charset`, `json` | `codec` |
 | `net` | - | `client`, `db`, `mysql`, `pg`, `server` |
 | `number` | `locale` | `client`, `controls`, `csv`, `db`, `encoding`, `http`, `image`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sql`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
@@ -519,7 +525,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `url` | `charset`, `locale`, `number` | `db`, `http`, `rest` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | `batch`, `eql`, `rest`, `server` |
 | `validate` | `regex` | - |
-| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `atspi`, `controls`, `desktop`, `focus`, `theme` |
+| `widget` | `font`, `geom`, `paint`, `scene`, `shape` | `a11y`, `atspi`, `controls`, `desktop`, `focus`, `navigate`, `theme` |
 | `window` | `charset` | `desktop`, `ibus` |
 | `xml` | `charset`, `io`, `locale` | `codec`, `svg` |
 | `yaml` | `charset`, `json`, `locale`, `number` | `codec` |

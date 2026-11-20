@@ -4742,6 +4742,39 @@ pub fn driver() -> Driver
 
 ```
 
+## `navigate`
+
+Where an application is, and what changing that owes the user.
+
+```
+pub struct History {
+    // Oldest first. Never empty once built.
+    entries: [string]
+    at: int
+}
+
+pub fn history_of(first: string) -> History
+
+pub fn here(h: History) -> string
+
+pub fn can_go_back(h: History) -> bool
+
+pub fn can_go_forward(h: History) -> bool
+
+pub fn back(h: History) -> History
+
+pub fn forward(h: History) -> History
+
+pub fn went_to(h: History, screen: string) -> History
+
+pub fn screen_widget(
+
+pub fn screen_region(name: string) -> string
+
+pub fn arrived_at(laid: widget.Laid, screen: string) -> string
+
+```
+
 ## `ndjson`
 
 Newline-delimited JSON: one JSON value per line, written on top of `json`.

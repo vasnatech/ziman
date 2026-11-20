@@ -109,6 +109,7 @@
 #include "edit_source.h"
 #include "a11y_source.h"
 #include "controls_source.h"
+#include "navigate_source.h"
 #include "icons_source.h"
 #include "desktop_source.h"
 #include "stroker_source.h"
@@ -224,6 +225,7 @@ static const CoreModule CORE_MODULES[] = {
     {"edit", EDIT_SOURCE, EDIT_SOURCE_PATH},
     {"a11y", A11Y_SOURCE, A11Y_SOURCE_PATH},
     {"controls", CONTROLS_SOURCE, CONTROLS_SOURCE_PATH},
+    {"navigate", NAVIGATE_SOURCE, NAVIGATE_SOURCE_PATH},
     {"icons", ICONS_SOURCE, ICONS_SOURCE_PATH},
     {"desktop", DESKTOP_SOURCE, DESKTOP_SOURCE_PATH},
     {"zone", ZONE_SOURCE, ZONE_SOURCE_PATH},

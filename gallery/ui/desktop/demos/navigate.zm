@@ -1,0 +1,186 @@
+// Where an application is, and what changing that owes the user.
+//
+// **Press Records, then Settings, then Back twice, then Records.** The forward entries are gone:
+// that is what a browser does, and the alternative is a forward button that goes somewhere you
+// have never been.
+//
+// **Press the screen you are already on.** Nothing happens -- no second entry -- or leaving it
+// would take two Backs and the first would look as though it had failed.
+//
+// **Tab through it.** The focus never lands on a screen, only on what is inside one: a screen that
+// was focusable would sit in front of its own content.
+//
+// The line at the bottom is what `navigate.arrived_at` answers -- the control the application
+// should move the focus to, because the one it was on has just stopped existing. The gallery owns
+// its own focus, so this demo reports that rather than doing it.
+use boxes
+use controls
+use demos/navigate_ui
+use geom
+use navigate
+use widget
+
+pub struct Demo {
+    history: navigate.History
+    home: controls.Button
+    records: controls.Button
+    settings: controls.Button
+    back: controls.Button
+    forward: controls.Button
+    rows: controls.List
+    note: controls.Entry
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        history: navigate.history_of("home"),
+        home: controls.button_of("nav-home", "Home"),
+        records: controls.button_of("nav-records", "Records"),
+        settings: controls.button_of("nav-settings", "Settings"),
+        back: controls.button_of("nav-back", "Back"),
+        forward: controls.button_of("nav-forward", "Forward"),
+        rows: controls.list_of("nav-rows", "Entries", ["First entry", "Second entry"]),
+        note: controls.entry_of("nav-note", "A note", "")
+    }
+}
+
+fn title_of(screen: string) -> string {
+    if screen == "records" {
+        return "Records"
+    }
+    if screen == "settings" {
+        return "Settings"
+    }
+    return "Home"
+}
+
+// **The one screen, not all three.** A caller that wants one of fifty builds the one; this is the
+// whole reason `navigate` has no container that takes them all.
+fn body(d: Demo, f: controls.Frame) -> widget.Widget {
+    val at = navigate.here(d.history)
+    if at == "records" {
+        return controls.list_widget(d.rows, f)
+    }
+    if at == "settings" {
+        return controls.entry_widget(d.note, f)
+    }
+    return widget.label_of("Nothing to show here.", f.style.text.body.size, f.style.ink)
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val at = navigate.here(d.history)
+    val screen = navigate.screen_widget(at, title_of(at), body(d, f), f)
+    return navigate_ui.screen(
+        navigate_ui.Screen {
+            bar: widget.row_of(8.0, [
+                controls.button_widget(with d.back { disabled: !navigate.can_go_back(d.history) }, f),
+                controls.button_widget(
+                    with d.forward { disabled: !navigate.can_go_forward(d.history) },
+                    f
+                ),
+                controls.button_widget(d.home, f),
+                controls.button_widget(d.records, f),
+                controls.button_widget(d.settings, f)
+            ]),
+            screen: screen,
+            said: concat("History: ", written(d.history)),
+            focus_says: concat(
+                "On arrival the focus belongs on: ",
+                shown(navigate.arrived_at(laid_once(screen, f), at))
+            )
+        },
+        f
+    )
+}
+
+fn shown(name: string) -> string {
+    if name == "" {
+        return "(nothing focusable on this screen)"
+    }
+    return name
+}
+
+// The screen laid out on its own, only to ask where the focus belongs. The gallery lays the real
+// one out itself; this one is thrown away.
+fn laid_once(screen: widget.Widget, f: controls.Frame) -> widget.Laid {
+    return widget.layout(screen, geom.rect_of(0.0, 0.0, 400.0, 150.0), f.metrics)
+}
+
+fn written(h: navigate.History) -> string {
+    var out = ""
+    var i = 0
+    for one in h.entries {
+        val mark = if i == h.at { concat("[", one, "]") } else { one }
+        out = if out == "" { mark } else { concat(out, " ", mark) }
+        i = i + 1
+    }
+    return out
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "nav-rows" {
+        return with d { rows: controls.list_input(d.rows, input, boxes.bounds_of(laid, name), f).list }
+    }
+    if name == "nav-note" {
+        return with d { note: controls.entry_input(d.note, input, boxes.bounds_of(laid, name), f).entry }
+    }
+    val step = controls.button_input(button_named(d, name), input, boxes.bounds_of(laid, name))
+    val held = button_set(d, step.button, name)
+    if !step.activated {
+        return held
+    }
+    if name == "nav-back" {
+        return with held { history: navigate.back(held.history) }
+    }
+    if name == "nav-forward" {
+        return with held { history: navigate.forward(held.history) }
+    }
+    if name == "nav-records" {
+        return with held { history: navigate.went_to(held.history, "records") }
+    }
+    if name == "nav-settings" {
+        return with held { history: navigate.went_to(held.history, "settings") }
+    }
+    if name == "nav-home" {
+        return with held { history: navigate.went_to(held.history, "home") }
+    }
+    return held
+}
+
+fn button_named(d: Demo, name: string) -> controls.Button {
+    if name == "nav-back" {
+        return d.back
+    }
+    if name == "nav-forward" {
+        return d.forward
+    }
+    if name == "nav-records" {
+        return d.records
+    }
+    if name == "nav-settings" {
+        return d.settings
+    }
+    return d.home
+}
+
+fn button_set(d: Demo, b: controls.Button, name: string) -> Demo {
+    if name == "nav-back" {
+        return with d { back: b }
+    }
+    if name == "nav-forward" {
+        return with d { forward: b }
+    }
+    if name == "nav-records" {
+        return with d { records: b }
+    }
+    if name == "nav-settings" {
+        return with d { settings: b }
+    }
+    return with d { home: b }
+}

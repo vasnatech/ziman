@@ -80,7 +80,7 @@ GROUPS = [
     # `theme` is last in the group because it is read last: the control set defines
     # `Style` and never builds one, and this is every look built from it. Split out of
     # `controls` on 2026-11-17.
-    ("User interface", "ui", ["widget", "focus", "edit", "a11y", "controls", "icons", "theme"]),
+    ("User interface", "ui", ["widget", "focus", "edit", "a11y", "controls", "navigate", "icons", "theme"]),
     # A folder per backend under lib/ui: what only one of them does. `terminal` moved here from
     # lib/core and `window` from lib/core too -- both are a way of putting a user interface on a
     # screen, which is what this group is.

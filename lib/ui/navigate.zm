@@ -1,0 +1,146 @@
+// Where an application is, and what changing that owes the user.
+//
+// **Not a router.** No URLs, no paths, nothing parsed: a screen name is a string the application
+// chooses and this module never interprets. And not a registry -- it does not hold the screens,
+// only where you are and what happens when that changes.
+//
+// **"Show one of several" is deliberately absent.** A screen is a widget the caller builds, and a
+// caller that wants one of fifty builds the one; a container taking all fifty to draw one would be
+// asking for forty-nine widgets in order to throw them away. `controls.Tabs` holds only the strip
+// for the same reason.
+//
+// What is here is the part an application gets wrong once per screen: what back means, and where
+// the focus and a screen reader go when the screen changes.
+use a11y
+use controls
+use focus
+use widget
+
+// ------------------------------------------------------------------- the history
+
+// Where we have been, and where in that we are.
+//
+// **The position moves; the entries do not shrink.** A history that popped on `back` could not
+// offer `forward` at all, and "it is a stack" is the wrong model for exactly that reason.
+pub struct History {
+    // Oldest first. Never empty once built.
+    entries: [string]
+    at: int
+}
+
+pub fn history_of(first: string) -> History {
+    return History { entries: [first], at: 0 }
+}
+
+pub fn here(h: History) -> string {
+    if h.at < 0 || h.at >= len(h.entries) {
+        return ""
+    }
+    return h.entries[h.at]
+}
+
+pub fn can_go_back(h: History) -> bool {
+    return h.at > 0
+}
+
+pub fn can_go_forward(h: History) -> bool {
+    return h.at + 1 < len(h.entries)
+}
+
+pub fn back(h: History) -> History {
+    if !can_go_back(h) {
+        return h
+    }
+    return with h { at: h.at - 1 }
+}
+
+pub fn forward(h: History) -> History {
+    if !can_go_forward(h) {
+        return h
+    }
+    return with h { at: h.at + 1 }
+}
+
+// Go somewhere.
+//
+// **Going where you already are does nothing**, rather than adding a second entry: a list that
+// re-opens the record already open would otherwise need two `back`s to leave it, and the first
+// would look as though it had failed.
+//
+// **And going somewhere new throws away what was ahead**, which is what a browser does and what a
+// user expects. The alternative is a forward button that goes somewhere they have never been.
+pub fn went_to(h: History, screen: string) -> History {
+    if screen == here(h) {
+        return h
+    }
+    val kept = mutable_array_new<string>()
+    var i = 0
+    while i <= h.at && i < len(h.entries) {
+        push(kept, h.entries[i])
+        i = i + 1
+    }
+    push(kept, screen)
+    return History { entries: snapshot(kept), at: len(kept) - 1 }
+}
+
+// ------------------------------------------------------------------- the screen
+
+// A screen: its title, its content, and the region that says it has arrived.
+//
+// **A function and a named group, not a control** -- F323's answer, for F323's reason. A screen
+// that was focusable would be a tab stop sitting in front of its own content, so a user would
+// press Tab to get past the thing they are looking at.
+//
+// **The title is said as well as drawn.** A reader announces what the user moves to; when the
+// screen changes nobody has moved, so without this nothing is said at all. The region is the same
+// one `a11y.announcements` already watches.
+pub fn screen_widget(
+    name: string,
+    title: string,
+    content: widget.Widget,
+    f: controls.Frame
+) -> widget.Widget {
+    val style = f.style
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: style.space.m,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        children: [
+            // **First, so a reader meets it before the content.** It draws nothing: the title is
+            // already on screen below it, and this exists to be spoken on arrival.
+            widget.part_of(
+                screen_region(name),
+                widget.Role.Status,
+                title,
+                widget.no_state(),
+                widget.Widget.Nothing
+            ),
+            widget.label_in_face(title, style.text.heading.size, style.ink, style.text.heading.face),
+            widget.expand(content)
+        ],
+        name: name
+    })
+}
+
+// The name of the region a screen speaks through, which a caller needs to diff two frames.
+pub fn screen_region(name: string) -> string {
+    return concat(name, "/arrived")
+}
+
+// Where the focus should go now that this screen is showing, or "" if it holds nothing to focus.
+//
+// **The focus is on a control that has just stopped existing.** Left alone it resumes from the
+// start of the window, so a keyboard user is dropped at the top of a navigation bar every time
+// they open a record -- fifty-three chances to get it wrong, in an application with fifty-three
+// screens.
+pub fn arrived_at(laid: widget.Laid, screen: string) -> string {
+    // **`widget.node_named` and not `focus.node_of`**: a screen is a named group, and `focus`
+    // looks up controls. Asking the focus layer for something that is deliberately not focusable
+    // finds nothing, which is correct of it and wrong here.
+    return switch widget.node_named(laid, screen) {
+        Some(found) { focus.first(found) }
+        None { "" }
+    }
+}

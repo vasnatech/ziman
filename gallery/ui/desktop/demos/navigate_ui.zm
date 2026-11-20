@@ -1,0 +1,23 @@
+// The Navigate demo, as design.
+use controls
+use widget
+
+val gap = 10.0
+val bar_gap = 8.0
+val screen_height = 150.0
+
+pub struct Screen {
+    bar: widget.Widget
+    screen: widget.Widget
+    said: string
+    focus_says: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.row_of(bar_gap, [it.bar, widget.flex()]),
+        widget.tall_of(screen_height, it.screen),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink),
+        widget.label_of(it.focus_says, f.style.text.caption.size, f.style.ink)
+    ])
+}

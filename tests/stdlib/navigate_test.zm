@@ -1,0 +1,129 @@
+// Where an application is, and what changing that owes the user.
+use a11y
+use controls
+use focus
+use geom
+use navigate
+use test
+use theme
+use widget
+
+fn metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 10.0 },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+}
+
+fn frame() -> controls.Frame {
+    return controls.frame_of(theme.plain(), metrics())
+}
+
+fn names(h: navigate.History) -> string {
+    var out = ""
+    for one in h.entries {
+        out = concat(out, one, " ")
+    }
+    return concat(out, "@", str(h.at))
+}
+
+// --- the history
+
+#[test]
+fn a_new_history_is_where_it_started() {
+    val h = navigate.history_of("home")
+    test.assert_eq(navigate.here(h), "home")
+    test.assert_false(navigate.can_go_back(h))
+    test.assert_false(navigate.can_go_forward(h))
+}
+
+// **Back and forward move the position; they do not shorten the entries.** A history that popped
+// on `back` could not offer `forward` at all, which is the whole reason this is not a stack.
+#[test]
+fn going_back_keeps_what_is_ahead() {
+    val h = navigate.went_to(navigate.went_to(navigate.history_of("home"), "records"), "detail")
+    val once = navigate.back(h)
+    test.assert_eq(navigate.here(once), "records")
+    test.assert(navigate.can_go_forward(once))
+    test.assert_eq(names(once), "home records detail @1")
+    test.assert_eq(navigate.here(navigate.forward(once)), "detail")
+}
+
+// **Going somewhere new throws away what was ahead**, which is what a browser does and what a user
+// expects: the alternative is a forward button that goes somewhere they have never been.
+#[test]
+fn going_somewhere_new_drops_the_forward_entries() {
+    val h = navigate.went_to(navigate.went_to(navigate.history_of("home"), "records"), "detail")
+    val moved = navigate.went_to(navigate.back(h), "settings")
+    test.assert_eq(names(moved), "home records settings @2")
+    test.assert_false(navigate.can_go_forward(moved))
+}
+
+// **Going where you already are does nothing.** A list that re-opens the record already open would
+// otherwise need two `back`s to leave it, and the first would look as though it had failed.
+#[test]
+fn going_where_you_already_are_is_not_a_second_entry() {
+    val h = navigate.went_to(navigate.history_of("home"), "records")
+    val again = navigate.went_to(h, "records")
+    test.assert_eq(names(again), "home records @1")
+    test.assert_eq(navigate.here(navigate.back(again)), "home")
+}
+
+// The ends do nothing rather than going out of range, which an empty history makes real.
+#[test]
+fn the_ends_of_a_history_hold() {
+    val h = navigate.history_of("home")
+    test.assert_eq(navigate.here(navigate.back(h)), "home")
+    test.assert_eq(navigate.here(navigate.forward(h)), "home")
+}
+
+// --- the screen
+
+fn screen(title: string) -> widget.Widget {
+    return navigate.screen_widget(
+        "records",
+        title,
+        controls.button_widget(controls.button_of("records-new", "New"), frame()),
+        frame()
+    )
+}
+
+fn laid(w: widget.Widget) -> widget.Laid {
+    return widget.layout(w, geom.rect_of(0.0, 0.0, 300.0, 200.0), metrics())
+}
+
+// **A screen is not a tab stop**, which is F323's answer for F323's reason: a focusable screen
+// sits in front of its own content, so a user presses Tab to get past what they are looking at.
+#[test]
+fn a_screen_is_not_a_tab_stop() {
+    val reachable = focus.controls(laid(screen("Records")))
+    test.assert_eq(len(reachable), 1)
+    test.assert_eq(reachable[0].name, "records-new")
+}
+
+// **The focus goes into the new screen**, because it is sitting on a control that has just
+// stopped existing. Left alone it resumes from the start of the window, so a keyboard user is
+// dropped at the top of a navigation bar every time they open a record.
+#[test]
+fn arriving_says_where_the_focus_should_go() {
+    test.assert_eq(navigate.arrived_at(laid(screen("Records")), "records"), "records-new")
+    // A screen that holds nothing focusable says so rather than guessing.
+    val bare = navigate.screen_widget("empty", "Nothing", widget.Widget.Nothing, frame())
+    test.assert_eq(navigate.arrived_at(laid(bare), "empty"), "")
+    // And a screen that is not there is not an error either.
+    test.assert_eq(navigate.arrived_at(laid(screen("Records")), "absent"), "")
+}
+
+// **Arriving is announced.** A reader says what the user moves to; when the screen changes nobody
+// has moved, so without this nothing is said at all.
+#[test]
+fn arriving_at_a_screen_speaks_its_title() {
+    val before = a11y.tree_of(laid(screen("Records")), "app", "")
+    val after = a11y.tree_of(laid(screen("Medicines")), "app", "")
+    val said = a11y.announcements(before, after)
+    test.assert_eq(len(said), 1)
+    test.assert_eq(said[0].text, "Medicines")
+    test.assert_false(said[0].assertive)
+    // Staying put says nothing.
+    test.assert_eq(len(a11y.announcements(before, before)), 0)
+}
