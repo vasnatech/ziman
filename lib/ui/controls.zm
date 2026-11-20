@@ -18,6 +18,7 @@
 // widgets here and there cannot be one -- no shared mutable state exists to hold it -- so the
 // application holds whatever its window needs, routes an input with `target`, and calls the update
 // for the control that input was for.
+use a11y
 use edit
 use focus
 use geom
@@ -25,6 +26,7 @@ use geom.Point
 use geom.Rect
 use locale
 use math.floor
+use number
 use paint
 use paint.Color
 use paint.Paint
@@ -335,7 +337,7 @@ fn cursor_for(node: Laid) -> widget.Cursor {
         ProgressBar { widget.Cursor.Arrow }
         SpinButton { widget.Cursor.Text }
         ToolBar { widget.Cursor.Arrow }
-        DateEditor { widget.Cursor.Text }
+        DateEditor { widget.Cursor.Arrow }
         Calendar { widget.Cursor.Arrow }
         RadioButton { widget.Cursor.Arrow }
         Slider { widget.Cursor.Arrow }
@@ -4445,13 +4447,6 @@ pub fn menu_popup_layer(menu: Menu, at: Rect, f: Frame) -> widget.Layer {
 
 // -------------------------------------------------------------- the date field
 
-// A date, typed or picked off a calendar.
-//
-// **The text is the value and the calendar is a way of writing it**, which is the decision
-// everything here follows from. A field holding a `LocalDate` and showing text derived from it
-// cannot hold what a user is halfway through typing: "2026-11-" is not a date and is plainly on
-// the way to one. That is the number field's argument in another shape, and it ends the same way
-// -- the `Entry` holds the truth and `date_in` answers an `Option`.
 // Which grid the calendar is showing.
 //
 // **Three views and not a separate popup each**, which is what every date picker settled on: the
@@ -4464,8 +4459,26 @@ pub enum CalendarView {
     Years
 }
 
+// A date, picked off a calendar.
+//
+// **A value picker and not a field with a button beside it**, which is the combo box's shape and
+// the combo box's argument: one box showing what is chosen, one mark saying it opens, one tab
+// stop, one thing a reader names. A text field with a calendar button next to it is two controls
+// that have to agree about one value, and the first thing they disagree about is what a
+// half-typed date means.
+//
+// **Not editable in this version**, deliberately, which is why the value is a `LocalDate` and not
+// an `Entry`. A field that could be typed into would have to hold `2026-11-` -- not a date, and
+// plainly on the way to one -- so the value would have to be text and every reader of it would
+// have to cope with it not being a date yet. That argument is sound and it is the number field's,
+// but it is only worth paying for when there is typing to support. There is not, so the value
+// here is a date, and the day typing arrives the `Entry` comes back with it.
 pub struct DateField {
-    entry: Entry
+    name: string
+    label: string
+    // What is chosen. **Always a real date**, which is the whole benefit of not being editable.
+    on: time.LocalDate
+    disabled: bool
     // Where the keyboard is in the open calendar, and whose month the calendar shows.
     //
     // **Not the value.** A user paging through months with the arrows has chosen nothing yet, and
@@ -4495,7 +4508,10 @@ pub fn date_field_of(name: string, label: string, on: time.LocalDate) -> DateFie
 
 pub fn date_field_of(name: string, label: string, on: time.LocalDate, l: Locale) -> DateField {
     return DateField {
-        entry: entry_of(name, label, time.format(on, time.datetime_format_of(iso_date))),
+        name: name,
+        label: label,
+        on: on,
+        disabled: false,
         at: on,
         open: false,
         view: CalendarView.Days,
@@ -4503,28 +4519,22 @@ pub fn date_field_of(name: string, label: string, on: time.LocalDate, l: Locale)
     }
 }
 
-// The date in the field, or nothing while it does not hold one.
+// The date the field holds.
 //
-// **`parse_localdate` is the judge**, not a length check or a regular expression: it is the same
-// function that reads a date anywhere else in the library, so a string this accepts and one the
-// rest of the program accepts cannot drift apart.
-pub fn date_in(d: DateField) -> Option<time.LocalDate> {
-    return switch time.parse_localdate(d.entry.editor.text, time.datetime_format_of(iso_date)) {
-        Ok(on) { Option<time.LocalDate>.Some(on) }
-        Err(_) { Option<time.LocalDate>.None }
-    }
+// **A `LocalDate` and not an `Option`**, which is what a picker buys: there is no way to put a
+// non-date into this control, so there is no way for a caller to have to check.
+pub fn date_in(d: DateField) -> time.LocalDate {
+    return d.on
 }
 
-pub fn date_or(d: DateField, fallback: time.LocalDate) -> time.LocalDate {
-    return switch date_in(d) {
-        Some(on) { on }
-        None { fallback }
-    }
-}
-
-// The button that opens the calendar, and the name a click on it answers to.
-pub fn date_button_name(d: DateField) -> string {
-    return concat(d.entry.name, "-calendar")
+// What the box shows.
+//
+// **ISO, and not a locale's own order.** `yyyy-MM-dd` is unambiguous everywhere, where `03/04`
+// means two different days on two sides of an ocean -- and this library has no source for each
+// locale's date *pattern*, only for its month and day names. Inventing one here would be guessing
+// in a format whose whole job is to be read correctly.
+pub fn date_text(d: DateField) -> string {
+    return time.format(d.on, time.datetime_format_of(iso_date), d.locale)
 }
 
 fn date_still(d: DateField) -> DateStep {
@@ -4532,16 +4542,15 @@ fn date_still(d: DateField) -> DateStep {
 }
 
 fn written(d: DateField, on: time.LocalDate) -> DateStep {
-    val text = time.format(on, time.datetime_format_of(iso_date))
     return DateStep {
         field: with d {
-            entry: with d.entry { editor: edit.editor_of(text) },
+            on: on,
             at: on,
             open: false,
             // Back to days, so the calendar is where it was left when it next opens.
             view: CalendarView.Days
         },
-        changed: text != d.entry.editor.text
+        changed: time.localdate_compare(on, d.on) != 0
     }
 }
 
@@ -4591,56 +4600,105 @@ val calendar_rows = 6
 val calendar_columns = 7
 
 // The months and the years share one shape: twelve cells, three across.
-val block_columns = 3
-val block_rows = 4
-val years_in_block = 12
+// The months are a year, three across. **Twelve cells, and the shape is not a choice**: a year has
+// twelve months and 3x4 is the only arrangement of them that is not ragged.
+val month_columns = 3
+val month_rows = 4
+
+// The years are a block of twenty, four across. **Wider than the months on purpose**: a year is
+// four digits where an abbreviated month is three or four letters, so the cells can be narrower,
+// and twenty of them is enough that most dates a form asks for are one page away.
+val year_columns = 4
+val year_rows = 5
+
+// **Derived, not declared.** A block that said twenty while the grid drew eighteen would page past
+// two years every time, and nothing on screen would say so.
+val years_in_block = year_columns * year_rows
 
 fn columns_in(v: CalendarView) -> int {
     return switch v {
         Days { calendar_columns }
-        Months { block_columns }
-        Years { block_columns }
+        Months { month_columns }
+        Years { year_columns }
     }
 }
 
 fn rows_in(v: CalendarView) -> int {
     return switch v {
         Days { calendar_rows }
-        Months { block_rows }
-        Years { block_rows }
+        Months { month_rows }
+        Years { year_rows }
     }
 }
 
+// **Wide enough for an abbreviated day name**, which is what sets it rather than the digits: two
+// figures fit in anything, and at 1.3 the header read "WedThu" with no gap between them.
 // **Wide enough for an abbreviated day name**, which is what sets it rather than the digits: two
 // figures fit in anything, and at 1.3 the header read "WedThu" with no gap between them.
 fn calendar_cell(f: Frame) -> float {
     return row_height(f.metrics, f.style) * 1.6
 }
 
-fn calendar_head(f: Frame) -> float {
-    return row_height(f.metrics, f.style) + calendar_cell(f) * 0.7
+// The breathing room between the popup's edge and the grid inside it.
+//
+// **A popup's rows go edge to edge and a calendar's must not**, which is why this is here rather
+// than in `popped`: a menu row is a target that should be as wide as the menu, and a grid pushed
+// against a border reads as clipped.
+fn calendar_pad(f: Frame) -> float {
+    return f.style.space.s
+}
+
+fn title_height(f: Frame) -> float {
+    return row_height(f.metrics, f.style)
+}
+
+// How much of the grid's own box is taken before the cells start.
+//
+// **It differs by view and that is the whole of the defect it fixes.** Days draws a row of weekday
+// names under the title and the other two do not -- so a single `calendar_head` meant the months
+// grid was drawn from one origin and hit-tested from another, twenty-two points apart. It passed
+// every test, because clicking a cell's *centre* still landed on the right cell: the offset was a
+// point and a half under half a row. The top of every cell belonged to the row above it.
+fn head_in(f: Frame, v: CalendarView) -> float {
+    return switch v {
+        Days { title_height(f) + calendar_cell(f) * 0.7 }
+        Months { title_height(f) }
+        Years { title_height(f) }
+    }
 }
 
 // **One size for all three views**, taken from the day grid, which is the largest. A popup that
 // resized as a user zoomed out would move under the pointer between the press that opened the
 // months and the press that chose one.
 fn calendar_size(f: Frame) -> widget.Size {
+    val pad = calendar_pad(f) * 2.0
     return widget.size_of(
-        calendar_cell(f) * (calendar_columns as float),
-        calendar_head(f) + calendar_cell(f) * (calendar_rows as float)
+        calendar_cell(f) * (calendar_columns as float) + pad,
+        head_in(f, CalendarView.Days) + calendar_cell(f) * (calendar_rows as float) + pad
     )
+}
+
+// How big one cell of a view is. **Derived from the popup's own size**, so the grid always fills
+// it however many rows the view has -- and so that the drawing and the hit test cannot disagree,
+// because this is the only place either of them asks.
+fn cell_wide(f: Frame, v: CalendarView) -> float {
+    return (calendar_size(f).width - calendar_pad(f) * 2.0) / (columns_in(v) as float)
+}
+
+fn cell_tall(f: Frame, v: CalendarView) -> float {
+    val inner = calendar_size(f).height - calendar_pad(f) * 2.0 - head_in(f, v)
+    return inner / (rows_in(v) as float)
 }
 
 // The box of one cell of the current view, inside the popup's box.
 fn cell_box(at: Rect, index: int, f: Frame, v: CalendarView) -> Rect {
     val across = columns_in(v)
-    val wide = at.width / (across as float)
-    val tall = (at.height - calendar_head(f)) / (rows_in(v) as float)
+    val pad = calendar_pad(f)
     return geom.rect_of(
-        at.x + ((index % across) as float) * wide,
-        at.y + calendar_head(f) + ((index / across) as float) * tall,
-        wide,
-        tall
+        at.x + pad + ((index % across) as float) * cell_wide(f, v),
+        at.y + pad + head_in(f, v) + ((index / across) as float) * cell_tall(f, v),
+        cell_wide(f, v),
+        cell_tall(f, v)
     )
 }
 
@@ -4651,7 +4709,7 @@ fn cell_box(at: Rect, index: int, f: Frame, v: CalendarView) -> Rect {
 // the fifth was drawn under the pointer.
 pub fn calendar_box(d: DateField, laid: Laid, within: Rect, f: Frame) -> Rect {
     val size = calendar_size(f)
-    val under = switch widget.node_named(laid, d.entry.name) {
+    val under = switch widget.node_named(laid, d.name) {
         Some(n) { geom.rect_of(n.bounds.x, n.bounds.y + n.bounds.height, n.bounds.width, n.bounds.height) }
         None { geom.rect_of(within.x, within.y, 0.0, 0.0) }
     }
@@ -4666,20 +4724,19 @@ pub fn calendar_box(d: DateField, laid: Laid, within: Rect, f: Frame) -> Rect {
 
 // Which cell of the current view a point is in, or -1.
 //
-// **Arithmetic, where a toolbar reads its parts out of the laid tree.** The difference is that
-// these grids are uniform -- forty-two cells of one size, or twelve -- so the division is exact
-// and there is nothing for a second calculation to get wrong. A toolbar's commands are an icon, a
-// word and a rule, and only their laid boxes know where they ended up.
+// **The inverse of `cell_box`, asking the same `head_in`, `cell_wide` and `cell_tall`**, which is
+// what keeps a click on what is drawn. Written with its own copy of the arithmetic it was twenty-
+// two points out in two of the three views and nothing said so.
 fn calendar_cell_at(at: Rect, p: Point, f: Frame, v: CalendarView) -> int {
-    val top = at.y + calendar_head(f)
+    val pad = calendar_pad(f)
+    val top = at.y + pad + head_in(f, v)
     if p.y < top {
         return 0 - 1
     }
     val across = columns_in(v)
-    val down = rows_in(v)
-    val column = ((p.x - at.x) / (at.width / (across as float))) as int
-    val row = ((p.y - top) / ((at.height - calendar_head(f)) / (down as float))) as int
-    if column < 0 || column >= across || row < 0 || row >= down {
+    val column = ((p.x - at.x - pad) / cell_wide(f, v)) as int
+    val row = ((p.y - top) / cell_tall(f, v)) as int
+    if column < 0 || column >= across || row < 0 || row >= rows_in(v) {
         return 0 - 1
     }
     return row * across + column
@@ -4692,31 +4749,41 @@ fn year_block(d: DateField) -> int {
 }
 
 pub fn date_field_input(d: DateField, input: Input, laid: Laid, within: Rect, f: Frame) -> DateStep {
-    if d.entry.disabled {
+    if d.disabled {
         return date_still(d)
     }
     if d.open {
         return open_calendar_input(d, input, laid, within, f)
     }
-    if Press(p) = input {
-        if holds_point(laid, date_button_name(d), p) {
-            // Opens on the date the field holds, so a user who typed one and then reached for the
-            // calendar is not sent back to today.
-            return date_still(with d { open: true, at: date_or(d, d.at) })
-        }
-    }
-    // Everything else is the field's: a date is typed as text, which is the point of the `Entry`.
-    val step = entry_input(d.entry, input, box_named(laid, d.entry.name, within), f)
-    return DateStep {
-        field: with d { entry: step.entry },
-        changed: step.entry.editor.text != d.entry.editor.text
-    }
+    return closed_date_input(d, input, laid)
 }
 
-fn box_named(laid: Laid, name: string, fallback: Rect) -> Rect {
-    return switch widget.node_named(laid, name) {
-        Some(n) { n.bounds }
-        None { fallback }
+// **A shut picker opens the way a combo box does**: a press on the box, or Down, Enter or Space
+// from the keyboard. There is nothing else it can do -- it holds a date and the only way to
+// change one is to open the calendar.
+fn closed_date_input(d: DateField, input: Input, laid: Laid) -> DateStep {
+    return switch input {
+        Press(p) {
+            if holds_point(laid, d.name, p) {
+                date_still(with d { open: true, at: d.on })
+            } else {
+                date_still(d)
+            }
+        }
+        KeyDown(k) {
+            if Key.is_Down(k.key) || Key.is_Enter(k.key) || Key.is_Space(k.key) {
+                date_still(with d { open: true, at: d.on })
+            } else {
+                date_still(d)
+            }
+        }
+        KeyUp(_) { date_still(d) }
+        Text(_) { date_still(d) }
+        Paste(_) { date_still(d) }
+        Release(_) { date_still(d) }
+        Move(_) { date_still(d) }
+        Wheel(_) { date_still(d) }
+        SecondaryPress(_) { date_still(d) }
     }
 }
 
@@ -4743,7 +4810,7 @@ fn calendar_pressed(d: DateField, p: Point, laid: Laid, within: Rect, f: Frame) 
     }
     val cell = calendar_cell_at(at, p, f, d.view)
     if cell < 0 {
-        return date_still(header_pressed(d, at, p))
+        return date_still(header_pressed(d, at, p, f))
     }
     return chosen_cell(d, cell)
 }
@@ -4753,7 +4820,13 @@ fn calendar_pressed(d: DateField, p: Point, laid: Laid, within: Rect, f: Frame) 
 // **Pressing the title is how a year twelve years away stops being a hundred and forty-four
 // presses on a month arrow**, which is the whole reason the three views exist. Days zoom to
 // months, months to years, and years stay -- there is nowhere further out to go.
-fn header_pressed(d: DateField, at: Rect, p: Point) -> DateField {
+fn header_pressed(d: DateField, at: Rect, p: Point, f: Frame) -> DateField {
+    // **Only the title row**, not everything above the cells. In the days view the band above the
+    // grid is the title *and* the row of weekday names, so without this a press on "Mon" paged the
+    // month or zoomed out to the year -- a label doing something, which a label must not.
+    if p.y > at.y + calendar_pad(f) + title_height(f) {
+        return d
+    }
     val third = at.width / 3.0
     if p.x < at.x + third {
         return paged(d, 0 - 1)
@@ -4850,51 +4923,40 @@ fn stepped_by(d: DateField, by: int) -> DateField {
     }
 }
 
+// **The combo box's shape exactly**: the value, a flexible gap, and the mark that says it opens.
+// One box, one tab stop, one thing a reader names -- where a text field with a calendar button
+// beside it is two controls that have to agree about one value.
 pub fn date_field_widget(d: DateField, f: Frame) -> widget.Widget {
     val style = f.style
-    val parts = parts_for(style, mood_of(d.entry.disabled, false, false, hovered_in(f, d.entry.name)))
-    val side = line_for(f.metrics, style.text.label)
-    val button = widget.part_of(
-        date_button_name(d),
-        widget.Role.Button,
-        "Choose a date",
-        with widget.no_state() { disabled: d.entry.disabled, expanded: Option<bool>.Some(d.open) },
-        widget.Widget.Group(widget.Stack {
-            direction: widget.Direction.Row,
-            spacing: 0.0,
-            padding: padded_for(style),
-            surface: surface_of(style, parts_for(style, mood_of(
-                d.entry.disabled,
-                d.open,
-                false,
-                hovered_in(f, date_button_name(d))
-            ))),
-            align: widget.centred(),
-            children: [chevron_widget(true, parts.ink, side)],
-            name: ""
-        })
-    )
+    val parts = parts_for(style, mood_of(d.disabled, d.open, false, hovered_in(f, d.name)))
+    val ink = parts.ink
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
-        padding: widget.no_insets(),
-        surface: widget.no_surface(),
-        align: widget.stretched(),
-        // **`expand` on the field**, which is what makes a date field given a width use it: see
-        // `number_field_widget`, where the same row drew a 50-point control inside a 160-point box.
+        padding: padded_for(style),
+        surface: surface_of(style, parts),
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
         children: [
-            widget.expand(entry_inside(field_runs(d.entry, style, parts, f.metrics), style, parts)),
-            button
+            widget.label_in_face(date_text(d), style.text.label.size, ink, style.text.label.face),
+            widget.flex(),
+            // **The tree's own downward arrow**, which means "this opens downward" there and means
+            // the same here: one shape rather than two that could drift apart.
+            chevron_widget(true, ink, line_for(f.metrics, style.text.label))
         ],
         name: ""
     })
     return widget.Widget.Control(widget.Focusable {
-        name: d.entry.name,
+        name: d.name,
         role: widget.Role.DateEditor,
-        label: d.entry.label,
-        description: "as year-month-day",
-        value: d.entry.editor.text,
-        state: with widget.no_state() { disabled: d.entry.disabled, readonly: d.entry.readonly },
+        label: d.label,
+        description: "",
+        // The value a reader says after the name, as a combo box's is: a picker that published
+        // none would announce "Due, date field" and leave the user to open it to find out.
+        value: date_text(d),
+        state: with widget.no_state() {
+            disabled: d.disabled,
+            expanded: Option<bool>.Some(d.open)
+        },
         focus_part: "",
         tab_stop: true,
         child: inside
@@ -4931,15 +4993,31 @@ fn calendar_widget(d: DateField, f: Frame) -> widget.Widget {
         r = r + 1
     }
     return widget.Widget.Control(widget.Focusable {
-        name: concat(d.entry.name, "/calendar"),
+        name: concat(d.name, "/calendar"),
         role: widget.Role.Calendar,
-        label: d.entry.label,
+        label: d.label,
         description: "",
         value: time.format(d.at, time.datetime_format_of(iso_date), d.locale),
         state: widget.no_state(),
         focus_part: "",
         tab_stop: false,
-        child: widget.column_of(0.0, snapshot(rows))
+        // **The inset lives here and not in `popped`**, which menus and combo boxes share: a menu
+        // row is a target and should run the width of its popup, where a grid pushed against a
+        // border reads as clipped.
+        child: widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.insets_of(
+                calendar_pad(f),
+                calendar_pad(f),
+                calendar_pad(f),
+                calendar_pad(f)
+            ),
+            surface: widget.no_surface(),
+            align: widget.stretched(),
+            children: [widget.expand(widget.column_of(0.0, snapshot(rows)))],
+            name: ""
+        })
     })
 }
 
@@ -4955,6 +5033,14 @@ fn calendar_heading(d: DateField) -> string {
     }
 }
 
+// The header: back, the heading, forward.
+//
+// **All three are declared as parts, which is what makes them look pressable.** They were a label
+// between two drawn arrows -- they worked, and nothing on screen said so, which is the same thing
+// as not being there. A `part_of` is a control for a reader and for the pointer without being a
+// stop in the tab order, so each lights under the pointer and each has a name a reader can find.
+// The gestures are still decided by geometry in `header_pressed`; this changes what is *said* and
+// what is *drawn*, not what happens.
 fn calendar_title(d: DateField, f: Frame) -> widget.Widget {
     val style = f.style
     val side = line_for(f.metrics, style.text.label)
@@ -4965,17 +5051,79 @@ fn calendar_title(d: DateField, f: Frame) -> widget.Widget {
         surface: widget.no_surface(),
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
         children: [
-            widget.fixed_of(side * 2.0, row_height(f.metrics, style), pager_widget(true, style.ink, side)),
-            widget.expand(widget.label_in_face(
-                calendar_heading(d),
-                style.text.label.size,
-                style.ink,
-                style.text.label.face
-            )),
-            widget.fixed_of(side * 2.0, row_height(f.metrics, style), pager_widget(false, style.ink, side))
+            pager_part(d, true, side, f),
+            widget.expand(zoom_part(d, f)),
+            pager_part(d, false, side, f)
         ],
         name: ""
     })
+}
+
+// What the two arrows step, which is not the same thing in each view -- so a reader is told which.
+fn pager_says(d: DateField, back: bool) -> string {
+    val span = switch d.view {
+        Days { "month" }
+        Months { "year" }
+        Years { concat(str(years_in_block), " years") }
+    }
+    if back {
+        return concat("Previous ", span)
+    }
+    return concat("Next ", span)
+}
+
+fn pager_part(d: DateField, back: bool, side: float, f: Frame) -> widget.Widget {
+    val name = concat(d.name, if back { "/back" } else { "/forward" })
+    val parts = parts_for(f.style, mood_of(false, false, false, hovered_in(f, name)))
+    return widget.fixed_of(side * 2.0, row_height(f.metrics, f.style), widget.part_of(
+        name,
+        widget.Role.Button,
+        pager_says(d, back),
+        widget.no_state(),
+        widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            surface: surface_of(f.style, parts),
+            align: widget.centred(),
+            children: [pager_widget(back, parts.ink, side)],
+            name: ""
+        })
+    ))
+}
+
+// The heading, which zooms out when pressed -- and says so, because "November 2026" alone does
+// not tell anyone that it is a button.
+fn zoom_part(d: DateField, f: Frame) -> widget.Widget {
+    val name = concat(d.name, "/zoom")
+    val parts = parts_for(f.style, mood_of(false, false, false, hovered_in(f, name)))
+    val says = switch d.view {
+        Days { "Choose a month" }
+        Months { "Choose a year" }
+        Years { "" }
+    }
+    return widget.part_of(
+        name,
+        widget.Role.Button,
+        if says == "" { calendar_heading(d) } else { says },
+        widget.no_state(),
+        widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            // **Only when it does something.** The years view has nowhere further out to go, so
+            // its heading does not light up and does not invite a press that would do nothing.
+            surface: if says == "" { widget.no_surface() } else { surface_of(f.style, parts) },
+            align: widget.centred(),
+            children: [widget.label_in_face(
+                calendar_heading(d),
+                f.style.text.label.size,
+                parts.ink,
+                f.style.text.label.face
+            )],
+            name: ""
+        })
+    )
 }
 
 // **The weekday names are the first row's own dates, formatted.** There is no table of day names
@@ -4988,7 +5136,7 @@ fn calendar_weekdays(d: DateField, f: Frame) -> widget.Widget {
     var c = 0
     while c < calendar_columns {
         push(cells, widget.fixed_of(
-            calendar_cell(f),
+            cell_wide(f, CalendarView.Days),
             calendar_cell(f) * 0.7,
             widget.label_in_face(
                 time.format(cell_date(d, c), time.datetime_format_of("EEE"), d.locale),
@@ -5022,10 +5170,10 @@ fn block_cell(d: DateField, index: int, says: string, chosen: bool, f: Frame) ->
     val style = f.style
     val parts = parts_for(style, mood_of(false, false, chosen, false))
     return widget.fixed_of(
-        calendar_cell(f) * ((calendar_columns as float) / (block_columns as float)),
-        calendar_cell(f) * ((calendar_rows as float) / (block_rows as float)),
+        cell_wide(f, d.view),
+        cell_tall(f, d.view),
         widget.part_of(
-            concat(d.entry.name, "/cell/", str(index)),
+            concat(d.name, "/cell/", str(index)),
             widget.Role.Button,
             says,
             with widget.no_state() { selected: chosen },
@@ -5056,21 +5204,25 @@ fn calendar_day(d: DateField, index: int, f: Frame) -> widget.Widget {
     // **The days either side of the month are faded, not blank.** They are real dates and clicking
     // one is a reasonable thing to mean -- and a grid with holes in it reads as broken.
     val ink = if here { parts.ink } else { style.states.disabled.ink }
-    return widget.fixed_of(calendar_cell(f), calendar_cell(f), widget.part_of(
-        concat(d.entry.name, "/day/", str(index)),
-        widget.Role.Button,
-        time.format(on, time.datetime_format_of(iso_date), d.locale),
-        with widget.no_state() { selected: chosen },
-        widget.Widget.Group(widget.Stack {
-            direction: widget.Direction.Row,
-            spacing: 0.0,
-            padding: widget.no_insets(),
-            surface: if chosen { surface_of(style, parts) } else { widget.no_surface() },
-            align: widget.centred(),
-            children: [widget.label_in_face(str(on.day), style.text.body.size, ink, style.text.body.face)],
-            name: ""
-        })
-    ))
+    return widget.fixed_of(
+        cell_wide(f, CalendarView.Days),
+        cell_tall(f, CalendarView.Days),
+        widget.part_of(
+            concat(d.name, "/day/", str(index)),
+            widget.Role.Button,
+            time.format(on, time.datetime_format_of(iso_date), d.locale),
+            with widget.no_state() { selected: chosen },
+            widget.Widget.Group(widget.Stack {
+                direction: widget.Direction.Row,
+                spacing: 0.0,
+                padding: widget.no_insets(),
+                surface: if chosen { surface_of(style, parts) } else { widget.no_surface() },
+                align: widget.centred(),
+                children: [widget.label_in_face(str(on.day), style.text.body.size, ink, style.text.body.face)],
+                name: ""
+            })
+        )
+    )
 }
 
 // ---------------------------------------------------------------- the toolbar
@@ -6090,6 +6242,120 @@ pub fn split_pane_widget(
 // nobody hits; the number is the one every table uses and it is the reason the cursor changes
 // shape there.
 
+// One value in a table cell.
+//
+// **An enum, where Swing's `TableModel` has `Object` and `getColumnClass`.** `JTable` looks a
+// renderer up by the class the model reports for a column -- reflection doing a job a type can
+// do, and a `ClassCastException` at paint time where this is a compile error. Every variant here
+// is one of `JTable`'s own default renderers; the difference is that the set is closed, so a new
+// kind of value is a compile error in the one switch that draws them rather than a cell that
+// silently falls back to `toString`.
+//
+// **Why a table needs this at all**: a column of numbers held as text cannot be right-aligned on
+// its digits without the caller padding them, cannot be formatted for a locale, and sorts `10`
+// before `9`. Holding the value and formatting late is what fixes all three at once.
+pub enum Value {
+    Text(string)
+    // A measured quantity: written with the locale's own separators.
+    Number(float)
+    // A counted quantity, likewise.
+    Whole(int)
+    // **A number that identifies rather than counts**: a year, a port, a status code, an id.
+    //
+    // **Never grouped and never localised**, which is the distinction `Whole` cannot make and the
+    // reason this variant exists. `1,766` is a wrong year, `8,080` is a wrong port, and `404` is
+    // not four hundred and four. Swing reaches the same place by giving the column its own
+    // renderer; this says it on the value, where the fact actually lives.
+    Code(int)
+    // **A quantity that must not be approximated**: money, a dose, a rate. `Number` is a `float`
+    // and `0.1 + 0.2` is not `0.3` in one -- so a column of prices held as `Number` is the oldest
+    // arithmetic bug there is, printed into a table. This is the variant a currency column uses.
+    Exact(decimal)
+    // A whole number past what an `int` holds.
+    Big(bigint)
+    Date(time.LocalDate)
+    // **Drawn as a check box**, which is `JTable`'s single most useful default and the reason
+    // anybody notices `getColumnClass` exists.
+    Flag(Toggle)
+    Mark(widget.Icon)
+    // A cell with nothing in it, which is **not** the empty string: a missing measurement and a
+    // measurement of "" are different facts, and a reader should not be told they are the same.
+    Blank
+}
+
+// What a value reads as: what a text cell draws and what a reader hears.
+//
+// **Formatted here and not by the caller**, which is the whole benefit of holding the value: a
+// number takes the locale's own separators and a date its own order, so the same table reads
+// correctly in `tr_TR` and `en_US` without anybody passing a format down.
+pub fn value_text(v: Value, l: Locale) -> string {
+    return switch v {
+        Text(it) { it }
+        Number(it) { number.format(number.float_to_text(it), number.number_format_for(l)) }
+        Whole(it) { number.format(str(it), number.number_format_for(l)) }
+        // Plainly, with no separators: see `Value.Code`.
+        Code(it) { str(it) }
+        // **Grouped like any other quantity, and exact.** `number.format` works on the digits a
+        // value writes, so a decimal keeps every one of them on the way through.
+        Exact(it) { number.format(str(it), number.number_format_for(l)) }
+        Big(it) { number.format(str(it), number.number_format_for(l)) }
+        Date(it) { time.format(it, time.datetime_format_of("yyyy-MM-dd"), l) }
+        // **What a reader says about a check box**, which `a11y.toggle_word` already decides for
+        // every other control -- so a table and a check box cannot disagree about what "mixed"
+        // sounds like.
+        Flag(it) { a11y.toggle_word(it, widget.Role.CheckBox) }
+        Mark(it) { it.name }
+        Blank { "" }
+    }
+}
+
+// A value that may not be there.
+//
+// **`Blank` is already the `None` case**, so these are a convenience and not a second way to say
+// it. A `Value` whose payloads were `Option`s would give the library two spellings for "nothing
+// here" -- `Blank` and `Number(None)` -- and two spellings of one fact is what this module keeps
+// designing against. A nullable column maps straight through instead:
+//
+//     push(cells, controls.value_or_blank(row.price))
+//
+// **There is deliberately none for `Option<int>`**, because an `int` does not say whether it is a
+// quantity or an identifier -- `Whole` groups and `Code` does not, and only the caller knows
+// which it meant. See `Value.Code`.
+pub fn value_or_blank(v: Option<string>) -> Value {
+    return switch v {
+        Some(it) { Value.Text(it) }
+        None { Value.Blank }
+    }
+}
+
+pub fn value_or_blank(v: Option<float>) -> Value {
+    return switch v {
+        Some(it) { Value.Number(it) }
+        None { Value.Blank }
+    }
+}
+
+pub fn value_or_blank(v: Option<decimal>) -> Value {
+    return switch v {
+        Some(it) { Value.Exact(it) }
+        None { Value.Blank }
+    }
+}
+
+pub fn value_or_blank(v: Option<time.LocalDate>) -> Value {
+    return switch v {
+        Some(it) { Value.Date(it) }
+        None { Value.Blank }
+    }
+}
+
+pub fn value_or_blank(v: Option<Toggle>) -> Value {
+    return switch v {
+        Some(it) { Value.Flag(it) }
+        None { Value.Blank }
+    }
+}
+
 // One column of a table.
 pub struct Column {
     title: string
@@ -6134,10 +6400,16 @@ pub struct Table {
     columns: [Column]
     // The cells, a row at a time.
     //
-    // **A row shorter than `columns` is not an error**: `cell_at` answers "" past its end. A table
-    // built from a query has a missing value in it sooner or later, and the alternative is every
-    // caller padding its rows or this control raising on data it could simply draw.
-    rows: [[string]]
+    // **A row shorter than `columns` is not an error**: `value_at` answers `Blank` past its end. A
+    // table built from a query has a missing value in it sooner or later, and the alternative is
+    // every caller padding its rows or this control raising on data it could simply draw.
+    rows: [[Value]]
+    // The locale its numbers and dates are written in.
+    //
+    // **Injected and not read from a global**, for `Style`'s reason: a module that reached for
+    // `locale.default()` could not be tested against two locales, and a thousands separator is
+    // exactly the thing that differs.
+    locale: Locale
     // The selected row, or -1 for none -- a real state, as `List.selected` explains at length.
     selected: int
     // Whether the strip of column titles is drawn at all.
@@ -6165,12 +6437,23 @@ pub struct Table {
     disabled: bool
 }
 
-pub fn table_of(name: string, label: string, columns: [Column], rows: [[string]]) -> Table {
+pub fn table_of(name: string, label: string, columns: [Column], rows: [[Value]]) -> Table {
+    return table_of(name, label, columns, rows, locale.default())
+}
+
+pub fn table_of(
+    name: string,
+    label: string,
+    columns: [Column],
+    rows: [[Value]],
+    l: Locale
+) -> Table {
     return Table {
         name: name,
         label: label,
         columns: columns,
         rows: rows,
+        locale: l,
         selected: if len(rows) == 0 { 0 - 1 } else { 0 },
         headers: true,
         offset: 0.0,
@@ -6182,16 +6465,41 @@ pub fn table_of(name: string, label: string, columns: [Column], rows: [[string]]
     }
 }
 
-// What is in a cell, or "" for a cell that is not there. See `Table.rows`.
-pub fn cell_at(t: Table, row: int, column: int) -> string {
+// A table of plain text, which is what most of them are.
+//
+// **Kept so that a table of strings says nothing about types**, and so that every caller written
+// before `Value` existed still compiles. A column of words is a column of words; the enum is for
+// the table that has a number, a date or a flag in it.
+pub fn table_of(name: string, label: string, columns: [Column], rows: [[string]]) -> Table {
+    val out = mutable_array_new<[Value]>()
+    for row in rows {
+        val cells = mutable_array_new<Value>()
+        for text in row {
+            push(cells, Value.Text(text))
+        }
+        push(out, snapshot(cells))
+    }
+    return table_of(name, label, columns, snapshot(out))
+}
+
+// The value in a cell, or `Blank` for a cell that is not there. See `Table.rows`.
+pub fn value_at(t: Table, row: int, column: int) -> Value {
     if row < 0 || row >= len(t.rows) {
-        return ""
+        return Value.Blank
     }
     val cells = t.rows[row]
     if column < 0 || column >= len(cells) {
-        return ""
+        return Value.Blank
     }
     return cells[column]
+}
+
+// What is in a cell, as text: what a text cell draws and what a reader hears.
+//
+// **Still a `string` and still this name**, because that is what every caller of it wants -- the
+// typed value is `value_at`, and the two exist for different readers.
+pub fn cell_at(t: Table, row: int, column: int) -> string {
+    return value_text(value_at(t, row, column), t.locale)
 }
 
 // A row as a reader hears it: its cells in order, comma separated.
@@ -6199,6 +6507,10 @@ pub fn cell_at(t: Table, row: int, column: int) -> string {
 // **The columns' order, not the row's length**, so a short row is read as the empty cells it has
 // rather than stopping early -- a reader that said "Aspirin, 100mg" where the screen shows an
 // empty dose column has told the user the wrong thing about the data.
+//
+// **Each cell as `value_text` writes it**, so a reader hears the number a sighted user sees --
+// separators, date order and "checked" for a flag -- rather than whatever the value happens to
+// look like in the source.
 pub fn row_label(t: Table, row: int) -> string {
     val parts = mutable_array_new<string>()
     var i = 0
@@ -6555,7 +6867,10 @@ fn rule(style: Style) -> widget.Widget {
 // **The line is inside the column's width, not beside it.** A line added outside would make every
 // column a point wider than the width it was dragged to, so the number a user set and the number
 // the table used would differ by one -- and by one more every time a column was added.
-fn cell_widget(t: Table, style: Style, column: int, text: string, ink: Color) -> widget.Widget {
+// The box a cell is drawn in: the padding, the alignment its column asks for, and the hair rule
+// down its trailing edge. **Shared by the header and the body**, so a title and the values under
+// it cannot drift apart by a point.
+fn cell_box_widget(t: Table, style: Style, column: int, content: widget.Widget) -> widget.Widget {
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
@@ -6565,7 +6880,7 @@ fn cell_widget(t: Table, style: Style, column: int, text: string, ink: Color) ->
         padding: widget.insets_of(style.space.s, style.space.xs, style.space.s, style.space.xs),
         surface: widget.no_surface(),
         align: widget.Alignment { across: widget.Across.Centre, along: t.columns[column].align },
-        children: [widget.label_in_face(text, style.text.body.size, ink, style.text.body.face)],
+        children: [content],
         name: ""
     })
     return widget.fixed_of(t.columns[column].width, 0.0, widget.Widget.Group(widget.Stack {
@@ -6575,6 +6890,69 @@ fn cell_widget(t: Table, style: Style, column: int, text: string, ink: Color) ->
         surface: widget.no_surface(),
         align: widget.stretched(),
         children: [widget.expand(inside), widget.fixed_of(style.stroke.hair, 0.0, rule(style))],
+        name: ""
+    }))
+}
+
+fn cell_widget(t: Table, style: Style, column: int, text: string, ink: Color) -> widget.Widget {
+    return cell_box_widget(
+        t,
+        style,
+        column,
+        widget.label_in_face(text, style.text.body.size, ink, style.text.body.face)
+    )
+}
+
+// A cell drawn as the kind of thing it holds.
+//
+// **This is `JTable`'s renderer-per-class, decided by a switch instead of by reflection.** The
+// payoff is the same -- a flag is a check box and not the word "true", an icon is an icon -- and
+// the cost is one arm per variant in one place, which the compiler demands rather than a cell
+// quietly falling back to `toString`.
+fn value_cell_widget(t: Table, f: Frame, column: int, v: Value, ink: Color) -> widget.Widget {
+    return cell_box_widget(t, f.style, column, cell_content(t, f, v, ink))
+}
+
+fn cell_content(t: Table, f: Frame, v: Value, ink: Color) -> widget.Widget {
+    val style = f.style
+    return switch v {
+        // **A check box, which is the whole reason anybody notices `getColumnClass`.** Drawn with
+        // the control's own square and the control's own mark, so a flag in a table and a check
+        // box in a form are the same thing to look at.
+        Flag(it) { flag_cell(it, f, ink) }
+        Mark(it) { widget.icon_widget(it, style.text.body.size, ink, style.icon_font) }
+        Text(_) { cell_label(t, style, v, ink) }
+        Number(_) { cell_label(t, style, v, ink) }
+        Whole(_) { cell_label(t, style, v, ink) }
+        Code(_) { cell_label(t, style, v, ink) }
+        Exact(_) { cell_label(t, style, v, ink) }
+        Big(_) { cell_label(t, style, v, ink) }
+        Date(_) { cell_label(t, style, v, ink) }
+        // **Nothing, not an empty label.** A blank cell draws no run at all, which is one fewer
+        // thing for the painter to walk on a table of ten thousand mostly-empty cells.
+        Blank { widget.Widget.Nothing }
+    }
+}
+
+fn cell_label(t: Table, style: Style, v: Value, ink: Color) -> widget.Widget {
+    return widget.label_in_face(
+        value_text(v, t.locale),
+        style.text.body.size,
+        ink,
+        style.text.body.face
+    )
+}
+
+fn flag_cell(on: Toggle, f: Frame, ink: Color) -> widget.Widget {
+    val style = f.style
+    val side = line_for(f.metrics, style.text.body)
+    return widget.fixed_of(side, side, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: surface_of(style, parts_for(style, mood_of(false, false, false, false))),
+        align: widget.centred(),
+        children: [mark_widget(on, ink, side)],
         name: ""
     }))
 }
@@ -6660,7 +7038,7 @@ pub fn table_widget(t: Table, f: Frame) -> widget.Widget {
             // **The row's ink, so a cell's text follows the band under it.** A chosen row on an
             // accented selection needs `on_accent` here, and the table was the one control that
             // drew its words from the control and its band from the row.
-            push(cells, cell_widget(t, style, c, cell_at(t, r, c), row_parts.ink))
+            push(cells, value_cell_widget(t, f, c, value_at(t, r, c), row_parts.ink))
             c = c + 1
         }
         val body = widget.part_of(

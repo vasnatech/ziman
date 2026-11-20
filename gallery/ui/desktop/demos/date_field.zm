@@ -1,18 +1,24 @@
-// A date, typed or picked off a calendar.
+// A date, picked off a calendar.
 //
-// **The text is the value and the calendar writes into it**, which is the thing to try here: type
-// `2026-02-3` and the caption says the field does not hold a date yet, because it does not --
-// the field is holding what you are in the middle of typing, which a field keeping a `LocalDate`
-// could not do at all.
+// **One box, not a field with a button beside it.** This is the combo box's shape and the combo
+// box's argument: the value, the mark that says it opens, one stop in the tab order and one thing
+// a reader names. A text field with a calendar button next to it is two controls that have to
+// agree about one value.
 //
-// **Paging the months writes nothing.** Open the calendar and press PageDown, or the arrows, and
-// watch the field stay where it was: moving the highlight is looking, and Enter is choosing. A
-// calendar that moved the value as the highlight moved would leave a date behind every time
-// somebody went looking for one.
+// **It cannot hold anything that is not a date**, which is what not being editable buys: `date_in`
+// answers a `LocalDate` and no caller has to check. When typing arrives the value becomes text
+// again, because a field being typed into has to hold `2026-11-` -- not a date, and plainly on
+// the way to one.
 //
-// The grid is six rows whatever the month, so it never resizes under the pointer, and the days
-// either side of the month are real dates drawn faded rather than holes.
-use boxes
+// **Paging the months writes nothing.** Open it and press PageDown, or the arrows, and watch the
+// box stay where it was: moving the highlight is looking, and Enter is choosing.
+//
+// **Press the header to zoom out** -- days to months to years, and choosing zooms back in. A year
+// twelve years away is four presses this way and a hundred and forty-four on a month arrow.
+//
+// The week starts where the locale says it does: Sunday in the United States and Japan, Monday
+// across most of Europe, Saturday in much of the Arabic-speaking world. The grid rotates rather
+// than being relabelled, so the 19th stays under Thursday either way.
 use controls
 use demos/date_field_ui
 use time
@@ -41,16 +47,11 @@ pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
 }
 
 fn said(d: Demo) -> string {
-    return switch controls.date_in(d.due) {
-        Some(on) {
-            concat(
-                "That is ",
-                time.format(on, time.datetime_format_of("EEEE d MMMM yyyy")),
-                ". Open the calendar and page through the months -- the field will not move until Enter."
-            )
-        }
-        None { "Not a date yet. The field holds what you are typing, which is what lets you type it." }
-    }
+    return concat(
+        "That is ",
+        time.format(controls.date_in(d.due), time.datetime_format_of("EEEE dd MMMM yyyy"), d.due.locale),
+        ". Press the header to pick a month, and again to pick a year -- the box will not move until you choose a day."
+    )
 }
 
 pub fn layer_at(d: Demo, laid: widget.Laid, f: controls.Frame) -> Option<widget.Layer> {
@@ -65,8 +66,8 @@ pub fn input(
     f: controls.Frame
 ) -> Demo {
     // While the calendar is open every input belongs to it, which is what lets a click anywhere
-    // dismiss it. Shut, only the field's own name counts.
-    if !d.due.open && name != "date-due" && name != controls.date_button_name(d.due) {
+    // dismiss it. Shut, only the box's own name counts.
+    if !d.due.open && name != "date-due" {
         return d
     }
     return with d { due: controls.date_field_input(d.due, input, laid, laid.bounds, f).field }

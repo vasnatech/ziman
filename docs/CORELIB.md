@@ -64,6 +64,8 @@ pub fn reachable(t: Tree) -> [Node]
 
 pub fn announce(n: Node) -> string
 
+pub fn toggle_word(t: Toggle, r: Role) -> string
+
 ```
 
 ## `atspi`
@@ -1166,7 +1168,11 @@ pub enum CalendarView {
 }
 
 pub struct DateField {
-    entry: Entry
+    name: string
+    label: string
+    // What is chosen. **Always a real date**, which is the whole benefit of not being editable.
+    on: time.LocalDate
+    disabled: bool
     // Where the keyboard is in the open calendar, and whose month the calendar shows.
     //
     // **Not the value.** A user paging through months with the arrows has chosen nothing yet, and
@@ -1192,11 +1198,9 @@ pub fn date_field_of(name: string, label: string, on: time.LocalDate) -> DateFie
 
 pub fn date_field_of(name: string, label: string, on: time.LocalDate, l: Locale) -> DateField
 
-pub fn date_in(d: DateField) -> Option<time.LocalDate>
+pub fn date_in(d: DateField) -> time.LocalDate
 
-pub fn date_or(d: DateField, fallback: time.LocalDate) -> time.LocalDate
-
-pub fn date_button_name(d: DateField) -> string
+pub fn date_text(d: DateField) -> string
 
 pub fn calendar_box(d: DateField, laid: Laid, within: Rect, f: Frame) -> Rect
 
@@ -1344,6 +1348,47 @@ pub fn split_pane_input(s: SplitPane, input: Input, bounds: Rect, f: Frame) -> S
 
 pub fn split_pane_widget(
 
+pub enum Value {
+    Text(string)
+    // A measured quantity: written with the locale's own separators.
+    Number(float)
+    // A counted quantity, likewise.
+    Whole(int)
+    // **A number that identifies rather than counts**: a year, a port, a status code, an id.
+    //
+    // **Never grouped and never localised**, which is the distinction `Whole` cannot make and the
+    // reason this variant exists. `1,766` is a wrong year, `8,080` is a wrong port, and `404` is
+    // not four hundred and four. Swing reaches the same place by giving the column its own
+    // renderer; this says it on the value, where the fact actually lives.
+    Code(int)
+    // **A quantity that must not be approximated**: money, a dose, a rate. `Number` is a `float`
+    // and `0.1 + 0.2` is not `0.3` in one -- so a column of prices held as `Number` is the oldest
+    // arithmetic bug there is, printed into a table. This is the variant a currency column uses.
+    Exact(decimal)
+    // A whole number past what an `int` holds.
+    Big(bigint)
+    Date(time.LocalDate)
+    // **Drawn as a check box**, which is `JTable`'s single most useful default and the reason
+    // anybody notices `getColumnClass` exists.
+    Flag(Toggle)
+    Mark(widget.Icon)
+    // A cell with nothing in it, which is **not** the empty string: a missing measurement and a
+    // measurement of "" are different facts, and a reader should not be told they are the same.
+    Blank
+}
+
+pub fn value_text(v: Value, l: Locale) -> string
+
+pub fn value_or_blank(v: Option<string>) -> Value
+
+pub fn value_or_blank(v: Option<float>) -> Value
+
+pub fn value_or_blank(v: Option<decimal>) -> Value
+
+pub fn value_or_blank(v: Option<time.LocalDate>) -> Value
+
+pub fn value_or_blank(v: Option<Toggle>) -> Value
+
 pub struct Column {
     title: string
     width: float
@@ -1365,10 +1410,16 @@ pub struct Table {
     columns: [Column]
     // The cells, a row at a time.
     //
-    // **A row shorter than `columns` is not an error**: `cell_at` answers "" past its end. A table
-    // built from a query has a missing value in it sooner or later, and the alternative is every
-    // caller padding its rows or this control raising on data it could simply draw.
-    rows: [[string]]
+    // **A row shorter than `columns` is not an error**: `value_at` answers `Blank` past its end. A
+    // table built from a query has a missing value in it sooner or later, and the alternative is
+    // every caller padding its rows or this control raising on data it could simply draw.
+    rows: [[Value]]
+    // The locale its numbers and dates are written in.
+    //
+    // **Injected and not read from a global**, for `Style`'s reason: a module that reached for
+    // `locale.default()` could not be tested against two locales, and a thousands separator is
+    // exactly the thing that differs.
+    locale: Locale
     // The selected row, or -1 for none -- a real state, as `List.selected` explains at length.
     selected: int
     // Whether the strip of column titles is drawn at all.
@@ -1396,7 +1447,13 @@ pub struct Table {
     disabled: bool
 }
 
+pub fn table_of(name: string, label: string, columns: [Column], rows: [[Value]]) -> Table
+
+pub fn table_of(
+
 pub fn table_of(name: string, label: string, columns: [Column], rows: [[string]]) -> Table
+
+pub fn value_at(t: Table, row: int, column: int) -> Value
 
 pub fn cell_at(t: Table, row: int, column: int) -> string
 
@@ -7592,6 +7649,11 @@ pub enum Widget {
     Control(Focusable)
     // A window onto a child larger than itself -- see `Viewport`. **Not transparent to layout**,
     // which is what separates it from every other wrapper here.
+    // A grid of tracks with cells placed into them: the one arrangement nesting cannot express,
+    // because nesting cannot align across cells in *different rows*. See `Grid`.
+    Grid(Grid)
+    // Children laid along a line that wraps when it runs out. See `Flowed`.
+    Flow(Flowed)
     Scroll(Viewport)
     // Children stacked over one another, later ones on top -- see `Layer`. A menu's popup and a
     // modal dialog are both this.
@@ -7645,7 +7707,118 @@ pub fn metrics_for_faces(fs: [font.FontRef]) -> Result<Metrics, string>
 
 pub fn face_metrics_for(f: font.FontRef) -> Result<FaceMetrics, string>
 
+pub struct Measured {
+    size: Size
+    // How far below this widget's own top its first baseline sits.
+    baseline: Option<float>
+}
+
 pub fn measure(w: Widget, m: Metrics) -> Size
+
+pub fn measured(w: Widget, m: Metrics) -> Measured
+
+pub enum Track {
+    // Exactly this many points.
+    Points(float)
+    // As big as the largest thing in it needs.
+    Natural
+    // This many shares of whatever is left over. **The same notion as `Flex`**, so the library has
+    // one idea of weighted leftover rather than two.
+    Share(float)
+}
+
+pub enum Fill {
+    Nowhere
+    Across
+    Down
+    Both
+}
+
+pub enum Sideways {
+    Leading
+    Centre
+    Trailing
+}
+
+pub enum Upright {
+    Top
+    Middle
+    Bottom
+    // On the row's shared text baseline. **Falls back to `Top` when nothing in the row has one**,
+    // which is why `Measured.baseline` is an `Option`: a row of icons has no line to sit on.
+    Baseline
+}
+
+pub struct Anchor {
+    sideways: Sideways
+    upright: Upright
+}
+
+pub fn anchor_of(sideways: Sideways, upright: Upright) -> Anchor
+
+pub enum Column {
+    Next
+    At(int)
+}
+
+pub enum Span {
+    Rest
+    Cells(int)
+}
+
+pub struct Cell {
+    column: Column
+    row: int
+    across: Span
+    down: int
+    fill: Fill
+    anchor: Anchor
+    // Room around this child, inside its track. `column_gap` and `row_gap` are the gutters; this
+    // is for the one cell that wants more.
+    margin: Insets
+    child: Widget
+}
+
+pub fn cell_of(row: int, child: Widget) -> Cell
+
+pub struct Grid {
+    columns: [Track]
+    rows: [Track]
+    column_gap: float
+    row_gap: float
+    cells: [Cell]
+    name: string
+}
+
+pub fn cell_of(row: int, fill: Fill, anchor: Anchor, child: Widget) -> Cell
+
+pub fn cell_at(row: int, column: int, fill: Fill, anchor: Anchor, child: Widget) -> Cell
+
+pub fn grid_of(
+
+pub fn grid_of(columns: [Track], rows: [Track], gap: float, cells: [Cell]) -> Widget
+
+pub struct Flowed {
+    direction: Direction
+    // Between children on one line.
+    gap: float
+    // Between lines. **Separate from `gap`**, because they are different distances: items in a
+    // row sit closer together than rows do, and one number for both makes a bar of chips look
+    // either cramped or ventilated.
+    line_gap: float
+    // Where a line that does not fill its width sits. **Leading, centre or trailing and not left
+    // or right** -- `FlowLayout`'s own constants went the same way in Java 1.4, for the Arabic and
+    // Hebrew reason this library is heading towards.
+    align: Sideways
+    // Where a child shorter than its line sits within it.
+    across: Upright
+    children: [Widget]
+    name: string
+}
+
+pub fn flow_of(gap: float, line_gap: float, children: [Widget]) -> Widget
+
+pub fn border_of(
 
 pub struct Laid {
     bounds: Rect

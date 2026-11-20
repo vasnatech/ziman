@@ -724,20 +724,35 @@ fn due() -> controls.DateField {
     return controls.date_field_of("due", "Due", november())
 }
 
+// **One tree, used by the press and by whatever reads the geometry back.** Laying the field out
+// one way to find a box and another way to deliver the press is how a test can agree with itself
+// and with nothing else -- which is the very bug these tests are here to catch.
+fn date_base(d: controls.DateField) -> widget.Widget {
+    return widget.column_of(0.0, [controls.date_field_widget(d, frame()), widget.flex()])
+}
+
 fn date_laid(d: controls.DateField) -> widget.Laid {
-    return widget.layout(
-        controls.date_field_widget(d, frame()),
-        geom.rect_of(0.0, 0.0, 240.0, 30.0),
-        metrics()
-    )
+    return widget.layout(date_base(d), date_window, metrics())
+}
+
+// The field with its popup over it, which is what the window lays out.
+fn calendar_laid(d: controls.DateField) -> widget.Laid {
+    val base = date_base(d)
+    val first = widget.layout(base, date_window, metrics())
+    return switch controls.calendar_layer(d, first, date_window, frame()) {
+        Some(over) {
+            widget.layout(widget.layered_of([widget.base_layer(base), over]), date_window, metrics())
+        }
+        None { first }
+    }
 }
 
 fn date_step(d: controls.DateField, input: controls.Input) -> controls.DateStep {
-    return controls.date_field_input(d, input, date_laid(d), date_window, frame())
+    return controls.date_field_input(d, input, calendar_laid(d), date_window, frame())
 }
 
 fn opened_calendar() -> controls.DateField {
-    return date_step(due(), controls.Input.Press(centre_in(date_laid(due()), controls.date_button_name(due())))).field
+    return date_step(due(), controls.Input.Press(centre_in(date_laid(due()), "due"))).field
 }
 
 // 1970-01-01 was a Thursday, so epoch day 4 is a Monday. Derived from the one fact the epoch
@@ -751,24 +766,35 @@ fn same_weekday(a: time.LocalDate, b: time.LocalDate) -> bool {
 }
 
 fn day_written(d: controls.DateField) -> string {
-    return d.entry.editor.text
+    return controls.date_text(d)
 }
 
-// **The text is the value**, which is what lets the field hold what a user is halfway through
-// typing. "2026-11-" is not a date and is plainly on the way to one; a field keeping a
-// `LocalDate` could not hold it at all.
+// **A picker cannot hold a non-date**, which is the whole benefit of not being editable: there is
+// no way to put `2026-11-` into this control, so `date_in` answers a `LocalDate` and no caller
+// has to check. An editable field would have to hold what somebody is halfway through typing --
+// the number field's argument, sound and worth paying for only when there is typing to support.
+//
+// **And it is one control, not two.** A text field with a calendar button beside it is two things
+// that have to agree about one value; this is the combo box's shape, so it is one tab stop and
+// one node a reader names.
 #[test]
-fn a_date_field_holds_text_and_answers_a_date_only_when_it_has_one() {
-    test.assert_eq(day_written(due()), "2026-11-19")
-    switch controls.date_in(due()) {
-        Some(on) { test.assert_eq(on.day, 19) }
-        None { test.assert(false) }
-    }
-    val halfway = with due() { entry: with due().entry { editor: edit.editor_of("2026-11-") } }
-    switch controls.date_in(halfway) {
-        Some(_) { test.assert(false) }
-        None { test.assert(true) }
-    }
+fn a_date_field_is_one_control_holding_one_real_date() {
+    test.assert_eq(controls.date_text(due()), "2026-11-19")
+    test.assert_eq(controls.date_in(due()).day, 19)
+    test.assert_eq(len(focus.controls(date_laid(due()))), 1)
+    test.assert_eq(
+        said_of(controls.date_field_widget(due(), frame()), "due"),
+        "date field, Due, 2026-11-19, collapsed"
+    )
+}
+
+// **A shut picker opens the way a combo box does**: a press on the box, or Down, Enter or Space.
+#[test]
+fn the_keyboard_opens_the_calendar_as_it_opens_a_combo_box() {
+    test.assert_false(due().open)
+    test.assert(date_step(due(), controls.Input.KeyDown(key(controls.Key.Down))).field.open)
+    test.assert(date_step(due(), controls.Input.KeyDown(key(enter))).field.open)
+    test.assert_false(date_step(due(), controls.Input.KeyDown(key(controls.Key.Home))).field.open)
 }
 
 // **The week starts where the locale says it does**, which is the thing a hand-written calendar
@@ -790,30 +816,19 @@ fn the_grid_starts_on_the_locales_own_first_day() {
     val grid = controls.calendar_box(british, date_laid(british), date_window, frame())
     val first = date_step(british, controls.Input.Press(cell_centre(grid, 0))).field
     val second = date_step(british, controls.Input.Press(cell_centre(grid, 1))).field
-    switch controls.date_in(first) {
-        Some(a) {
-            switch controls.date_in(second) {
-                Some(b) { test.assert_eq(time.diff_days(b, a), 1) }
-                None { test.assert(false) }
-            }
-        }
-        None { test.assert(false) }
-    }
+    test.assert_eq(time.diff_days(controls.date_in(second), controls.date_in(first)), 1)
 }
 
 fn opened_in(l: Locale) -> controls.DateField {
     val field = controls.date_field_of("due", "Due", november(), l)
-    return date_step(field, controls.Input.Press(centre_in(date_laid(field), controls.date_button_name(field)))).field
+    return date_step(field, controls.Input.Press(centre_in(date_laid(field), "due"))).field
 }
 
 // Which day of the week the grid's first cell falls on, 0 for Sunday, read back out of the field
 // by pressing that cell.
 fn first_cell_weekday(d: controls.DateField) -> int {
     val grid = controls.calendar_box(d, date_laid(d), date_window, frame())
-    return switch controls.date_in(date_step(d, controls.Input.Press(cell_centre(grid, 0))).field) {
-        Some(on) { weekday_number(on) }
-        None { 0 - 1 }
-    }
+    return weekday_number(controls.date_in(date_step(d, controls.Input.Press(cell_centre(grid, 0))).field))
 }
 
 // 1970-01-01 was a Thursday, so epoch day 4 is a Sunday-based 0... epoch day 0 is weekday 4.
@@ -843,12 +858,16 @@ fn paging_the_calendar_leaves_the_value_where_it_was() {
     test.assert_false(taken.field.open)
 }
 
-// **Pressing the title zooms out, and choosing zooms back in.** A year twelve years away is four
-// presses this way and a hundred and forty-four on a month arrow, which is the whole reason the
+// **Pressing the title zooms out, and choosing zooms back in.** A year twenty years away is four
+// presses this way and two hundred and forty on a month arrow, which is the whole reason the
 // months and years views exist.
 //
 // **Choosing a month is not choosing a date.** A user who picked March has said nothing about
 // which March day they mean, so it steps back to the days rather than writing anything.
+//
+// **The cells are found in the laid tree, not worked out again here.** An earlier version of this
+// test computed cell centres from its own copy of the grid arithmetic, which is how it went on
+// passing while the drawing and the hit test were twenty-two points apart.
 #[test]
 fn the_title_zooms_out_through_months_to_years() {
     val days = opened_calendar()
@@ -859,29 +878,48 @@ fn the_title_zooms_out_through_months_to_years() {
     val years = date_step(months, controls.Input.Press(title_middle(months))).field
     test.assert(controls.CalendarView.is_Years(years.view))
     // There is nowhere further out to go.
-    test.assert(controls.CalendarView.is_Years(date_step(years, controls.Input.Press(title_middle(years))).field.view))
+    val further = date_step(years, controls.Input.Press(title_middle(years))).field
+    test.assert(controls.CalendarView.is_Years(further.view))
 
-    // Choosing a year zooms to its months, and a month to its days -- neither writes a value.
-    val grid = controls.calendar_box(years, date_laid(years), date_window, frame())
-    // Blocks of twelve on fixed boundaries, so 2026 sits in 2016 to 2027: row 3, column 0 is the
-    // tenth cell and so 2025.
-    val picked_year = date_step(years, controls.Input.Press(cell_centre_of(grid, 0, 3)))
+    // Twenty years to a block on fixed boundaries, so 2026 sits in 2020 to 2039 and the tenth
+    // cell is 2029.
+    val picked_year = date_step(years, controls.Input.Press(centre_of_cell(years, 9)))
     test.assert_false(picked_year.changed)
     test.assert(controls.CalendarView.is_Months(picked_year.field.view))
-    test.assert_eq(picked_year.field.at.year, 2025)
+    test.assert_eq(picked_year.field.at.year, 2029)
     test.assert_eq(day_written(picked_year.field), "2026-11-19")
 
-    // Row 0, column 2 is the third month.
-    val picked_month = date_step(picked_year.field, controls.Input.Press(cell_centre_of(grid, 2, 0)))
+    // The third cell of the months grid is March.
+    val picked_month = date_step(picked_year.field, controls.Input.Press(centre_of_cell(picked_year.field, 2)))
     test.assert_false(picked_month.changed)
     test.assert(controls.CalendarView.is_Days(picked_month.field.view))
     test.assert_eq(picked_month.field.at.month, 3)
-    test.assert_eq(picked_month.field.at.year, 2025)
+    test.assert_eq(picked_month.field.at.year, 2029)
     test.assert_eq(day_written(picked_month.field), "2026-11-19")
 }
 
+// **The grid is twenty years, four across and five down**, and the arrows page by a whole block
+// rather than by one year -- the same rule the days view pages by a whole month.
+#[test]
+fn the_years_grid_is_a_block_of_twenty() {
+    val days = opened_calendar()
+    val months = date_step(days, controls.Input.Press(title_middle(days))).field
+    val years = date_step(months, controls.Input.Press(title_middle(months))).field
+
+    // Four columns: cell 0 and cell 4 are in the same column, one row apart.
+    test.assert_eq(drawn_cell(years, 0).x, drawn_cell(years, 4).x)
+    test.assert(drawn_cell(years, 4).y > drawn_cell(years, 0).y)
+    // Five rows: the last cell is the twentieth.
+    test.assert(drawn_cell(years, 19).width > 0.0)
+    test.assert_eq(drawn_cell(years, 19).x, drawn_cell(years, 3).x)
+
+    // The block runs 2020 to 2039, and the first and last cells say so.
+    test.assert_eq(date_step(years, controls.Input.Press(centre_of_cell(years, 0))).field.at.year, 2020)
+    test.assert_eq(date_step(years, controls.Input.Press(centre_of_cell(years, 19))).field.at.year, 2039)
+}
+
 // **The two arrows page by whatever the view is showing**: a month of days, a year of months, a
-// block of years.
+// block of twenty years.
 #[test]
 fn the_arrows_page_by_what_is_on_screen() {
     val days = opened_calendar()
@@ -891,7 +929,14 @@ fn the_arrows_page_by_what_is_on_screen() {
     test.assert_eq(date_step(months, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.year, 2027)
 
     val years = date_step(months, controls.Input.Press(title_middle(months))).field
-    test.assert_eq(date_step(years, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.year, 2038)
+    test.assert_eq(date_step(years, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.year, 2046)
+    test.assert_eq(date_step(years, controls.Input.KeyDown(key(controls.Key.PageUp))).field.at.year, 2006)
+}
+
+// The centre of a cell as it was actually drawn.
+fn centre_of_cell(d: controls.DateField, index: int) -> geom.Point {
+    val at = drawn_cell(d, index)
+    return geom.point_of(at.x + at.width * 0.5, at.y + at.height * 0.5)
 }
 
 // Escape zooms back in before it shuts, so one key undoes one step rather than throwing away
@@ -904,6 +949,99 @@ fn escape_zooms_in_before_it_shuts() {
     test.assert(controls.CalendarView.is_Days(back.view))
     test.assert(back.open)
     test.assert_false(date_step(back, controls.Input.KeyDown(key(controls.Key.Escape))).field.open)
+}
+
+// **A press must land on the cell it is drawn in, at its corner and not only at its centre.**
+//
+// The months and years grids were drawn from one origin and hit-tested from another, twenty-two
+// points apart -- the hit test still reserved the row of weekday names that only the days view
+// draws. Every test passed, because the offset was a point and a half under half a row, so a
+// press at a cell's centre still landed on it. The top of every cell belonged to the row above.
+//
+// **Corner and centre of the same drawn cell must do the same thing**, which is the invariant a
+// second copy of the arithmetic breaks. It is checked in all three views, because the view is
+// exactly what the two copies disagreed about.
+#[test]
+fn a_press_in_a_cells_own_corner_does_what_its_centre_does() {
+    val days = opened_calendar()
+    val months = date_step(days, controls.Input.Press(title_middle(days))).field
+    val years = date_step(months, controls.Input.Press(title_middle(months))).field
+    for d in [days, months, years] {
+        for i in [0, 1, 5, 11] {
+            val at = drawn_cell(d, i)
+            test.assert(at.width > 0.0)
+            test.assert_eq(
+                outcome_of(d, geom.point_of(at.x + 1.0, at.y + 1.0)),
+                outcome_of(d, geom.point_of(at.x + at.width * 0.5, at.y + at.height * 0.5))
+            )
+        }
+    }
+}
+
+// The laid box of one cell of whatever view is showing, from the tree the window would draw.
+fn drawn_cell(d: controls.DateField, index: int) -> geom.Rect {
+    val stem = if controls.CalendarView.is_Days(d.view) { "due/day/" } else { "due/cell/" }
+    return switch widget.node_named(calendar_laid(d), concat(stem, str(index))) {
+        Some(n) { n.bounds }
+        None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
+    }
+}
+
+// Everything a press can change, in one string: the value it wrote and the month it moved to.
+fn outcome_of(d: controls.DateField, p: geom.Point) -> string {
+    val after = date_step(d, controls.Input.Press(p)).field
+    return concat(controls.date_text(after), " @", str(after.at.year), "-", str(after.at.month))
+}
+
+// **A weekday name is a label and must not do anything.** The band above the day grid is the
+// title *and* the row of weekday names, so a header press tested against the whole band meant
+// pressing "Mon" paged the month or zoomed out to the year.
+#[test]
+fn a_press_on_a_weekday_name_does_nothing() {
+    val d = opened_calendar()
+    val grid = controls.calendar_box(d, calendar_laid(d), date_window, frame())
+    // Just above the first row of days, which is where the weekday names are drawn.
+    val on_name = geom.point_of(grid.x + grid.width * 0.5, drawn_cell(d, 0).y - 2.0)
+    val after = date_step(d, controls.Input.Press(on_name)).field
+    test.assert(controls.CalendarView.is_Days(after.view))
+    test.assert_eq(after.at.month, d.at.month)
+    test.assert_eq(controls.date_text(after), controls.date_text(d))
+}
+
+// **A header that works and does not look like it works is a header that is not there.** This was
+// reported as the year picker being missing; it was reachable the whole time, by pressing a label
+// that nothing said was pressable. The three parts are declared now, so each lights under the
+// pointer and each has a name a reader can find.
+//
+// **And what they say changes with the view**, because the arrows do not step the same thing in
+// each: a month of days, a year of months, a block of twenty years.
+#[test]
+fn the_calendars_header_names_its_three_buttons() {
+    val days = opened_calendar()
+    val months = date_step(days, controls.Input.Press(title_middle(days))).field
+    val years = date_step(months, controls.Input.Press(title_middle(months))).field
+
+    test.assert_eq(part_says(days, "/back"), "Previous month")
+    test.assert_eq(part_says(days, "/forward"), "Next month")
+    test.assert_eq(part_says(days, "/zoom"), "Choose a month")
+
+    test.assert_eq(part_says(months, "/back"), "Previous year")
+    test.assert_eq(part_says(months, "/zoom"), "Choose a year")
+
+    test.assert_eq(part_says(years, "/forward"), "Next 20 years")
+    // The years view has nowhere further out to go, so its heading says what it shows rather than
+    // inviting a press that would do nothing.
+    test.assert_eq(part_says(years, "/zoom"), "2020 to 2039")
+}
+
+fn part_says(d: controls.DateField, suffix: string) -> string {
+    return switch a11y.node_of(
+        a11y.tree_of(calendar_laid(d), "x", ""),
+        concat("due", suffix)
+    ) {
+        Some(n) { n.name }
+        None { "(absent)" }
+    }
 }
 
 // The middle third of the header, which is the part that zooms rather than pages.
@@ -5264,7 +5402,10 @@ fn the_columns_scroll_sideways_within_their_own_width() {
 // look at them.
 #[test]
 fn an_empty_table_still_scrolls_sideways() {
-    val empty = controls.table_of("meds", "", table_columns(), [])
+    // Typed, because an empty literal cannot choose between a table of values and a table of
+    // strings -- which is the overload working, not failing.
+    val no_rows: [[string]] = []
+    val empty = controls.table_of("meds", "", table_columns(), no_rows)
     test.assert_eq(empty.selected, 0 - 1)
     test.assert_eq(to_table(empty, controls.Input.KeyDown(key(controls.Key.Right))).table.offset_x, row_tall())
     test.assert_false(to_table(empty, controls.Input.KeyDown(key(controls.Key.Down))).moved)
@@ -6447,4 +6588,148 @@ fn a_tight_density_still_leaves_a_target_you_can_hit() {
         val group = widget.layout(controls.radios_widget(radios(), frame_in(s)), within, metrics())
         test.assert(box_named(group, controls.radio_name(radios(), 0)).height >= s.minimum.target)
     }
+}
+
+// --- a table of values
+
+fn typed_columns() -> [controls.Column] {
+    return [
+        controls.column_of("Name", 80.0),
+        controls.numeric_column_of("Dose", 60.0),
+        controls.column_of("Taken", 50.0),
+        controls.column_of("Since", 90.0)
+    ]
+}
+
+fn taken_on() -> time.LocalDate {
+    return switch time.localdate_of(2026, 11, 19) {
+        Ok(d) { d }
+        Err(_) { time.localdate_from_epoch_day(0) }
+    }
+}
+
+fn typed_table(l: Locale) -> controls.Table {
+    return controls.table_of("meds", "Medicines", typed_columns(), [
+        [
+            controls.Value.Text("Aspirin"),
+            controls.Value.Number(1234.5),
+            controls.Value.Flag(widget.Toggle.On),
+            controls.Value.Date(taken_on())
+        ],
+        [controls.Value.Text("Ibuprofen"), controls.Value.Whole(400), controls.Value.Flag(widget.Toggle.Off)]
+    ], l)
+}
+
+// **A column of numbers held as text cannot be formatted for a locale.** Holding the value and
+// writing it late is what lets the same table read correctly in two of them -- which is
+// `TableModel.getColumnClass` plus a `NumberFormat`, decided by a switch instead of by
+// reflection.
+#[test]
+fn a_number_cell_is_written_in_its_tables_own_locale() {
+    val british = typed_table(locale.of("en_GB.UTF-8"))
+    val german = typed_table(locale.of("de_DE.UTF-8"))
+    test.assert_eq(controls.cell_at(british, 0, 1), "1,234.5")
+    test.assert_eq(controls.cell_at(german, 0, 1), "1.234,5")
+    // And a whole number takes the same separators without a decimal point appearing.
+    test.assert_eq(controls.cell_at(german, 1, 1), "400")
+}
+
+// **A flag reads as a reader would say it**, from `a11y.toggle_word` rather than from a second
+// vocabulary here: a cell saying "checked" while a check box beside it says "on" would be the
+// library disagreeing with itself in two places a user meets together.
+#[test]
+fn a_flag_cell_reads_as_a_check_box_does() {
+    val t = typed_table(locale.of("en_GB.UTF-8"))
+    test.assert_eq(controls.cell_at(t, 0, 2), "checked")
+    test.assert_eq(controls.cell_at(t, 1, 2), "unchecked")
+}
+
+// **`Blank` is not the empty string.** A missing measurement and a measurement of "" are
+// different facts; a short row has the first and a reader should hear the column anyway.
+#[test]
+fn a_short_row_is_blank_past_its_end_and_still_read() {
+    val t = typed_table(locale.of("en_GB.UTF-8"))
+    test.assert(controls.Value.is_Blank(controls.value_at(t, 1, 3)))
+    test.assert_eq(controls.cell_at(t, 1, 3), "")
+    // The row is still read as four columns, so the empty one is heard as empty rather than
+    // dropped.
+    test.assert_eq(controls.row_label(t, 1), "Ibuprofen, 400, unchecked, ")
+}
+
+// A date takes its table's locale too, and the whole row reads as a reader hears it.
+#[test]
+fn a_row_reads_its_values_as_they_are_written() {
+    val t = typed_table(locale.of("en_GB.UTF-8"))
+    test.assert_eq(controls.row_label(t, 0), "Aspirin, 1,234.5, checked, 2026-11-19")
+}
+
+// **Every caller written before `Value` existed still compiles**, which is what the string
+// overload is for: a table of words says nothing about types.
+#[test]
+fn a_table_of_plain_strings_still_works() {
+    val plain = controls.table_of("plain", "", typed_columns(), [["a", "b"]])
+    test.assert_eq(controls.cell_at(plain, 0, 0), "a")
+    test.assert(controls.Value.is_Text(controls.value_at(plain, 0, 1)))
+}
+
+// **A year is not a quantity, and neither is a port or a status code.** Written as one it comes
+// out "1,766" -- which is how this variant was found: by rendering the gallery's table and
+// reading it. `Code` is never grouped and never localised.
+#[test]
+fn a_code_is_written_plainly_where_a_quantity_is_grouped() {
+    val german = typed_table(locale.of("de_DE.UTF-8"))
+    val coded = controls.table_of("codes", "", typed_columns(), [
+        [controls.Value.Code(1766), controls.Value.Whole(1766)]
+    ], locale.of("de_DE.UTF-8"))
+    test.assert_eq(controls.cell_at(coded, 0, 0), "1766")
+    test.assert_eq(controls.cell_at(coded, 0, 1), "1.766")
+    test.assert_eq(controls.cell_at(german, 0, 1), "1.234,5")
+}
+
+fn pennies() -> decimal {
+    return switch parse_decimal("0.1") {
+        Ok(d) { d }
+        Err(_) { 0.0d }
+    }
+}
+
+// **A column of money held as `Number` is the oldest arithmetic bug there is, printed into a
+// table.** `Number` is a float; `Exact` is a decimal and keeps every digit it was given.
+#[test]
+fn an_exact_cell_keeps_the_digits_a_float_would_lose() {
+    val l = locale.of("en_GB.UTF-8")
+    val exact = controls.table_of("till", "", typed_columns(), [
+        [controls.Value.Exact(pennies() + pennies() + pennies())]
+    ], l)
+    test.assert_eq(controls.cell_at(exact, 0, 0), "0.3")
+    // Held as a float, the same sum is not the same number.
+    test.assert(0.1 + 0.1 + 0.1 != 0.3)
+}
+
+// A decimal and a bigint are grouped like any other quantity, in the table's own locale.
+#[test]
+fn exact_and_big_cells_take_the_locales_separators() {
+    val german = locale.of("de_DE.UTF-8")
+    val big = switch parse_bigint("123456789012345678901234567890") {
+        Ok(b) { b }
+        Err(_) { 0n }
+    }
+    val t = controls.table_of("big", "", typed_columns(), [
+        [controls.Value.Exact(1234.5d), controls.Value.Big(big)]
+    ], german)
+    test.assert_eq(controls.cell_at(t, 0, 0), "1.234,5")
+    test.assert_eq(controls.cell_at(t, 0, 1), "123.456.789.012.345.678.901.234.567.890")
+}
+
+// **`Blank` is already the `None` case**, so `value_or_blank` is a convenience and not a second
+// way to say it: a nullable column maps straight through without a switch at every cell.
+#[test]
+fn an_absent_value_becomes_a_blank_cell() {
+    val here = controls.value_or_blank(Option<float>.Some(2.5))
+    val gone = controls.value_or_blank(Option<float>.None)
+    test.assert(controls.Value.is_Number(here))
+    test.assert(controls.Value.is_Blank(gone))
+    test.assert(controls.Value.is_Blank(controls.value_or_blank(Option<string>.None)))
+    test.assert(controls.Value.is_Text(controls.value_or_blank(Option<string>.Some("x"))))
+    test.assert(controls.Value.is_Exact(controls.value_or_blank(Option<decimal>.Some(1.0d))))
 }

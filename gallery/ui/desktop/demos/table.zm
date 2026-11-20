@@ -3,11 +3,18 @@
 // **Drag a column's trailing edge in the header** -- the grip is four points either side of it,
 // in the header and nowhere else, because four points from a boundary in the middle of the data
 // is a selection in every table ever written.
+//
+// **A cell holds a value, not a string**, which is `TableModel.getColumnClass` without the
+// reflection: the atomic numbers are `Whole`, the masses are `Number`, "Metal" is a `Flag` drawn
+// as a check box, and the years are `Code`. Nothing here was formatted by this demo -- the table
+// writes each value in its own locale, which is why the masses carry the separators they do and
+// the years do not.
 use boxes
 use controls
 use demos/table_ui
 use geom
 use widget
+use widget.Toggle
 
 pub struct Demo {
     table: controls.Table
@@ -27,28 +34,43 @@ fn columns() -> [controls.Column] {
     return [
         controls.numeric_column_of("Z", 50.0),
         controls.column_of("Element", 130.0),
-        controls.column_of("Symbol", 90.0),
-        controls.numeric_column_of("Mass", 90.0),
-        controls.column_of("Discovered", 140.0)
+        controls.column_of("Symbol", 80.0),
+        controls.numeric_column_of("Mass", 100.0),
+        controls.column_of("Metal", 60.0),
+        controls.column_of("Found", 110.0)
     ]
 }
 
-fn rows() -> [[string]] {
+fn element(z: int, name: string, symbol: string, mass: float, metal: bool, year: int) -> [controls.Value] {
     return [
-        ["1", "Hydrogen", "H", "1.008", "1766"],
-        ["2", "Helium", "He", "4.0026", "1868"],
-        ["3", "Lithium", "Li", "6.94", "1817"],
-        ["6", "Carbon", "C", "12.011", "ancient"],
-        ["7", "Nitrogen", "N", "14.007", "1772"],
-        ["8", "Oxygen", "O", "15.999", "1771"],
-        ["11", "Sodium", "Na", "22.990", "1807"],
-        ["26", "Iron", "Fe", "55.845", "ancient"],
-        ["29", "Copper", "Cu", "63.546", "ancient"],
-        ["47", "Silver", "Ag", "107.87", "ancient"],
-        ["79", "Gold", "Au", "196.97", "ancient"],
+        controls.Value.Whole(z),
+        controls.Value.Text(name),
+        controls.Value.Text(symbol),
+        controls.Value.Number(mass),
+        controls.Value.Flag(if metal { Toggle.On } else { Toggle.Off }),
+        // **A year is a `Code` and not a `Whole`**, which is the distinction the render of this
+        // very demo found: written as a quantity it came out "1,766". A year identifies, it does
+        // not count. A real date column is `Value.Date`.
+        controls.Value.Code(year)
+    ]
+}
+
+fn rows() -> [[controls.Value]] {
+    return [
+        element(1, "Hydrogen", "H", 1.008, false, 1766),
+        element(2, "Helium", "He", 4.0026, false, 1868),
+        element(3, "Lithium", "Li", 6.94, true, 1817),
+        element(6, "Carbon", "C", 12.011, false, 1789),
+        element(7, "Nitrogen", "N", 14.007, false, 1772),
+        element(8, "Oxygen", "O", 15.999, false, 1771),
+        element(11, "Sodium", "Na", 22.99, true, 1807),
+        element(26, "Iron", "Fe", 55.845, true, 1500),
+        element(29, "Copper", "Cu", 63.546, true, 1500),
+        element(47, "Silver", "Ag", 107.87, true, 1500),
+        element(79, "Gold", "Au", 196.97, true, 1500),
         // A short row, which a table built from a query gets sooner or later: the cells past its
-        // end are drawn empty rather than refused.
-        ["118", "Oganesson"]
+        // end are `Blank` and drawn empty rather than refused.
+        [controls.Value.Whole(118), controls.Value.Text("Oganesson")]
     ]
 }
 

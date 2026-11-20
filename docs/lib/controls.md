@@ -1853,13 +1853,6 @@ pub enum CalendarView {
 }
 ```
 
-A date, typed or picked off a calendar.
-
-**The text is the value and the calendar is a way of writing it**, which is the decision
-everything here follows from. A field holding a `LocalDate` and showing text derived from it
-cannot hold what a user is halfway through typing: "2026-11-" is not a date and is plainly on
-the way to one. That is the number field's argument in another shape, and it ends the same way
--- the `Entry` holds the truth and `date_in` answers an `Option`.
 Which grid the calendar is showing.
 
 **Three views and not a separate popup each**, which is what every date picker settled on: the
@@ -1871,7 +1864,11 @@ forty-four on a month arrow.
 
 ```
 pub struct DateField {
-    entry: Entry
+    name: string
+    label: string
+    // What is chosen. **Always a real date**, which is the whole benefit of not being editable.
+    on: time.LocalDate
+    disabled: bool
     // Where the keyboard is in the open calendar, and whose month the calendar shows.
     //
     // **Not the value.** A user paging through months with the arrows has chosen nothing yet, and
@@ -1888,6 +1885,21 @@ pub struct DateField {
     locale: Locale
 }
 ```
+
+A date, picked off a calendar.
+
+**A value picker and not a field with a button beside it**, which is the combo box's shape and
+the combo box's argument: one box showing what is chosen, one mark saying it opens, one tab
+stop, one thing a reader names. A text field with a calendar button next to it is two controls
+that have to agree about one value, and the first thing they disagree about is what a
+half-typed date means.
+
+**Not editable in this version**, deliberately, which is why the value is a `LocalDate` and not
+an `Entry`. A field that could be typed into would have to hold `2026-11-` -- not a date, and
+plainly on the way to one -- so the value would have to be text and every reader of it would
+have to cope with it not being a date yet. That argument is sound and it is the number field's,
+but it is only worth paying for when there is typing to support. There is not, so the value
+here is a date, and the day typing arrives the `Entry` comes back with it.
 
 ### `DateStep`
 
@@ -1911,28 +1923,26 @@ pub fn date_field_of(name: string, label: string, on: time.LocalDate, l: Locale)
 ### `date_in`
 
 ```
-pub fn date_in(d: DateField) -> Option<time.LocalDate>
+pub fn date_in(d: DateField) -> time.LocalDate
 ```
 
-The date in the field, or nothing while it does not hold one.
+The date the field holds.
 
-**`parse_localdate` is the judge**, not a length check or a regular expression: it is the same
-function that reads a date anywhere else in the library, so a string this accepts and one the
-rest of the program accepts cannot drift apart.
+**A `LocalDate` and not an `Option`**, which is what a picker buys: there is no way to put a
+non-date into this control, so there is no way for a caller to have to check.
 
-### `date_or`
-
-```
-pub fn date_or(d: DateField, fallback: time.LocalDate) -> time.LocalDate
-```
-
-### `date_button_name`
+### `date_text`
 
 ```
-pub fn date_button_name(d: DateField) -> string
+pub fn date_text(d: DateField) -> string
 ```
 
-The button that opens the calendar, and the name a click on it answers to.
+What the box shows.
+
+**ISO, and not a locale's own order.** `yyyy-MM-dd` is unambiguous everywhere, where `03/04`
+means two different days on two sides of an ocean -- and this library has no source for each
+locale's date *pattern*, only for its month and day names. Inventing one here would be guessing
+in a format whose whole job is to be read correctly.
 
 ### `calendar_box`
 
@@ -1957,6 +1967,10 @@ pub fn date_field_input(d: DateField, input: Input, laid: Laid, within: Rect, f:
 ```
 pub fn date_field_widget(d: DateField, f: Frame) -> widget.Widget
 ```
+
+**The combo box's shape exactly**: the value, a flexible gap, and the mark that says it opens.
+One box, one tab stop, one thing a reader names -- where a text field with a calendar button
+beside it is two controls that have to agree about one value.
 
 ### `calendar_layer`
 
@@ -2416,6 +2430,102 @@ them, on some window widths and not others.
 
 ## The table
 
+### `Value`
+
+```
+pub enum Value {
+    Text(string)
+    // A measured quantity: written with the locale's own separators.
+    Number(float)
+    // A counted quantity, likewise.
+    Whole(int)
+    // **A number that identifies rather than counts**: a year, a port, a status code, an id.
+    //
+    // **Never grouped and never localised**, which is the distinction `Whole` cannot make and the
+    // reason this variant exists. `1,766` is a wrong year, `8,080` is a wrong port, and `404` is
+    // not four hundred and four. Swing reaches the same place by giving the column its own
+    // renderer; this says it on the value, where the fact actually lives.
+    Code(int)
+    // **A quantity that must not be approximated**: money, a dose, a rate. `Number` is a `float`
+    // and `0.1 + 0.2` is not `0.3` in one -- so a column of prices held as `Number` is the oldest
+    // arithmetic bug there is, printed into a table. This is the variant a currency column uses.
+    Exact(decimal)
+    // A whole number past what an `int` holds.
+    Big(bigint)
+    Date(time.LocalDate)
+    // **Drawn as a check box**, which is `JTable`'s single most useful default and the reason
+    // anybody notices `getColumnClass` exists.
+    Flag(Toggle)
+    Mark(widget.Icon)
+    // A cell with nothing in it, which is **not** the empty string: a missing measurement and a
+    // measurement of "" are different facts, and a reader should not be told they are the same.
+    Blank
+}
+```
+
+One value in a table cell.
+
+**An enum, where Swing's `TableModel` has `Object` and `getColumnClass`.** `JTable` looks a
+renderer up by the class the model reports for a column -- reflection doing a job a type can
+do, and a `ClassCastException` at paint time where this is a compile error. Every variant here
+is one of `JTable`'s own default renderers; the difference is that the set is closed, so a new
+kind of value is a compile error in the one switch that draws them rather than a cell that
+silently falls back to `toString`.
+
+**Why a table needs this at all**: a column of numbers held as text cannot be right-aligned on
+its digits without the caller padding them, cannot be formatted for a locale, and sorts `10`
+before `9`. Holding the value and formatting late is what fixes all three at once.
+
+### `value_text`
+
+```
+pub fn value_text(v: Value, l: Locale) -> string
+```
+
+What a value reads as: what a text cell draws and what a reader hears.
+
+**Formatted here and not by the caller**, which is the whole benefit of holding the value: a
+number takes the locale's own separators and a date its own order, so the same table reads
+correctly in `tr_TR` and `en_US` without anybody passing a format down.
+
+### `value_or_blank`
+
+```
+pub fn value_or_blank(v: Option<string>) -> Value
+```
+
+A value that may not be there.
+
+**`Blank` is already the `None` case**, so these are a convenience and not a second way to say
+it. A `Value` whose payloads were `Option`s would give the library two spellings for "nothing
+here" -- `Blank` and `Number(None)` -- and two spellings of one fact is what this module keeps
+designing against. A nullable column maps straight through instead:
+
+
+```
+push(cells, controls.value_or_blank(row.price))
+```
+
+**There is deliberately none for `Option<int>`**, because an `int` does not say whether it is a
+quantity or an identifier -- `Whole` groups and `Code` does not, and only the caller knows
+which it meant. See `Value.Code`.
+
+```
+pub fn value_or_blank(v: Option<float>) -> Value
+```
+
+```
+pub fn value_or_blank(v: Option<decimal>) -> Value
+```
+
+```
+pub fn value_or_blank(v: Option<time.LocalDate>) -> Value
+```
+
+```
+pub fn value_or_blank(v: Option<Toggle>) -> Value
+```
+
 ### `Column`
 
 ```
@@ -2458,10 +2568,16 @@ pub struct Table {
     columns: [Column]
     // The cells, a row at a time.
     //
-    // **A row shorter than `columns` is not an error**: `cell_at` answers "" past its end. A table
-    // built from a query has a missing value in it sooner or later, and the alternative is every
-    // caller padding its rows or this control raising on data it could simply draw.
-    rows: [[string]]
+    // **A row shorter than `columns` is not an error**: `value_at` answers `Blank` past its end. A
+    // table built from a query has a missing value in it sooner or later, and the alternative is
+    // every caller padding its rows or this control raising on data it could simply draw.
+    rows: [[Value]]
+    // The locale its numbers and dates are written in.
+    //
+    // **Injected and not read from a global**, for `Style`'s reason: a module that reached for
+    // `locale.default()` could not be tested against two locales, and a thousands separator is
+    // exactly the thing that differs.
+    locale: Locale
     // The selected row, or -1 for none -- a real state, as `List.selected` explains at length.
     selected: int
     // Whether the strip of column titles is drawn at all.
@@ -2509,8 +2625,36 @@ rather than working it out again, which is `thumb_of`'s rule: five copies of
 ### `table_of`
 
 ```
+pub fn table_of(name: string, label: string, columns: [Column], rows: [[Value]]) -> Table
+```
+
+```
+pub fn table_of(
+    name: string,
+    label: string,
+    columns: [Column],
+    rows: [[Value]],
+    l: Locale
+) -> Table
+```
+
+```
 pub fn table_of(name: string, label: string, columns: [Column], rows: [[string]]) -> Table
 ```
+
+A table of plain text, which is what most of them are.
+
+**Kept so that a table of strings says nothing about types**, and so that every caller written
+before `Value` existed still compiles. A column of words is a column of words; the enum is for
+the table that has a number, a date or a flag in it.
+
+### `value_at`
+
+```
+pub fn value_at(t: Table, row: int, column: int) -> Value
+```
+
+The value in a cell, or `Blank` for a cell that is not there. See `Table.rows`.
 
 ### `cell_at`
 
@@ -2518,7 +2662,10 @@ pub fn table_of(name: string, label: string, columns: [Column], rows: [[string]]
 pub fn cell_at(t: Table, row: int, column: int) -> string
 ```
 
-What is in a cell, or "" for a cell that is not there. See `Table.rows`.
+What is in a cell, as text: what a text cell draws and what a reader hears.
+
+**Still a `string` and still this name**, because that is what every caller of it wants -- the
+typed value is `value_at`, and the two exist for different readers.
 
 ### `row_label`
 
@@ -2531,6 +2678,10 @@ A row as a reader hears it: its cells in order, comma separated.
 **The columns' order, not the row's length**, so a short row is read as the empty cells it has
 rather than stopping early -- a reader that said "Aspirin, 100mg" where the screen shows an
 empty dose column has told the user the wrong thing about the data.
+
+**Each cell as `value_text` writes it**, so a reader hears the number a sighted user sees --
+separators, date order and "checked" for a flag -- rather than whatever the value happens to
+look like in the source.
 
 ### `column_x`
 

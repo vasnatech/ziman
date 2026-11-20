@@ -55,4 +55,6 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F288 to F290 — the split pane, the table, and the three roles that had no control](f288-f289.md)
 - [F291 to F297 — the look and feel decisions, built](f291-f297.md)
 - [F298 to F301 — four more controls](f298-f301.md)
-- [F303 to F312 — four more controls, the mouse button nobody could see, and the calendar made real](f303-f308.md)
+- [F303 to F316 — four more controls, the mouse button nobody could see, and the calendar made real](f303-f308.md)
+- [F317 to F320 — a grid, a flow, a border, and the baseline the layout protocol never reported](f317-f318.md)
+- [F321 — a table cell holds a value, not a string](f321.md)

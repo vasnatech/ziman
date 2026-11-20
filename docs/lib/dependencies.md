@@ -138,11 +138,13 @@ flowchart LR
     codec --> toml
     codec --> xml
     codec --> yaml
+    controls --> a11y
     controls --> edit
     controls --> focus
     controls --> geom
     controls --> locale
     controls --> math
+    controls --> number
     controls --> paint
     controls --> scene
     controls --> shape
@@ -430,7 +432,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Module | Uses | Used by |
 |---|---|---|
-| `a11y` | `geom`, `widget` | `atspi` |
+| `a11y` | `geom`, `widget` | `atspi`, `controls` |
 | `atspi` | `a11y`, `widget` | - |
 | `batch` | `datasource`, `db`, `time`, `uuid` | - |
 | `bits` | - | `image` |
@@ -439,7 +441,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `charset`, `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
-| `controls` | `edit`, `focus`, `geom`, `locale`, `math`, `paint`, `scene`, `shape`, `time`, `widget` | `desktop`, `theme` |
+| `controls` | `a11y`, `edit`, `focus`, `geom`, `locale`, `math`, `number`, `paint`, `scene`, `shape`, `time`, `widget` | `desktop`, `theme` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `charset`, `fs`, `io`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `batch`, `eql`, `migrate` |
@@ -484,7 +486,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `mysql` | `crypto`, `db`, `net`, `number` | - |
 | `ndjson` | `charset`, `json` | `codec` |
 | `net` | - | `client`, `db`, `mysql`, `pg`, `server` |
-| `number` | `locale` | `client`, `csv`, `db`, `encoding`, `http`, `image`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sql`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
+| `number` | `locale` | `client`, `controls`, `csv`, `db`, `encoding`, `http`, `image`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sql`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `client`, `fs`, `icons`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `encoding`, `random` | - |
 | `paging` | `codec`, `json`, `mime` | - |

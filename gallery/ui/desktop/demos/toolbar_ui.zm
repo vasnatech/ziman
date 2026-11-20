@@ -16,7 +16,10 @@ pub struct Screen {
 // of whatever room is left. In a row it takes the height of the label beside it.
 pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
-        it.strip,
+        // **In a row with a flex after it**, for the reason the Date field's design file gives: a
+        // column stretches its children across and overrides the `wide_of` the strip is given, so
+        // the slider moved what the toolbar *showed* while the box it drew in stayed full width.
+        widget.row_of(0.0, [it.strip, widget.flex()]),
         widget.row_of(gap, [
             widget.wide_of(label_width, widget.label_of("Strip width", f.style.text.caption.size, f.style.ink)),
             widget.expand(it.width)
