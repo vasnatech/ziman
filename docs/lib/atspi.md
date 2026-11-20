@@ -28,6 +28,27 @@ against. A tree is tens of nodes where the pixels it describes are millions.
 
 `use atspi` -- or `use atspi.Name` to bring one item in bare.
 
+### `announce`
+
+```
+pub fn announce(said: a11y.Announcement)
+```
+
+Says something the user did not go and look for.
+
+**The application decides when, and `a11y.announcements` decides what**: the diff of two trees
+is a pure function that can be tested by handing it two values, and this is the three lines that
+cannot be. An application threads its last published tree the way it already threads `hovered`,
+`pressed` and `focused`:
+
+
+```
+for said in a11y.announcements(was, now) { atspi.announce(said) }
+```
+
+**Silent without a bridge**, for `publish`'s reason: an application that cannot reach a reader
+should carry on drawing rather than fail.
+
 ### `publish`
 
 ```

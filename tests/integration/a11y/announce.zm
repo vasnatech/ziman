@@ -1,0 +1,70 @@
+// Says three things, one of them twice, and exits.
+//
+// **The second half of the accessibility gate.** `tree.zm` publishes a tree for a reader to walk;
+// this one pushes. The distinction is what this gate exists for: a tree can be perfect while every
+// event the bridge emits dies inside the process, which is exactly what happened until
+// `AtkUtilClass.add_global_event_listener` was implemented.
+//
+// **The repeated line is the point of the second assertion.** The tree is republished every frame,
+// so a region whose words did not change must stay silent -- `a11y.announcements` is what decides
+// that, and a reader repeating itself sixty times a second is the worst bug this could ship.
+use a11y
+use atspi
+use clock
+use geom
+use widget
+
+fn metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float { return (len(text) as float) * 7.0 },
+        fn(size: float) -> float { return size * 1.3 }
+    )
+}
+
+fn tree(role: widget.Role, says: string) -> a11y.Tree {
+    return a11y.tree_of(
+        widget.layout(
+            widget.part_of("region", role, says, widget.no_state(), widget.Widget.Nothing),
+            geom.rect_of(0.0, 0.0, 100.0, 20.0),
+            metrics()
+        ),
+        "ziman announces",
+        ""
+    )
+}
+
+// The bus registers asynchronously, so each step is given turns rather than assumed delivered.
+fn settle() {
+    var turns = 0
+    while turns < 40 {
+        atspi.pump()
+        clock.sleep_millis(25)
+        turns = turns + 1
+    }
+}
+
+fn say(was: a11y.Tree, now: a11y.Tree) -> a11y.Tree {
+    switch atspi.publish(now, "ziman announces") {
+        Ok(_) { unit }
+        Err(_) { unit }
+    }
+    for one in a11y.announcements(was, now) {
+        atspi.announce(one)
+    }
+    settle()
+    return now
+}
+
+pub fn main() {
+    switch atspi.publish(tree(widget.Role.Status, "starting"), "ziman announces") {
+        Ok(_) { print("published") }
+        Err(e) { print(concat("error: ", e)) }
+    }
+    settle()
+    var was = a11y.no_tree()
+    was = say(was, tree(widget.Role.Status, "polite words"))
+    // The same words again: nothing should be said.
+    was = say(was, tree(widget.Role.Status, "polite words"))
+    was = say(was, tree(widget.Role.Alert, "assertive words"))
+    print("done")
+}

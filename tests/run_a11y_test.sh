@@ -173,4 +173,43 @@ else
     fail=1
 fi
 
+# --- what the application *pushes*, which the tree gate above cannot see ----------------------
+#
+# **A published tree is the half a reader pulls.** Everything above walks it, and all of it passed
+# for weeks while every event this bridge emitted died inside the process: ATK forwards a bridge's
+# request to listen through `AtkUtilClass.add_global_event_listener`, and a toolkit that leaves
+# that vfunc unset is a toolkit whose events never leave. The symptom is silence, not an error.
+#
+# So this half runs a second program that announces, with a listener watching the bus from
+# outside -- and asserts the words arrive with the politeness they were sent with.
+SPEAKER=tests/integration/a11y/announce.zm
+if [ -f "$SPEAKER" ]; then
+    if cc -O1 -o "$work/listen" tests/tools/atspi_listen.c \
+         $(pkg-config --cflags --libs atspi-2 glib-2.0 gobject-2.0) 2> "$work/cc2.txt"; then
+        "$work/listen" "" 12 > "$work/heard.txt" 2>&1 &
+        lpid=$!
+        sleep 1
+        "$BIN" "$SPEAKER" > "$work/spoke.txt" 2>&1 || true
+        wait "$lpid" 2>/dev/null || true
+        if grep -q 'polite announcement' "$work/heard.txt" && \
+           grep -q 'assertive announcement' "$work/heard.txt"; then
+            echo "PASS a11y_an_announcement_reaches_the_bus"
+        else
+            echo "FAIL a11y_an_announcement_reaches_the_bus (heard: $(tr '\n' '|' < "$work/heard.txt"))"
+            fail=1
+        fi
+        # **Said once, not once a frame.** The tree is republished every frame, so a region whose
+        # words did not change must stay silent -- a reader repeating itself sixty times a second
+        # is the worst bug this could ship.
+        if [ "$(grep -c 'announcement' "$work/heard.txt")" = "2" ]; then
+            echo "PASS a11y_an_unchanged_region_says_nothing"
+        else
+            echo "FAIL a11y_an_unchanged_region_says_nothing (heard $(grep -c 'announcement' "$work/heard.txt"))"
+            fail=1
+        fi
+    else
+        echo "SKIP a11y_an_announcement_reaches_the_bus (cannot build atspi_listen.c)"
+    fi
+fi
+
 exit "$fail"

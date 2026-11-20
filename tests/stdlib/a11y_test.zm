@@ -433,3 +433,84 @@ fn a_picture_names_the_control_that_holds_it() {
     )
     test.assert_contains(said(t, "open"), "open the file")
 }
+
+// --- live regions
+
+fn region(role: widget.Role, says: string) -> widget.Widget {
+    return widget.part_of("live", role, says, widget.no_state(), words(says))
+}
+
+fn tree_with(role: widget.Role, says: string) -> a11y.Tree {
+    return a11y.tree_of(laid(region(role, says)), "app", "")
+}
+
+fn said(before: a11y.Tree, after: a11y.Tree) -> string {
+    val out = mutable_array_new<string>()
+    for one in a11y.announcements(before, after) {
+        push(out, concat(if one.assertive { "!" } else { "." }, one.text))
+    }
+    return join(Option<string>.None, Option<string>.None, Option<string>.Some(" "), snapshot(out))
+}
+
+// **A reader is a cursor**: everything else here is read when the user arrives at it, which covers
+// what a user does deliberately and nothing the application does on its own. A live region is the
+// one way to say "this changed under you".
+#[test]
+fn a_live_region_speaks_when_its_words_change() {
+    val before = tree_with(widget.Role.Status, "5 suggestions")
+    val after = tree_with(widget.Role.Status, "2 of 5 suggestions")
+    test.assert_eq(said(before, after), ".2 of 5 suggestions")
+}
+
+// **Only a change counts.** The tree is rebuilt and republished every frame, so a region saying
+// what it said last frame has said nothing -- and a reader repeating it sixty times a second
+// would be the worst bug this library could ship.
+#[test]
+fn a_region_that_did_not_change_says_nothing() {
+    val same = tree_with(widget.Role.Status, "5 suggestions")
+    test.assert_eq(said(same, same), "")
+    test.assert_eq(said(tree_with(widget.Role.Status, "x"), tree_with(widget.Role.Status, "x")), "")
+}
+
+// **A region that appears is already a change**, which is what makes an error banner speak when it
+// opens rather than waiting to be edited.
+#[test]
+fn a_region_that_was_not_there_before_speaks_at_once() {
+    test.assert_eq(said(a11y.no_tree(), tree_with(widget.Role.Alert, "Could not save")), "!Could not save")
+}
+
+// **The politeness is the role**, which is ARIA's own answer: `status` is polite and `alert`
+// interrupts. A separate field would be a second way to say what the role already says.
+#[test]
+fn an_alert_interrupts_where_a_status_waits() {
+    test.assert_eq(said(a11y.no_tree(), tree_with(widget.Role.Status, "Saved")), ".Saved")
+    test.assert_eq(said(a11y.no_tree(), tree_with(widget.Role.Alert, "Saved")), "!Saved")
+}
+
+// **Nothing else in the tree is a live region**, so an ordinary control changing its value says
+// nothing -- a reader hears that when it arrives, which is what every other node here is for.
+#[test]
+fn an_ordinary_control_changing_announces_nothing() {
+    val before = a11y.tree_of(laid(region(widget.Role.TextField, "a")), "app", "")
+    val after = a11y.tree_of(laid(region(widget.Role.TextField, "b")), "app", "")
+    test.assert_eq(said(before, after), "")
+}
+
+// **A live region speaks its words and nothing else.** `announce` prefixes the role word, which
+// is right for a control a user has arrived at and wrong here: "status, two of five suggestions"
+// reads the user an implementation detail.
+#[test]
+fn a_region_does_not_announce_its_own_role() {
+    val after = tree_with(widget.Role.Status, "2 of 5 suggestions")
+    test.assert_eq(said(a11y.no_tree(), after), ".2 of 5 suggestions")
+    switch a11y.node_of(after, "live") {
+        Some(n) { test.assert_eq(a11y.announce(n), "status, 2 of 5 suggestions") }
+        None { test.assert(false) }
+    }
+}
+
+// An empty region says nothing: a panel with no message is not a panel announcing silence.
+#[test]
+fn an_empty_region_says_nothing() {
+    test.assert_eq(said(a11y.no_tree(), tree_with(widget.Role.Status, "")), "")
+}

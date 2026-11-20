@@ -243,6 +243,11 @@ static AtkRole role_for(int64_t code) {
         case 29: return ATK_ROLE_PROGRESS_BAR;
         case 30: return ATK_ROLE_SPIN_BUTTON;
         case 31: return ATK_ROLE_TOOL_BAR;
+        /* A live region: somewhere the application speaks without the user going to look.
+         * A status bar is ATK's polite one and an alert its assertive one -- the politeness
+         * is the role, which is what ARIA settled on too. */
+        case 34: return ATK_ROLE_STATUSBAR;
+        case 35: return ATK_ROLE_ALERT;
         case 32: return ATK_ROLE_DATE_EDITOR;
         case 33: return ATK_ROLE_CALENDAR;
         default: return ATK_ROLE_UNKNOWN;
@@ -341,6 +346,37 @@ static Value native_a11y_publish_raw(Value *args, int argc, int line, int col) {
     return a11y_ok();
 }
 
+/* atspi.announce_raw(text, assertive): says something the user did not go and look for.
+ *
+ * **A reader is a cursor.** Everything else this file publishes is read when the user arrives at
+ * it, which covers what a user does deliberately and nothing the application does on its own: a
+ * suggestion list narrowing under their typing, a panel finishing, a save failing. This is the one
+ * way to say any of that.
+ *
+ * **`notification` and not `announcement`.** ATK registers both at runtime -- neither is in the
+ * public header, which is why this was probed rather than assumed -- and `notification` carries the
+ * politeness as its second argument where `announcement` takes the text alone. Polite waits for
+ * the reader to finish its sentence; assertive interrupts.
+ *
+ * **Emitted on the application's root**, which is what a notification is: it belongs to the
+ * program rather than to whichever node happened to hold the words, and a reader looking for the
+ * source finds the application.
+ *
+ * Silent when there is no bridge, for `publish_raw`'s reason: an application that cannot reach a
+ * reader should carry on drawing. */
+static Value native_a11y_announce_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    if (!g_started || g_root == NULL) return a11y_ok();
+    const char *text = value_cstr(args[0]);
+    if (text == NULL || text[0] == '\0') return a11y_ok();
+    guint id = g_signal_lookup("notification", ATK_TYPE_OBJECT);
+    if (id == 0) return a11y_ok();
+    g_signal_emit(g_root, id, 0, text, args[1].as.b ? ATK_LIVE_ASSERTIVE : ATK_LIVE_POLITE);
+    return a11y_ok();
+}
+
 /* a11y.pump_raw(): lets the bridge answer whatever the bus has asked.
  *
  * **A window loop is not a glib main loop**, and the bridge dispatches on glib's. So the
@@ -372,9 +408,18 @@ static Value native_a11y_pump_raw(Value *args, int argc, int line, int col) {
     return value_unit();
 }
 
+/* Silent without a backend, as `pump_raw` is: an application that cannot reach a reader should
+ * carry on drawing rather than fail. Unlike `publish_raw` it does not even report that -- a
+ * caller has already been told by the publish that failed. */
+static Value native_a11y_announce_raw(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    return value_unit();
+}
+
 #endif
 
 void native_a11y_register(void) {
     native_register("atspi::publish_raw", native_a11y_publish_raw);
     native_register("atspi::pump_raw", native_a11y_pump_raw);
+    native_register("atspi::announce_raw", native_a11y_announce_raw);
 }

@@ -34,6 +34,7 @@ native fn publish_raw(
 ) -> Result<unit, string>
 
 native fn pump_raw()
+native fn announce_raw(text: string, assertive: bool)
 
 // The number `native_a11y.c` reads. **Both halves of this mapping live in one commit and must stay
 // that way** -- `Role` is switched on without a default arm wherever it is used, so a new variant
@@ -48,6 +49,8 @@ fn code_of(r: Role) -> int {
         ProgressBar { 29 }
         SpinButton { 30 }
         ToolBar { 31 }
+        Status { 34 }
+        Alert { 35 }
         DateEditor { 32 }
         Calendar { 33 }
         RadioButton { 3 }
@@ -133,6 +136,21 @@ fn bits_of(node: a11y.Node) -> int {
         bits = bits + 2048
     }
     return bits
+}
+
+// Says something the user did not go and look for.
+//
+// **The application decides when, and `a11y.announcements` decides what**: the diff of two trees
+// is a pure function that can be tested by handing it two values, and this is the three lines that
+// cannot be. An application threads its last published tree the way it already threads `hovered`,
+// `pressed` and `focused`:
+//
+//     for said in a11y.announcements(was, now) { atspi.announce(said) }
+//
+// **Silent without a bridge**, for `publish`'s reason: an application that cannot reach a reader
+// should carry on drawing rather than fail.
+pub fn announce(said: a11y.Announcement) {
+    announce_raw(said.text, said.assertive)
 }
 
 // Puts `tree` on the accessibility bus under the application name `app`.

@@ -145,6 +145,75 @@ pub fn reachable(t: Tree) -> [Node] {
 // The order is the one every reader uses: what it is, what it is called, what it holds, then how it
 // differs from the ordinary. `focused` is not spoken, because a reader announces a node *when* it
 // takes focus -- saying "focused" as well would be saying it twice.
+// Something the application said without the user going to look for it.
+//
+// **A value and not a call**, because nothing in this module may reach a bus: `a11y` describes a
+// tree and `desktop/atspi` publishes it, and that separation is what lets every rule here be
+// tested by handing it two trees. See `announcements`.
+pub struct Announcement {
+    text: string
+    // Polite waits for the reader to finish its sentence; assertive interrupts. A validation
+    // failure interrupts; a result count waits.
+    assertive: bool
+}
+
+// What changed between two published trees that a reader should be told about.
+//
+// **A reader is a cursor.** Everything else in this module is read when the user arrives at it,
+// which covers everything a user does deliberately and nothing the application does on its own:
+// a suggestion list narrowing under their typing, two hundred rows reordering, a panel finishing,
+// a save failing. A live region is the one way to say any of that, and this is how one is noticed.
+//
+// **A pure diff of two trees, threaded by the application** -- exactly as `hovered`, `pressed` and
+// `focused` already are. The alternative is state hidden inside the bridge, which could not be
+// tested by handing it two values and would make "what did it say" unanswerable without a bus.
+//
+// **Only a change counts.** A tree is rebuilt and republished every frame, so a region whose text
+// is the same as last frame has said nothing -- and a reader that repeated it sixty times a second
+// would be the worst bug this library could ship. A region that *appears* already changed, which
+// is what makes an error banner speak when it opens.
+pub fn announcements(before: Tree, after: Tree) -> [Announcement] {
+    val out = mutable_array_new<Announcement>()
+    for node in after.nodes {
+        if is_live(node.role) {
+            val said = live_text(node)
+            if said != "" && said != was_said(before, node.key) {
+                push(out, Announcement { text: said, assertive: Role.is_Alert(node.role) })
+            }
+        }
+    }
+    return snapshot(out)
+}
+
+fn is_live(r: Role) -> bool {
+    return Role.is_Status(r) || Role.is_Alert(r)
+}
+
+// What a live region is saying: its own text, gathered as any other node's is.
+//
+// **Not `announce`**, which prefixes the role word: a reader saying "status, three of five
+// suggestions" has read the user an implementation detail. A live region speaks its words and
+// nothing else.
+fn live_text(n: Node) -> string {
+    if n.value != "" {
+        return n.value
+    }
+    return n.name
+}
+
+fn was_said(before: Tree, key: string) -> string {
+    return switch node_of(before, key) {
+        Some(n) { live_text(n) }
+        None { "" }
+    }
+}
+
+// A tree with nothing in it, for the first frame -- when every region is new and everything it
+// holds is a change.
+pub fn no_tree() -> Tree {
+    return Tree { nodes: [], root: "", focus: Option<string>.None }
+}
+
 pub fn announce(n: Node) -> string {
     val parts = mutable_array_new<string>()
     val word = role_word(n.role)
@@ -442,6 +511,8 @@ fn role_word(r: Role) -> string {
         ProgressBar { "progress bar" }
         SpinButton { "spin button" }
         ToolBar { "toolbar" }
+        Status { "status" }
+        Alert { "alert" }
         DateEditor { "date field" }
         Calendar { "calendar" }
         RadioButton { "radio button" }
