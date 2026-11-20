@@ -139,6 +139,22 @@ pub fn day_name(l: Locale, day: int, full: bool) -> string
 The locale's name for a day of the week, `day` being 0 for Sunday through 6 for Saturday -- POSIX
 numbers them that way (`DAY_1` is Sunday) and so does this, rather than rotating twice.
 
+### `first_weekday`
+
+```
+pub fn first_weekday(l: Locale) -> int
+```
+
+Which day the locale's week starts on: 0 for Sunday through 6 for Saturday, the numbering
+`day_name` takes.
+
+**Asked of the host, not kept as a table here.** Sunday in the United States, Canada, Japan and
+Israel; Monday across most of Europe; Saturday in much of the Arabic-speaking world -- a list
+this library would get wrong for the locales nobody here speaks, and that would then disagree
+with the rest of the same machine. glibc already holds the answer and this asks it.
+
+Monday where the host will not say, which is ISO 8601's week start and the commonest answer.
+
 ### `decimal_separator`
 
 ```

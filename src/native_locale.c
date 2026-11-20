@@ -362,6 +362,38 @@ static Value native_locale_day_name_raw(Value *args, int argc, int line, int col
     return langinfo_string(h->loc, base + (int)i);
 }
 
+/* `first_weekday_raw(handle)`: which day the locale's week starts on, 0 = Sunday through
+ * 6 = Saturday -- the same numbering `day_name_raw` takes.
+ *
+ * **Asked of the host rather than shipped as a table.** A table of "which countries start on a
+ * Monday" is a table that goes out of date, that is wrong for the locales nobody on the team
+ * speaks, and that disagrees with the rest of the system on the same machine. glibc already
+ * carries the answer: `_NL_TIME_FIRST_WEEKDAY` is a single byte, **1-based with 1 = Sunday**, so
+ * it is the one place this file subtracts one.
+ *
+ * It is a glibc extension and not POSIX, which is why the fallback matters: anything outside 1-7
+ * answers Monday, the ISO 8601 week start and what most of the world uses. A wrong-but-sane first
+ * column is a calendar a user can still read; a crash is not.
+ *
+ * **The guard is `__GLIBC__` and not `#ifdef _NL_TIME_FIRST_WEEKDAY`**, which is the trap this
+ * cost an hour to: the name is an *enumerator* in `<langinfo.h>`, not a macro, so `#ifdef` is
+ * false for it however available it is. Written the other way this compiled, ran, and answered
+ * Monday for every locale on earth -- including `en_US`, where the probe that found it reads 1. */
+static Value native_locale_first_weekday_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    LocaleHandle *h = handle_of(args[0], line, col);
+#if defined(__GLIBC__)
+    const char *raw = nl_langinfo_l(_NL_TIME_FIRST_WEEKDAY, h->loc);
+    if (raw != NULL) {
+        int day = (unsigned char)raw[0];
+        if (day >= 1 && day <= 7) return value_int(day - 1);
+    }
+#else
+    (void)h;
+#endif
+    return value_int(1);
+}
+
 /* ---- collation and number separators ---------------------------------------------------------
  *
  * `strcoll_l`, which is real collation and not code points: measured on 2026-10-23, `de_DE` orders
@@ -408,6 +440,7 @@ void native_locale_register(void) {
     native_register("locale::thousep_raw", native_locale_thousep_raw);
     native_register("locale::month_name_raw", native_locale_month_name_raw);
     native_register("locale::day_name_raw", native_locale_day_name_raw);
+    native_register("locale::first_weekday_raw", native_locale_first_weekday_raw);
     native_register("locale::open_raw", native_locale_open_raw);
     native_register("locale::root_raw", native_locale_root_raw);
     native_register("locale::name_raw", native_locale_name_raw);

@@ -46,6 +46,7 @@ native fn default_raw() -> int
 native fn month_name_raw(handle: int, index: int, full: bool) -> string
 
 native fn day_name_raw(handle: int, index: int, full: bool) -> string
+native fn first_weekday_raw(handle: int) -> int
 
 native fn collate_raw(a: string, b: string, l: Locale) -> int
 
@@ -193,6 +194,19 @@ pub fn month_name(l: Locale, month: int, full: bool) -> string {
 // numbers them that way (`DAY_1` is Sunday) and so does this, rather than rotating twice.
 pub fn day_name(l: Locale, day: int, full: bool) -> string {
     return day_name_raw(l.handle, day, full)
+}
+
+// Which day the locale's week starts on: 0 for Sunday through 6 for Saturday, the numbering
+// `day_name` takes.
+//
+// **Asked of the host, not kept as a table here.** Sunday in the United States, Canada, Japan and
+// Israel; Monday across most of Europe; Saturday in much of the Arabic-speaking world -- a list
+// this library would get wrong for the locales nobody here speaks, and that would then disagree
+// with the rest of the same machine. glibc already holds the answer and this asks it.
+//
+// Monday where the host will not say, which is ISO 8601's week start and the commonest answer.
+pub fn first_weekday(l: Locale) -> int {
+    return first_weekday_raw(l.handle)
 }
 
 // The locale's decimal point: `.` under `en_US`, `,` under `tr_TR` and `de_DE`.
