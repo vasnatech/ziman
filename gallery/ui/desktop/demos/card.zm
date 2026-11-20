@@ -1,0 +1,141 @@
+// A card: a titled box with a body and actions.
+//
+// **Press Tab and count.** The focus goes Load, Ready, Fail, then Open, then the two rows -- and
+// never onto a card. That is P3's whole answer: a card is a function returning a named group, not
+// a control, because a control is a tab stop and the target has sixty-two of these.
+//
+// **It is still named.** A reader says "Medications" and a click reports which card it landed in;
+// neither of those wanted a tab stop.
+//
+// **A card is a panel with a title**, so pressing Load gives both cards the four states F324
+// built -- including the one that matters, that "No medications recorded" and "not yet" are
+// different statements and a card must not show the first while the second is true.
+use boxes
+use controls
+use demos/card_ui
+use widget
+
+// How tall the rows inside the card are. **Here and not in `card_ui.zm`**: the design dialect
+// exports widgets, not numbers, and this one is needed where the card's body is assembled.
+val rows_height = 64.0
+
+pub struct Demo {
+    meds: controls.Card
+    notes: controls.Card
+    load: controls.Button
+    ready: controls.Button
+    fail: controls.Button
+    open: controls.Button
+    rows: controls.List
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        meds: controls.card_ready(controls.card_of("card-meds", "Medications", "No medications recorded")),
+        notes: controls.card_ready(controls.card_of("card-notes", "Notes", "No notes yet")),
+        load: controls.button_of("card-load", "Load"),
+        ready: controls.button_of("card-ready", "Ready"),
+        fail: controls.button_of("card-fail", "Fail"),
+        open: controls.button_of("card-open", "Open"),
+        rows: controls.list_of("card-rows", "Medications", ["Aspirin, 75mg", "Ramipril, 5mg"])
+    }
+}
+
+pub fn tick(d: Demo, f: controls.Frame) -> Option<Demo> {
+    if !controls.Waiting.is_Loading(d.meds.panel.state) {
+        return Option<Demo>.None
+    }
+    return Option<Demo>.Some(with d {
+        meds: with d.meds { panel: with d.meds.panel { phase: wrapped(d.meds.panel.phase + 0.02) } },
+        notes: with d.notes { panel: with d.notes.panel { phase: wrapped(d.notes.panel.phase + 0.02) } }
+    })
+}
+
+fn wrapped(v: float) -> float {
+    if v > 1.0 {
+        return v - 1.0
+    }
+    return v
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return card_ui.screen(
+        card_ui.Screen {
+            buttons: widget.row_of(8.0, [
+                controls.button_widget(d.load, f),
+                controls.button_widget(d.ready, f),
+                controls.button_widget(d.fail, f)
+            ]),
+            first: controls.card_widget(
+                d.meds,
+                // **A list takes the height it is given rather than asking for one**, so a
+                // caller that hands one to a card has to say how tall. The list demo does the
+                // same; without it the card drew its header and then nothing.
+                widget.tall_of(rows_height, controls.list_widget(d.rows, f)),
+                controls.button_widget(d.open, f),
+                f
+            ),
+            // The second takes no actions, so its header is a title and nothing else.
+            second: controls.card_widget(d.notes, widget.Widget.Nothing, widget.Widget.Nothing, f),
+            said: "Tab never lands on a card: only on the buttons and the rows inside one."
+        },
+        f
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "card-rows" {
+        return with d {
+            rows: controls.list_input(d.rows, input, boxes.bounds_of(laid, name), f).list
+        }
+    }
+    if name == "card-load" {
+        return moved(d, controls.button_input(d.load, input, boxes.bounds_of(laid, name)), name)
+    }
+    if name == "card-ready" {
+        return moved(d, controls.button_input(d.ready, input, boxes.bounds_of(laid, name)), name)
+    }
+    if name == "card-fail" {
+        return moved(d, controls.button_input(d.fail, input, boxes.bounds_of(laid, name)), name)
+    }
+    if name == "card-open" {
+        return with d { open: controls.button_input(d.open, input, boxes.bounds_of(laid, name)).button }
+    }
+    return d
+}
+
+fn moved(d: Demo, step: controls.ButtonStep, name: string) -> Demo {
+    val held = button_set(d, step, name)
+    if !step.activated {
+        return held
+    }
+    if name == "card-load" {
+        return with held {
+            meds: controls.card_loading(held.meds),
+            notes: controls.card_loading(held.notes)
+        }
+    }
+    if name == "card-ready" {
+        return with held { meds: controls.card_ready(held.meds), notes: controls.card_ready(held.notes) }
+    }
+    return with held {
+        meds: controls.card_failed(held.meds, "Could not reach the server"),
+        notes: controls.card_failed(held.notes, "Could not reach the server")
+    }
+}
+
+fn button_set(d: Demo, step: controls.ButtonStep, name: string) -> Demo {
+    if name == "card-load" {
+        return with d { load: step.button }
+    }
+    if name == "card-ready" {
+        return with d { ready: step.button }
+    }
+    return with d { fail: step.button }
+}

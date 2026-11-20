@@ -14,6 +14,7 @@ use demos/accessibility
 use demos/autocomplete
 use demos/badge
 use demos/button
+use demos/card
 use demos/check_box
 use demos/combo_box
 use demos/composing
@@ -65,6 +66,7 @@ pub enum Demo {
     Panel(panel.Demo)
     Search(search.Demo)
     Badge(badge.Demo)
+    Card(card.Demo)
     Radios(radios.Demo)
     TextField(text_field.Demo)
     TextArea(text_area.Demo)
@@ -106,6 +108,7 @@ pub fn all() -> [Demo] {
         Demo.Panel(panel.demo()),
         Demo.Search(search.demo()),
         Demo.Badge(badge.demo()),
+        Demo.Card(card.demo()),
         Demo.Radios(radios.demo()),
         Demo.TextField(text_field.demo()),
         Demo.TextArea(text_area.demo()),
@@ -146,6 +149,7 @@ pub fn title_of(d: Demo) -> string {
         Panel(_) { "A panel that waits" }
         Search(_) { "Search" }
         Badge(_) { "Badge" }
+        Card(_) { "Card" }
         Radios(_) { "Radio group" }
         TextField(_) { "Text field" }
         TextArea(_) { "Text area" }
@@ -187,6 +191,7 @@ pub fn stem_of(d: Demo) -> string {
         Panel(_) { "panel" }
         Search(_) { "search" }
         Badge(_) { "badge" }
+        Card(_) { "card" }
         Radios(_) { "radios" }
         TextField(_) { "text_field" }
         TextArea(_) { "text_area" }
@@ -267,6 +272,12 @@ pub fn tick_of(d: Demo, f: controls.Frame) -> Option<Demo> {
         }
         Search(_) { Option<Demo>.None }
         Badge(_) { Option<Demo>.None }
+        Card(it) {
+            switch card.tick(it, f) {
+                Some(one) { Option<Demo>.Some(Demo.Card(one)) }
+                None { Option<Demo>.None }
+            }
+        }
     }
 }
 
@@ -288,6 +299,7 @@ pub fn view_of(d: Demo, f: controls.Frame) -> widget.Widget {
         Panel(it) { panel.view(it, f) }
         Search(it) { search.view(it, f) }
         Badge(it) { badge.view(it, f) }
+        Card(it) { card.view(it, f) }
         Radios(it) { radios.view(it, f) }
         TextField(it) { text_field.view(it, f) }
         TextArea(it) { text_area.view(it, f) }
@@ -334,6 +346,7 @@ pub fn input_to(
         Panel(it) { Demo.Panel(panel.input(it, name, input, laid, f)) }
         Search(it) { Demo.Search(search.input(it, name, input, laid, f)) }
         Badge(it) { Demo.Badge(badge.input(it, name, input, laid, f)) }
+        Card(it) { Demo.Card(card.input(it, name, input, laid, f)) }
         Radios(it) { Demo.Radios(radios.input(it, name, input, laid, f)) }
         TextField(it) { Demo.TextField(text_field.input(it, name, input, laid, f)) }
         TextArea(it) { Demo.TextArea(text_area.input(it, name, input, laid, f)) }
@@ -387,6 +400,7 @@ pub fn anchor_of(d: Demo) -> string {
         Panel(_) { "" }
         Search(_) { "" }
         Badge(_) { "" }
+        Card(_) { "" }
         Radios(_) { "" }
         Slider(_) { "" }
         Link(_) { "" }
@@ -468,6 +482,7 @@ pub fn layer_of(d: Demo, at: geom.Rect, laid: widget.Laid, f: controls.Frame) ->
         Panel(_) { Option<widget.Layer>.None }
         Search(_) { Option<widget.Layer>.None }
         Badge(_) { Option<widget.Layer>.None }
+        Card(_) { Option<widget.Layer>.None }
         Radios(_) { Option<widget.Layer>.None }
         Slider(_) { Option<widget.Layer>.None }
         Link(_) { Option<widget.Layer>.None }
@@ -513,6 +528,7 @@ pub fn group_of(d: Demo) -> string {
         Panel(_) { "Controls" }
         Search(_) { "Controls" }
         Badge(_) { "Controls" }
+        Card(_) { "Controls" }
         Radios(_) { "Controls" }
         Slider(_) { "Controls" }
         Link(_) { "Controls" }
@@ -565,6 +581,7 @@ pub fn cursor_of(
         Panel(_) { widget.Cursor.Arrow }
         Search(_) { widget.Cursor.Text }
         Badge(_) { widget.Cursor.Arrow }
+        Card(_) { widget.Cursor.Arrow }
         Radios(_) { widget.Cursor.Arrow }
         Slider(_) { widget.Cursor.Arrow }
         Link(_) { widget.Cursor.Arrow }

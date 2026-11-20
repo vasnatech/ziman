@@ -7399,3 +7399,79 @@ fn a_combo_box_of_words_still_takes_words() {
         test.assert(false)
     }
 }
+
+// --- the card
+
+fn a_card() -> controls.Card {
+    return controls.card_of("meds", "Medications", "No medications recorded")
+}
+
+fn card_body() -> widget.Widget {
+    return controls.button_widget(controls.button_of("card-edit", "Edit"), frame())
+}
+
+fn card_actions() -> widget.Widget {
+    return controls.button_widget(controls.button_of("card-open", "Open"), frame())
+}
+
+fn card_laid(c: controls.Card, content: widget.Widget, actions: widget.Widget) -> widget.Laid {
+    return widget.layout(
+        controls.card_widget(c, content, actions, frame()),
+        geom.rect_of(0.0, 0.0, 260.0, 160.0),
+        metrics()
+    )
+}
+
+// **P3, and the whole of what it decided.** A card is not focusable, so it is not a tab stop: the
+// sixty-two of them this exists for would otherwise be sixty-two extra presses between a user and
+// what they came for. Only the controls a caller puts *inside* one are reachable.
+#[test]
+fn a_card_is_not_a_tab_stop() {
+    val reachable = focus.controls(card_laid(controls.card_ready(a_card()), card_body(), card_actions()))
+    test.assert_eq(len(reachable), 2)
+    for one in reachable {
+        test.assert(one.name != "meds")
+    }
+}
+
+// And it is still named, which is the thing a control was wanted for: a reader says
+// "Medications" and a click has a name to report.
+#[test]
+fn a_card_is_named_without_being_a_control() {
+    val laid = card_laid(controls.card_ready(a_card()), card_body(), widget.Widget.Nothing)
+    test.assert_eq(box_named(laid, "meds").width, 260.0)
+}
+
+// **A card is a panel with a title**, so the four states arrive with it rather than being
+// restated sixty-two times -- including the rule that an empty answer and a waiting one are
+// different statements.
+#[test]
+fn a_card_carries_the_panels_states() {
+    test.assert_eq(
+        len(focus.controls(card_laid(controls.card_loading(a_card()), card_body(), widget.Widget.Nothing))),
+        0
+    )
+    val said = switch a11y.node_of(
+        a11y.tree_of(card_laid(controls.card_ready(a_card()), widget.Widget.Nothing, widget.Widget.Nothing), "x", ""),
+        "meds/state"
+    ) {
+        Some(n) { n.name }
+        None { "(absent)" }
+    }
+    test.assert_eq(said, "Medications: No medications recorded")
+}
+
+// A card with no actions does not leave a gap where they would have gone.
+#[test]
+fn a_card_without_actions_is_shorter_than_one_with_them() {
+    val bare = widget.measure(
+        controls.card_widget(controls.card_ready(a_card()), card_body(), widget.Widget.Nothing, frame()),
+        metrics()
+    )
+    val acted = widget.measure(
+        controls.card_widget(controls.card_ready(a_card()), card_body(), card_actions(), frame()),
+        metrics()
+    )
+    test.assert(acted.height >= bare.height)
+    test.assert(bare.width > 0.0)
+}

@@ -5758,6 +5758,115 @@ fn toolbar_still(t: Toolbar) -> ToolbarStep {
     return ToolbarStep { toolbar: t, fired: "" }
 }
 
+// ------------------------------------------------------------------- the card
+
+// A titled box with a body and, if it wants them, actions.
+//
+// **A function and not a control** (P3, decided 2026-11-20). The question turned out not to be
+// control-or-function but **focusable or not**: a `Control` is a tab stop, and the sixty-two cards
+// this exists for would be sixty-two extra presses between a user and what they came for.
+// Everything a card wanted a control *for* it gets without being one -- a named group gives a
+// reader "Medications, group" and gives a click a name to report.
+//
+// **A card is a panel with a title**, which is why this holds one rather than restating it. The
+// target's own `CardShell` takes a title, an icon, `loading` and `empty`; the last two are
+// `Panel`'s four states, so every card gets the rule that "no medications recorded" and "not yet"
+// are different statements, rather than sixty-two chances to forget it.
+pub struct Card {
+    panel: Panel
+    // Beside the title, and decoration: the title is what a reader hears, so an icon that
+    // repeated it would be said twice. See `Button.icon`, which is the one case where it is not.
+    icon: Option<widget.Icon>
+}
+
+pub fn card_of(name: string, title: string, empty: string) -> Card {
+    return Card { panel: panel_of(name, title, empty), icon: Option<widget.Icon>.None }
+}
+
+pub fn card_loading(c: Card) -> Card {
+    return with c { panel: panel_loading(c.panel) }
+}
+
+pub fn card_ready(c: Card) -> Card {
+    return with c { panel: panel_ready(c.panel) }
+}
+
+pub fn card_failed(c: Card, why: string) -> Card {
+    return with c { panel: panel_failed(c.panel, why) }
+}
+
+// The card: a header, a rule, and the panel's body under it.
+//
+// **The actions sit in the header and not under the body**, which is where the target puts them
+// and where they stay put: a row of buttons below a body that grows is a row that moves every time
+// the data changes.
+pub fn card_widget(c: Card, content: widget.Widget, actions: widget.Widget, f: Frame) -> widget.Widget {
+    val style = f.style
+    val head = mutable_array_new<widget.Widget>()
+    if Some(icon) = c.icon {
+        push(head, widget.icon_widget(icon, style.text.label.size, style.ink, style.text.label.face))
+    }
+    push(head, widget.label_in_face(
+        c.panel.label,
+        style.text.label.size,
+        style.ink,
+        style.text.label.face
+    ))
+    push(head, widget.flex())
+    if !widget.is_nothing_widget(actions) {
+        push(head, actions)
+    }
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: style.space.s,
+        padding: padded_for(style),
+        surface: card_surface(style),
+        align: widget.stretched(),
+        children: [
+            widget.Widget.Group(widget.Stack {
+                direction: widget.Direction.Row,
+                spacing: style.icon_gap,
+                padding: widget.no_insets(),
+                surface: widget.no_surface(),
+                align: widget.Alignment {
+                    across: widget.Across.Centre,
+                    along: widget.Along.Centre
+                },
+                children: snapshot(head),
+                name: ""
+            }),
+            // **The panel, whole, and expanded.** Its live region, its four states and its rule
+            // that a waiting body is not laid out all arrive with it -- which is the argument for
+            // composing it rather than drawing a title above some content and calling that a
+            // card. `expand` is what makes a card given a height actually use it: without it the
+            // box was drawn full size with its contents huddled under the title.
+            widget.expand(panel_widget(c.panel, content, f))
+        ],
+        // **Named, which is the whole of what P3 decided it needed.** A reader says
+        // "Medications, group" and a click reports which card it landed in, and neither of those
+        // wanted a tab stop.
+        name: c.panel.name
+    })
+}
+
+// **The library's own raised surface, which a popup and a menu already wear.**
+//
+// The first spelling built one by hand out of `style.window` and the resting border, and drew
+// nothing at all: the plain look gives a resting control no border, so a box filled with the page
+// colour and edged with nothing is an invisible box. `raised_of` is where "a surface that sits
+// above the page" already lives -- it carries the look's edge, its large corner and its shadow --
+// so a card wears that rather than holding a second opinion about what a raised box looks like.
+fn card_surface(style: Style) -> widget.Surface {
+    // **And an edge on top of it**, because a raised panel is not enough on its own here: a popup
+    // is read against the content it covers, and a card has only the page behind it -- and in the
+    // plain look the panel colour and the page colour are nearly the same, so the box was visible
+    // only by its shadow. `style.grid` is the line a table already draws with, rather than a new
+    // opinion about what a line is.
+    return with raised_of(style, style.panel) {
+        border: Option<widget.Border>.Some(widget.Border { colour: style.grid, width: style.stroke.hair })
+    }
+}
+
 // ------------------------------------------------------------------ the badge
 
 // A count or a word beside the thing it belongs to.

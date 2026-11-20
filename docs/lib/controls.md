@@ -2197,6 +2197,68 @@ of equal columns, so arithmetic finds the one under a point; a toolbar's command
 a word and a rule, every one a different width. Their laid boxes are the only thing that knows
 where they ended up, and `cursor_at` reads parts out of the tree for the same reason.
 
+## The card
+
+### `Card`
+
+```
+pub struct Card {
+    panel: Panel
+    // Beside the title, and decoration: the title is what a reader hears, so an icon that
+    // repeated it would be said twice. See `Button.icon`, which is the one case where it is not.
+    icon: Option<widget.Icon>
+}
+```
+
+A titled box with a body and, if it wants them, actions.
+
+**A function and not a control** (P3, decided 2026-11-20). The question turned out not to be
+control-or-function but **focusable or not**: a `Control` is a tab stop, and the sixty-two cards
+this exists for would be sixty-two extra presses between a user and what they came for.
+Everything a card wanted a control *for* it gets without being one -- a named group gives a
+reader "Medications, group" and gives a click a name to report.
+
+**A card is a panel with a title**, which is why this holds one rather than restating it. The
+target's own `CardShell` takes a title, an icon, `loading` and `empty`; the last two are
+`Panel`'s four states, so every card gets the rule that "no medications recorded" and "not yet"
+are different statements, rather than sixty-two chances to forget it.
+
+### `card_of`
+
+```
+pub fn card_of(name: string, title: string, empty: string) -> Card
+```
+
+### `card_loading`
+
+```
+pub fn card_loading(c: Card) -> Card
+```
+
+### `card_ready`
+
+```
+pub fn card_ready(c: Card) -> Card
+```
+
+### `card_failed`
+
+```
+pub fn card_failed(c: Card, why: string) -> Card
+```
+
+### `card_widget`
+
+```
+pub fn card_widget(c: Card, content: widget.Widget, actions: widget.Widget, f: Frame) -> widget.Widget
+```
+
+The card: a header, a rule, and the panel's body under it.
+
+**The actions sit in the header and not under the body**, which is where the target puts them
+and where they stay put: a row of buttons below a body that grows is a row that moves every time
+the data changes.
+
 ## The badge
 
 ### `Badge`

@@ -1,0 +1,26 @@
+// The Card demo, as design.
+use controls
+use widget
+
+val gap = 12.0
+val card_width = 260.0
+val card_height = 150.0
+
+pub struct Screen {
+    buttons: widget.Widget
+    first: widget.Widget
+    second: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        it.buttons,
+        widget.tall_of(card_height, widget.row_of(gap, [
+            widget.wide_of(card_width, it.first),
+            widget.wide_of(card_width, it.second),
+            widget.expand(widget.flex())
+        ])),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+    ])
+}

@@ -108,6 +108,15 @@ drag-to-reorder (dnd-kit, 1 file -- dashboard card order).
   This shapes the port's code everywhere, so the answer is wanted before the porting begins, even
   if the building waits.
 
+  **Decided 2026-11-20: design now, build later.** The shape is written down in
+  [message catalogues](message-catalogues.md) so that every screen is built against it from the
+  first one; the 1,709 keys get loaded whenever that is wanted. Retrofitting across finished
+  screens is the expensive half.
+
+  **The measurement changed what the design needs.** There are no plural forms in the target at
+  all -- `count` appears in fifteen calls and every one passes it as a *value* -- so the expensive,
+  locale-specific part of a catalogue library is not needed to port this application.
+
 - **P3 — Is a card a control or a function?**
   `border_of` set the precedent that an arrangement stays a function (F320). A card is used 62
   times, which argues the other way, and it may want a role of its own for a reader.
@@ -116,6 +125,23 @@ drag-to-reorder (dnd-kit, 1 file -- dashboard card order).
   other six behind it. The argument for waiting is that F322 and F325 will have said more about
   how much a reader needs named by then -- an autocomplete and a sorted table are both cases where
   the answer "a group with a name" either earns itself or does not.
+
+  **Decided 2026-11-20: a card is a function**, returning a named group with `Role.Group`. The
+  waiting was worth it, because what settled it was not F322 or F325 but **F324**, which was not
+  on the list when P3 was written.
+
+  The question turned out not to be control-or-function at all. It is **focusable or not**. A
+  `Control` is a tab stop, and 62 cards on a dashboard would be 62 extra presses between a user
+  and the thing they came for. Everything a card was wanted a control *for* is available without
+  being one: a named group gives a reader "Medications, group" and gives a click a name to report,
+  which is what `part_of` already does for the search field's clear mark and the panel's status
+  region.
+
+  **And the target's own card is a panel with a header.** `CardShell` takes `title`, `icon`,
+  `loading`, `empty` and an action -- which is `controls.Panel` plus a title row, built in F324 a
+  day before this was decided. So a card composes the panel rather than restating it, and the
+  four-state rule ("no medications recorded" is not the same statement as "not yet") comes with
+  it for free, on all 62.
 
 - **P4 — The map and the barcode scanner: drop, stub, or find a desktop equivalent?**
 

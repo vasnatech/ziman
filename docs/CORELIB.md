@@ -1303,6 +1303,23 @@ pub fn toolbar_layer(t: Toolbar, laid: Laid, width: float, within: Rect, f: Fram
 
 pub fn toolbar_input(
 
+pub struct Card {
+    panel: Panel
+    // Beside the title, and decoration: the title is what a reader hears, so an icon that
+    // repeated it would be said twice. See `Button.icon`, which is the one case where it is not.
+    icon: Option<widget.Icon>
+}
+
+pub fn card_of(name: string, title: string, empty: string) -> Card
+
+pub fn card_loading(c: Card) -> Card
+
+pub fn card_ready(c: Card) -> Card
+
+pub fn card_failed(c: Card, why: string) -> Card
+
+pub fn card_widget(c: Card, content: widget.Widget, actions: widget.Widget, f: Frame) -> widget.Widget
+
 pub struct Badge {
     text: string
     // **Loud wears the accent**, for a count that is asking to be noticed: unread messages, things
