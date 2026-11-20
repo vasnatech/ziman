@@ -440,6 +440,71 @@ pub fn decode_chunk(data: [byte], set: Charset) -> Result<string, Refusal>
 
 ```
 
+## `chart`
+
+A line or a bar chart, drawn into a scene.
+
+```
+pub enum Mark {
+    Line
+    Bars
+}
+
+pub struct Series {
+    name: string
+    mark: Mark
+    points: [float]
+    ink: Color
+}
+
+pub struct Band {
+    from: float
+    to: float
+    ink: Color
+}
+
+pub struct Chart {
+    // One per position on the x axis. A series longer or shorter than this is drawn only as far as
+    // the two agree -- see `points_shown`.
+    labels: [string]
+    series: [Series]
+    bands: [Band]
+}
+
+pub struct ChartStyle {
+    ink: Color
+    grid: Color
+    // The axis labels.
+    text_size: float
+    font: int
+    line_width: float
+    // How much of each slot a bar fills, 0 to 1.
+    bar_fill: float
+    // Room for the y labels on the left and the x labels below.
+    left_gutter: float
+    bottom_gutter: float
+}
+
+pub fn chart_of(labels: [string], series: [Series]) -> Chart
+
+pub fn line_series(name: string, points: [float], ink: Color) -> Series
+
+pub fn bar_series(name: string, points: [float], ink: Color) -> Series
+
+pub fn points_shown(c: Chart, s: Series) -> int
+
+pub fn y_range(c: Chart) -> geom.Point
+
+pub fn plot_box(c: Chart, box: Rect, style: ChartStyle) -> Rect
+
+pub fn y_at(c: Chart, value: float, plot: Rect, style: ChartStyle) -> float
+
+pub fn x_at(c: Chart, index: int, plot: Rect, style: ChartStyle) -> float
+
+pub fn chart_scene(c: Chart, box: Rect, style: ChartStyle) -> scene.Scene
+
+```
+
 ## `client`
 
 An HTTP/1.1 *client*, written in Ziman on top of `net`, so a Ziman program can call another service (the server side is `server`; the types they share are in `http`).

@@ -1,0 +1,151 @@
+// A line or a bar chart, drawn into a scene.
+use chart
+use geom
+use geom.Rect
+use paint
+use scene
+use test
+
+fn style() -> chart.ChartStyle {
+    return chart.ChartStyle {
+        ink: paint.rgb8(0, 0, 0),
+        grid: paint.rgb8(200, 200, 200),
+        text_size: 10.0,
+        font: 0,
+        line_width: 2.0,
+        bar_fill: 0.6,
+        left_gutter: 30.0,
+        bottom_gutter: 20.0
+    }
+}
+
+fn box() -> Rect {
+    return geom.rect_of(0.0, 0.0, 400.0, 220.0)
+}
+
+fn readings() -> chart.Chart {
+    return chart.chart_of(
+        ["Mon", "Tue", "Wed", "Thu"],
+        [chart.line_series("Weight", [80.0, 82.0, 81.0, 83.0], paint.rgb8(20, 90, 200))]
+    )
+}
+
+// **A band is part of the y range, not drawn on top of it.** A band outside the data's own range
+// would be clipped away, which redraws the chart's meaning in silence: a reading sitting inside a
+// normal range, drawn as though the range were somewhere else.
+#[test]
+fn a_band_widens_the_range_rather_than_being_clipped() {
+    val plain = chart.y_range(readings())
+    test.assert_eq(plain.x, 80.0)
+    test.assert_eq(plain.y, 83.0)
+    val banded = with readings() {
+        bands: [chart.Band { from: 60.0, to: 90.0, ink: paint.rgb8(220, 240, 220) }]
+    }
+    val range = chart.y_range(banded)
+    test.assert_eq(range.x, 60.0)
+    test.assert_eq(range.y, 90.0)
+    // And the band's top really is inside the plot rather than above it.
+    val plot = chart.plot_box(banded, box(), style())
+    val top = chart.y_at(banded, 90.0, plot, style())
+    test.assert(top >= plot.y)
+    test.assert(top <= plot.y + plot.height)
+}
+
+// **A flat series is a range of zero height and a division by it.** Widened to sit in the middle
+// rather than drawn as a crash or as a line along one edge.
+#[test]
+fn a_flat_series_still_has_a_range() {
+    val flat = chart.chart_of(
+        ["a", "b"],
+        [chart.line_series("One note", [7.0, 7.0], paint.rgb8(0, 0, 0))]
+    )
+    val range = chart.y_range(flat)
+    test.assert(range.y > range.x)
+    val plot = chart.plot_box(flat, box(), style())
+    val at = chart.y_at(flat, 7.0, plot, style())
+    test.assert(at > plot.y)
+    test.assert(at < plot.y + plot.height)
+}
+
+// **A bar axis always includes zero**, however far the data is from it. A bar's length *is* the
+// quantity, so an axis starting above zero draws a difference of one as a difference of
+// everything -- and the smallest bar vanishes entirely, which is how this was found: a reading of
+// 1 against a range beginning at 1 drew nothing, and an absent bar reads as absent data.
+#[test]
+fn a_bar_axis_reaches_zero_even_when_the_data_does_not() {
+    val counts = chart.chart_of(
+        ["a", "b"],
+        [chart.bar_series("Doses", [4.0, 5.0], paint.rgb8(0, 0, 0))]
+    )
+    val range = chart.y_range(counts)
+    test.assert_eq(range.x, 0.0)
+    test.assert_eq(range.y, 5.0)
+    // So the smaller bar has real height rather than none.
+    val plot = chart.plot_box(counts, box(), style())
+    val floor = chart.y_at(counts, 0.0, plot, style())
+    test.assert(floor - chart.y_at(counts, 4.0, plot, style()) > 1.0)
+}
+
+// **A line may be truncated and often should be.** A weight between 80 and 83 kg plotted from
+// zero is a flat line across the top of an empty chart, so the rule above is the bars' and not
+// every series'.
+#[test]
+fn a_line_axis_is_not_dragged_down_to_zero() {
+    val range = chart.y_range(readings())
+    test.assert_eq(range.x, 80.0)
+    test.assert_eq(range.y, 83.0)
+}
+
+// **The shorter of the two, rather than an error.** Both happen while data is arriving, and
+// neither is worth refusing to draw the rest of the chart over.
+#[test]
+fn a_series_is_drawn_only_as_far_as_the_labels_agree() {
+    val c = readings()
+    val short = chart.line_series("Short", [1.0, 2.0], paint.rgb8(0, 0, 0))
+    val long = chart.line_series("Long", [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], paint.rgb8(0, 0, 0))
+    test.assert_eq(chart.points_shown(c, short), 2)
+    test.assert_eq(chart.points_shown(c, long), 4)
+}
+
+// Drawing and asking where a point is must use the same function, which is the defect the
+// calendar cost twenty-two points to.
+#[test]
+fn a_slot_centre_is_inside_its_own_slot() {
+    val c = readings()
+    val plot = chart.plot_box(c, box(), style())
+    val slot = plot.width / 4.0
+    var i = 0
+    while i < 4 {
+        val x = chart.x_at(c, i, plot, style())
+        test.assert(x > plot.x + slot * (i as float))
+        test.assert(x < plot.x + slot * ((i as float) + 1.0))
+        i = i + 1
+    }
+}
+
+// A chart with nothing in it draws nothing rather than dividing by a range of zero.
+#[test]
+fn an_empty_chart_is_not_a_division_by_zero() {
+    val empty = chart.chart_of([], [])
+    val range = chart.y_range(empty)
+    test.assert(range.y > range.x)
+    val drawn = chart.chart_scene(empty, box(), style())
+    test.assert_eq(drawn.width, 400.0)
+}
+
+// The whole thing draws: bands behind, bars, then lines over them, then the labels.
+#[test]
+fn a_chart_draws_its_parts_in_order() {
+    val both = with chart.chart_of(
+        ["Mon", "Tue", "Wed"],
+        [
+            chart.bar_series("Taken", [2.0, 3.0, 1.0], paint.rgb8(180, 200, 230)),
+            chart.line_series("Target", [3.0, 3.0, 3.0], paint.rgb8(20, 90, 200))
+        ]
+    ) {
+        bands: [chart.Band { from: 2.0, to: 4.0, ink: paint.rgb8(230, 245, 230) }]
+    }
+    val drawn = chart.chart_scene(both, box(), style())
+    // One band, five grid lines, three bars, one line, three x labels, five y labels.
+    test.assert_eq(scene.op_count(drawn), 18)
+}

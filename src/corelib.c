@@ -97,6 +97,7 @@
 #include "svg_source.h"
 #include "paint_source.h"
 #include "scene_source.h"
+#include "chart_source.h"
 #include "pdfobj_source.h"
 #include "pdf_source.h"
 #include "truetype_source.h"
@@ -212,6 +213,7 @@ static const CoreModule CORE_MODULES[] = {
     {"svg", SVG_SOURCE, SVG_SOURCE_PATH},
     {"paint", PAINT_SOURCE, PAINT_SOURCE_PATH},
     {"scene", SCENE_SOURCE, SCENE_SOURCE_PATH},
+    {"chart", CHART_SOURCE, CHART_SOURCE_PATH},
     {"pdfobj", PDFOBJ_SOURCE, PDFOBJ_SOURCE_PATH},
     {"pdf", PDF_SOURCE, PDF_SOURCE_PATH},
     {"truetype", TRUETYPE_SOURCE, TRUETYPE_SOURCE_PATH},

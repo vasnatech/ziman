@@ -71,6 +71,7 @@ flowchart LR
         sqlite["db.sqlite"]
     end
     subgraph group_graphics["graphics"]
+        chart["graphics.chart"]
         font["graphics.font"]
         geom["graphics.geom"]
         image["graphics.image"]
@@ -120,6 +121,10 @@ flowchart LR
     batch --> db
     batch --> time
     batch --> uuid
+    chart --> geom
+    chart --> paint
+    chart --> scene
+    chart --> shape
     client --> clock
     client --> compress
     client --> encoding
@@ -427,7 +432,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 1 | `derive_reflect`, `geom`, `ini`, `io`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `validate`, `window` |
 | 2 | `encoding`, `fs`, `ibus`, `json`, `metrics`, `paint`, `shape`, `terminal`, `url`, `xml` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
-| 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `svg`, `template`, `time`, `uuid` |
+| 4 | `chart`, `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `sql`, `sqlite`, `svg`, `template`, `time`, `uuid` |
 | 5 | `batch`, `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml`, `eql`, `icons`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml`, `widget` |
 | 6 | `a11y`, `codec`, `derive_repository`, `focus` |
 | 7 | `atspi`, `controls`, `paging`, `server` |
@@ -442,6 +447,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `batch` | `datasource`, `db`, `time`, `uuid` | - |
 | `bits` | - | `image` |
 | `charset` | - | `codec`, `csv`, `font`, `fs`, `ini`, `io`, `json`, `ndjson`, `pdf`, `properties`, `terminal`, `toml`, `truetype`, `url`, `window`, `xml`, `yaml` |
+| `chart` | `geom`, `paint`, `scene`, `shape` | - |
 | `client` | `clock`, `compress`, `encoding`, `http`, `io`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `charset`, `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
@@ -469,7 +475,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `focus` | `geom`, `widget` | `controls`, `navigate` |
 | `font` | `charset`, `truetype` | `layout`, `pdf`, `raster`, `widget` |
 | `fs` | `charset`, `io`, `os` | `csv`, `http`, `icons`, `log`, `migrate`, `process`, `properties`, `server`, `sql`, `zone` |
-| `geom` | `math` | `a11y`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `svg`, `theme`, `truetype`, `widget` |
+| `geom` | `math` | `a11y`, `chart`, `controls`, `desktop`, `focus`, `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `svg`, `theme`, `truetype`, `widget` |
 | `http` | `fs`, `io`, `locale`, `mime`, `number`, `random`, `url` | `client`, `rest`, `server` |
 | `ibus` | `window` | - |
 | `icons` | `fs`, `ini`, `math`, `os`, `shape`, `svg` | - |
@@ -496,7 +502,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `os` | `clock` | `client`, `fs`, `icons`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `encoding`, `random` | - |
 | `paging` | `codec`, `json`, `mime` | - |
-| `paint` | `geom`, `locale`, `math` | `controls`, `image`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `theme`, `widget` |
+| `paint` | `geom`, `locale`, `math` | `chart`, `controls`, `image`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `theme`, `widget` |
 | `pdf` | `charset`, `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
 | `pdfobj` | `compress` | `pdf` |
 | `pg` | `crypto`, `db`, `encoding`, `locale`, `net`, `number`, `random` | - |
@@ -506,10 +512,10 @@ otherwise: everything on a layer depends only on lower layers.
 | `raster` | `font`, `geom`, `image`, `math`, `paint`, `scene`, `shape`, `stroker`, `truetype` | `desktop` |
 | `regex` | - | `expr`, `test`, `validate` |
 | `rest` | `clock`, `codec`, `http`, `io`, `metrics`, `mime`, `server`, `url`, `uuid` | - |
-| `scene` | `geom`, `paint`, `shape` | `controls`, `desktop`, `layout`, `pdf`, `raster`, `widget` |
+| `scene` | `geom`, `paint`, `shape` | `chart`, `controls`, `desktop`, `layout`, `pdf`, `raster`, `widget` |
 | `schedule` | `clock`, `locale`, `time` | - |
 | `server` | `clock`, `codec`, `compress`, `fs`, `http`, `io`, `json`, `locale`, `metrics`, `mime`, `net`, `number`, `os`, `uuid` | `rest` |
-| `shape` | `geom`, `math` | `controls`, `icons`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `truetype`, `widget` |
+| `shape` | `geom`, `math` | `chart`, `controls`, `icons`, `layout`, `pdf`, `raster`, `scene`, `stroker`, `svg`, `truetype`, `widget` |
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster`, `svg` |

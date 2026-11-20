@@ -154,6 +154,7 @@ throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Optio
 | [`svg`](svg.md) | An SVG file as shapes: one `d` attribute, or a whole document. |
 | [`paint`](paint.md) | What fills a region, and how a line is drawn. |
 | [`scene`](scene.md) | The display list: drawing operations as values, and a scene as a tree of them. |
+| [`chart`](chart.md) | A line or a bar chart, drawn into a scene. |
 | [`pdfobj`](pdfobj.md) | PDF's object layer: objects, dictionaries, streams, the cross-reference table. |
 | [`pdf`](pdf.md) | A `scene.Scene` rendered to a PDF document. |
 | [`truetype`](truetype.md) | Reading the TrueType tables the rest of `lib/graphics` needs, and nothing else. |

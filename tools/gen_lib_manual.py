@@ -73,7 +73,7 @@ GROUPS = [
     # `rest.Endpoint`s over `codec`'s decoders, so it belongs with `rest` rather than with
     # `meta` -- and it is still its own group because a reader meets it through the attribute.
     ("Deriving for HTTP", "http", ["derive_routes"]),
-    ("Graphics", "graphics", ["geom", "shape", "svg", "paint", "scene", "pdfobj", "pdf", "truetype", "font", "image", "stroker", "raster", "layout"]),
+    ("Graphics", "graphics", ["geom", "shape", "svg", "paint", "scene", "chart", "pdfobj", "pdf", "truetype", "font", "image", "stroker", "raster", "layout"]),
     # `widget` is a layer *above* the 2D model rather than part of it: it produces a `Scene` and
     # knows nothing about how one is rasterised. Its own group, in `lib/ui/`, because F272-F277 add
     # focus, text editing and accessibility beside it and none of those are graphics either.

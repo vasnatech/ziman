@@ -61,3 +61,4 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F322 to F329 — the controls health-record's front end needs](f322-f328.md)
 - [F330 — a list holds a value, and the search field learns its own height](f330.md)
 - [F331 — navigation: a history, and what a screen change owes the user](f331.md)
+- [F332 — charts, the drawing half](f332.md)

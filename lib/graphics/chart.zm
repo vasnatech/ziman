@@ -1,0 +1,391 @@
+// chart.zm -- a line or a bar chart, drawn into a scene.
+//
+// **A drawing, not a widget.** No window, no pointer, no state: this turns numbers and a box into
+// the ops that draw them, which is what lets a chart go into a PDF or a PNG as readily as into a
+// window. A chart that existed only as a control could not be exported, and an exported report is
+// where a chart is most often actually read.
+//
+// **Two marks and not a grammar of graphics**, which is a measurement rather than a preference:
+// see `docs/design/charts.md`.
+use geom
+use geom.Rect
+use paint
+use paint.Color
+use scene
+use shape
+
+// How a series is drawn.
+pub enum Mark {
+    Line
+    Bars
+}
+
+// One run of numbers, drawn one way, in one colour.
+//
+// **Numbers against labels, not pairs.** The axis is categorical -- a point's x is its index --
+// so a pair would carry an x that is always its own position, and a caller could write two series
+// whose points disagreed about where the third label is.
+pub struct Series {
+    name: string
+    mark: Mark
+    points: [float]
+    ink: Color
+}
+
+// A shaded range across the whole width, behind everything.
+//
+// **This is the feature that is not decoration.** A reading is meaningful against a range, and a
+// chart that drew the line and left the range out has shown the number and hidden the meaning.
+pub struct Band {
+    from: float
+    to: float
+    ink: Color
+}
+
+pub struct Chart {
+    // One per position on the x axis. A series longer or shorter than this is drawn only as far as
+    // the two agree -- see `points_shown`.
+    labels: [string]
+    series: [Series]
+    bands: [Band]
+}
+
+// The colours and sizes a chart draws with, which belong to the caller's look rather than here.
+pub struct ChartStyle {
+    ink: Color
+    grid: Color
+    // The axis labels.
+    text_size: float
+    font: int
+    line_width: float
+    // How much of each slot a bar fills, 0 to 1.
+    bar_fill: float
+    // Room for the y labels on the left and the x labels below.
+    left_gutter: float
+    bottom_gutter: float
+}
+
+pub fn chart_of(labels: [string], series: [Series]) -> Chart {
+    return Chart { labels: labels, series: series, bands: [] }
+}
+
+pub fn line_series(name: string, points: [float], ink: Color) -> Series {
+    return Series { name: name, mark: Mark.Line, points: points, ink: ink }
+}
+
+pub fn bar_series(name: string, points: [float], ink: Color) -> Series {
+    return Series { name: name, mark: Mark.Bars, points: points, ink: ink }
+}
+
+// How many points of a series are actually drawn.
+//
+// **The shorter of the two, rather than an error or a guess.** A series with more points than
+// there are labels has points with nowhere to stand; one with fewer simply stops. Both happen
+// while data is still arriving, and neither is worth refusing to draw the rest of the chart over.
+pub fn points_shown(c: Chart, s: Series) -> int {
+    if len(s.points) < len(c.labels) {
+        return len(s.points)
+    }
+    return len(c.labels)
+}
+
+// The range the y axis covers.
+//
+// **The bands are part of the range, not drawn on top of it.** A band outside the data's own range
+// would otherwise be clipped away, which redraws the chart's meaning in silence: a reading sitting
+// inside a normal range, drawn as though the range were somewhere else entirely.
+//
+// A flat series -- every point the same -- would be a range of zero height and a division by it,
+// so it is widened to sit in the middle.
+pub fn y_range(c: Chart) -> geom.Point {
+    var low = 0.0
+    var high = 0.0
+    var seen = false
+    for s in c.series {
+        var i = 0
+        val n = points_shown(c, s)
+        while i < n {
+            val v = s.points[i]
+            if !seen {
+                low = v
+                high = v
+                seen = true
+            }
+            if v < low {
+                low = v
+            }
+            if v > high {
+                high = v
+            }
+            i = i + 1
+        }
+    }
+    for b in c.bands {
+        val from = if b.from < b.to { b.from } else { b.to }
+        val to = if b.from < b.to { b.to } else { b.from }
+        if !seen {
+            low = from
+            high = to
+            seen = true
+        }
+        if from < low {
+            low = from
+        }
+        if to > high {
+            high = to
+        }
+    }
+    if !seen {
+        return geom.point_of(0.0, 1.0)
+    }
+    // **A bar axis includes zero, always.** A bar's length *is* the quantity, so an axis that
+    // starts above zero draws a difference of one as a difference of everything -- the oldest way
+    // there is to mislead with a chart. It also makes the smallest bar vanish, which is how this
+    // was found: a reading of 1 against a range beginning at 1 drew nothing at all, and an absent
+    // bar reads as absent data.
+    //
+    // A line may be truncated and often should be: a weight between 80 and 83 kg plotted from
+    // zero is a flat line across the top of an empty chart.
+    if holds_bars(c) {
+        if low > 0.0 {
+            low = 0.0
+        }
+        if high < 0.0 {
+            high = 0.0
+        }
+    }
+    if high - low < 0.000001 {
+        return geom.point_of(low - 0.5, high + 0.5)
+    }
+    return geom.point_of(low, high)
+}
+
+fn holds_bars(c: Chart) -> bool {
+    for s in c.series {
+        if Bars = s.mark {
+            return true
+        }
+    }
+    return false
+}
+
+// The box the data is drawn in: the chart's box less the room the labels need.
+pub fn plot_box(c: Chart, box: Rect, style: ChartStyle) -> Rect {
+    return geom.rect_of(
+        box.x + style.left_gutter,
+        box.y,
+        box.width - style.left_gutter,
+        box.height - style.bottom_gutter
+    )
+}
+
+// Where a value sits, vertically. **Shared by the drawing and by anything asking where a point
+// is**, so the two cannot disagree -- which is the defect the calendar cost twenty-two points to.
+pub fn y_at(c: Chart, value: float, plot: Rect, style: ChartStyle) -> float {
+    val range = y_range(c)
+    val span = range.y - range.x
+    return plot.y + plot.height - (value - range.x) / span * plot.height
+}
+
+// Where a slot's centre sits, horizontally.
+pub fn x_at(c: Chart, index: int, plot: Rect, style: ChartStyle) -> float {
+    val n = len(c.labels)
+    if n <= 0 {
+        return plot.x
+    }
+    val slot = plot.width / (n as float)
+    return plot.x + slot * ((index as float) + 0.5)
+}
+
+// The whole chart, as ops.
+pub fn chart_scene(c: Chart, box: Rect, style: ChartStyle) -> scene.Scene {
+    val plot = plot_box(c, box, style)
+    val ops = mutable_array_new<scene.Op>()
+    // Bands first: behind the grid as well as behind the data, so a grid line still reads across
+    // one.
+    for b in c.bands {
+        push(ops, band_op(c, b, plot, style))
+    }
+    for op in grid_ops(c, plot, style) {
+        push(ops, op)
+    }
+    for s in c.series {
+        if Bars = s.mark {
+            for op in bar_ops(c, s, plot, style) {
+                push(ops, op)
+            }
+        }
+    }
+    // Lines over bars, so a line against a bar chart is readable -- which is what a chart holding
+    // both is for.
+    for s in c.series {
+        if Line = s.mark {
+            if Some(op) = line_op(c, s, plot, style) {
+                push(ops, op)
+            }
+        }
+    }
+    for op in label_ops(c, plot, style) {
+        push(ops, op)
+    }
+    return scene.with_ops(scene.scene_of(box.width, box.height), snapshot(ops))
+}
+
+fn band_op(c: Chart, b: Band, plot: Rect, style: ChartStyle) -> scene.Op {
+    val top = y_at(c, if b.from > b.to { b.from } else { b.to }, plot, style)
+    val bottom = y_at(c, if b.from < b.to { b.from } else { b.to }, plot, style)
+    return scene.fill(
+        shape.rect_path(geom.rect_of(plot.x, top, plot.width, bottom - top)),
+        paint.solid(b.ink)
+    )
+}
+
+fn grid_ops(c: Chart, plot: Rect, style: ChartStyle) -> [scene.Op] {
+    val ops = mutable_array_new<scene.Op>()
+    val lines = 4
+    var i = 0
+    while i <= lines {
+        val y = plot.y + plot.height * ((i as float) / (lines as float))
+        val path = shape.path_builder()
+        shape.move_to(path, geom.point_of(plot.x, y))
+        shape.line_to(path, geom.point_of(plot.x + plot.width, y))
+        push(ops, scene.stroke(
+            shape.path_of(snapshot(path.segments), shape.Winding.NonZero),
+            paint.solid(style.grid),
+            paint.stroke_of(style.line_width * 0.5)
+        ))
+        i = i + 1
+    }
+    return snapshot(ops)
+}
+
+fn bar_ops(c: Chart, s: Series, plot: Rect, style: ChartStyle) -> [scene.Op] {
+    val ops = mutable_array_new<scene.Op>()
+    val n = points_shown(c, s)
+    val slot = if len(c.labels) > 0 { plot.width / (len(c.labels) as float) } else { 0.0 }
+    val width = slot * style.bar_fill
+    val base = y_at(c, baseline_of(c), plot, style)
+    var i = 0
+    while i < n {
+        val top = y_at(c, s.points[i], plot, style)
+        val centre = x_at(c, i, plot, style)
+        val from = if top < base { top } else { base }
+        val height = if top < base { base - top } else { top - base }
+        push(ops, scene.fill(
+            shape.rect_path(geom.rect_of(centre - width * 0.5, from, width, height)),
+            paint.solid(s.ink)
+        ))
+        i = i + 1
+    }
+    return snapshot(ops)
+}
+
+// Where a bar starts from.
+//
+// **Zero when zero is in range, and the bottom otherwise.** A bar chart of values that are all
+// above zero and drawn from the lowest of them exaggerates every difference between them, which is
+// the oldest way there is to mislead with a chart. Where zero is not in range at all -- a
+// temperature in Kelvin, a year -- the bottom is the only honest floor available.
+fn baseline_of(c: Chart) -> float {
+    val range = y_range(c)
+    if range.x <= 0.0 && range.y >= 0.0 {
+        return 0.0
+    }
+    // Only reachable for a chart of bars that are all below zero or all above it by a range that
+    // `y_range` has already widened to include zero -- so this is the far edge, not a truncation.
+    return range.x
+}
+
+fn line_op(c: Chart, s: Series, plot: Rect, style: ChartStyle) -> Option<scene.Op> {
+    val n = points_shown(c, s)
+    if n < 2 {
+        return Option<scene.Op>.None
+    }
+    val path = shape.path_builder()
+    var i = 0
+    while i < n {
+        val at = geom.point_of(x_at(c, i, plot, style), y_at(c, s.points[i], plot, style))
+        if i == 0 {
+            shape.move_to(path, at)
+        } else {
+            shape.line_to(path, at)
+        }
+        i = i + 1
+    }
+    return Option<scene.Op>.Some(scene.stroke(
+        shape.path_of(snapshot(path.segments), shape.Winding.NonZero),
+        paint.solid(s.ink),
+        paint.stroke_of(style.line_width)
+    ))
+}
+
+fn label_ops(c: Chart, plot: Rect, style: ChartStyle) -> [scene.Op] {
+    val ops = mutable_array_new<scene.Op>()
+    // **The y labels, in the gutter that was already being reserved for them.** The first version
+    // reserved the room and drew nothing in it, which looks like a margin rather than like a
+    // missing axis -- so the chart read as though its numbers were self-evident.
+    val range = y_range(c)
+    val lines = 4
+    var g = 0
+    while g <= lines {
+        val share = (g as float) / (lines as float)
+        val value = range.y - (range.y - range.x) * share
+        push(ops, scene.text_of(
+            axis_number(value),
+            geom.point_of(plot.x - style.left_gutter, axis_baseline(plot, share, style)),
+            style.text_size,
+            style.font,
+            paint.solid(style.grid)
+        ))
+        g = g + 1
+    }
+    var i = 0
+    while i < len(c.labels) {
+        push(ops, scene.text_of(
+            c.labels[i],
+            geom.point_of(x_at(c, i, plot, style), plot.y + plot.height + style.text_size),
+            style.text_size,
+            style.font,
+            paint.solid(style.ink)
+        ))
+        i = i + 1
+    }
+    return snapshot(ops)
+}
+
+// A number on an axis.
+//
+// **Whole numbers without a decimal point**, because an axis of counts reading "1.0, 2.0, 3.0"
+// says that something was measured to a tenth when it was counted.
+fn axis_number(v: float) -> string {
+    val whole = (v as int) as float
+    if v - whole < 0.05 && whole - v < 0.05 {
+        return str(v as int)
+    }
+    return format_to(v, 1)
+}
+
+fn format_to(v: float, places: int) -> string {
+    var scale = 1.0
+    var i = 0
+    while i < places {
+        scale = scale * 10.0
+        i = i + 1
+    }
+    val rounded = ((v * scale + 0.5) as int) as float / scale
+    return str(rounded)
+}
+
+// Where an axis number's baseline sits.
+//
+// **Never above the top of the plot**, or the topmost one is drawn half outside the box and
+// clipped -- which is what the first render showed: a "4" with its top sliced off, in a chart that
+// otherwise looked finished.
+fn axis_baseline(plot: Rect, share: float, style: ChartStyle) -> float {
+    val wanted = plot.y + plot.height * share + style.text_size * 0.35
+    val floor = plot.y + style.text_size
+    if wanted < floor {
+        return floor
+    }
+    return wanted
+}
