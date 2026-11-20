@@ -265,6 +265,19 @@ while IFS= read -r line; do
     esac
 done < <(BIN="$BIN" tests/run_a11y_test.sh 2>&1)
 
+# F328's half that only two processes can check: a selection is a live promise between windows, so
+# a single program that put text somewhere and read it back would pass with the whole protocol
+# missing. Two of the cases use `xclip` as the other end, because two ziman programs agreeing on a
+# mistake looks exactly like two ziman programs being right.
+while IFS= read -r line; do
+    echo "$line"
+    case "$line" in
+        PASS*) pass=$((pass + 1)) ;;
+        FAIL*) fail=$((fail + 1)) ;;
+        SKIP*) skipped=$((skipped + 1)) ;;
+    esac
+done < <(BIN="$BIN" tests/run_clipboard_test.sh 2>&1)
+
 # F274's half that only a daemon and an engine can check: keys go to a real input method and what
 # comes back fits `edit`'s pre-edit model. The plumbing runs wherever ibus does; the composition
 # itself is opt-in, because switching the engine changes what the user's other windows do -- see

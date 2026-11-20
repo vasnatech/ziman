@@ -1,0 +1,29 @@
+// Asks for the clipboard and prints what came back.
+//
+// Opens a window because a reader needs one: the owner answers a conversion request by writing
+// onto a property of the *asker's* window, so a program with no window has nowhere to be answered.
+use os
+use window
+
+fn main() {
+    val outcome = window.with_window<unit>(
+        "ziman clipboard reader",
+        120,
+        60,
+        fn(w: window.Window) -> Result<unit, string> {
+            // **Asking for our own selection must not reach the protocol.** When this program is
+            // both owner and asker, the answer would have to come from the loop that is blocked
+            // asking -- so `window.clipboard` short-circuits, and this is where that is checked.
+            if len(os.args()) > 1 {
+                try window.put_clipboard(w, os.args()[1])
+            }
+            val got = try window.clipboard(w)
+            printf("got [{}]\n", got)
+            return ok(unit)
+        }
+    )
+    switch outcome {
+        Ok(_) { unit }
+        Err(e) { printf("error {}\n", e) }
+    }
+}

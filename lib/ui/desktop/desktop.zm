@@ -351,3 +351,46 @@ fn at_least_one(v: float) -> int {
     }
     return n
 }
+
+// The same as `input_of`, except that it can reach the clipboard.
+//
+// **A second door rather than a changed one**, because `input_of` is pure and worth keeping that
+// way: everything that tests it, and everything that replays recorded events through it, would
+// otherwise need a live window. This one is for an application's real loop.
+//
+// **Ctrl+V is turned into the text it means, here.** `Input.Paste` carries text rather than an
+// intention precisely so that `controls` never reaches a platform -- see F273, and the comment on
+// `controls.Input.Paste`. Ctrl+C and Ctrl+X are the other half and are not here, because what to
+// copy is the *field's* answer, not the keystroke's: a control hands it back on
+// `EntryStep.clipboard`, and the application passes that to `window.put_clipboard`.
+pub fn input_in(
+    w: window.Window,
+    e: window.Event,
+    d: Density
+) -> Option<controls.Input> {
+    if KeyDown(k) = e {
+        if wants_paste(k) {
+            return switch window.clipboard(w) {
+                Ok(text) { Option<controls.Input>.Some(controls.Input.Paste(text)) }
+                // A clipboard that cannot be read is an empty one, not a crash: see
+                // `window.clipboard`, which already turns a silent owner into "".
+                Err(_) { Option<controls.Input>.Some(controls.Input.Paste("")) }
+            }
+        }
+    }
+    return input_of(e, d)
+}
+
+// **Ctrl+V**, and only Ctrl+V.
+//
+// Shift+Insert is the other paste every X11 program has answered for thirty years, and it is not
+// here: `Key` has no `Insert`, and adding one means an arm in every exhaustive switch over `Key`
+// in this library and in every application built on it. That is the right change to make one day
+// and the wrong one to make inside a task about selections.
+fn wants_paste(k: window.KeyPress) -> bool {
+    val s = stroke_of(k)
+    if !s.control || s.alt {
+        return false
+    }
+    return to_lower(controls.char_of(s.key)) == "v"
+}

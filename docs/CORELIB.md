@@ -62,6 +62,17 @@ pub fn node_of(t: Tree, key: string) -> Option<Node>
 
 pub fn reachable(t: Tree) -> [Node]
 
+pub struct Announcement {
+    text: string
+    // Polite waits for the reader to finish its sentence; assertive interrupts. A validation
+    // failure interrupts; a result count waits.
+    assertive: bool
+}
+
+pub fn announcements(before: Tree, after: Tree) -> [Announcement]
+
+pub fn no_tree() -> Tree
+
 pub fn announce(n: Node) -> string
 
 pub fn toggle_word(t: Toggle, r: Role) -> string
@@ -73,6 +84,8 @@ pub fn toggle_word(t: Toggle, r: Role) -> string
 Publishing an accessibility tree so a screen reader can read it.
 
 ```
+pub fn announce(said: a11y.Announcement)
+
 pub fn publish(tree: a11y.Tree, app: string) -> Result<unit, string>
 
 pub fn pump()
@@ -685,6 +698,9 @@ pub struct Button {
     // **A button with no label is announced by its icon's name**, which is the one case where an
     // icon is not decoration. A button with both says only its label.
     icon: Option<widget.Icon>
+    // A count or a word beside the label, part of the same fact. See `Badge`, which explains why
+    // this is a field here rather than a widget a caller puts next to the button.
+    badge: Option<Badge>
     disabled: bool
     held: bool
 }
@@ -1263,6 +1279,131 @@ pub fn toolbar_layer(t: Toolbar, laid: Laid, width: float, within: Rect, f: Fram
 
 pub fn toolbar_input(
 
+pub struct Badge {
+    text: string
+    // **Loud wears the accent**, for a count that is asking to be noticed: unread messages, things
+    // needing attention. Quiet is the ordinary face, for a status word that is merely true.
+    loud: bool
+}
+
+pub fn badge_of(text: string) -> Badge
+
+pub fn count_badge_of(n: int) -> Option<Badge>
+
+pub fn badge_widget(b: Badge, f: Frame) -> widget.Widget
+
+pub struct Search {
+    entry: Entry
+}
+
+pub struct SearchStep {
+    search: Search
+    // The text changed, which for a search field is the only output that matters: there is nothing
+    // to commit, because what is typed *is* the query.
+    changed: bool
+}
+
+pub fn search_of(name: string, label: string) -> Search
+
+pub fn search_text(s: Search) -> string
+
+pub fn search_clear_name(s: Search) -> string
+
+pub fn search_input(s: Search, input: Input, bounds: Rect, f: Frame) -> SearchStep
+
+pub fn search_widget(s: Search, f: Frame) -> widget.Widget
+
+pub enum Waiting {
+    // Nothing has been asked for yet.
+    Idle
+    Loading
+    // There is content, and it is what the caller passed.
+    Ready
+    // It did not work. The words are the caller's, because only the caller knows what failed.
+    Failed(string)
+}
+
+pub struct Panel {
+    name: string
+    label: string
+    // What to say when it is `Ready` and holds nothing -- "No medications recorded". **Separate
+    // from `Idle`'s silence**, because an empty answer is an answer.
+    empty: string
+    state: Waiting
+    // How far round the spinner is, 0 to 1, advanced by the application. `lib/ui` has no clock;
+    // see `Progress.Busy`, which takes its phase the same way and for the same reason.
+    phase: float
+}
+
+pub fn panel_of(name: string, label: string, empty: string) -> Panel
+
+pub fn panel_loading(p: Panel) -> Panel
+
+pub fn panel_ready(p: Panel) -> Panel
+
+pub fn panel_failed(p: Panel, why: string) -> Panel
+
+pub fn said_waiting(p: Panel, holds_anything: bool) -> string
+
+pub fn waiting_is_urgent(p: Panel) -> bool
+
+pub fn spinner_widget(phase: float, ink: Color, side: float) -> widget.Widget
+
+pub fn panel_widget(p: Panel, content: widget.Widget, f: Frame) -> widget.Widget
+
+pub struct Autocomplete {
+    entry: Entry
+    // Every candidate. **Held whole and not pre-filtered by the caller**, because the control has
+    // to be able to say "three of a hundred and twenty" -- and because a caller filtering for it
+    // would be a second implementation of the matching rule, free to disagree with the one that
+    // decides what the popup shows.
+    all: [string]
+    // The suggestion list's own state: which row is highlighted, how far it has scrolled.
+    //
+    // **Its `items` are not state.** Which suggestions exist is a function of what has been typed,
+    // so they are filled in from the filter before anything reads them. The toolbar's overflow
+    // menu keeps its rows the same way and for the same reason: a stored copy of a derived list is
+    // a second answer to a question that already has one.
+    suggestions: List
+    open: bool
+    // Whether a value matching no suggestion may be committed.
+    //
+    // **False by default, because "autocomplete" means completing from a known set.** A diagnosis,
+    // a medication, a MIME type: the value is a code and a field that accepted anything typed into
+    // it would be a field that silently accepts bad data. A caller whose field is a free note says
+    // so.
+    free_text: bool
+    // The last value committed, which is what the text reverts to when a user abandons what they
+    // were typing.
+    chosen: string
+}
+
+pub struct AutocompleteStep {
+    field: Autocomplete
+    // The value committed by this input, or "" for none. **A string and not an index**, because a
+    // free-text field commits something that is in no list and an index could not name it.
+    chosen: string
+    changed: bool
+}
+
+pub fn autocomplete_of(name: string, label: string, all: [string]) -> Autocomplete
+
+pub fn autocomplete_text(a: Autocomplete) -> string
+
+pub fn autocomplete_matches(a: Autocomplete) -> [string]
+
+pub fn autocomplete_said(a: Autocomplete) -> string
+
+pub fn autocomplete_highlighted(a: Autocomplete) -> string
+
+pub fn autocomplete_input(
+
+pub fn autocomplete_widget(a: Autocomplete, f: Frame) -> widget.Widget
+
+pub fn autocomplete_popup_layer(a: Autocomplete, at: Rect, f: Frame) -> Option<widget.Layer>
+
+pub fn autocomplete_popup_height(a: Autocomplete, f: Frame) -> float
+
 pub struct ContextMenu {
     menu: Menu
     // Where it was asked for, in the window's own points. Meaningless while it is shut, which is
@@ -1437,6 +1578,14 @@ pub struct Table {
     // header that drifts from its columns, and it drifts by exactly the bug you cannot see in a
     // screenshot.
     offset_x: float
+    // Which column the rows are ordered by, or -1 for the order they were given in.
+    //
+    // **The data is never reordered.** `selected` is an index into `rows`, so sorting the array
+    // would silently move the selection to a different record -- and the order the caller gave is
+    // a fact about the data that a view should not be able to destroy. `sorted_order` is an index
+    // projection, which is `Tree.visible_rows`'s pattern.
+    sorted_by: int
+    ascending: bool
     // Which column's trailing edge is being dragged, or -1.
     resizing: int
     // How far the pointer was from that edge when it took hold, so a resize does not snap the edge
@@ -1456,6 +1605,16 @@ pub fn table_of(name: string, label: string, columns: [Column], rows: [[string]]
 pub fn value_at(t: Table, row: int, column: int) -> Value
 
 pub fn cell_at(t: Table, row: int, column: int) -> string
+
+pub fn compare_values(a: Value, b: Value) -> int
+
+pub fn sorted_order(t: Table) -> [int]
+
+pub fn display_at(t: Table, row: int) -> int
+
+pub fn row_shown_at(t: Table, position: int) -> int
+
+pub fn sorted_on(t: Table, column: int) -> Table
 
 pub fn row_label(t: Table, row: int) -> string
 
@@ -2252,6 +2411,8 @@ pub fn forget(p: Painter) -> Painter
 pub fn repaint(
 
 pub fn caret_on_screen(
+
+pub fn input_in(
 
 ```
 
@@ -7535,6 +7696,18 @@ pub enum Role {
     // through a form hears the first without ever meeting the second.
     DateEditor
     Calendar
+    // Somewhere the application says something the user did not go and look for: a result count
+    // that changed under their typing, a panel that finished loading, a save that failed.
+    //
+    // **The politeness is the role, which is ARIA's own answer.** `role="status"` *is* polite and
+    // `role="alert"` *is* assertive, so a separate field would be a second way to say a thing the
+    // role already says -- and a node whose role and politeness disagreed would have no meaning.
+    //
+    // **A reader is a cursor**, and everything else here is read when the user arrives at it.
+    // These two are the only way for an application to say something without the user having gone
+    // anywhere. See `a11y.announcements`.
+    Status
+    Alert
     // Two panes and the divider between them. **The divider is a `Separator` inside this**, which
     // is how both ATK and GTK have it: the pane is what contains the two halves and publishes
     // where the split sits, and the handle is the thin thing you take hold of.
@@ -7820,6 +7993,8 @@ pub fn flow_of(gap: float, line_gap: float, children: [Widget]) -> Widget
 
 pub fn border_of(
 
+pub fn is_nothing_widget(w: Widget) -> bool
+
 pub struct Laid {
     bounds: Rect
     // Which child of its parent this is, and -1 for the root. Joined with its ancestors' it is
@@ -8003,6 +8178,10 @@ pub fn poll(w: Window) -> Result<[Event], string>
 pub fn decode_events(raw: [int]) -> [Event]
 
 pub fn key_name(k: KeyPress) -> string
+
+pub fn put_clipboard(w: Window, text: string) -> Result<unit, string>
+
+pub fn clipboard(w: Window) -> Result<string, string>
 
 ```
 

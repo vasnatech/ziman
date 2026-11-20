@@ -509,3 +509,29 @@ pub fn key_name(k: KeyPress) -> string
 The name of a key worth naming, or its keysym as text. The same bargain `terminal.key_name`
 makes: the keys a program dispatches on are named, and anything else keeps its number so that a
 program can log it rather than silently treat it as a key the user did not press.
+
+### `put_clipboard`
+
+```
+pub fn put_clipboard(w: Window, text: string) -> Result<unit, string>
+```
+
+Put text on the system clipboard.
+
+**X11 has no clipboard**: it has selections, and a selection is a promise by a window to hand
+its text to whoever asks. So this does not copy anything anywhere -- it takes ownership and
+remembers what was promised, and `poll` answers the requests as they come. Two consequences
+worth knowing rather than discovering: the text goes when the program does, and a window that
+has stopped calling `poll` has stopped being able to give it out.
+
+### `clipboard`
+
+```
+pub fn clipboard(w: Window) -> Result<string, string>
+```
+
+What is on the system clipboard, or "" if there is nothing there in a form that is text.
+
+**It waits, briefly, for another program to answer.** Half a second at the outside, after which
+it gives back "": a text field that froze the window because some other application was wedged
+would be a worse bug than a paste that did nothing.

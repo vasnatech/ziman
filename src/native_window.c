@@ -39,6 +39,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "native.h"
 #include "prelude.h"
@@ -54,6 +55,14 @@
 /* Five ints per event, which is the widest any of them needs (`kind` plus four fields). A fixed
  * stride rather than a tagged length so the Ziman decoder is a loop over fives and not a parser. */
 #define EVENT_FIELDS 5
+
+/* How long a paste waits for the owner to answer, and the most text it will take in one go.
+ * Both are judgements rather than protocol: see `native_window_clipboard_get_raw`. */
+#define CLIPBOARD_WAIT_MS 500
+#define CLIPBOARD_MAX (4u * 1024u * 1024u)
+/* How many unrelated events a paste will hold on to before giving up on the paste
+ * rather than on them: losing a keystroke is the worse of the two failures. */
+#define CLIPBOARD_HELD_MAX 128
 
 /* The appearance event's code, matching `ev_scheme` in lib/ui/desktop/window.zm. **13, and the only
  * code in this file that is not an X11 event** -- see the portal section below. */
@@ -553,6 +562,205 @@ static int portal_poll_changed(void) {
 }
 #endif /* ZIMAN_PORTAL */
 
+/* ------------------------------------------------------------------ the clipboard
+ *
+ * X11 has no clipboard. It has *selections*: a name, an owner window, and a protocol by which a
+ * would-be reader asks the owner to convert its data into a format and write it onto a property of
+ * the reader's own window. Nothing is stored anywhere central, which is why a selection dies with
+ * the program that owned it, and why this file -- not `lib/ui/controls.zm` -- is where the work
+ * belongs. F273 built the seam for exactly this reason: `Input.Paste` carries text in and
+ * `EntryStep.clipboard` carries text out, so a text field never learns what a selection is.
+ */
+#ifdef ZIMAN_X11
+static Atom g_a_clipboard = None;
+static Atom g_a_utf8 = None;
+static Atom g_a_targets = None;
+static Atom g_a_text = None;
+static Atom g_a_prop = None;
+
+/* What we have put on the clipboard, or NULL when we own nothing.
+ *
+ * Allocated through the collector and held in a static, which Boehm scans, so this is a root and
+ * the block cannot be collected while we are the owner. Dropping it is an assignment: `free` is a
+ * no-op in the default build, and the pointer is the collector's rather than libc's. */
+static char *g_clip_text = NULL;
+
+static void ensure_clip_atoms(void) {
+    if (g_a_clipboard != None) return;
+    g_a_clipboard = XInternAtom(g_display, "CLIPBOARD", False);
+    g_a_utf8 = XInternAtom(g_display, "UTF8_STRING", False);
+    g_a_targets = XInternAtom(g_display, "TARGETS", False);
+    g_a_text = XInternAtom(g_display, "TEXT", False);
+    /* Our own property, which a conversion is asked to land on. Named rather than `XA_STRING` so
+     * two ziman windows talking to each other cannot collide on a well-known one. */
+    g_a_prop = XInternAtom(g_display, "ZIMAN_SELECTION", False);
+}
+
+/* Answer somebody else's request for what we own.
+ *
+ * **TARGETS has to be answered or well-behaved readers never ask for the text.** GTK and Qt both
+ * ask what formats are on offer before asking for one; a program that answers only UTF8_STRING
+ * looks, to them, like a selection holding nothing. */
+static void answer_selection_request(XSelectionRequestEvent *rq) {
+    XSelectionEvent said;
+    said.type = SelectionNotify;
+    said.display = rq->display;
+    said.requestor = rq->requestor;
+    said.selection = rq->selection;
+    said.target = rq->target;
+    said.time = rq->time;
+    /* `None` is the refusal: the protocol's way of saying "not in that format". */
+    said.property = None;
+
+    if (g_clip_text != NULL && rq->property != None) {
+        if (rq->target == g_a_targets) {
+            Atom offered[3];
+            offered[0] = g_a_targets;
+            offered[1] = g_a_utf8;
+            offered[2] = g_a_text;
+            XChangeProperty(g_display, rq->requestor, rq->property, XA_ATOM, 32,
+                            PropModeReplace, (unsigned char *)offered, 3);
+            said.property = rq->property;
+        } else if (rq->target == g_a_utf8 || rq->target == g_a_text || rq->target == XA_STRING) {
+            XChangeProperty(g_display, rq->requestor, rq->property, rq->target, 8,
+                            PropModeReplace, (const unsigned char *)g_clip_text,
+                            (int)strlen(g_clip_text));
+            said.property = rq->property;
+        }
+    }
+    XSendEvent(g_display, rq->requestor, False, 0, (XEvent *)&said);
+    XFlush(g_display);
+}
+
+/* Put text on the clipboard: take the selection and remember what we promised.
+ *
+ * Nothing is copied anywhere. We are now a server, and the text goes out one request at a time
+ * from `answer_selection_request` -- which is why a program that exits has taken the clipboard
+ * with it, on X11, with or without this code. */
+static Value native_window_clipboard_put_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type ok = type_scalar(TY_UNIT);
+    Slot *s = slot_of(args[0].as.i);
+    if (s == NULL) return window_err(ok, "no such window (already closed?)");
+    ensure_clip_atoms();
+    const char *text = value_cstr(args[1]);
+    g_clip_text = ziman_xstrdup(text == NULL ? "" : text);
+    XSetSelectionOwner(g_display, g_a_clipboard, s->win, CurrentTime);
+    if (XGetSelectionOwner(g_display, g_a_clipboard) != s->win) {
+        g_clip_text = NULL;
+        return window_err(ok, "the X server would not give us the clipboard");
+    }
+    XFlush(g_display);
+    return window_ok(ok, value_unit());
+}
+
+/* Read the clipboard: ask the owner to write it onto a property of ours, and wait.
+ *
+ * **If we are the owner, answer from our own copy and do not ask.** The reply to a conversion
+ * request comes from the owner's event loop -- and when the owner is us, that loop is this
+ * function, which is blocked waiting for the reply it is itself supposed to send. Asking politely
+ * would hang the window until the timeout, every time a user copied and pasted inside one program,
+ * which is the common case rather than an edge one.
+ *
+ * **While waiting, keep answering requests.** Two ziman windows pasting from each other deadlock
+ * otherwise, each blocked waiting on the other's loop -- which is precisely the two-window case
+ * this task is finished by. */
+/* Put back what we held while waiting, in the order it arrived.
+ *
+ * Backwards, because `XPutBackEvent` pushes onto the head: putting them back in order would hand
+ * the next `poll` a reversed keyboard. */
+static void give_back(XEvent *held, int count) {
+    for (int i = count - 1; i >= 0; i--) XPutBackEvent(g_display, &held[i]);
+}
+
+static Value native_window_clipboard_get_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type ok = type_scalar(TY_STRING);
+    Slot *s = slot_of(args[0].as.i);
+    if (s == NULL) return window_err(ok, "no such window (already closed?)");
+    ensure_clip_atoms();
+
+    if (XGetSelectionOwner(g_display, g_a_clipboard) == s->win) {
+        return window_ok(ok, value_string(ziman_xstrdup(g_clip_text == NULL ? "" : g_clip_text)));
+    }
+
+    XConvertSelection(g_display, g_a_clipboard, g_a_utf8, g_a_prop, s->win, CurrentTime);
+    XFlush(g_display);
+
+    /* **A bounded wait and not an endless one.** The owner may be a program that has stopped
+     * answering, and a text field that froze the window because another application was wedged
+     * would be a worse bug than an empty paste. */
+    /* Events that arrived while we waited and are nothing to do with the clipboard. */
+    XEvent held[CLIPBOARD_HELD_MAX];
+    int held_count = 0;
+
+    int waited_ms = 0;
+    while (waited_ms < CLIPBOARD_WAIT_MS) {
+        while (XPending(g_display) > 0) {
+            XEvent e;
+            XNextEvent(g_display, &e);
+            if (e.type == SelectionRequest) {
+                answer_selection_request(&e.xselectionrequest);
+                continue;
+            }
+            if (e.type == SelectionClear) {
+                g_clip_text = NULL;
+                continue;
+            }
+            if (e.type == SelectionNotify && e.xselection.requestor == s->win) {
+                if (e.xselection.property == None) {
+                    /* The owner holds nothing it can give us as text. */
+                    give_back(held, held_count);
+                    return window_ok(ok, value_string(ziman_xstrdup("")));
+                }
+                Atom kind = None;
+                int format = 0;
+                unsigned long items = 0, left = 0;
+                unsigned char *data = NULL;
+                if (XGetWindowProperty(g_display, s->win, g_a_prop, 0, (long)(CLIPBOARD_MAX / 4),
+                                       True, AnyPropertyType, &kind, &format, &items, &left,
+                                       &data) != Success || data == NULL) {
+                    give_back(held, held_count);
+                    return window_ok(ok, value_string(ziman_xstrdup("")));
+                }
+                /* Copied out before `XFree`, and copied through the collector: the block X gave us
+                 * is libc's and must go back to X, while the string we return is the collector's.
+                 * Handing either one to the other's allocator is the heap corruption
+                 * `tools/check_libc_free.py` exists to catch. */
+                size_t n = (size_t)items * (size_t)(format / 8);
+                char *out = ziman_xmalloc(n + 1);
+                memcpy(out, data, n);
+                out[n] = '\0';
+                XFree(data);
+                give_back(held, held_count);
+                return window_ok(ok, value_string(out));
+            }
+            /* Anything else that arrived while we waited is a real event -- a key, a resize --
+             * and dropping it would lose a keystroke, so it is held and given back below.
+             *
+             * **It cannot be pushed back here.** `XPutBackEvent` puts an event at the *head* of
+             * the queue, so an `Expose` sitting in front of the reply would be read, put back,
+             * read again, and the answer behind it never reached: a paste that spins for the whole
+             * timeout and comes back empty. The first paste in a window works, because the queue
+             * is empty; the second one does not, which is what made this worth two programs and a
+             * second read in the test rather than one of each. */
+            if (held_count >= CLIPBOARD_HELD_MAX) {
+                give_back(held, held_count);
+                return window_ok(ok, value_string(ziman_xstrdup("")));
+            }
+            held[held_count++] = e;
+        }
+        struct timespec nap;
+        nap.tv_sec = 0;
+        nap.tv_nsec = 2 * 1000 * 1000;
+        nanosleep(&nap, NULL);
+        waited_ms += 2;
+    }
+    give_back(held, held_count);
+    return window_ok(ok, value_string(ziman_xstrdup("")));
+}
+#endif /* ZIMAN_X11 */
+
 static int64_t *push_event(int64_t *out, int *count, int *capacity, const int64_t *fields) {
     if (*count + 1 > *capacity) {
         *capacity = *capacity == 0 ? 32 : *capacity * 2;
@@ -812,6 +1020,21 @@ static Value native_window_poll_raw(Value *args, int argc, int line, int col) {
             break;
         default:
             break;
+
+        /* **The clipboard is served from here, and never reaches Ziman.** Somebody else has asked
+         * for what we put on the clipboard, or has taken it from us. Neither is something an
+         * application has any decision to make about, so neither becomes an event: answering is
+         * the whole of the work, and a program that forgot to would look, to every other window on
+         * the display, like a clipboard holding nothing. */
+        case SelectionRequest:
+            answer_selection_request(&e.xselectionrequest);
+            continue;
+
+        case SelectionClear:
+            /* Somebody else owns it now. Dropping our copy matters: a later paste must ask the new
+             * owner rather than hand back what we put there before. */
+            g_clip_text = NULL;
+            continue;
         }
 
         if (!have) continue;
@@ -1204,6 +1427,24 @@ static Value native_window_present_premul_raw(Value *args, int argc, int line, i
 #endif
 }
 
+/* The same two doors in a build with no window backend, and **outside the `#ifdef ZIMAN_X11`
+ * region above** -- which is where they were, so `make ziman` stopped compiling while
+ * `make gui` was fine. A conditional block that already holds everything hides a nested
+ * `#else` completely. */
+#ifndef ZIMAN_X11
+static Value native_window_clipboard_put_raw(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    return window_err(type_scalar(TY_UNIT),
+                      "this build of ziman has no window backend (build with `make gui`)");
+}
+
+static Value native_window_clipboard_get_raw(Value *args, int argc, int line, int col) {
+    (void)args; (void)argc; (void)line; (void)col;
+    return window_err(type_scalar(TY_STRING),
+                      "this build of ziman has no window backend (build with `make gui`)");
+}
+#endif /* !ZIMAN_X11 */
+
 void native_window_register(void) {
     native_register("window::open_raw", native_window_open_raw);
     native_register("window::present_raw", native_window_present_raw);
@@ -1217,4 +1458,6 @@ void native_window_register(void) {
     native_register("window::close_raw", native_window_close_raw);
     native_register("window::display_scale_raw", native_window_display_scale_raw);
     native_register("window::color_scheme_raw", native_window_color_scheme_raw);
+    native_register("window::clipboard_put_raw", native_window_clipboard_put_raw);
+    native_register("window::clipboard_get_raw", native_window_clipboard_get_raw);
 }

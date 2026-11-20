@@ -1,0 +1,41 @@
+// Takes the clipboard, says so, and then keeps answering for it.
+//
+// **The polling is the point, not an afterthought.** On X11 nothing is stored centrally: the text
+// goes out one request at a time from the owner's event loop, so a program that took the selection
+// and then stopped calling `poll` would look, to every other window on the display, like a
+// clipboard holding nothing. This program exists to be the other end of a real paste, and the way
+// it can fail is by going quiet.
+use clock
+use os
+use window
+
+val deadline_ms = 20000
+
+fn main() {
+    val said = os.args()[0]
+    val outcome = window.with_window<unit>(
+        "ziman clipboard owner",
+        120,
+        60,
+        fn(w: window.Window) -> Result<unit, string> {
+            val id = try window.id(w)
+            try window.put_clipboard(w, said)
+            printf("window-id {}\n", str(id))
+            printf("put {}\n", said)
+            val started = clock.monotonic_millis()
+            while clock.monotonic_millis() - started < deadline_ms {
+                for one in try window.poll(w) {
+                    if Close = one {
+                        return ok(unit)
+                    }
+                }
+                clock.sleep_millis(10)
+            }
+            return ok(unit)
+        }
+    )
+    switch outcome {
+        Ok(_) { unit }
+        Err(e) { printf("error {}\n", e) }
+    }
+}

@@ -150,6 +150,8 @@ native fn set_cursor_raw(handle: int, kind: int) -> Result<unit, string>
 native fn close_raw(handle: int)
 native fn display_scale_raw() -> float
 native fn color_scheme_raw() -> int
+native fn clipboard_put_raw(handle: int, text: string) -> Result<unit, string>
+native fn clipboard_get_raw(handle: int) -> Result<string, string>
 
 // Five ints per event, matching src/native_window.c's EVENT_FIELDS.
 val fields_per_event = 5
@@ -526,4 +528,24 @@ pub fn key_name(k: KeyPress) -> string {
         }
     }
     return prelude.format("keysym({})", str(k.keysym))
+}
+
+// Put text on the system clipboard.
+//
+// **X11 has no clipboard**: it has selections, and a selection is a promise by a window to hand
+// its text to whoever asks. So this does not copy anything anywhere -- it takes ownership and
+// remembers what was promised, and `poll` answers the requests as they come. Two consequences
+// worth knowing rather than discovering: the text goes when the program does, and a window that
+// has stopped calling `poll` has stopped being able to give it out.
+pub fn put_clipboard(w: Window, text: string) -> Result<unit, string> {
+    return clipboard_put_raw(w.handle, text)
+}
+
+// What is on the system clipboard, or "" if there is nothing there in a form that is text.
+//
+// **It waits, briefly, for another program to answer.** Half a second at the outside, after which
+// it gives back "": a text field that froze the window because some other application was wedged
+// would be a worse bug than a paste that did nothing.
+pub fn clipboard(w: Window) -> Result<string, string> {
+    return clipboard_get_raw(w.handle)
 }

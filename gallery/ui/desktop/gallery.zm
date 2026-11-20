@@ -333,6 +333,10 @@ fn run() -> Result<unit, string> {
                 Ok(_) { true }
                 Err(_) { false }
             }
+            // The tree as it was last published, which is what a live region's words are compared
+            // against. Empty to begin with, so a region that is there on the first frame counts as
+            // having appeared -- which is what makes an error banner speak when it opens.
+            var spoken = a11y.no_tree()
             var width_pt = start_width as float
             var height_pt = start_height as float
             var closing = false
@@ -391,8 +395,20 @@ fn run() -> Result<unit, string> {
                     )
                     painter = painted.next
                     if readable {
-                        switch atspi.publish(a11y.tree_of(laid, "ziman gallery", st.focused), "ziman gallery") {
-                            Ok(_) { unit }
+                        // **The tree is published and then diffed against the last one**, which is
+                        // how a live region speaks: a reader is a cursor and reads what the user
+                        // arrives at, so a count that changed under their typing would otherwise
+                        // be said to nobody. `a11y.announcements` is a pure function of two trees
+                        // and this is the state it needs -- threaded through the loop exactly as
+                        // `hovered`, `pressed` and `focused` already are.
+                        val now = a11y.tree_of(laid, "ziman gallery", st.focused)
+                        switch atspi.publish(now, "ziman gallery") {
+                            Ok(_) {
+                                for said in a11y.announcements(spoken, now) {
+                                    atspi.announce(said)
+                                }
+                                spoken = now
+                            }
                             Err(_) { readable = false }
                         }
                     }
@@ -430,7 +446,11 @@ fn run() -> Result<unit, string> {
                         st = with st { window_width: width_pt }
                         dirty = true
                     }
-                    if Some(input) = desktop.input_of(e, density) {
+                    // **`input_in` and not `input_of`**, which is the one difference a real
+                    // application makes: it can reach the clipboard, so Ctrl+V arrives as the text
+                    // it means rather than as a keystroke nothing answers. `input_of` stays pure
+                    // for everything that replays recorded events without a window.
+                    if Some(input) = desktop.input_in(w, e, density) {
                         // **The pointer's shape, on every move.** `controls.cursor_at` reads it
                         // off the laid tree by role, so this is the whole of the wiring an
                         // application needs -- and without it the window showed an arrow over the

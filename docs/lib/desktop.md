@@ -211,3 +211,25 @@ field put a caret box in the tree, so `node_named` handed back the first one in 
 candidate list therefore opened under some other field. The caret is still in every field's
 layout (it is a layout participant; see `widget.collect`), so the focused control is what picks
 the right one, exactly as painting does.
+
+### `input_in`
+
+```
+pub fn input_in(
+    w: window.Window,
+    e: window.Event,
+    d: Density
+) -> Option<controls.Input>
+```
+
+The same as `input_of`, except that it can reach the clipboard.
+
+**A second door rather than a changed one**, because `input_of` is pure and worth keeping that
+way: everything that tests it, and everything that replays recorded events through it, would
+otherwise need a live window. This one is for an application's real loop.
+
+**Ctrl+V is turned into the text it means, here.** `Input.Paste` carries text rather than an
+intention precisely so that `controls` never reaches a platform -- see F273, and the comment on
+`controls.Input.Paste`. Ctrl+C and Ctrl+X are the other half and are not here, because what to
+copy is the *field's* answer, not the keystroke's: a control hands it back on
+`EntryStep.clipboard`, and the application passes that to `window.put_clipboard`.
