@@ -1,0 +1,92 @@
+// A line of things that wraps, and the panel arranged around it.
+//
+// **Drag the slider.** The buttons reflow as the room narrows -- which is the one thing a row
+// cannot do: a `Stack` runs its children off the edge of its parent and nothing moves. A toolbar
+// that would rather wrap than hide commands, a bar of filter chips, a list of tags: all of them
+// are this, and none of them is expressible by nesting.
+//
+// **Every line sits on its own baseline.** The chips here are all one size, but a flow of mixed
+// type aligns each line on the lowest baseline in it rather than on box centres -- the same rule
+// the grid follows, from the same `Measured.baseline`.
+//
+// **The panel around them is `border_of`**, which is Swing's `BorderLayout` as a function rather
+// than a layout: a title at the top, the slider and this caption at the bottom, and the flow in
+// the middle taking what is left. It is twelve lines of pieces that already existed, which is
+// exactly why it is a function and not a `Widget`.
+use boxes
+use controls
+use demos/flow_ui
+use widget
+
+pub struct Demo {
+    tags: [controls.Button]
+    width: controls.Slider
+    said: string
+}
+
+fn words() -> [string] {
+    return [
+        "GET",
+        "POST",
+        "Accept",
+        "Cache-Control",
+        "If-None-Match",
+        "User-Agent",
+        "Authorization",
+        "Content-Type",
+        "ETag",
+        "Range"
+    ]
+}
+
+pub fn demo() -> Demo {
+    val out = mutable_array_new<controls.Button>()
+    var i = 0
+    for word in words() {
+        push(out, controls.button_of(concat("flow-", str(i)), word))
+        i = i + 1
+    }
+    return Demo {
+        tags: snapshot(out),
+        width: controls.slider_of("flow-width", "Room", 120.0, 460.0, 460.0),
+        said: "Narrow the room and the line breaks. A row would simply run off the edge."
+    }
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    val drawn = mutable_array_new<widget.Widget>()
+    for tag in d.tags {
+        push(drawn, controls.button_widget(tag, f))
+    }
+    return flow_ui.screen(
+        flow_ui.Screen {
+            title: widget.label_of("Headers to send", f.style.text.label.size, f.style.ink),
+            chips: snapshot(drawn),
+            at: d.width.value,
+            width: controls.slider_widget(d.width, f),
+            said: d.said
+        },
+        f
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "flow-width" {
+        return with d { width: controls.slider_input(d.width, input, boxes.bounds_of(laid, name)).slider }
+    }
+    val out = mutable_array_new<controls.Button>()
+    for tag in d.tags {
+        if tag.name == name {
+            push(out, controls.button_input(tag, input, boxes.bounds_of(laid, name)).button)
+        } else {
+            push(out, tag)
+        }
+    }
+    return with d { tags: snapshot(out) }
+}

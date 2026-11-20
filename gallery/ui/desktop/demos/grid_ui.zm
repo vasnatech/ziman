@@ -1,0 +1,83 @@
+// The Grid demo, as design.
+//
+// **This is what a design file was always meant to look like.** A form's shape -- which label, in
+// which row, against which field -- is exactly the thing a designer should be able to state, and
+// here it is stated: two tracks, and a cell per thing.
+use controls
+use widget
+
+val gap = 10.0
+val row_gap = 8.0
+val caption_gap = 14.0
+
+pub struct Screen {
+    host_says: widget.Widget
+    host: widget.Widget
+    port_says: widget.Widget
+    port: widget.Widget
+    method_says: widget.Widget
+    method: widget.Widget
+    redirects_says: widget.Widget
+    redirects: widget.Widget
+    send: widget.Widget
+    said: string
+}
+
+// A label: as wide as it needs, pushed against the fields, on the row's own line.
+fn says(row: int, text: widget.Widget) -> widget.Cell {
+    return widget.cell_of(
+        row,
+        widget.Fill.Nowhere,
+        widget.anchor_of(widget.Sideways.Trailing, widget.Upright.Baseline),
+        text
+    )
+}
+
+// A field: the whole of the second track, on the row's own line.
+fn field(row: int, control: widget.Widget) -> widget.Cell {
+    return widget.cell_of(
+        row,
+        widget.Fill.Across,
+        widget.anchor_of(widget.Sideways.Leading, widget.Upright.Baseline),
+        control
+    )
+}
+
+// A control that should not stretch: the check box and the button.
+fn snug(row: int, control: widget.Widget) -> widget.Cell {
+    return widget.cell_of(
+        row,
+        widget.Fill.Nowhere,
+        widget.anchor_of(widget.Sideways.Leading, widget.Upright.Baseline),
+        control
+    )
+}
+
+// The button, in the field column rather than the next free one -- a row of its own with nothing
+// to its left.
+fn trailing(row: int, control: widget.Widget) -> widget.Cell {
+    return widget.cell_at(
+        row,
+        1,
+        widget.Fill.Nowhere,
+        widget.anchor_of(widget.Sideways.Trailing, widget.Upright.Top),
+        control
+    )
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(caption_gap, [
+        widget.grid_of([widget.Track.Natural, widget.Track.Share(1.0)], [], gap, row_gap, [
+            says(0, it.host_says),
+            field(0, it.host),
+            says(1, it.port_says),
+            field(1, it.port),
+            says(2, it.method_says),
+            field(2, it.method),
+            says(3, it.redirects_says),
+            snug(3, it.redirects),
+            trailing(4, it.send)
+        ]),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+    ])
+}

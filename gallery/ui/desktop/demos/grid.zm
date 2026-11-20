@@ -1,0 +1,124 @@
+// A form, and the one thing no amount of nesting can do.
+//
+// **Look at where the fields start.** Every one of them begins at the same x although the labels
+// beside them are different lengths -- because the label column is one track, sized once, to the
+// longest of them. Build this out of nested rows and each row sizes its own label independently,
+// so the fields step raggedly down the panel. That is the whole reason a grid exists, and it is
+// the reason `GridBagLayout` is still in use thirty years on.
+//
+// **And look at where the text sits.** "Follow redirects" is on the same line as the check box
+// beside it; "Method" is on the same line as the word inside the combo box. They are aligned on
+// their *baselines*, not centred against each other's boxes -- which is what `Measured.baseline`
+// was added for, and the difference between a form that looks typeset and one that looks
+// approximately right.
+//
+// The second track is `Share(1.0)`, so the fields take whatever the window has left. Narrow the
+// window and the labels stay put while the fields give way.
+use boxes
+use controls
+use demos/grid_ui
+use geom
+use widget
+use widget.Toggle
+
+pub struct Demo {
+    host: controls.Entry
+    port: controls.NumberField
+    method: controls.ComboBox
+    redirects: controls.CheckBox
+    send: controls.Button
+    said: string
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        host: controls.entry_of("grid-host", "Host", "api.example.com"),
+        port: controls.number_field_of("grid-port", "Port", 8080.0, 1.0, 65535.0, 1.0),
+        method: controls.combo_box_of("grid-method", "Method", ["GET", "POST", "PUT", "DELETE"], 0),
+        redirects: controls.check_box_of("grid-redirects", "", Toggle.On),
+        send: controls.button_of("grid-send", "Send"),
+        said: "Every field starts in the same place, and every label sits on its field's own line."
+    }
+}
+
+fn says(text: string, f: controls.Frame) -> widget.Widget {
+    return widget.label_of(text, f.style.text.label.size, f.style.ink)
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return grid_ui.screen(
+        grid_ui.Screen {
+            host_says: says("Host", f),
+            host: controls.entry_widget(d.host, f),
+            port_says: says("Port", f),
+            port: controls.number_field_widget(d.port, f),
+            method_says: says("Method", f),
+            method: controls.combo_box_widget(d.method, f),
+            redirects_says: says("Follow redirects", f),
+            redirects: controls.check_box_widget(d.redirects, f),
+            send: controls.button_widget(d.send, f),
+            said: d.said
+        },
+        f
+    )
+}
+
+pub fn layer_at(d: Demo, at: geom.Rect, f: controls.Frame) -> Option<widget.Layer> {
+    if !d.method.open {
+        return Option<widget.Layer>.None
+    }
+    return Option<widget.Layer>.Some(controls.combo_box_popup_layer(
+        d.method,
+        geom.rect_of(
+            at.x,
+            at.y + at.height,
+            at.width,
+            (len(d.method.items.items) as float) * controls.row_height(f.metrics, f.style)
+        ),
+        f
+    ))
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "grid-host" {
+        return with d { host: controls.entry_input(d.host, input, boxes.bounds_of(laid, name), f).entry }
+    }
+    if name == "grid-port" {
+        return with d { port: controls.number_field_input(d.port, input, boxes.bounds_of(laid, name), f).field }
+    }
+    if name == "grid-redirects" {
+        return with d {
+            redirects: controls.check_box_input(d.redirects, input, boxes.bounds_of(laid, name)).check_box
+        }
+    }
+    if name == "grid-send" {
+        return with d { send: controls.button_input(d.send, input, boxes.bounds_of(laid, name)).button }
+    }
+    // The combo box takes everything else while it is open, which is what lets a click away from
+    // it close it.
+    return with d {
+        method: controls.combo_box_input(
+            d.method,
+            input,
+            boxes.bounds_of(laid, "grid-method"),
+            popup_box(d, laid, f),
+            f
+        ).combo
+    }
+}
+
+fn popup_box(d: Demo, laid: widget.Laid, f: controls.Frame) -> geom.Rect {
+    val at = boxes.bounds_of(laid, "grid-method")
+    return geom.rect_of(
+        at.x,
+        at.y + at.height,
+        at.width,
+        (len(d.method.items.items) as float) * controls.row_height(f.metrics, f.style)
+    )
+}

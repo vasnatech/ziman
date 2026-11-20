@@ -224,7 +224,20 @@ fn every_kind_of_widget_appears_in_some_demo() {
         }
     }
     val missing = mutable_array_new<string>()
-    for kind in ["Text", "Drawing", "Picture", "Group", "Sized", "Flex", "Expand", "Control", "Scroll", "Layered"] {
+    for kind in [
+        "Text",
+        "Drawing",
+        "Picture",
+        "Group",
+        "Sized",
+        "Flex",
+        "Expand",
+        "Control",
+        "Scroll",
+        "Layered",
+        "Grid",
+        "Flow"
+    ] {
         if !contains(seen, kind) {
             push(missing, kind)
         }
@@ -253,6 +266,8 @@ fn kind_of(w: widget.Widget) -> string {
         Control(_) { "Control" }
         Scroll(_) { "Scroll" }
         Layered(_) { "Layered" }
+        Grid(_) { "Grid" }
+        Flow(_) { "Flow" }
     }
 }
 

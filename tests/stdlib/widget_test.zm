@@ -39,6 +39,88 @@ fn rect_text(r: geom.Rect) -> string {
     return prelude.format("{},{} {}x{}", str(r.x), str(r.y), str(r.width), str(r.height))
 }
 
+// --- baselines
+
+fn line_of(w: widget.Widget) -> string {
+    return switch widget.measured(w, fake_metrics()).baseline {
+        Some(at) { str(at) }
+        None { "none" }
+    }
+}
+
+// A label at size 10 is 20 tall in these metrics and its ascent is guessed at four fifths of that.
+val label_baseline = "16.0"
+
+// **A baseline cannot be guessed from a line height**, which is why `FaceMetrics.ascent` exists --
+// and why a layout that wants to align text on a shared line has to be told, not left to divide
+// the height by something.
+#[test]
+fn a_label_says_where_its_first_baseline_sits() {
+    test.assert_eq(line_of(a_label("x")), label_baseline)
+}
+
+// **`None` is a real answer and the common one.** A mark, a picture and a spacer have no text to
+// sit on a line, and a sentinel like zero would be indistinguishable from a baseline at the very
+// top of a box.
+#[test]
+fn a_widget_with_no_text_has_no_baseline() {
+    test.assert_eq(line_of(widget.Widget.Nothing), "none")
+    test.assert_eq(line_of(widget.flex()), "none")
+    test.assert_eq(line_of(box(10.0, 10.0)), "none")
+}
+
+// **A box that fixes both axes reports none, and that is the same statement**: it has declared
+// that its child's opinion about its size does not matter, and a baseline is an opinion about
+// where inside that size the text sits.
+//
+// **`wide_of` fixes one axis and still descends**, which is the spelling a form field uses and the
+// case that has to keep its baseline.
+#[test]
+fn a_fully_fixed_box_drops_its_childs_baseline_and_a_half_fixed_one_keeps_it() {
+    test.assert_eq(line_of(widget.fixed_of(50.0, 50.0, a_label("x"))), "none")
+    test.assert_eq(line_of(widget.wide_of(50.0, a_label("x"))), label_baseline)
+    test.assert_eq(line_of(widget.expand(a_label("x"))), label_baseline)
+}
+
+// **A row reports the greatest of its children's baselines.** A row of a label and a field shares
+// one line, so it has to report the lowest line any of them wants -- reporting the first would
+// hang the taller text below the box.
+#[test]
+fn a_row_takes_the_lowest_baseline_its_children_want() {
+    val small = widget.label_of("a", 10.0, black())
+    val large = widget.label_of("b", 20.0, black())
+    // The larger label's ascent is 32, the smaller's 16.
+    test.assert_eq(line_of(widget.row_of(4.0, [small, large])), "32.0")
+    test.assert_eq(line_of(widget.row_of(4.0, [large, small])), "32.0")
+}
+
+// **A column reports its first child's**, which is the first-baseline convention Swing and CSS
+// both settled on: a column's first line is its first line, and a later one must not replace it.
+#[test]
+fn a_column_takes_its_first_childs_baseline() {
+    val first = widget.label_of("a", 10.0, black())
+    val second = widget.label_of("b", 20.0, black())
+    test.assert_eq(line_of(widget.column_of(0.0, [first, second])), "16.0")
+    // The second line sits a whole first line below the top, plus its own ascent.
+    test.assert_eq(line_of(widget.column_of(0.0, [widget.flex(), second])), "32.0")
+}
+
+// Padding moves the text down, so it moves the baseline with it -- a stack that reported its
+// child's baseline unshifted would align a padded label against an unpadded one by a gap.
+#[test]
+fn padding_carries_the_baseline_down_with_the_text() {
+    val padded = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.insets_of(0.0, 7.0, 0.0, 0.0),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        children: [a_label("x")],
+        name: ""
+    })
+    test.assert_eq(line_of(padded), "23.0")
+}
+
 // --- measurement
 
 #[test]
@@ -2123,4 +2205,301 @@ fn first_stroke(ops: [scene.Op]) -> int {
         i = i + 1
     }
     return 0 - 1
+}
+
+// --- the grid
+
+fn grid_box() -> geom.Rect {
+    return geom.rect_of(0.0, 0.0, 300.0, 200.0)
+}
+
+fn laid_grid(columns: [widget.Track], cells: [widget.Cell]) -> widget.Laid {
+    return widget.layout(widget.grid_of(columns, [], 0.0, cells), grid_box(), fake_metrics())
+}
+
+fn cell_box(l: widget.Laid, index: int) -> geom.Rect {
+    return l.children[index].bounds
+}
+
+// **The one thing no amount of nesting achieves.** Two rows, each a label and a field: the fields
+// must start at the same x although their labels are different lengths. Nested stacks cannot do
+// this -- each row would size its own label column -- which is the entire reason a grid exists.
+#[test]
+fn a_column_lines_up_across_rows() {
+    val l = laid_grid([widget.Track.Natural, widget.Track.Natural], [
+        widget.cell_of(0, a_label("Host")),
+        widget.cell_of(0, a_label("x")),
+        widget.cell_of(1, a_label("Port number")),
+        widget.cell_of(1, a_label("y"))
+    ])
+    test.assert_eq(cell_box(l, 1).x, cell_box(l, 3).x)
+    // And the column really is as wide as the longer label, not the first one.
+    test.assert_eq(cell_box(l, 1).x, 110.0)
+}
+
+// **A `Natural` track takes the greatest of the single-span cells in it**, and `Points` takes its
+// number whatever is in it.
+#[test]
+fn points_tracks_take_their_number() {
+    val l = laid_grid([widget.Track.Points(40.0), widget.Track.Natural], [
+        widget.cell_of(0, a_label("a long label")),
+        widget.cell_of(0, a_label("x"))
+    ])
+    test.assert_eq(cell_box(l, 1).x, 40.0)
+}
+
+// **Leftover goes to the `Share` tracks in proportion to their weights**, which is the same notion
+// `Flex` carries -- one idea of weighted leftover in the library, not two.
+#[test]
+fn leftover_is_shared_among_the_weighted_tracks() {
+    val l = laid_grid([widget.Track.Natural, widget.Track.Share(1.0), widget.Track.Share(3.0)], [
+        widget.cell_of(0, a_label("ab")),
+        with widget.cell_of(0, a_label("x")) { fill: widget.Fill.Across },
+        with widget.cell_of(0, a_label("y")) { fill: widget.Fill.Across }
+    ])
+    // 300 wide, 20 taken by the natural column: 280 split one part to three.
+    test.assert_eq(cell_box(l, 1).width, 70.0)
+    test.assert_eq(cell_box(l, 2).width, 210.0)
+}
+
+// **With nothing weighted the leftover stays at the trailing edge.** `GridBagLayout` centres the
+// whole grid in its container when every weight is zero, which surprises everybody exactly once
+// and is then worked around with a filler cell.
+#[test]
+fn an_unweighted_grid_stays_at_the_leading_edge() {
+    val l = laid_grid([widget.Track.Natural, widget.Track.Natural], [
+        widget.cell_of(0, a_label("a")),
+        widget.cell_of(0, a_label("b"))
+    ])
+    test.assert_eq(cell_box(l, 0).x, 0.0)
+}
+
+// **`Next` is `RELATIVE` without the magic number** and `Rest` is `REMAINDER` without one: a form
+// is built row by row, and counting columns by hand is how a cell ends up in the wrong one after
+// somebody inserts a label.
+#[test]
+fn the_sugar_places_cells_without_counting() {
+    val l = laid_grid([widget.Track.Points(30.0), widget.Track.Points(30.0), widget.Track.Points(30.0)], [
+        widget.cell_of(0, a_label("a")),
+        widget.cell_of(0, a_label("b")),
+        widget.cell_of(0, a_label("c")),
+        with widget.cell_of(1, a_label("wide")) { across: widget.Span.Rest, fill: widget.Fill.Across }
+    ])
+    test.assert_eq(cell_box(l, 0).x, 0.0)
+    test.assert_eq(cell_box(l, 1).x, 30.0)
+    test.assert_eq(cell_box(l, 2).x, 60.0)
+    // `Rest` from column 0 covers all three tracks.
+    test.assert_eq(cell_box(l, 3).width, 90.0)
+}
+
+// **The reason the measure protocol learned about baselines.** A small label and a large one in
+// one row sit on the same line -- not centred against each other's boxes, which is what every
+// label-beside-a-field looked like before.
+#[test]
+fn a_row_of_cells_sits_on_one_baseline() {
+    val small = widget.label_of("a", 10.0, black())
+    val large = widget.label_of("b", 20.0, black())
+    val l = laid_grid([widget.Track.Natural, widget.Track.Natural], [
+        widget.cell_of(0, small),
+        widget.cell_of(0, large)
+    ])
+    // Ascents are four fifths of the line height: 16 for the small, 32 for the large.
+    test.assert_eq(cell_box(l, 0).y + 16.0, cell_box(l, 1).y + 32.0)
+    // And the taller one is the one that sets the line, so it sits at the top.
+    test.assert_eq(cell_box(l, 1).y, 0.0)
+}
+
+// A cell whose child has no baseline cannot be put on one, so it goes to the top rather than
+// guessing -- which is why `Measured.baseline` is an `Option`.
+#[test]
+fn a_cell_with_no_baseline_falls_back_to_the_top() {
+    val l = laid_grid([widget.Track.Natural, widget.Track.Natural], [
+        widget.cell_of(0, widget.label_of("a", 20.0, black())),
+        widget.cell_of(0, box(10.0, 10.0))
+    ])
+    test.assert_eq(cell_box(l, 1).y, 0.0)
+}
+
+// **`fill` decides the size and `anchor` decides the position**, which is `GridBagLayout`'s good
+// idea: a child that fills an axis has nowhere left to be anchored on it.
+#[test]
+fn fill_grows_a_cell_and_anchor_places_one_that_does_not() {
+    val wide = [widget.Track.Points(100.0)]
+    val filled = laid_grid(wide, [with widget.cell_of(0, a_label("x")) { fill: widget.Fill.Across }])
+    test.assert_eq(cell_box(filled, 0).width, 100.0)
+
+    val trailing = laid_grid(wide, [with widget.cell_of(0, a_label("x")) {
+        anchor: widget.anchor_of(widget.Sideways.Trailing, widget.Upright.Top)
+    }])
+    // A label of one character is 10 wide in these metrics, so trailing puts it at 90.
+    test.assert_eq(cell_box(trailing, 0).x, 90.0)
+    test.assert_eq(cell_box(trailing, 0).width, 10.0)
+}
+
+// **A spanning cell wider than the tracks it covers puts the shortfall on the last `Natural`
+// track it covers**, and that rule is written down rather than discovered. This is where
+// `GridBagLayout`'s reputation for unpredictability comes from: the distribution is defined, but
+// not anywhere a reader of the call site can find it.
+//
+// The widened track is observed through a cell *in* it -- a filled cell in the third column of
+// another row -- rather than by recomputing the sum here. A test carrying its own copy of the
+// arithmetic is how today's calendar stayed twenty-two points wrong through a green suite.
+#[test]
+fn a_spanning_cell_widens_the_last_natural_track_it_covers() {
+    val l = laid_grid([widget.Track.Natural, widget.Track.Natural, widget.Track.Natural], [
+        widget.cell_of(0, a_label("abc")),
+        widget.cell_of(0, a_label("de")),
+        with widget.cell_of(0, a_label("f")) { fill: widget.Fill.Across },
+        with widget.cell_of(1, a_label("0123456789")) { across: widget.Span.Rest }
+    ])
+    // Naturally the tracks are 30, 20 and 10 -- sixty in all. The spanning cell wants a hundred.
+    test.assert_eq(cell_box(l, 0).width, 30.0)
+    test.assert_eq(cell_box(l, 1).x, 30.0)
+    // The forty-point shortfall lands on the third track, not on the first or the second.
+    test.assert_eq(cell_box(l, 2).x, 50.0)
+    test.assert_eq(cell_box(l, 2).width, 50.0)
+}
+
+// --- the flow
+
+fn flowed(width: float, gap: float, line_gap: float, children: [widget.Widget]) -> widget.Laid {
+    return widget.layout(
+        widget.flow_of(gap, line_gap, children),
+        geom.rect_of(0.0, 0.0, width, 200.0),
+        fake_metrics()
+    )
+}
+
+// **The one thing a `Stack` cannot do.** A row runs off the edge of its parent and nothing
+// reflows; this breaks the line and starts another.
+#[test]
+fn a_flow_wraps_when_the_line_runs_out() {
+    // Three labels of 30 points each, in 100 points with a 10-point gap: two fit, the third wraps.
+    val l = flowed(100.0, 10.0, 4.0, [a_label("abc"), a_label("def"), a_label("ghi")])
+    test.assert_eq(cell_box(l, 0).x, 0.0)
+    test.assert_eq(cell_box(l, 1).x, 40.0)
+    test.assert_eq(cell_box(l, 2).x, 0.0)
+    // And the third is on the next line, a line gap below the first.
+    test.assert_eq(cell_box(l, 0).y, 0.0)
+    test.assert_eq(cell_box(l, 2).y, 24.0)
+}
+
+// **At least one child per line, always.** A child wider than the whole container would otherwise
+// put nothing on the line and loop for ever; it overflows instead, which is visible and finite.
+#[test]
+fn a_child_too_wide_for_the_line_still_gets_one() {
+    val l = flowed(20.0, 0.0, 0.0, [a_label("far too long for this")])
+    test.assert_eq(cell_box(l, 0).x, 0.0)
+    test.assert_eq(len(l.children), 1)
+}
+
+// **Leading, centre or trailing and not left or right.** `FlowLayout`'s own constants went the
+// same way in Java 1.4, for the reason this library is heading towards.
+#[test]
+fn a_short_line_sits_where_the_alignment_says() {
+    val one = [a_label("abc")]
+    val leading = widget.layout(
+        widget.flow_of(0.0, 0.0, one),
+        geom.rect_of(0.0, 0.0, 100.0, 50.0),
+        fake_metrics()
+    )
+    test.assert_eq(cell_box(leading, 0).x, 0.0)
+
+    val centred = widget.layout(
+        widget.Widget.Flow(with as_flow(widget.flow_of(0.0, 0.0, one)) { align: widget.Sideways.Centre }),
+        geom.rect_of(0.0, 0.0, 100.0, 50.0),
+        fake_metrics()
+    )
+    test.assert_eq(cell_box(centred, 0).x, 35.0)
+}
+
+fn as_flow(w: widget.Widget) -> widget.Flowed {
+    return switch w {
+        Flow(it) { it }
+        Nothing { empty_flow() }
+        Text(_) { empty_flow() }
+        Drawing(_) { empty_flow() }
+        Picture(_) { empty_flow() }
+        Group(_) { empty_flow() }
+        Sized(_) { empty_flow() }
+        Flex(_) { empty_flow() }
+        Expand(_) { empty_flow() }
+        Control(_) { empty_flow() }
+        Grid(_) { empty_flow() }
+        Scroll(_) { empty_flow() }
+        Layered(_) { empty_flow() }
+    }
+}
+
+fn empty_flow() -> widget.Flowed {
+    return widget.Flowed {
+        direction: widget.Direction.Row,
+        gap: 0.0,
+        line_gap: 0.0,
+        align: widget.Sideways.Leading,
+        across: widget.Upright.Baseline,
+        children: [],
+        name: ""
+    }
+}
+
+// **A flow reports one line, and that is the known wart of every wrapping container**, stated
+// rather than hidden: its height depends on its width and `measure` is given no width.
+#[test]
+fn a_flow_measures_as_though_it_never_wrapped() {
+    val three = widget.flow_of(10.0, 4.0, [a_label("abc"), a_label("def"), a_label("ghi")])
+    test.assert_eq(widget.measure(three, fake_metrics()).width, 110.0)
+    test.assert_eq(widget.measure(three, fake_metrics()).height, 20.0)
+}
+
+// --- the border
+
+fn edge(w: float, h: float) -> widget.Widget {
+    return widget.fixed_of(w, h, widget.Widget.Nothing)
+}
+
+// Five regions, and the middle takes what is left.
+#[test]
+fn a_border_puts_its_five_regions_where_they_belong() {
+    val l = widget.layout(
+        widget.border_of(edge(10.0, 20.0), edge(10.0, 30.0), edge(40.0, 10.0), edge(50.0, 10.0), a_label("c"), 0.0),
+        geom.rect_of(0.0, 0.0, 200.0, 100.0),
+        fake_metrics()
+    )
+    // Top at the top, bottom at the bottom, and the middle band between them.
+    test.assert_eq(cell_box(l, 0).height, 20.0)
+    test.assert_eq(cell_box(l, 2).y, 70.0)
+    // The middle band is an `Expand` holding the row, so the three regions are one level down.
+    val middle = l.children[1]
+    test.assert_eq(middle.bounds.y, 20.0)
+    test.assert_eq(middle.bounds.height, 50.0)
+    val across = middle.children[0]
+    // Leading keeps its width, trailing keeps its own, and the centre takes the rest.
+    test.assert_eq(across.children[0].bounds.width, 40.0)
+    test.assert_eq(across.children[2].bounds.width, 50.0)
+    test.assert_eq(across.children[1].bounds.x, 40.0)
+    test.assert_eq(across.children[1].bounds.width, 110.0)
+}
+
+// **An absent region costs no gap**, which is the one detail that makes `border_of` worth writing
+// down. `column_of(gap, [top, middle, bottom])` puts a gap either side of the middle whether or
+// not the other two are there, so a border with no header gets a mysterious band of space at the
+// top: `Nothing` measures zero but a gap does not.
+#[test]
+fn an_absent_region_costs_no_gap() {
+    val none = widget.Widget.Nothing
+    val l = widget.layout(
+        widget.border_of(none, none, none, none, a_label("c"), 12.0),
+        geom.rect_of(0.0, 0.0, 200.0, 100.0),
+        fake_metrics()
+    )
+    // One child -- the middle band -- starting at the very top, with no gap above it.
+    test.assert_eq(len(l.children), 1)
+    test.assert_eq(l.children[0].bounds.y, 0.0)
+    test.assert_eq(l.children[0].bounds.height, 100.0)
+    // And inside it, the centre alone with no gap to its leading side -- one region in the row,
+    // not three with two empty ones holding gaps open.
+    val row = l.children[0].children[0]
+    test.assert_eq(len(row.children), 1)
+    test.assert_eq(row.children[0].bounds.x, 0.0)
 }

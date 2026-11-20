@@ -358,6 +358,8 @@ fn focusable_in(l: Laid) -> Option<widget.Focusable> {
         // same way Tab reaches a control the window is not showing.
         Scroll(_) { Option<widget.Focusable>.None }
         Layered(_) { Option<widget.Focusable>.None }
+        Grid(_) { Option<widget.Focusable>.None }
+        Flow(_) { Option<widget.Focusable>.None }
         Nothing { Option<widget.Focusable>.None }
         Text(_) { Option<widget.Focusable>.None }
         Group(_) { Option<widget.Focusable>.None }
@@ -375,6 +377,8 @@ fn role_for(l: Laid) -> Role {
         Text(_) { Role.Label }
         Scroll(_) { Role.Label }
         Layered(_) { Role.Label }
+        Grid(_) { Role.Label }
+        Flow(_) { Role.Label }
         Nothing { Role.Label }
         Group(_) { Role.Label }
         Sized(_) { Role.Label }
@@ -401,6 +405,8 @@ fn text_of(l: Laid) -> string {
         Picture(it) { it.alt }
         Text(label) { label.text }
         Scroll(_) { "" }
+        Grid(_) { "" }
+        Flow(_) { "" }
         Layered(_) { "" }
         Nothing { "" }
         Group(_) { "" }
@@ -474,7 +480,12 @@ fn role_word(r: Role) -> string {
     }
 }
 
-fn toggle_word(t: Toggle, r: Role) -> string {
+// What a reader says about a toggle, which depends on what it is toggling.
+//
+// **Public because a table needs it.** `controls.value_text` writes a `Flag` cell for a reader,
+// and a cell saying "checked" while a check box beside it says "on" would be this module
+// disagreeing with itself in two places a user meets together. One vocabulary, one function.
+pub fn toggle_word(t: Toggle, r: Role) -> string {
     // **Asked as a question, not switched over every role**, which is the one place that is right
     // here: a role that is not a switch says "checked", and that is the answer for every role there
     // will ever be rather than a decision each new one has to take. The exhaustive switches

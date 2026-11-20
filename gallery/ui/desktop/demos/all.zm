@@ -19,6 +19,8 @@ use demos/context
 use demos/date_field
 use demos/dialog
 use demos/expander
+use demos/flow
+use demos/grid
 use demos/layout
 use demos/link
 use demos/list
@@ -53,6 +55,8 @@ pub enum Demo {
     Toolbar(toolbar.Demo)
     Context(context.Demo)
     DateField(date_field.Demo)
+    Grid(grid.Demo)
+    Flow(flow.Demo)
     Radios(radios.Demo)
     TextField(text_field.Demo)
     TextArea(text_area.Demo)
@@ -88,6 +92,8 @@ pub fn all() -> [Demo] {
         Demo.Toolbar(toolbar.demo()),
         Demo.Context(context.demo()),
         Demo.DateField(date_field.demo()),
+        Demo.Grid(grid.demo()),
+        Demo.Flow(flow.demo()),
         Demo.Radios(radios.demo()),
         Demo.TextField(text_field.demo()),
         Demo.TextArea(text_area.demo()),
@@ -122,6 +128,8 @@ pub fn title_of(d: Demo) -> string {
         Toolbar(_) { "Toolbar" }
         Context(_) { "Context menu" }
         DateField(_) { "Date field" }
+        Grid(_) { "A form" }
+        Flow(_) { "Wrapping" }
         Radios(_) { "Radio group" }
         TextField(_) { "Text field" }
         TextArea(_) { "Text area" }
@@ -157,6 +165,8 @@ pub fn stem_of(d: Demo) -> string {
         Toolbar(_) { "toolbar" }
         Context(_) { "context" }
         DateField(_) { "date_field" }
+        Grid(_) { "grid" }
+        Flow(_) { "flow" }
         Radios(_) { "radios" }
         TextField(_) { "text_field" }
         TextArea(_) { "text_area" }
@@ -226,6 +236,8 @@ pub fn tick_of(d: Demo, f: controls.Frame) -> Option<Demo> {
         Toolbar(_) { Option<Demo>.None }
         Context(_) { Option<Demo>.None }
         DateField(_) { Option<Demo>.None }
+        Grid(_) { Option<Demo>.None }
+        Flow(_) { Option<Demo>.None }
     }
 }
 
@@ -241,6 +253,8 @@ pub fn view_of(d: Demo, f: controls.Frame) -> widget.Widget {
         Toolbar(it) { toolbar.view(it, f) }
         Context(it) { context.view(it, f) }
         DateField(it) { date_field.view(it, f) }
+        Grid(it) { grid.view(it, f) }
+        Flow(it) { flow.view(it, f) }
         Radios(it) { radios.view(it, f) }
         TextField(it) { text_field.view(it, f) }
         TextArea(it) { text_area.view(it, f) }
@@ -281,6 +295,8 @@ pub fn input_to(
         Toolbar(it) { Demo.Toolbar(toolbar.input(it, name, input, laid, f)) }
         Context(it) { Demo.Context(context.input(it, name, input, laid, f)) }
         DateField(it) { Demo.DateField(date_field.input(it, name, input, laid, f)) }
+        Grid(it) { Demo.Grid(grid.input(it, name, input, laid, f)) }
+        Flow(it) { Demo.Flow(flow.input(it, name, input, laid, f)) }
         Radios(it) { Demo.Radios(radios.input(it, name, input, laid, f)) }
         TextField(it) { Demo.TextField(text_field.input(it, name, input, laid, f)) }
         TextArea(it) { Demo.TextArea(text_area.input(it, name, input, laid, f)) }
@@ -328,6 +344,8 @@ pub fn anchor_of(d: Demo) -> string {
         Toolbar(_) { "" }
         Context(_) { "" }
         DateField(_) { "" }
+        Grid(_) { "grid-method" }
+        Flow(_) { "" }
         Radios(_) { "" }
         Slider(_) { "" }
         Link(_) { "" }
@@ -403,6 +421,8 @@ pub fn layer_of(d: Demo, at: geom.Rect, laid: widget.Laid, f: controls.Frame) ->
         Toolbar(it) { toolbar.layer_at(it, laid, f) }
         Context(it) { context.layer_at(it, laid, f) }
         DateField(it) { date_field.layer_at(it, laid, f) }
+        Grid(it) { grid.layer_at(it, at, f) }
+        Flow(_) { Option<widget.Layer>.None }
         Radios(_) { Option<widget.Layer>.None }
         Slider(_) { Option<widget.Layer>.None }
         Link(_) { Option<widget.Layer>.None }
@@ -442,6 +462,8 @@ pub fn group_of(d: Demo) -> string {
         Toolbar(_) { "Controls" }
         Context(_) { "Controls" }
         DateField(_) { "Controls" }
+        Grid(_) { "Layout" }
+        Flow(_) { "Layout" }
         Radios(_) { "Controls" }
         Slider(_) { "Controls" }
         Link(_) { "Controls" }
@@ -488,6 +510,8 @@ pub fn cursor_of(
         Toolbar(_) { widget.Cursor.Arrow }
         Context(_) { widget.Cursor.Arrow }
         DateField(_) { widget.Cursor.Text }
+        Grid(_) { widget.Cursor.Arrow }
+        Flow(_) { widget.Cursor.Arrow }
         Radios(_) { widget.Cursor.Arrow }
         Slider(_) { widget.Cursor.Arrow }
         Link(_) { widget.Cursor.Arrow }

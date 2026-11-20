@@ -1377,6 +1377,11 @@ pub enum Widget {
     Control(Focusable)
     // A window onto a child larger than itself -- see `Viewport`. **Not transparent to layout**,
     // which is what separates it from every other wrapper here.
+    // A grid of tracks with cells placed into them: the one arrangement nesting cannot express,
+    // because nesting cannot align across cells in *different rows*. See `Grid`.
+    Grid(Grid)
+    // Children laid along a line that wraps when it runs out. See `Flowed`.
+    Flow(Flowed)
     Scroll(Viewport)
     // Children stacked over one another, later ones on top -- see `Layer`. A menu's popup and a
     // modal dialog are both this.
@@ -1557,60 +1562,132 @@ pub fn face_metrics_for(f: font.FontRef) -> Result<FaceMetrics, string> {
     })
 }
 
+// What a widget wants, given nothing: its *natural* size, and where its first line of text sits.
+//
+// **The baseline is an `Option` and `None` is the common answer**, not a failure. Most widgets have
+// no text to sit on a line -- a mark, a picture, a spacer -- and a cell asking to be aligned on a
+// baseline in a row where nothing has one falls back to its top. A sentinel like `0.0` would be
+// indistinguishable from a real baseline at the very top of a box.
+pub struct Measured {
+    size: Size
+    // How far below this widget's own top its first baseline sits.
+    baseline: Option<float>
+}
+
+fn just(size: Size) -> Measured {
+    return Measured { size: size, baseline: Option<float>.None }
+}
+
 // The size a widget wants, given nothing: its *natural* size, before any space is shared out.
 //
 // A `Flex` measures zero, which is what makes it flexible -- it has no natural size, so everything
 // it is given is leftover space.
 pub fn measure(w: Widget, m: Metrics) -> Size {
+    return measured(w, m).size
+}
+
+// The same question, with the baseline a grid needs to align a row on.
+//
+// **One recursion rather than two.** A separate `baseline_of` walking the tree a second time is a
+// second set of rules about what a column's first line is, free to disagree with this one -- and
+// the disagreement would show only in a form, where it matters most.
+pub fn measured(w: Widget, m: Metrics) -> Measured {
     return switch w {
-        Nothing { size_of(0.0, 0.0) }
+        Nothing { just(size_of(0.0, 0.0)) }
         // **A mark has no natural size**, which is the point of it: an icon is sized by the
         // control it belongs to, from the text it sits beside, so measuring it would be the
         // widget answering a question that is not its to answer.
-        Drawing(_) { size_of(0.0, 0.0) }
+        Drawing(_) { just(size_of(0.0, 0.0)) }
         // **A picture does have one**, which is the difference between content and a mark: a
         // photograph is a size before it is anywhere, and a column of them is as tall as they are.
-        Picture(it) { size_of(it.width, it.height) }
-        Flex(_) { size_of(0.0, 0.0) }
-        Text(it) { size_of(width_in(m, it.font, it.text, it.size), height_in(m, it.font, it.size)) }
+        Picture(it) { just(size_of(it.width, it.height)) }
+        Flex(_) { just(size_of(0.0, 0.0)) }
+        Text(it) {
+            Measured {
+                size: size_of(width_in(m, it.font, it.text, it.size), height_in(m, it.font, it.size)),
+                // The one widget that *is* a line of text, so the one that answers from the face
+                // rather than from a child. See `FaceMetrics.ascent`: a baseline cannot be guessed
+                // from a line height.
+                baseline: Option<float>.Some(ascent_in(m, it.font, it.size))
+            }
+        }
         // **Measured only on the axis it does not fix**, so the common case where both are
         // stated still costs nothing: a `Fixed` is the node a caller reaches for precisely when it
         // does not want its child's opinion.
+        //
+        // **A box that fixes both axes reports no baseline**, and that is the same statement: it
+        // has declared that its child's opinion about its size does not matter, and a baseline is
+        // an opinion about where inside that size the text sits. `wide_of` fixes one axis and
+        // still descends -- which is the spelling a form field uses, and the case that needs a
+        // baseline.
         Sized(it) {
             if it.fixes_width && it.fixes_height {
-                size_of(it.width, it.height)
+                just(size_of(it.width, it.height))
             } else {
-                val natural = measure(it.child, m)
-                size_of(
-                    if it.fixes_width { it.width } else { natural.width },
-                    if it.fixes_height { it.height } else { natural.height }
-                )
+                val natural = measured(it.child, m)
+                Measured {
+                    size: size_of(
+                        if it.fixes_width { it.width } else { natural.size.width },
+                        if it.fixes_height { it.height } else { natural.size.height }
+                    ),
+                    baseline: natural.baseline
+                }
             }
         }
-        Group(it) { measure_stack(it, m) }
+        Group(it) { measured_stack(it, m) }
         // Its child's natural size: the *cross* axis still comes from here, and only the axis its
         // parent distributes along is replaced by the share it is given.
-        Expand(it) { measure(it.child, m) }
-        Control(it) { measure(it.child, m) }
+        Expand(it) { measured(it.child, m) }
+        Control(it) { measured(it.child, m) }
         // Nothing, deliberately -- see `Viewport`. A viewport takes the size it is given.
-        Scroll(_) { size_of(0.0, 0.0) }
+        Scroll(_) { just(size_of(0.0, 0.0)) }
         // The largest of its layers, so a layered node in a column is as big as the biggest thing
         // it holds. A layer placed at an explicit rect contributes nothing, because it is not asking
         // to be given room -- it has already said where it goes.
-        Layered(it) { largest_layer(it, m) }
+        Layered(it) { just(largest_layer(it, m)) }
+        Grid(it) { measured_grid(it, m) }
+        Flow(it) { measured_flow(it, m) }
     }
 }
 
-fn measure_stack(s: Stack, m: Metrics) -> Size {
+// A stack's own size and baseline.
+//
+// **A row's baseline is the greatest of its children's and a column's is its first child's**,
+// which are the two rules Swing and CSS both settled on and for the same reason. A row of a label
+// and a field shares one line, so the row has to report the lowest baseline any of them wants or
+// the tallest text would hang below the box. A column's first line is its first line.
+//
+// Measured with every child at the top of the content box, which is what `Across.Start` and
+// `Across.Stretch` give. A row that centres its children across is reporting a baseline its layout
+// will not honour -- stated here rather than silently wrong, because a stack that centres is
+// asking not to be aligned on text.
+fn measured_stack(s: Stack, m: Metrics) -> Measured {
     var along = 0.0
     var across = 0.0
     var count = 0
+    var best = Option<float>.None
+    var running = 0.0
     for child in s.children {
-        val child_size = measure(child, m)
-        along = along + along_of(child_size, s.direction)
+        val child_size = measured(child, m)
+        if Some(line) = child_size.baseline {
+            val here = switch s.direction {
+                Row { line }
+                Column { running + line }
+            }
+            val take = switch s.direction {
+                Row { Option.is_None(best) || here > unwrapped(best, 0.0) }
+                // The *first* child that has one, so a later line does not replace it.
+                Column { Option.is_None(best) }
+            }
+            if take {
+                best = Option<float>.Some(here)
+            }
+        }
+        running = running + along_of(child_size.size, s.direction) + s.spacing
+        along = along + along_of(child_size.size, s.direction)
         val other = switch s.direction {
-            Row { child_size.height }
-            Column { child_size.width }
+            Row { child_size.size.height }
+            Column { child_size.size.width }
         }
         if other > across {
             across = other
@@ -1625,9 +1702,842 @@ fn measure_stack(s: Stack, m: Metrics) -> Size {
     }
     val h_pad = s.padding.left + s.padding.right
     val v_pad = s.padding.top + s.padding.bottom
-    return switch s.direction {
-        Row { size_of(along + h_pad, across + v_pad) }
-        Column { size_of(across + h_pad, along + v_pad) }
+    return Measured {
+        size: switch s.direction {
+            Row { size_of(along + h_pad, across + v_pad) }
+            Column { size_of(across + h_pad, along + v_pad) }
+        },
+        baseline: switch best {
+            Some(line) { Option<float>.Some(line + s.padding.top) }
+            None { Option<float>.None }
+        }
+    }
+}
+
+fn unwrapped(v: Option<float>, fallback: float) -> float {
+    return switch v {
+        Some(it) { it }
+        None { fallback }
+    }
+}
+
+// ------------------------------------------------------------------- the grid
+
+// How wide a column is, or how tall a row.
+//
+// **Declared, which is the whole difference from `GridBagLayout`.** There a column's weight is the
+// invisible *maximum* of the `weightx` its cells happen to carry, so two cells can disagree about
+// a column and the resolution is a rule nobody remembers. Here a track is one thing that says one
+// number, and a cell cannot contradict it.
+pub enum Track {
+    // Exactly this many points.
+    Points(float)
+    // As big as the largest thing in it needs.
+    Natural
+    // This many shares of whatever is left over. **The same notion as `Flex`**, so the library has
+    // one idea of weighted leftover rather than two.
+    Share(float)
+}
+
+// Whether a cell's child grows into the room its track gives it.
+//
+// **Separate from `Anchor`, which is `GridBagLayout`'s good idea**: "do you grow?" and "where do
+// you sit if you do not?" are different questions, and systems that conflate them make the second
+// unanswerable.
+pub enum Fill {
+    Nowhere
+    Across
+    Down
+    Both
+}
+
+// Where a cell's child sits in its track when it does not fill it.
+//
+// **Leading and trailing, not left and right.** This library is heading for Arabic and Hebrew, and
+// `GridBagLayout` got here first -- `LINE_START` and `LINE_END` were added to Swing in 1.4 for
+// exactly this. They resolve as left and right until a text direction exists, which is the point:
+// the vocabulary is free now and a migration later.
+pub enum Sideways {
+    Leading
+    Centre
+    Trailing
+}
+
+pub enum Upright {
+    Top
+    Middle
+    Bottom
+    // On the row's shared text baseline. **Falls back to `Top` when nothing in the row has one**,
+    // which is why `Measured.baseline` is an `Option`: a row of icons has no line to sit on.
+    Baseline
+}
+
+pub struct Anchor {
+    sideways: Sideways
+    upright: Upright
+}
+
+pub fn anchor_of(sideways: Sideways, upright: Upright) -> Anchor {
+    return Anchor { sideways: sideways, upright: upright }
+}
+
+// Which column a cell starts in.
+//
+// **`Next` is `GridBagLayout`'s `RELATIVE` without the magic number**, which was `-1`. A form is
+// built row by row and counting columns by hand is how a cell ends up in the wrong one after
+// somebody inserts a label.
+pub enum Column {
+    Next
+    At(int)
+}
+
+// How many columns a cell covers.
+//
+// **`Rest` is `REMAINDER` without the magic number**, which was `0` -- a zero that meant "all of
+// them", the opposite of what it reads like.
+pub enum Span {
+    Rest
+    Cells(int)
+}
+
+pub struct Cell {
+    column: Column
+    row: int
+    across: Span
+    down: int
+    fill: Fill
+    anchor: Anchor
+    // Room around this child, inside its track. `column_gap` and `row_gap` are the gutters; this
+    // is for the one cell that wants more.
+    margin: Insets
+    child: Widget
+}
+
+// A cell with nothing said about it: the next free column of its row, one track, no growth,
+// leading and on the baseline.
+//
+// **`Baseline` by default**, because a form is the reason this exists and a form is text beside
+// text. A cell whose child has no baseline is placed at the top, so the default costs nothing
+// where it does not apply.
+pub fn cell_of(row: int, child: Widget) -> Cell {
+    return Cell {
+        column: Column.Next,
+        row: row,
+        across: Span.Cells(1),
+        down: 1,
+        fill: Fill.Nowhere,
+        anchor: anchor_of(Sideways.Leading, Upright.Baseline),
+        margin: no_insets(),
+        child: child
+    }
+}
+
+// A grid: tracks declared once, cells placed into them.
+//
+// **The track lists may be shorter than the grid is**, and an undeclared track is `Natural`. That
+// keeps `GridBagLayout`'s convenience for a quick form -- declare nothing and everything sizes to
+// its content -- while giving a weight exactly one place to live when one is wanted.
+pub struct Grid {
+    columns: [Track]
+    rows: [Track]
+    column_gap: float
+    row_gap: float
+    cells: [Cell]
+    name: string
+}
+
+// A cell with everything said in one call.
+//
+// **For a design file**, which may hold only calls and literals -- no `with`, no local `val`. A
+// form's shape is exactly the thing a designer should be able to state, so stating it must not
+// need an expression the dialect forbids.
+pub fn cell_of(row: int, fill: Fill, anchor: Anchor, child: Widget) -> Cell {
+    return with cell_of(row, child) { fill: fill, anchor: anchor }
+}
+
+// The same, in a column the caller names rather than the next free one.
+pub fn cell_at(row: int, column: int, fill: Fill, anchor: Anchor, child: Widget) -> Cell {
+    return with cell_of(row, fill, anchor, child) { column: Column.At(column) }
+}
+
+// Gutters that differ by axis: a form usually wants more room between its columns than its rows.
+pub fn grid_of(
+    columns: [Track],
+    rows: [Track],
+    column_gap: float,
+    row_gap: float,
+    cells: [Cell]
+) -> Widget {
+    return Widget.Grid(Grid {
+        columns: columns,
+        rows: rows,
+        column_gap: column_gap,
+        row_gap: row_gap,
+        cells: cells,
+        name: ""
+    })
+}
+
+pub fn grid_of(columns: [Track], rows: [Track], gap: float, cells: [Cell]) -> Widget {
+    return Widget.Grid(Grid {
+        columns: columns,
+        rows: rows,
+        column_gap: gap,
+        row_gap: gap,
+        cells: cells,
+        name: ""
+    })
+}
+
+// A cell with its placement resolved to plain numbers.
+struct Settled {
+    column: int
+    row: int
+    across: int
+    down: int
+    cell: Cell
+}
+
+fn row_count(g: Grid) -> int {
+    var most = prelude.len(g.rows)
+    for c in g.cells {
+        val past = c.row + c.down
+        if past > most {
+            most = past
+        }
+    }
+    return most
+}
+
+// **Two passes, because `Rest` cannot be resolved until the grid's width is known** and the width
+// depends on where the cells with concrete spans reach. A `Rest` cell asks for whatever is left,
+// so it never widens the grid -- otherwise the question would have no answer.
+fn settle(g: Grid) -> [Settled] {
+    val rows = row_count(g)
+    val next_free = mutable_array_new<int>()
+    var r = 0
+    while r < rows {
+        push(next_free, 0)
+        r = r + 1
+    }
+    val placed = mutable_array_new<Settled>()
+    var widest = prelude.len(g.columns)
+    for c in g.cells {
+        val at = switch c.column {
+            Next { if c.row >= 0 && c.row < rows { next_free[c.row] } else { 0 } }
+            At(n) { n }
+        }
+        val span = switch c.across {
+            Rest { 0 - 1 }
+            Cells(n) { if n < 1 { 1 } else { n } }
+        }
+        if c.row >= 0 && c.row < rows {
+            next_free[c.row] = at + (if span < 0 { 1 } else { span })
+        }
+        if span > 0 && at + span > widest {
+            widest = at + span
+        }
+        if span < 0 && at + 1 > widest {
+            widest = at + 1
+        }
+        push(placed, Settled { column: at, row: c.row, across: span, down: c.down, cell: c })
+    }
+    val out = mutable_array_new<Settled>()
+    for p in placed {
+        val across = if p.across < 0 { widest - p.column } else { p.across }
+        push(out, with p { across: if across < 1 { 1 } else { across } })
+    }
+    return snapshot(out)
+}
+
+fn column_count(settled: [Settled], declared: int) -> int {
+    var most = declared
+    for p in settled {
+        val past = p.column + p.across
+        if past > most {
+            most = past
+        }
+    }
+    return most
+}
+
+fn track_at(tracks: [Track], index: int) -> Track {
+    if index < 0 || index >= prelude.len(tracks) {
+        return Track.Natural
+    }
+    return tracks[index]
+}
+
+// How big each track is, before any leftover is shared.
+//
+// **The rule for a spanning cell is written down here rather than discovered**, which is where
+// `GridBagLayout`'s reputation for unpredictability comes from: a cell wider than the tracks it
+// covers puts the shortfall on the **last `Natural` track it covers**, and nothing at all if it
+// covers none. One place to look, one answer.
+fn natural_tracks(
+    tracks: [Track],
+    count: int,
+    settled: [Settled],
+    m: Metrics,
+    horizontal: bool
+) -> MutableArray<float> {
+    val sizes = mutable_array_new<float>()
+    var i = 0
+    while i < count {
+        push(sizes, switch track_at(tracks, i) {
+            Points(v) { v }
+            Natural { 0.0 }
+            Share(_) { 0.0 }
+        })
+        i = i + 1
+    }
+    // Single-span cells first: they are the only ones a `Natural` track can be sized from without
+    // guessing how a span should be divided.
+    for p in settled {
+        if cell_span(p, horizontal) == 1 {
+            val want = wanted(p, m, horizontal)
+            val index = cell_start(p, horizontal)
+            if index >= 0 && index < count {
+                if Natural = track_at(tracks, index) {
+                    if want > sizes[index] {
+                        sizes[index] = want
+                    }
+                }
+            }
+        }
+    }
+    return sizes
+}
+
+fn cell_span(p: Settled, horizontal: bool) -> int {
+    return if horizontal { p.across } else { p.down }
+}
+
+fn cell_start(p: Settled, horizontal: bool) -> int {
+    return if horizontal { p.column } else { p.row }
+}
+
+// What one cell needs along this axis, including its own margin.
+fn wanted(p: Settled, m: Metrics, horizontal: bool) -> float {
+    val size = measure(p.cell.child, m)
+    if horizontal {
+        return size.width + p.cell.margin.left + p.cell.margin.right
+    }
+    return size.height + p.cell.margin.top + p.cell.margin.bottom
+}
+
+// The shortfall a spanning cell adds, after the single-span cells have had their say.
+fn widen_for_spans(
+    sizes: MutableArray<float>,
+    tracks: [Track],
+    count: int,
+    settled: [Settled],
+    gap: float,
+    m: Metrics,
+    horizontal: bool
+) {
+    for p in settled {
+        val span = cell_span(p, horizontal)
+        if span > 1 {
+            val start = cell_start(p, horizontal)
+            var have = ((span - 1) as float) * gap
+            var last_natural = 0 - 1
+            var i = start
+            while i < start + span && i < count {
+                have = have + sizes[i]
+                if Natural = track_at(tracks, i) {
+                    last_natural = i
+                }
+                i = i + 1
+            }
+            val short = wanted(p, m, horizontal) - have
+            if short > 0.0 && last_natural >= 0 {
+                sizes[last_natural] = sizes[last_natural] + short
+            }
+        }
+    }
+}
+
+// Leftover goes to the `Share` tracks in proportion to their weights.
+//
+// **With no `Share` track the leftover simply stays unused at the trailing edge.** That is
+// deliberate and it is where this parts company with `GridBagLayout`, which centres the whole grid
+// in its container when every weight is zero -- a behaviour that surprises everybody exactly once
+// and then has to be worked around with a filler cell.
+fn share_leftover(sizes: MutableArray<float>, tracks: [Track], count: int, gap: float, total: float) {
+    var used = if count > 1 { ((count - 1) as float) * gap } else { 0.0 }
+    var weight = 0.0
+    var i = 0
+    while i < count {
+        used = used + sizes[i]
+        if Share(w) = track_at(tracks, i) {
+            weight = weight + w
+        }
+        i = i + 1
+    }
+    val spare = total - used
+    if spare <= 0.0 || weight <= 0.0 {
+        return
+    }
+    var j = 0
+    while j < count {
+        if Share(w) = track_at(tracks, j) {
+            sizes[j] = sizes[j] + spare * w / weight
+        }
+        j = j + 1
+    }
+}
+
+fn axis_tracks(
+    g: Grid,
+    settled: [Settled],
+    count: int,
+    total: float,
+    m: Metrics,
+    horizontal: bool
+) -> [float] {
+    val tracks = if horizontal { g.columns } else { g.rows }
+    val gap = if horizontal { g.column_gap } else { g.row_gap }
+    val sizes = natural_tracks(tracks, count, settled, m, horizontal)
+    widen_for_spans(sizes, tracks, count, settled, gap, m, horizontal)
+    share_leftover(sizes, tracks, count, gap, total)
+    return snapshot(sizes)
+}
+
+// Where track `index` starts, relative to the grid's content box.
+fn track_start(sizes: [float], gap: float, index: int) -> float {
+    var at = 0.0
+    var i = 0
+    while i < index && i < prelude.len(sizes) {
+        at = at + sizes[i] + gap
+        i = i + 1
+    }
+    return at
+}
+
+fn track_extent(sizes: [float], gap: float, start: int, span: int) -> float {
+    var extent = 0.0
+    var i = start
+    while i < start + span && i < prelude.len(sizes) {
+        extent = extent + sizes[i]
+        if i > start {
+            extent = extent + gap
+        }
+        i = i + 1
+    }
+    return extent
+}
+
+fn total_of(sizes: [float], gap: float) -> float {
+    val count = prelude.len(sizes)
+    var at = 0.0
+    var i = 0
+    while i < count {
+        at = at + sizes[i]
+        i = i + 1
+    }
+    if count > 1 {
+        at = at + ((count - 1) as float) * gap
+    }
+    return at
+}
+
+// The shared baseline of each row: the lowest any cell anchored to it wants.
+//
+// **Zero rows of its own.** A row is a coordinate here and not a node, which is why a row
+// background has nowhere to live -- that belongs to `controls.Table`, which has real rows.
+fn row_baselines(settled: [Settled], rows: int, m: Metrics) -> [float] {
+    val lines = mutable_array_new<float>()
+    var i = 0
+    while i < rows {
+        push(lines, 0.0 - 1.0)
+        i = i + 1
+    }
+    for p in settled {
+        if Baseline = p.cell.anchor.upright {
+            if p.row >= 0 && p.row < rows && p.down == 1 {
+                if Some(line) = measured(p.cell.child, m).baseline {
+                    val want = line + p.cell.margin.top
+                    if want > lines[p.row] {
+                        lines[p.row] = want
+                    }
+                }
+            }
+        }
+    }
+    return snapshot(lines)
+}
+
+fn measured_grid(g: Grid, m: Metrics) -> Measured {
+    val settled = settle(g)
+    val columns = column_count(settled, prelude.len(g.columns))
+    val rows = row_count(g)
+    val widths = axis_tracks(g, settled, columns, 0.0, m, true)
+    val heights = axis_tracks(g, settled, rows, 0.0, m, false)
+    val lines = row_baselines(settled, rows, m)
+    return Measured {
+        size: size_of(total_of(widths, g.column_gap), total_of(heights, g.row_gap)),
+        // The first row's, which is the first-baseline convention a column follows too.
+        baseline: if rows > 0 && lines[0] >= 0.0 {
+            Option<float>.Some(lines[0])
+        } else {
+            Option<float>.None
+        }
+    }
+}
+
+// Where one cell's child goes inside the tracks it covers.
+//
+// **`fill` decides the size and `anchor` decides the position**, in that order and never both --
+// a child that fills an axis has nowhere left to be anchored on it.
+fn cell_rect(p: Settled, area: Rect, line: float, m: Metrics) -> Rect {
+    val inside = geom.rect_of(
+        area.x + p.cell.margin.left,
+        area.y + p.cell.margin.top,
+        area.width - p.cell.margin.left - p.cell.margin.right,
+        area.height - p.cell.margin.top - p.cell.margin.bottom
+    )
+    val natural = measured(p.cell.child, m)
+    val wide = switch p.cell.fill {
+        Nowhere { natural.size.width }
+        Across { inside.width }
+        Down { natural.size.width }
+        Both { inside.width }
+    }
+    val tall = switch p.cell.fill {
+        Nowhere { natural.size.height }
+        Across { natural.size.height }
+        Down { inside.height }
+        Both { inside.height }
+    }
+    val x = switch p.cell.anchor.sideways {
+        // Leading is the left-hand edge until a text direction says otherwise.
+        Leading { inside.x }
+        Centre { inside.x + (inside.width - wide) * 0.5 }
+        Trailing { inside.x + inside.width - wide }
+    }
+    val y = switch p.cell.anchor.upright {
+        Top { inside.y }
+        Middle { inside.y + (inside.height - tall) * 0.5 }
+        Bottom { inside.y + inside.height - tall }
+        // **The row's shared line, and the top when there is none.** A cell whose own child has no
+        // baseline cannot be aligned on one either, so it falls back rather than guessing.
+        Baseline {
+            if line < 0.0 {
+                inside.y
+            } else {
+                switch natural.baseline {
+                    Some(own) { inside.y + line - own - p.cell.margin.top }
+                    None { inside.y }
+                }
+            }
+        }
+    }
+    return geom.rect_of(x, y, wide, tall)
+}
+
+fn place_grid(g: Grid, w: Widget, within: Rect, m: Metrics, index: int, name: string) -> Laid {
+    val settled = settle(g)
+    val columns = column_count(settled, prelude.len(g.columns))
+    val rows = row_count(g)
+    val widths = axis_tracks(g, settled, columns, within.width, m, true)
+    val heights = axis_tracks(g, settled, rows, within.height, m, false)
+    val lines = row_baselines(settled, rows, m)
+    val kids = mutable_array_new<Laid>()
+    var i = 0
+    // **In the order the cells were given**, which is the order Tab will walk them. A grid that
+    // sorted its children by position would make the tab order depend on the layout rather than on
+    // what the author wrote, and a form's reading order is the author's to state.
+    while i < prelude.len(settled) {
+        val p = settled[i]
+        val area = geom.rect_of(
+            within.x + track_start(widths, g.column_gap, p.column),
+            within.y + track_start(heights, g.row_gap, p.row),
+            track_extent(widths, g.column_gap, p.column, p.across),
+            track_extent(heights, g.row_gap, p.row, p.down)
+        )
+        val line = if p.row >= 0 && p.row < rows { lines[p.row] } else { 0.0 - 1.0 }
+        push(kids, place(p.cell.child, cell_rect(p, area, line, m), m, i, name))
+        i = i + 1
+    }
+    return Laid {
+        bounds: within,
+        index: index,
+        name: name,
+        widget: w,
+        children: snapshot(kids)
+    }
+}
+
+// ------------------------------------------------------------------- the flow
+
+// Children laid along a line, wrapping to the next when the line runs out.
+//
+// **The one thing a `Stack` cannot do.** A row runs off the edge of its parent and nothing
+// reflows; this breaks. That is what a bar of chips, a list of tags and a toolbar that would
+// rather wrap than overflow all need, and it is why `FlowLayout` outlived most of Swing.
+//
+// **`Direction.Row` flows across and wraps downward**, `Direction.Column` flows down and wraps
+// sideways -- the same axis the direction names everywhere else here.
+pub struct Flowed {
+    direction: Direction
+    // Between children on one line.
+    gap: float
+    // Between lines. **Separate from `gap`**, because they are different distances: items in a
+    // row sit closer together than rows do, and one number for both makes a bar of chips look
+    // either cramped or ventilated.
+    line_gap: float
+    // Where a line that does not fill its width sits. **Leading, centre or trailing and not left
+    // or right** -- `FlowLayout`'s own constants went the same way in Java 1.4, for the Arabic and
+    // Hebrew reason this library is heading towards.
+    align: Sideways
+    // Where a child shorter than its line sits within it.
+    across: Upright
+    children: [Widget]
+    name: string
+}
+
+pub fn flow_of(gap: float, line_gap: float, children: [Widget]) -> Widget {
+    return Widget.Flow(Flowed {
+        direction: Direction.Row,
+        gap: gap,
+        line_gap: line_gap,
+        align: Sideways.Leading,
+        across: Upright.Baseline,
+        children: children,
+        name: ""
+    })
+}
+
+fn flow_along(size: Size, d: Direction) -> float {
+    return along_of(size, d)
+}
+
+fn flow_across(size: Size, d: Direction) -> float {
+    return switch d {
+        Row { size.height }
+        Column { size.width }
+    }
+}
+
+// What a flow asks for when nobody has told it how much room there is: **one line**.
+//
+// **And that is the known wart of every flow layout, stated rather than hidden.** A wrapping
+// container's height depends on its width, and `measure` is given no width -- so a flow in a
+// column that sizes to its content reports the height of a single line and then wraps into more.
+// `FlowLayout.preferredLayoutSize` has exactly this behaviour and exactly this consequence. The
+// answer is to give a flow its width, which is what `expand` and a stretched parent both do.
+fn measured_flow(f: Flowed, m: Metrics) -> Measured {
+    var along = 0.0
+    var across = 0.0
+    var count = 0
+    var line = Option<float>.None
+    for child in f.children {
+        val one = measured(child, m)
+        along = along + flow_along(one.size, f.direction)
+        val other = flow_across(one.size, f.direction)
+        if other > across {
+            across = other
+        }
+        if Some(at) = one.baseline {
+            if Option.is_None(line) || at > unwrapped(line, 0.0) {
+                line = Option<float>.Some(at)
+            }
+        }
+        count = count + 1
+    }
+    if count > 1 {
+        along = along + ((count - 1) as float) * f.gap
+    }
+    return Measured {
+        size: switch f.direction {
+            Row { size_of(along, across) }
+            Column { size_of(across, along) }
+        },
+        baseline: line
+    }
+}
+
+// How many of the children starting at `from` fit on one line.
+//
+// **At least one, always.** A child wider than the whole container would otherwise put zero on the
+// line and loop for ever; it overflows instead, which is visible and finite.
+fn line_length(f: Flowed, from: int, room: float, m: Metrics) -> int {
+    var taken = 0
+    var used = 0.0
+    var i = from
+    while i < prelude.len(f.children) {
+        val extent = flow_along(measure(f.children[i], m), f.direction)
+        val want = if taken == 0 { extent } else { used + f.gap + extent }
+        if taken > 0 && want > room {
+            return taken
+        }
+        used = want
+        taken = taken + 1
+        i = i + 1
+    }
+    return taken
+}
+
+fn line_extent(f: Flowed, from: int, count: int, m: Metrics) -> float {
+    var used = 0.0
+    var i = 0
+    while i < count {
+        used = used + flow_along(measure(f.children[from + i], m), f.direction)
+        i = i + 1
+    }
+    if count > 1 {
+        used = used + ((count - 1) as float) * f.gap
+    }
+    return used
+}
+
+// The greatest baseline on this line, or nothing when none of its children has one.
+fn line_baseline(f: Flowed, from: int, count: int, m: Metrics) -> Option<float> {
+    var best = Option<float>.None
+    var i = 0
+    while i < count {
+        if Some(at) = measured(f.children[from + i], m).baseline {
+            if Option.is_None(best) || at > unwrapped(best, 0.0) {
+                best = Option<float>.Some(at)
+            }
+        }
+        i = i + 1
+    }
+    return best
+}
+
+fn place_flow(f: Flowed, w: Widget, within: Rect, m: Metrics, index: int, name: string) -> Laid {
+    val room = switch f.direction {
+        Row { within.width }
+        Column { within.height }
+    }
+    val kids = mutable_array_new<Laid>()
+    var from = 0
+    var line_at = 0.0
+    while from < prelude.len(f.children) {
+        val count = line_length(f, from, room, m)
+        val used = line_extent(f, from, count, m)
+        val line = line_baseline(f, from, count, m)
+        var tall = 0.0
+        var k = 0
+        while k < count {
+            val one = flow_across(measure(f.children[from + k], m), f.direction)
+            if one > tall {
+                tall = one
+            }
+            k = k + 1
+        }
+        var at = switch f.align {
+            Leading { 0.0 }
+            Centre { (room - used) * 0.5 }
+            Trailing { room - used }
+        }
+        var i = 0
+        while i < count {
+            val child = f.children[from + i]
+            val one = measured(child, m)
+            val extent = flow_along(one.size, f.direction)
+            val other = flow_across(one.size, f.direction)
+            val offset = switch f.across {
+                Top { 0.0 }
+                Middle { (tall - other) * 0.5 }
+                Bottom { tall - other }
+                // **The line's own baseline**, so a chip with large text and one with small sit on
+                // the same line rather than on each other's box centres. A child with no baseline
+                // goes to the top, which is the grid's rule and for the grid's reason.
+                Baseline {
+                    switch one.baseline {
+                        Some(mine) {
+                            switch line {
+                                Some(shared) { shared - mine }
+                                None { 0.0 }
+                            }
+                        }
+                        None { 0.0 }
+                    }
+                }
+            }
+            val place_at = switch f.direction {
+                Row { geom.rect_of(within.x + at, within.y + line_at + offset, extent, other) }
+                Column { geom.rect_of(within.x + line_at + offset, within.y + at, other, extent) }
+            }
+            push(kids, place(child, place_at, m, prelude.len(kids), name))
+            at = at + extent + f.gap
+            i = i + 1
+        }
+        line_at = line_at + tall + f.line_gap
+        from = from + count
+    }
+    return Laid {
+        bounds: within,
+        index: index,
+        name: name,
+        widget: w,
+        children: snapshot(kids)
+    }
+}
+
+// --------------------------------------------------------------- the border
+
+// Swing's `BorderLayout`, as a function rather than a layout.
+//
+// **It is an arrangement and not a capability**, which is why it is twelve lines of existing
+// pieces: a column of top, middle and bottom, with the middle a row of leading, centre and
+// trailing. A new `Widget` variant would buy nothing that nesting does not already do.
+//
+// **An absent region costs no gap**, which is the one detail that makes this worth writing down
+// rather than leaving to each caller. `column_of(gap, [top, middle, bottom])` puts a gap either
+// side of the middle whether or not `top` and `bottom` are there, so a border with no header is
+// a border with a mysterious band of space at the top. `Nothing` measures zero but a gap does
+// not, and that is exactly the kind of arithmetic every caller would get wrong once.
+//
+// **Leading and trailing, not west and east.** Swing added `LINE_START` and `LINE_END` in 1.4 for
+// the same reason, and the vertical pair keep their plain names because a page's top does not
+// mirror in Arabic or Hebrew.
+pub fn border_of(
+    top: Widget,
+    bottom: Widget,
+    leading: Widget,
+    trailing: Widget,
+    centre: Widget,
+    gap: float
+) -> Widget {
+    return column_of(gap, present([
+        top,
+        expand(row_of(gap, present([leading, expand(centre), trailing]))),
+        bottom
+    ]))
+}
+
+// The children that are actually there, so an absent one does not leave a gap behind it.
+fn present(children: [Widget]) -> [Widget] {
+    val out = mutable_array_new<Widget>()
+    for child in children {
+        if !is_nothing(child) {
+            push(out, child)
+        }
+    }
+    return snapshot(out)
+}
+
+// **An `Expand` holding nothing is still nothing**, which is the case `border_of` creates for
+// itself: a missing centre is wrapped before it is filtered.
+fn is_nothing(w: Widget) -> bool {
+    return switch w {
+        Nothing { true }
+        Expand(it) { is_nothing(it.child) }
+        Text(_) { false }
+        Drawing(_) { false }
+        Picture(_) { false }
+        Group(_) { false }
+        Sized(_) { false }
+        Flex(_) { false }
+        Control(_) { false }
+        Grid(_) { false }
+        Flow(_) { false }
+        Scroll(_) { false }
+        Layered(_) { false }
     }
 }
 
@@ -1697,6 +2607,8 @@ fn place(w: Widget, within: Rect, m: Metrics, index: int, parent_name: string) -
     val name = if own_name == "" { parent_name } else { own_name }
     return switch w {
         Drawing(_) { leaf(w, within, index, name) }
+        Grid(it) { place_grid(it, w, within, m, index, name) }
+        Flow(it) { place_flow(it, w, within, m, index, name) }
         Picture(_) { leaf(w, within, index, name) }
         Group(it) { place_stack(it, w, within, m, index, name) }
         Sized(it) {
@@ -1870,6 +2782,13 @@ fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, index: int, name: 
 fn flex_weight(w: Widget) -> Option<float> {
     return switch w {
         Drawing(_) { Option<float>.None }
+        // **A grid is not flexible.** It has a natural size -- the sum of its tracks -- and a
+        // `Share` track is how room is given *inside* it, which is a different question from
+        // how much room the grid itself asks a parent for.
+        Grid(_) { Option<float>.None }
+        // A flow is not flexible either, though it *wants* width -- see `measured_flow`,
+        // which explains why a wrapping container reports one line and then needs more.
+        Flow(_) { Option<float>.None }
         Picture(_) { Option<float>.None }
         Flex(weight) { Option<float>.Some(weight) }
         Expand(it) { Option<float>.Some(it.weight) }
@@ -1900,6 +2819,8 @@ fn across_of(s: Size, direction: Direction) -> float {
 fn name_of(w: Widget) -> string {
     return switch w {
         Drawing(it) { it.name }
+        Grid(it) { it.name }
+        Flow(it) { it.name }
         Picture(it) { it.name }
         Nothing { "" }
         Flex(_) { "" }
@@ -2046,6 +2967,9 @@ fn gather_nothings(l: Laid, out: MutableArray<Laid>) {
 fn puts_ink_down(w: Widget) -> bool {
     return switch w {
         Group(g) { Option.is_Some(g.surface.fill) }
+        // A grid has no surface of its own; its cells draw what there is to draw.
+        Grid(_) { false }
+        Flow(_) { false }
         Drawing(_) { true }
         Nothing { false }
         Text(_) { false }
@@ -2096,6 +3020,11 @@ pub fn contains(r: Rect, p: Point) -> bool {
 pub fn role_of(l: Laid) -> Role {
     return switch l.widget {
         Control(it) { it.role }
+        // **Not `Role.Table`, deliberately.** A layout grid is not tabular *data*;
+        // `controls.Table` is the control that earns that role, and announcing a layout as a
+        // table is the oldest accessibility mistake on the web.
+        Grid(_) { Role.Unknown }
+        Flow(_) { Role.Unknown }
         Drawing(_) { Role.Unknown }
         Picture(_) { Role.Unknown }
         Layered(_) { Role.Unknown }
@@ -2117,6 +3046,8 @@ pub fn role_of(l: Laid) -> Role {
 pub fn text_of(l: Laid) -> string {
     return switch l.widget {
         Text(it) { it.text }
+        Grid(_) { "" }
+        Flow(_) { "" }
         Control(_) { "" }
         Drawing(_) { "" }
         Picture(_) { "" }
@@ -2145,6 +3076,8 @@ pub fn text_of(l: Laid) -> string {
 pub fn tip_in(l: Laid) -> string {
     return switch l.widget {
         Control(it) { if it.description != "" { it.description } else { it.label } }
+        Grid(_) { "" }
+        Flow(_) { "" }
         Drawing(_) { "" }
         Picture(_) { "" }
         Layered(_) { "" }
@@ -2163,6 +3096,8 @@ pub fn tip_in(l: Laid) -> string {
 pub fn is_tab_stop(l: Laid) -> bool {
     return switch l.widget {
         Drawing(_) { false }
+        Grid(_) { false }
+        Flow(_) { false }
         Picture(_) { false }
         Control(it) { it.tab_stop }
         Layered(_) { false }
@@ -2180,6 +3115,8 @@ pub fn is_tab_stop(l: Laid) -> bool {
 pub fn is_control(l: Laid) -> bool {
     return switch l.widget {
         Drawing(_) { false }
+        Grid(_) { false }
+        Flow(_) { false }
         Picture(_) { false }
         Control(_) { true }
         Scroll(_) { false }
