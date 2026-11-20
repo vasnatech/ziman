@@ -1231,8 +1231,31 @@ pub struct ListStep {
     // opening it are different intentions and a list that conflated them would open on every arrow
     // key.
     activated: bool
+    // The user has just scrolled to the bottom: "there may be more, fetch it".
+    //
+    // **A transition and not a state**, which is the whole of the design. A flag that stayed true
+    // while the user sat at the bottom would have an application fetching on every frame it drew
+    // -- and a list that is showing everything there is never fires it at all, because there is
+    // nothing past the end to ask for.
+    //
+    // This is what the target reaches for an IntersectionObserver to do, and what a list that
+    // grows by thirty rows at a time needs from a toolkit. It is not virtualisation: nothing here
+    // renders a thousand rows, and the application decides how many exist.
+    reached_end: bool
 }
 ```
+
+### `list_at_end`
+
+```
+pub fn list_at_end(l: List, bounds: Rect, f: Frame) -> bool
+```
+
+Whether the last row is in view.
+
+**Public, because an application that fetches on arrival needs to ask rather than wait**: a
+screen whose first page does not fill the viewport has already reached the end before the user
+has touched anything, and no scroll will ever tell it so.
 
 ### `list_input`
 

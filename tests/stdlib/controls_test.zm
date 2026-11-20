@@ -7579,3 +7579,83 @@ fn the_pointer_names_the_slot_it_stands_over() {
         i = i + 1
     }
 }
+
+// --- scrolling to the end
+
+fn long_list() -> controls.List {
+    val rows = mutable_array_new<string>()
+    var i = 0
+    while i < 40 {
+        push(rows, concat("Row ", str(i)))
+        i = i + 1
+    }
+    return controls.list_of("long", "Rows", snapshot(rows))
+}
+
+val short_box = geom.rect_of(0.0, 0.0, 200.0, 60.0)
+
+fn wheeled(l: controls.List, by: int) -> controls.ListStep {
+    return controls.list_input(
+        l,
+        controls.Input.Wheel(controls.Wheel {
+            at: geom.point_of(10.0, 10.0),
+            vertical: by,
+            horizontal: 0
+        }),
+        short_box,
+        frame()
+    )
+}
+
+// **A transition, not a state.** A flag that stayed true while the user sat at the bottom would
+// have an application fetching on every frame it drew.
+#[test]
+fn reaching_the_end_fires_once_and_not_again() {
+    var now = long_list()
+    var fired = 0
+    var i = 0
+    while i < 40 {
+        val step = wheeled(now, 0 - 3)
+        if step.reached_end {
+            fired = fired + 1
+        }
+        now = step.list
+        i = i + 1
+    }
+    test.assert(controls.list_at_end(now, short_box, frame()))
+    test.assert_eq(fired, 1)
+}
+
+// **An arrow key reaches the end too**, which an application watching only the wheel would miss --
+// and a keyboard user would be the one unable to load the rest of the list.
+#[test]
+fn the_keyboard_can_reach_the_end() {
+    var now = long_list()
+    var fired = 0
+    var i = 0
+    while i < 60 {
+        val step = controls.list_input(
+            now,
+            controls.Input.KeyDown(key(controls.Key.Down)),
+            short_box,
+            frame()
+        )
+        if step.reached_end {
+            fired = fired + 1
+        }
+        now = step.list
+        i = i + 1
+    }
+    test.assert_eq(fired, 1)
+}
+
+// **A list showing everything there is never fires at all**, because there is nothing past the end
+// to ask for -- but it must still answer that it *is* at the end, or a screen whose first page
+// does not fill the viewport would wait forever for a scroll that never comes.
+#[test]
+fn a_list_that_fits_is_already_at_its_end() {
+    val small = controls.list_of("small", "Rows", ["one", "two"])
+    test.assert(controls.list_at_end(small, short_box, frame()))
+    test.assert_false(wheeled(small, 0 - 3).reached_end)
+    test.assert_false(controls.list_at_end(long_list(), short_box, frame()))
+}

@@ -2822,6 +2822,41 @@ pub struct ListStep {
     // opening it are different intentions and a list that conflated them would open on every arrow
     // key.
     activated: bool
+    // The user has just scrolled to the bottom: "there may be more, fetch it".
+    //
+    // **A transition and not a state**, which is the whole of the design. A flag that stayed true
+    // while the user sat at the bottom would have an application fetching on every frame it drew
+    // -- and a list that is showing everything there is never fires it at all, because there is
+    // nothing past the end to ask for.
+    //
+    // This is what the target reaches for an IntersectionObserver to do, and what a list that
+    // grows by thirty rows at a time needs from a toolkit. It is not virtualisation: nothing here
+    // renders a thousand rows, and the application decides how many exist.
+    reached_end: bool
+}
+
+// Whether the last row is in view.
+//
+// **Public, because an application that fetches on arrival needs to ask rather than wait**: a
+// screen whose first page does not fill the viewport has already reached the end before the user
+// has touched anything, and no scroll will ever tell it so.
+pub fn list_at_end(l: List, bounds: Rect, f: Frame) -> bool {
+    return at_end_of(l, bounds, row_height(f.metrics, f.style))
+}
+
+fn at_end_of(l: List, bounds: Rect, tall: float) -> bool {
+    val content = list_content(l, tall)
+    if content <= bounds.height {
+        return true
+    }
+    // Half a point of slack: an offset clamped to the bottom can land a hair short of it, and a
+    // signal that never fired because of rounding is a list that silently stops loading.
+    return l.offset >= content - bounds.height - 0.5
+}
+
+// Whether this step is the one that arrived at the bottom.
+fn end_reached(before: List, after: List, bounds: Rect, tall: float) -> bool {
+    return at_end_of(after, bounds, tall) && !at_end_of(before, bounds, tall)
 }
 
 // What an input does to a list.
@@ -2853,7 +2888,13 @@ pub fn list_input(l: List, input: Input, bounds: Rect, f: Frame) -> ListStep {
             if row < 0 || row > last {
                 held_still(l)
             } else {
-                ListStep { list: with l { selected: row }, moved: row != l.selected, activated: false }
+                ListStep {
+                    list: with l { selected: row },
+                    moved: row != l.selected,
+                    activated: false,
+                    // A click selects; it does not scroll.
+                    reached_end: false
+                }
             }
         }
         KeyDown(k) { list_key(l, k, bounds, tall) }
@@ -2889,10 +2930,12 @@ fn list_bar_step(l: List, input: Input, bounds: Rect, tall: float, f: Frame) -> 
         f
     )
     // A bar moves the view and never the selection, as a tree's does.
+    val dragged = with l { bar: taken.bar, offset: taken.offset }
     return ListStep {
-        list: with l { bar: taken.bar, offset: taken.offset },
+        list: dragged,
         moved: false,
-        activated: false
+        activated: false,
+        reached_end: end_reached(l, dragged, bounds, tall)
     }
 }
 
@@ -2910,7 +2953,7 @@ fn list_key(l: List, k: Keystroke, bounds: Rect, tall: float) -> ListStep {
     if Key.is_End(k.key) { return selected_to(l, last, bounds, tall) }
     if Key.is_Enter(k.key) || Key.is_Space(k.key) {
         if l.selected >= 0 {
-            return ListStep { list: l, moved: false, activated: true }
+            return ListStep { list: l, moved: false, activated: true, reached_end: false }
         }
     }
     return held_still(l)
@@ -2933,17 +2976,24 @@ fn selected_to(l: List, want: int, bounds: Rect, tall: float) -> ListStep {
         (row as float) * tall,
         tall
     )
+    val shown = with l { selected: row, offset: clamped(l, revealed, bounds, tall) }
     return ListStep {
-        list: with l { selected: row, offset: clamped(l, revealed, bounds, tall) },
+        list: shown,
         moved: row != l.selected,
-        activated: false
+        activated: false,
+        // **An arrow key can reach the end too**, which is the case an application that only
+        // watched the wheel would miss -- and a keyboard user would be the one who could not load
+        // the rest of the list.
+        reached_end: end_reached(l, shown, bounds, tall)
     }
 }
 
 fn scrolled(l: List, offset: float, bounds: Rect, tall: float) -> ListStep {
+    val moved_to = with l { offset: clamped(l, offset, bounds, tall) }
     return ListStep {
-        list: with l { offset: clamped(l, offset, bounds, tall) },
+        list: moved_to,
         moved: false,
+        reached_end: end_reached(l, moved_to, bounds, tall),
         activated: false
     }
 }
@@ -2952,8 +3002,9 @@ fn clamped(l: List, offset: float, bounds: Rect, tall: float) -> float {
     return widget.clamp_offset(offset, bounds.height, (len(l.items) as float) * tall)
 }
 
+// Nothing happened, so nothing was reached: this is the answer for an input the list ignored.
 fn held_still(l: List) -> ListStep {
-    return ListStep { list: l, moved: false, activated: false }
+    return ListStep { list: l, moved: false, activated: false, reached_end: false }
 }
 
 // The list as a widget: a control holding a viewport of rows, each row a part of the list.

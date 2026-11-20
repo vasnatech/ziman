@@ -13,11 +13,16 @@ use widget
 pub struct Demo {
     list: controls.List
     typed: controls.List
+    // How many of `items()` have been revealed so far. **The application's number, not the
+    // list's**: a list shows what it is given, and how much there is to give is the caller's
+    // business -- which is why `lib/ui` has no virtualisation and does not need any.
+    shown: int
 }
 
 pub fn demo() -> Demo {
     return Demo {
-        list: controls.list_of("list-demo", "Languages", items()),
+        shown: start_with,
+        list: controls.list_of("list-demo", "Languages", first(items(), start_with)),
         typed: controls.list_of("list-typed", "Doses", doses(), locale.of("de-DE"))
     }
 }
@@ -51,6 +56,20 @@ fn taken_on() -> time.LocalDate {
     }
 }
 
+val start_with = 6
+val reveal_by = 4
+
+// The first `n`, which is what a page of a longer list looks like.
+fn first(all: [string], n: int) -> [string] {
+    val out = mutable_array_new<string>()
+    var i = 0
+    while i < n && i < len(all) {
+        push(out, all[i])
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
 fn items() -> [string] {
     return [
         "Ada", "ALGOL", "APL", "BCPL", "C", "COBOL", "Eiffel", "Erlang", "Forth",
@@ -73,10 +92,11 @@ pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
 }
 
 fn said(d: Demo) -> string {
+    val counted = concat(str(d.shown), " of ", str(len(items())), " shown -- scroll down for more.")
     if d.list.selected < 0 {
-        return "Nothing selected."
+        return concat("Nothing selected. ", counted)
     }
-    return concat("Selected: ", controls.list_text_at(d.list, d.list.selected))
+    return concat("Selected: ", controls.list_text_at(d.list, d.list.selected), ". ", counted)
 }
 
 pub fn input(
@@ -89,12 +109,24 @@ pub fn input(
     val style = f.style
     val m = f.metrics
     if name == "list-demo" {
-        return with d { list: controls.list_input(
+        val step = controls.list_input(
             d.list,
             input,
             boxes.bounds_of(laid, name),
             controls.frame_of(style, m)
-        ).list }
+        )
+        // **Scroll to the bottom and the list grows.** This is what the target reaches for an
+        // IntersectionObserver to do, and it is all a toolkit owes a long list: `reached_end`
+        // fires once on arrival, not while the user sits there, so this cannot run away with
+        // itself.
+        if step.reached_end && d.shown < len(items()) {
+            val more = d.shown + reveal_by
+            return with d {
+                shown: more,
+                list: with step.list { items: controls.as_text_values(first(items(), more)) }
+            }
+        }
+        return with d { list: step.list }
     }
     return d
 }

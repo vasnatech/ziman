@@ -63,3 +63,5 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F331 — navigation: a history, and what a screen change owes the user](f331.md)
 - [F332 — charts, the drawing half](f332.md)
 - [F333 — a canvas, and the chart that needed one](f333.md)
+- [F334 — the virtualised list that was not needed, and the signal that was](f334.md)
+- [Open — `api-check` fails intermittently under make, never on its own](open-api-check-flake.md)

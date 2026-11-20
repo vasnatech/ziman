@@ -87,8 +87,14 @@ the decision belongs before the porting starts even if the work lands later.
 **Navigation.** 53 views and 28 dialogs need a screen model with history. The gallery's
 one-demo-at-a-time is a prototype of it, not an answer to it.
 
-**A virtualised list.** `Viewport` scrolls, but every row is laid out. A record list of thousands
-is a question about the accessibility tree as much as about painting.
+**A virtualised list.** ~~`Viewport` scrolls, but every row is laid out. A record list of
+thousands is a question about the accessibility tree as much as about painting.~~
+
+**Closed 2026-11-20 without building one** ([F334](../reviews/tasks/f334.md)). The target has no
+virtualisation library at all: it pages on the server (`PAGE_SIZE = 20`) and reveals incrementally
+(`visibleCount` growing by 30 on an `IntersectionObserver`). Nothing ever asks a list to draw a
+thousand rows. What was missing was one signal -- a list saying it had been scrolled to the end --
+which is now `ListStep.reached_end` and `list_at_end`.
 
 **A file chooser.** The documents view needs open and save. Portal, GTK, or hand-built is a
 decision, not a detail.
