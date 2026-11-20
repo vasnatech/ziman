@@ -1,6 +1,7 @@
 # Navigation: a history, and what a screen change owes the user
 
-Status: **proposed, 2026-11-20.** Nothing below is written. This is the navigation item of
+Status: **built, 2026-11-20.** Shipped as F331, `lib/ui/navigate.zm`, with a gallery demo: the
+history of §2 and the screen change of §3, as designed. This closes the navigation item of
 [the health-record port](health-record-port.md) §4.2, which asked for a design pass before a task.
 
 ## 1. The gap is not what it looked like

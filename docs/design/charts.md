@@ -1,8 +1,10 @@
 # Charts
 
-Status: **proposed, 2026-11-20.** Nothing below is written. This is **P1** of
-[the health-record port](health-record-port.md) §4.2, and the item that most decides whether a
-port looks like the original.
+Status: **built, 2026-11-20.** §4's shape is what shipped, unchanged: `lib/graphics/chart.zm`
+(F332, the drawing) and `controls.ChartView` (F333, the widget, its keyboard and what §3 says a
+reader is told), each with a gallery demo. This is how **P1** of
+[the health-record port](health-record-port.md) §4.2 was answered -- build the layer, rather than
+port the twelve views without it.
 
 ## 1. What is actually needed, measured
 

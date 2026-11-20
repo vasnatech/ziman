@@ -1,6 +1,6 @@
 # Message catalogues
 
-Status: **proposed, 2026-11-20.** Nothing below is written. This is **P2** of
+Status: **designed, build deferred, 2026-11-20.** Nothing below is written, deliberately. This is **P2** of
 [the health-record port](health-record-port.md), answered "design now, build later" on
 2026-11-20: the shape is settled here so that every screen is built against it from the first one,
 and the 1,709 keys are loaded whenever that is wanted. Retrofitting a catalogue across finished

@@ -1,6 +1,10 @@
 # Porting health-record's front end: what the toolkit is missing
 
-Status: **in progress, 2026-11-19.** The gap list in §4.1 is **closed**: F322, F324-F329 are built, gated and in the gallery. Nothing in §4.2 is started -- each of those five needs its own design pass first -- and decisions P1, P2 and P4 are still owed. No screen of the target has been ported yet.
+Status: **in progress, 2026-11-20.** §4.1 is **closed**: F322, F324-F329 are built, gated and in
+the gallery. Of §4.2's five, **three are built** -- charts (F332, F333), navigation (F331) and the
+virtualised list, which was closed by measuring it out of existence (F334) -- message catalogues
+are designed with the build deliberately deferred, and **the file chooser is the one item left**.
+P1, P2 and P3 are answered; **P4 is still owed**. No screen of the target has been ported yet.
 
 ## 1. Why this document
 
@@ -70,22 +74,39 @@ search field**, 15. **A badge**, 11.
 **The clipboard**, which is every text field in the application. F273 left the seam built --
 `Input.Paste` and `EntryStep.clipboard` -- and the platform half unwritten.
 
-### 4.2 Needs its own design pass, so deliberately not a task yet
+### 4.2 Needed its own design pass, so deliberately not a task yet
 
 The tasks file says why this split exists: an item with no checkable done condition becomes a
-headline that flattens the reasoning behind it.
+headline that flattens the reasoning behind it. Four of the five have since had that pass, and
+**three of those four turned out smaller than the headline** -- which is the same thing §4.1 kept
+finding.
 
-**Charts.** Twelve files, three kinds -- line, bar and composed. `lib/graphics` can draw anything
+**Charts.** ~~Twelve files, three kinds -- line, bar and composed. `lib/graphics` can draw anything
 and there is no chart layer at all. This is the largest single item in the programme and the one
-that most decides whether the port looks like the original.
+that most decides whether the port looks like the original.~~
+
+**Built 2026-11-20** ([charts](charts.md), [F332](../reviews/tasks/f332.md),
+[F333](../reviews/tasks/f333.md)). Two marks, not a grammar of graphics: every axis in the target
+is categorical and "composed" is a line series and a bar series in one chart. `lib/graphics/chart.zm`
+draws, `controls.ChartView` is the widget and says what a reader is told.
 
 **Message catalogues.** **1,709 keys in four languages** (en, es, fr, tr). `locale` formats
 numbers, dates and names; nothing in the library holds a translated string. Without this the port
 is English-only, which is a regression rather than a port -- and because it touches every screen,
 the decision belongs before the porting starts even if the work lands later.
 
-**Navigation.** 53 views and 28 dialogs need a screen model with history. The gallery's
-one-demo-at-a-time is a prototype of it, not an answer to it.
+**Designed 2026-11-20, build deferred** ([message catalogues](message-catalogues.md)) -- see P2.
+The measurement shrank it too: there are **no plural forms in the target at all**, so the
+expensive, locale-specific half of a catalogue library is not needed to port this application.
+
+**Navigation.** ~~53 views and 28 dialogs need a screen model with history. The gallery's
+one-demo-at-a-time is a prototype of it, not an answer to it.~~
+
+**Built 2026-11-20** ([navigation](navigation.md), [F331](../reviews/tasks/f331.md)). Two thirds
+of the item was already built or was never the library's business: the 28 dialogs are done
+(`dialog_layer` is modal), and "show one of N screens" is the application's switch, not the
+toolkit's. What was missing was a history and what a screen change owes a reader --
+`navigate.History` and `screen_widget`.
 
 **A virtualised list.** ~~`Viewport` scrolls, but every row is laid out. A record list of
 thousands is a question about the accessibility tree as much as about painting.~~
@@ -109,6 +130,12 @@ drag-to-reorder (dnd-kit, 1 file -- dashboard card order).
 - **P1 — Charts: build a layer, or port those twelve views without them first?**
   Separable, and the largest item. A port that opens with empty panels where the graphs were is a
   worse demonstration than one that is missing two screens.
+
+  **Decided 2026-11-20: build the layer, and it is built** -- [charts](charts.md), F332 and F333.
+  What settled it was measuring the twelve files rather than weighing the two options. The target
+  uses **two marks on a categorical axis**, no pie, no scatter, no stacking, no time axis, no
+  animation; "composed" is a line and a bar in one chart. That is a weekend, not a programme, so
+  the premise of the question -- that the layer is big enough to be worth skipping -- was false.
 
 - **P2 — Message catalogues: in scope now, or English-only for a first version?**
   This shapes the port's code everywhere, so the answer is wanted before the porting begins, even
@@ -150,13 +177,16 @@ drag-to-reorder (dnd-kit, 1 file -- dashboard card order).
   it for free, on all 62.
 
 - **P4 — The map and the barcode scanner: drop, stub, or find a desktop equivalent?**
+  **Still owed.** One file each (§4.3), so this blocks nothing and is the last decision standing.
 
 ## 6. The shape of the work
 
-1. **The ready-to-start controls**, F322 to F328, each with a gallery demo. The gallery is how
-   this toolkit has found every defect it has, so a control without a demo is a control nobody has
-   looked at.
-2. **Charts**, once P1 is answered.
+1. ~~**The ready-to-start controls**, F322 to F328, each with a gallery demo.~~ **Done.** The
+   gallery is how this toolkit has found every defect it has, so a control without a demo is a
+   control nobody has looked at -- and rendering a demo found a defect that the tests had missed
+   in every single one of F323, F326, F332 and F333.
+2. ~~**Charts**, once P1 is answered.~~ **Done** -- F332, F333.
 3. **The platform gates** -- catalogues, navigation, the file chooser -- which are what decide
-   whether the port is a port or a demonstration.
-4. **Then the port itself.**
+   whether the port is a port or a demonstration. Navigation is built, catalogues are designed,
+   **the file chooser is the one left**.
+4. **Then the port itself**, which is where the work now is.
