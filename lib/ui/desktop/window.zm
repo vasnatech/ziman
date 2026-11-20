@@ -510,6 +510,10 @@ pub fn key_name(k: KeyPress) -> string {
     if k.keysym == 65366 { return "PageDown" }
     if k.keysym == 65360 { return "Home" }
     if k.keysym == 65367 { return "End" }
+    // The context-menu key, between the right-hand Alt and Control on most keyboards. Named
+    // because `controls.context_menu_key` dispatches on it, and an unnamed key is one a program
+    // can only log.
+    if k.keysym == 65383 { return "Menu" }
     // F1 to F12 are contiguous from 0xFFBE.
     if k.keysym >= 65470 && k.keysym <= 65481 {
         return prelude.format("F{}", str(k.keysym - 65469))

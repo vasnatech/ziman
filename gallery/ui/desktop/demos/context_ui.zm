@@ -1,0 +1,18 @@
+// The Context menu demo, as design.
+use controls
+use widget
+
+val gap = 12.0
+val panel_pad = 24.0
+
+pub struct Screen {
+    panel: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        it.panel,
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+    ])
+}

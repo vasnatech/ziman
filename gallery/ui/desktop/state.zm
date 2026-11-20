@@ -301,6 +301,10 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, f: controls.Fram
     }
     val focused_now = switch input {
         Press(at) { focus.clicked(laid, at, s.focused) }
+        // **A secondary press moves the focus too**, which is what every desktop does: the
+        // commands a context menu offers are the focused thing's, so the focus has to arrive
+        // before the menu does or the two disagree about what is being acted on.
+        SecondaryPress(at) { focus.clicked(laid, at, s.focused) }
         Wheel(_) { s.focused }
         Release(_) { s.focused }
         Move(_) { s.focused }

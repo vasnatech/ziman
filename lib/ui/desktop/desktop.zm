@@ -61,16 +61,8 @@ pub fn input_of(e: window.Event, d: Density) -> Option<controls.Input> {
         KeyDown(k) { Option<controls.Input>.Some(controls.Input.KeyDown(stroke_of(k))) }
         KeyUp(k) { Option<controls.Input>.Some(controls.Input.KeyUp(stroke_of(k))) }
         Char(text) { Option<controls.Input>.Some(controls.Input.Text(text)) }
-        PointerDown(p) { Option<controls.Input>.Some(controls.Input.Press(widget.point_in_pt(
-            d,
-            p.x as float,
-            p.y as float
-        ))) }
-        PointerUp(p) { Option<controls.Input>.Some(controls.Input.Release(widget.point_in_pt(
-            d,
-            p.x as float,
-            p.y as float
-        ))) }
+        PointerDown(p) { pressed_as(p, d) }
+        PointerUp(p) { released_as(p, d) }
         PointerMove(p) { Option<controls.Input>.Some(controls.Input.Move(widget.point_in_pt(
             d,
             p.x as float,
@@ -94,6 +86,44 @@ pub fn input_of(e: window.Event, d: Density) -> Option<controls.Input> {
         // window layer reports and the application decides.
         SchemeChanged(_) { Option<controls.Input>.None }
     }
+}
+
+// Which press this is.
+//
+// **The button mattered and was being thrown away.** Every `PointerDown` became `Input.Press`
+// whatever button made it, so a right-click and a middle-click fired buttons, chose list rows and
+// moved carets exactly as a left-click did -- in every window, for as long as this function has
+// existed. X11 numbers them 1, 2, 3 from the left; the wheel is 4 and 5 and never reaches here,
+// because `native_window.c` reports it as a scroll so that this layer never has to know.
+//
+// **A button nobody has a meaning for is dropped rather than guessed at.** The middle button
+// pastes the primary selection on X11 and does other things elsewhere; answering `None` is the
+// library saying it has no opinion, which is honest and leaves the application free to form one
+// from the event itself.
+fn pressed_as(p: window.PointerPress, d: Density) -> Option<controls.Input> {
+    val at = widget.point_in_pt(d, p.x as float, p.y as float)
+    if p.button == 1 {
+        return Option<controls.Input>.Some(controls.Input.Press(at))
+    }
+    if p.button == 3 {
+        return Option<controls.Input>.Some(controls.Input.SecondaryPress(at))
+    }
+    return Option<controls.Input>.None
+}
+
+// **Only the primary button releases.** A release is the end of a grab and the moment a button
+// fires, and the grab only ever began on button 1 -- so a middle or right release delivered as
+// `Input.Release` would fire whatever the user had pressed and dragged off, with a button that
+// never pressed it.
+fn released_as(p: window.PointerPress, d: Density) -> Option<controls.Input> {
+    if p.button != 1 {
+        return Option<controls.Input>.None
+    }
+    return Option<controls.Input>.Some(controls.Input.Release(widget.point_in_pt(
+        d,
+        p.x as float,
+        p.y as float
+    )))
 }
 
 // A keystroke with its modifiers, from the platform's own.

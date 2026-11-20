@@ -1,0 +1,161 @@
+// A strip of commands, and the two things that make it one rather than a row of buttons.
+//
+// **It is a single tab stop and the arrows walk it.** Tab into the strip, then Left and Right, and
+// Tab again to leave. A row of five buttons would be five stops, so the slider below it would be
+// six presses away instead of two -- which is the cost every home-grown toolbar quietly imposes.
+//
+// **What does not fit goes into the overflow rather than off the edge.** The slider narrows the
+// strip, and the commands fold one by one into the menu under the chevron -- still reachable,
+// still named. A toolbar that silently dropped them would look perfectly correct in a screenshot
+// taken on a wide screen, which is why the width is a control here and not a constant.
+use boxes
+use controls
+use demos/toolbar_ui
+use geom
+use shape
+use widget
+
+pub struct Demo {
+    bar: controls.Toolbar
+    width: controls.Slider
+    said: string
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        bar: controls.toolbar_of("toolbar", "Request", [
+            command("toolbar-send", "Send", arrow()),
+            command("toolbar-stop", "Stop", square()),
+            controls.ToolItem.Divider,
+            command("toolbar-save", "Save", down_to_line()),
+            command("toolbar-copy", "Copy", sheets()),
+            command("toolbar-share", "Share", up_from_line())
+        ]),
+        width: controls.slider_of("toolbar-width", "Strip width", 120.0, 460.0, 460.0),
+        said: "Tab into the strip, then Left and Right. Narrow it and the commands fold into the chevron."
+    }
+}
+
+// **Icon buttons with no words, which is what a toolbar is.** The label is "" and the *icon*
+// carries the name -- `announced_name` falls back to it, so a reader says "Send, button" and the
+// tooltip shows the same word. A button with neither is a button nobody can name.
+//
+// **Drawn, not typed.** The obvious thing is a glyph, and F302 is the whole argument against it:
+// a face that lacks the code point draws a hollow box, and the first font found on this machine
+// lacks plenty. These are paths in the unit box `widget.Drawn` scales into, so they need no font
+// and grow with the type scale.
+fn command(name: string, says: string, mark: shape.Path) -> controls.ToolItem {
+    return controls.ToolItem.Command(controls.icon_button_of(name, "", widget.icon_of(mark, says)))
+}
+
+// A paper dart, pointing the way a thing is sent.
+fn arrow() -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(0.85, 0.5))
+    shape.line_to(b, geom.point_of(0.15, 0.2))
+    shape.line_to(b, geom.point_of(0.4, 0.5))
+    shape.line_to(b, geom.point_of(0.15, 0.8))
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+fn square() -> shape.Path {
+    return shape.rect_path(geom.rect_of(0.25, 0.25, 0.5, 0.5))
+}
+
+// An arrow down onto a line: saved to somewhere.
+fn down_to_line() -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(0.38, 0.12))
+    shape.line_to(b, geom.point_of(0.62, 0.12))
+    shape.line_to(b, geom.point_of(0.62, 0.45))
+    shape.line_to(b, geom.point_of(0.8, 0.45))
+    shape.line_to(b, geom.point_of(0.5, 0.72))
+    shape.line_to(b, geom.point_of(0.2, 0.45))
+    shape.line_to(b, geom.point_of(0.38, 0.45))
+    shape.close_path(b)
+    shape.move_to(b, geom.point_of(0.18, 0.8))
+    shape.line_to(b, geom.point_of(0.82, 0.8))
+    shape.line_to(b, geom.point_of(0.82, 0.9))
+    shape.line_to(b, geom.point_of(0.18, 0.9))
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+// Two sheets, one behind the other.
+fn sheets() -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(0.12, 0.12))
+    shape.line_to(b, geom.point_of(0.58, 0.12))
+    shape.line_to(b, geom.point_of(0.58, 0.58))
+    shape.line_to(b, geom.point_of(0.12, 0.58))
+    shape.close_path(b)
+    shape.move_to(b, geom.point_of(0.42, 0.42))
+    shape.line_to(b, geom.point_of(0.88, 0.42))
+    shape.line_to(b, geom.point_of(0.88, 0.88))
+    shape.line_to(b, geom.point_of(0.42, 0.88))
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+// **The same dart as `arrow`, turned up out of a line**, which is the convention: sharing is
+// sending onwards. Distinct from the save mark by pointing the other way, because two icons a
+// user cannot tell apart are worse than one -- the first draft of this drew Save and Share as the
+// same filled disc.
+fn up_from_line() -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(0.38, 0.88))
+    shape.line_to(b, geom.point_of(0.62, 0.88))
+    shape.line_to(b, geom.point_of(0.62, 0.45))
+    shape.line_to(b, geom.point_of(0.8, 0.45))
+    shape.line_to(b, geom.point_of(0.5, 0.15))
+    shape.line_to(b, geom.point_of(0.2, 0.45))
+    shape.line_to(b, geom.point_of(0.38, 0.45))
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+fn strip_width(d: Demo) -> float {
+    return d.width.value
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return toolbar_ui.screen(
+        toolbar_ui.Screen {
+            // **`wide_of` and not `fixed_of(w, 0.0, ..)`**, which means a height of zero: the
+            // library has lost ten controls to that spelling. See `widget.Fixed.constrains`.
+            strip: widget.wide_of(
+                strip_width(d),
+                controls.toolbar_widget(d.bar, strip_width(d), f)
+            ),
+            width: controls.slider_widget(d.width, f),
+            said: d.said
+        },
+        f
+    )
+}
+
+pub fn layer_at(
+    d: Demo,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Option<widget.Layer> {
+    return controls.toolbar_layer(d.bar, laid, strip_width(d), laid.bounds, f)
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "toolbar-width" {
+        return with d { width: controls.slider_input(d.width, input, boxes.bounds_of(laid, name)).slider }
+    }
+    val step = controls.toolbar_input(d.bar, input, laid, strip_width(d), laid.bounds, f)
+    if step.fired == "" {
+        return with d { bar: step.toolbar }
+    }
+    return with d { bar: step.toolbar, said: concat(step.fired, " fired.") }
+}

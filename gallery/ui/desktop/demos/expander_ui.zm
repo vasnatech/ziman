@@ -1,0 +1,21 @@
+// The Expander demo, as design.
+use controls
+use widget
+
+val gap = 8.0
+
+pub struct Screen {
+    connection: widget.Widget
+    headers: widget.Widget
+    advanced: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        it.connection,
+        it.headers,
+        it.advanced,
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+    ])
+}

@@ -29,6 +29,7 @@ fn key_name_of(e: window.Event, d: widget.Density) -> string {
                 Text(t) { concat("text:", t) }
                 Paste(_) { "paste" }
                 Press(p) { prelude.format("press {},{}", str(p.x), str(p.y)) }
+                SecondaryPress(p) { prelude.format("secondary {},{}", str(p.x), str(p.y)) }
                 Release(p) { prelude.format("release {},{}", str(p.x), str(p.y)) }
                 Move(p) { prelude.format("move {},{}", str(p.x), str(p.y)) }
                 Wheel(w) { prelude.format("wheel {} at {},{}", str(w.vertical), str(w.at.x), str(w.at.y)) }
@@ -110,6 +111,37 @@ fn a_pointer_position_is_converted_to_points() {
         "press 20.0,40.0"
     )
     test.assert_eq(key_name_of(window.Event.PointerMove(window.Position { x: 30, y: 60 }), dense), "move 20.0,40.0")
+}
+
+// **The button mattered and was being thrown away.** Every `PointerDown` became `Input.Press`
+// whatever button made it, so a right-click or a middle-click on any button in any window fired
+// it, chose a list row, moved a caret. This is the test that would have caught it.
+//
+// **A button nobody has a meaning for is dropped rather than guessed at.** The middle button
+// pastes the primary selection on X11 and does other things elsewhere; `None` is the library
+// saying it has no opinion and leaving the application free to form one from the event itself.
+#[test]
+fn each_mouse_button_means_its_own_thing() {
+    val at_one = one_to_one()
+    test.assert_eq(
+        key_name_of(window.Event.PointerDown(window.PointerPress { x: 10, y: 20, button: 3 }), at_one),
+        "secondary 10.0,20.0"
+    )
+    test.assert_eq(
+        key_name_of(window.Event.PointerDown(window.PointerPress { x: 10, y: 20, button: 2 }), at_one),
+        "(nothing)"
+    )
+    // **A release is only ever the primary button**, because the grab only ever began on one: a
+    // middle or right release delivered as `Release` would fire whatever the user had pressed and
+    // dragged off, with a button that never pressed it.
+    test.assert_eq(
+        key_name_of(window.Event.PointerUp(window.PointerPress { x: 10, y: 20, button: 1 }), at_one),
+        "release 10.0,20.0"
+    )
+    test.assert_eq(
+        key_name_of(window.Event.PointerUp(window.PointerPress { x: 10, y: 20, button: 3 }), at_one),
+        "(nothing)"
+    )
 }
 
 #[test]

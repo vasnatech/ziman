@@ -1,0 +1,73 @@
+// A date, typed or picked off a calendar.
+//
+// **The text is the value and the calendar writes into it**, which is the thing to try here: type
+// `2026-02-3` and the caption says the field does not hold a date yet, because it does not --
+// the field is holding what you are in the middle of typing, which a field keeping a `LocalDate`
+// could not do at all.
+//
+// **Paging the months writes nothing.** Open the calendar and press PageDown, or the arrows, and
+// watch the field stay where it was: moving the highlight is looking, and Enter is choosing. A
+// calendar that moved the value as the highlight moved would leave a date behind every time
+// somebody went looking for one.
+//
+// The grid is six rows whatever the month, so it never resizes under the pointer, and the days
+// either side of the month are real dates drawn faded rather than holes.
+use boxes
+use controls
+use demos/date_field_ui
+use time
+use widget
+
+pub struct Demo {
+    due: controls.DateField
+}
+
+pub fn demo() -> Demo {
+    return Demo { due: controls.date_field_of("date-due", "Due", chosen()) }
+}
+
+fn chosen() -> time.LocalDate {
+    return switch time.localdate_of(2026, 11, 19) {
+        Ok(d) { d }
+        Err(_) { time.localdate_from_epoch_day(0) }
+    }
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return date_field_ui.screen(
+        date_field_ui.Screen { field: controls.date_field_widget(d.due, f), said: said(d) },
+        f
+    )
+}
+
+fn said(d: Demo) -> string {
+    return switch controls.date_in(d.due) {
+        Some(on) {
+            concat(
+                "That is ",
+                time.format(on, time.datetime_format_of("EEEE d MMMM yyyy")),
+                ". Open the calendar and page through the months -- the field will not move until Enter."
+            )
+        }
+        None { "Not a date yet. The field holds what you are typing, which is what lets you type it." }
+    }
+}
+
+pub fn layer_at(d: Demo, laid: widget.Laid, f: controls.Frame) -> Option<widget.Layer> {
+    return controls.calendar_layer(d.due, laid, laid.bounds, f)
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    // While the calendar is open every input belongs to it, which is what lets a click anywhere
+    // dismiss it. Shut, only the field's own name counts.
+    if !d.due.open && name != "date-due" && name != controls.date_button_name(d.due) {
+        return d
+    }
+    return with d { due: controls.date_field_input(d.due, input, laid, laid.bounds, f).field }
+}

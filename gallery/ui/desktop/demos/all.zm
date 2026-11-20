@@ -15,7 +15,10 @@ use demos/button
 use demos/check_box
 use demos/combo_box
 use demos/composing
+use demos/context
+use demos/date_field
 use demos/dialog
+use demos/expander
 use demos/layout
 use demos/link
 use demos/list
@@ -33,6 +36,7 @@ use demos/table
 use demos/tabs
 use demos/text_area
 use demos/text_field
+use demos/toolbar
 use demos/tooltip
 use demos/tree
 use geom
@@ -45,6 +49,10 @@ pub enum Demo {
     Progress(progress.Demo)
     NumberField(number_field.Demo)
     Tooltip(tooltip.Demo)
+    Expander(expander.Demo)
+    Toolbar(toolbar.Demo)
+    Context(context.Demo)
+    DateField(date_field.Demo)
     Radios(radios.Demo)
     TextField(text_field.Demo)
     TextArea(text_area.Demo)
@@ -76,6 +84,10 @@ pub fn all() -> [Demo] {
         Demo.Progress(progress.demo()),
         Demo.NumberField(number_field.demo()),
         Demo.Tooltip(tooltip.demo()),
+        Demo.Expander(expander.demo()),
+        Demo.Toolbar(toolbar.demo()),
+        Demo.Context(context.demo()),
+        Demo.DateField(date_field.demo()),
         Demo.Radios(radios.demo()),
         Demo.TextField(text_field.demo()),
         Demo.TextArea(text_area.demo()),
@@ -106,6 +118,10 @@ pub fn title_of(d: Demo) -> string {
         Progress(_) { "Progress bar" }
         NumberField(_) { "Number field" }
         Tooltip(_) { "Tooltip" }
+        Expander(_) { "Expander" }
+        Toolbar(_) { "Toolbar" }
+        Context(_) { "Context menu" }
+        DateField(_) { "Date field" }
         Radios(_) { "Radio group" }
         TextField(_) { "Text field" }
         TextArea(_) { "Text area" }
@@ -137,6 +153,10 @@ pub fn stem_of(d: Demo) -> string {
         Progress(_) { "progress" }
         NumberField(_) { "number_field" }
         Tooltip(_) { "tooltip" }
+        Expander(_) { "expander" }
+        Toolbar(_) { "toolbar" }
+        Context(_) { "context" }
+        DateField(_) { "date_field" }
         Radios(_) { "radios" }
         TextField(_) { "text_field" }
         TextArea(_) { "text_area" }
@@ -202,6 +222,10 @@ pub fn tick_of(d: Demo, f: controls.Frame) -> Option<Demo> {
         Progress(it) { Option<Demo>.Some(Demo.Progress(progress.tick(it))) }
         NumberField(_) { Option<Demo>.None }
         Tooltip(it) { Option<Demo>.Some(Demo.Tooltip(tooltip.tick(it, f))) }
+        Expander(_) { Option<Demo>.None }
+        Toolbar(_) { Option<Demo>.None }
+        Context(_) { Option<Demo>.None }
+        DateField(_) { Option<Demo>.None }
     }
 }
 
@@ -213,6 +237,10 @@ pub fn view_of(d: Demo, f: controls.Frame) -> widget.Widget {
         Progress(it) { progress.view(it, f) }
         NumberField(it) { number_field.view(it, f) }
         Tooltip(it) { tooltip.view(it, f) }
+        Expander(it) { expander.view(it, f) }
+        Toolbar(it) { toolbar.view(it, f) }
+        Context(it) { context.view(it, f) }
+        DateField(it) { date_field.view(it, f) }
         Radios(it) { radios.view(it, f) }
         TextField(it) { text_field.view(it, f) }
         TextArea(it) { text_area.view(it, f) }
@@ -249,6 +277,10 @@ pub fn input_to(
         Progress(it) { Demo.Progress(progress.input(it, name, input, laid, f)) }
         NumberField(it) { Demo.NumberField(number_field.input(it, name, input, laid, f)) }
         Tooltip(it) { Demo.Tooltip(tooltip.input(it, name, input, laid, f)) }
+        Expander(it) { Demo.Expander(expander.input(it, name, input, laid, f)) }
+        Toolbar(it) { Demo.Toolbar(toolbar.input(it, name, input, laid, f)) }
+        Context(it) { Demo.Context(context.input(it, name, input, laid, f)) }
+        DateField(it) { Demo.DateField(date_field.input(it, name, input, laid, f)) }
         Radios(it) { Demo.Radios(radios.input(it, name, input, laid, f)) }
         TextField(it) { Demo.TextField(text_field.input(it, name, input, laid, f)) }
         TextArea(it) { Demo.TextArea(text_area.input(it, name, input, laid, f)) }
@@ -292,6 +324,10 @@ pub fn anchor_of(d: Demo) -> string {
         Progress(_) { "" }
         NumberField(_) { "" }
         Tooltip(it) { tooltip.anchor(it) }
+        Expander(_) { "" }
+        Toolbar(_) { "" }
+        Context(_) { "" }
+        DateField(_) { "" }
         Radios(_) { "" }
         Slider(_) { "" }
         Link(_) { "" }
@@ -363,6 +399,10 @@ pub fn layer_of(d: Demo, at: geom.Rect, laid: widget.Laid, f: controls.Frame) ->
         Progress(_) { Option<widget.Layer>.None }
         NumberField(_) { Option<widget.Layer>.None }
         Tooltip(it) { tooltip.layer(it, at, laid, f) }
+        Expander(_) { Option<widget.Layer>.None }
+        Toolbar(it) { toolbar.layer_at(it, laid, f) }
+        Context(it) { context.layer_at(it, laid, f) }
+        DateField(it) { date_field.layer_at(it, laid, f) }
         Radios(_) { Option<widget.Layer>.None }
         Slider(_) { Option<widget.Layer>.None }
         Link(_) { Option<widget.Layer>.None }
@@ -398,6 +438,10 @@ pub fn group_of(d: Demo) -> string {
         Progress(_) { "Controls" }
         NumberField(_) { "Controls" }
         Tooltip(_) { "Controls" }
+        Expander(_) { "Controls" }
+        Toolbar(_) { "Controls" }
+        Context(_) { "Controls" }
+        DateField(_) { "Controls" }
         Radios(_) { "Controls" }
         Slider(_) { "Controls" }
         Link(_) { "Controls" }
@@ -440,6 +484,10 @@ pub fn cursor_of(
         Progress(_) { widget.Cursor.Arrow }
         NumberField(_) { widget.Cursor.Text }
         Tooltip(_) { widget.Cursor.Arrow }
+        Expander(_) { widget.Cursor.Arrow }
+        Toolbar(_) { widget.Cursor.Arrow }
+        Context(_) { widget.Cursor.Arrow }
+        DateField(_) { widget.Cursor.Text }
         Radios(_) { widget.Cursor.Arrow }
         Slider(_) { widget.Cursor.Arrow }
         Link(_) { widget.Cursor.Arrow }

@@ -1293,6 +1293,16 @@ pub enum Role {
     // spin button and nothing of the kind for a field, and the range is the thing a user most
     // needs told before typing into it.
     SpinButton
+    // A strip of commands, which is **one** stop in the tab order with its own arrow keys --
+    // the reason it is a role and not a row of buttons. Every platform's reader announces a
+    // toolbar so that a user knows the arrows will work here and Tab will leave.
+    ToolBar
+    // A field holding a date, and the month grid that writes one into it. **Two roles, not
+    // one**, because they are two things a reader meets separately: the field is where the
+    // value is and the calendar is a popup that opens over the window, and a user tabbing
+    // through a form hears the first without ever meeting the second.
+    DateEditor
+    Calendar
     // Two panes and the divider between them. **The divider is a `Separator` inside this**, which
     // is how both ATK and GTK have it: the pane is what contains the two halves and publishes
     // where the split sits, and the handle is the thin thing you take hold of.

@@ -23,12 +23,14 @@ use focus
 use geom
 use geom.Point
 use geom.Rect
+use locale
 use math.floor
 use paint
 use paint.Color
 use paint.Paint
 use scene
 use shape
+use time
 use widget
 use widget.Insets
 use widget.Laid
@@ -126,6 +128,16 @@ pub enum Input {
     // keystrokes into one.
     Paste(string)
     Press(Point)
+    // The secondary button, which is the one that asks "what can I do here?".
+    //
+    // **A variant and not a flag on `Press`**, because the two mean different things and nearly
+    // every control wants only the first. A `Press` carrying a button number is a number each of
+    // the twenty-odd places that match on a press has to remember to check, and the one that
+    // forgets fires its command on a right-click -- which is exactly what this library did until
+    // this variant existed: `desktop.input_of` threw the platform's button away, so a right-click,
+    // a middle-click and a left-click were the same event and every button in every window
+    // activated on all three.
+    SecondaryPress(Point)
     Release(Point)
     Move(Point)
     Wheel(Wheel)
@@ -188,22 +200,30 @@ pub fn target(l: Laid, input: Input, focused: string, pressed: string) -> string
         // here that a pointer can work and Tab cannot reach.
         //
         // Where the focus goes is still `focus.clicked`'s answer, which a caller asks separately.
-        Press(p) {
-            switch focus.tab_stop_at(l, p) {
-                Some(one) { one.name }
-                None {
-                    switch focus.control_at(l, p) {
-                        Some(one) { one.name }
-                        None { "" }
-                    }
-                }
-            }
-        }
+        Press(p) { under(l, p) }
         Release(_) { if pressed == "" { focused } else { pressed } }
         Move(_) { if pressed == "" { focused } else { pressed } }
         // `""` as the fallback, which is what keeps "over nothing goes nowhere" true: `clicked`
         // answers its third argument when the point is over no tab stop at all.
         Wheel(w) { focus.clicked(l, w.at, "") }
+        // **Where the pointer is, not where the focus is**, which is the whole meaning of the
+        // gesture: a secondary press asks "what can I do *here*", and routing it to the focus
+        // would open one control's commands over another control's pixels. It takes the same
+        // route a press does and for the same reasons, which is why the two share one function.
+        SecondaryPress(p) { under(l, p) }
+    }
+}
+
+// The tab stop under a point, or failing that the control under it, or nobody.
+fn under(l: Laid, p: Point) -> string {
+    return switch focus.tab_stop_at(l, p) {
+        Some(one) { one.name }
+        None {
+            switch focus.control_at(l, p) {
+                Some(one) { one.name }
+                None { "" }
+            }
+        }
     }
 }
 
@@ -230,6 +250,7 @@ pub fn pressed_after(pressed: string, input: Input, name: string) -> string {
         KeyUp(_) { pressed }
         Text(_) { pressed }
         Paste(_) { pressed }
+        SecondaryPress(_) { pressed }
     }
 }
 
@@ -257,8 +278,42 @@ pub fn pressed_after(pressed: string, input: Input, name: string) -> string {
 // geometry rather than about which control is under the pointer, so it does not belong here.
 pub fn cursor_at(l: Laid, at: Point) -> widget.Cursor {
     return switch focus.control_at(l, at) {
-        Some(node) { cursor_for(node) }
+        Some(node) { cursor_in(node, at) }
         None { widget.Cursor.Arrow }
+    }
+}
+
+// The shape over one control: its role's, except where a control is built out of parts that are
+// not controls themselves.
+//
+// **A number field is the only one of those so far.** Its steppers are buttons by look and by
+// behaviour but deliberately not `Control` nodes -- two nested controls would be two tab stops
+// and two things for a reader to announce -- so the role table, which is the one thing deciding a
+// cursor, calls the whole field a `SpinButton` and hands back the I-beam over the arrows too. A
+// pointer that keeps the text shape over a button says the button is not one.
+//
+// **Answered from the laid tree rather than from the control's value**, which is what keeps it
+// here instead of in a `number_field_cursor` beside `table_cursor`: the steppers are laid out
+// already and their boxes are exact in the tree, so every application gets this without wiring
+// anything. A table's column edges are not -- their widths live in the `Table` and nowhere else
+// -- which is precisely why that one has to be asked of the control.
+fn cursor_in(node: Laid, at: Point) -> widget.Cursor {
+    if widget.Role.is_SpinButton(widget.role_of(node)) && on_a_stepper(node, at) {
+        return widget.Cursor.Arrow
+    }
+    return cursor_for(node)
+}
+
+// Whether the point is on one of a number field's two steppers, found by the names
+// `number_field_widget` gave them -- `up_part` and `down_part`, so the two cannot drift.
+fn on_a_stepper(node: Laid, at: Point) -> bool {
+    return part_holds(node, up_part(node.name), at) || part_holds(node, down_part(node.name), at)
+}
+
+fn part_holds(node: Laid, name: string, at: Point) -> bool {
+    return switch widget.node_named(node, name) {
+        Some(part) { widget.contains(part.bounds, at) }
+        None { false }
     }
 }
 
@@ -279,6 +334,9 @@ fn cursor_for(node: Laid) -> widget.Cursor {
         Switch { widget.Cursor.Arrow }
         ProgressBar { widget.Cursor.Arrow }
         SpinButton { widget.Cursor.Text }
+        ToolBar { widget.Cursor.Arrow }
+        DateEditor { widget.Cursor.Text }
+        Calendar { widget.Cursor.Arrow }
         RadioButton { widget.Cursor.Arrow }
         Slider { widget.Cursor.Arrow }
         List { widget.Cursor.Arrow }
@@ -394,6 +452,7 @@ pub fn button_input(b: Button, input: Input, bounds: Rect) -> ButtonStep {
         Paste(_) { still(b) }
         Move(_) { still(b) }
         Wheel(_) { still(b) }
+        SecondaryPress(_) { still(b) }
     }
 }
 
@@ -433,6 +492,28 @@ pub fn button_widget(b: Button, f: Frame) -> widget.Widget {
     // **One question, asked once**: `held` is the button's own fact, the pointer's name comes
     // from the frame, and the row decides everything that follows.
     val parts = parts_for(style, mood_of(b.disabled, b.held, false, hovered_in(f, b.name)))
+    return widget.Widget.Control(widget.Focusable {
+        name: b.name,
+        role: widget.Role.Button,
+        // **A button says its own name**, words or icon -- see `announced_name`, which explains
+        // why this is declared rather than gathered from the text inside.
+        label: announced_name(b),
+        description: "",
+        value: "",
+        state: with widget.no_state() { disabled: b.disabled },
+        focus_part: "",
+        tab_stop: true,
+        child: button_inside(b, parts, style)
+    })
+}
+
+// How a button is drawn, without deciding what it is.
+//
+// **Split out so that a toolbar's commands are buttons and not things that look like buttons.** A
+// toolbar is one tab stop with its own arrow keys, so its commands cannot be `Focusable`s of their
+// own -- but they must be drawn by this exact code, or a theme would reach them one day and not
+// the other.
+fn button_inside(b: Button, parts: Parts, style: Style) -> widget.Widget {
     val ink = parts.ink
     // **The icon is inked with the label and sized from the text**, which is what makes it part of
     // the control rather than a picture beside it: a disabled button's icon greys with its words,
@@ -478,19 +559,7 @@ pub fn button_widget(b: Button, f: Frame) -> widget.Widget {
         children: prelude.snapshot(content),
         name: ""
     })
-    return widget.Widget.Control(widget.Focusable {
-        name: b.name,
-        role: widget.Role.Button,
-        // **A button says its own name**, words or icon -- see `announced_name`, which explains
-        // why this is declared rather than gathered from the text inside.
-        label: announced_name(b),
-        description: "",
-        value: "",
-        state: with widget.no_state() { disabled: b.disabled },
-        focus_part: "",
-        tab_stop: true,
-        child: inside
-    })
+    return inside
 }
 
 // --------------------------------------------------------------- the check box
@@ -850,6 +919,23 @@ fn chevron(down: bool) -> shape.Path {
     return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
 }
 
+// The same triangle pointing back, for a pager rather than a disclosure.
+//
+// **A mirror of `chevron(false)` and not a fourth shape**, so the two arrows on a calendar's
+// header are the same arrow and a theme that changed one changed both.
+fn chevron_back() -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(0.62, 0.25))
+    shape.line_to(b, geom.point_of(0.62, 0.75))
+    shape.line_to(b, geom.point_of(0.34, 0.5))
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+fn pager_widget(back: bool, ink: Color, side: float) -> widget.Widget {
+    return widget.fixed_of(side, side, widget.drawn_of(if back { chevron_back() } else { chevron(false) }, ink))
+}
+
 // The arrow at the size the text beside it is, so it grows with a theme that sets a larger type
 // scale -- the icon's rule, for the icon's reason.
 fn chevron_widget(down: bool, ink: Color, side: float) -> widget.Widget {
@@ -859,6 +945,124 @@ fn chevron_widget(down: bool, ink: Color, side: float) -> widget.Widget {
 // A radio's dot: a circle, because a radio is a circle and the thing inside it is too.
 fn dot() -> shape.Path {
     return shape.ellipse_path(geom.rect_of(0.3, 0.3, 0.4, 0.4))
+}
+
+// --------------------------------------------------------------- the expander
+
+// A titled section that folds away.
+//
+// **A button that happens to hide something**, which is both the design and the accessibility
+// story. Neither ATK nor ARIA has an "expander" role, and neither is missing one: a disclosure is
+// a button whose `expanded` state says what pressing it did, and a reader announcing "Advanced,
+// collapsed, button" has told the user everything there is to know. `State.expanded` has been in
+// `widget` since accessibility was built, and until now a tree row was the only thing that set it.
+//
+// **The header is the control and the section is not.** This is a named group holding a focusable
+// header and, when it is open, the content -- rather than one control with the content inside it,
+// which would nest every button in the section underneath a button and hand a reader a tree it
+// cannot describe. It is the number field's rule the other way up: there one control had to
+// swallow its parts, here the parts must not be swallowed.
+pub struct Expander {
+    name: string
+    title: string
+    disabled: bool
+    // Whether the section is showing. The application owns it, as it owns which tab is chosen.
+    open: bool
+    held: bool
+}
+
+pub struct ExpanderStep {
+    expander: Expander
+    toggled: bool
+}
+
+pub fn expander_of(name: string, title: string, open: bool) -> Expander {
+    return Expander { name: name, title: title, disabled: false, open: open, held: false }
+}
+
+fn expander_as_button(e: Expander) -> Button {
+    return with button_of(e.name, e.title) { disabled: e.disabled, held: e.held }
+}
+
+// **These are the header's bounds and not the section's**, which is the one thing a caller has to
+// get right and the reason the header is what carries the name: `boxes.bounds_of(laid, name)`
+// finds the header, so a press in the content is outside this box by construction and folds
+// nothing away under the user's hand. Every other control here takes its own box the same way.
+pub fn expander_input(e: Expander, input: Input, bounds: Rect) -> ExpanderStep {
+    val step = button_input(expander_as_button(e), input, bounds)
+    val moved = with e { held: step.button.held }
+    if !step.activated {
+        return ExpanderStep { expander: moved, toggled: false }
+    }
+    return ExpanderStep { expander: with moved { open: !e.open }, toggled: true }
+}
+
+// **A shut section is not in the tree at all**, rather than laid out and hidden. A reader walks
+// what is there and `focus` tabs through what is there, so content that is present but invisible
+// is content a reader announces and a Tab lands in -- a window whose focus vanishes into a folded
+// section is the bug this avoids. It is also why `measured_as_nothing` cannot catch a mistake
+// here: there is nothing to measure.
+// The content, moved right to start where the title does.
+//
+// **In the library rather than in each caller**, because it is what makes a section look like one:
+// content flush with its own header reads as the next thing down the column rather than as the
+// thing inside. The inset is the arrow's width plus the gap after it -- the same two numbers the
+// header is built from, so the title and what it covers line up at any density.
+fn indented(content: widget.Widget, by: float) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.insets_of(by, 0.0, 0.0, 0.0),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        children: [widget.expand(content)],
+        name: ""
+    })
+}
+
+pub fn expander_widget(e: Expander, content: widget.Widget, f: Frame) -> widget.Widget {
+    val style = f.style
+    val parts = parts_for(style, mood_of(e.disabled, e.held, false, hovered_in(f, e.name)))
+    // The arrow at the size of the words beside it, which is `chevron_widget`'s rule and the
+    // combo box's and the tree's: one disclosure arrow, drawn one way, wherever it appears.
+    val side = line_for(f.metrics, style.text.label)
+    val header = widget.Widget.Control(widget.Focusable {
+        name: e.name,
+        role: widget.Role.Button,
+        label: e.title,
+        description: "",
+        value: "",
+        state: with widget.no_state() {
+            disabled: e.disabled,
+            expanded: Option<bool>.Some(e.open)
+        },
+        focus_part: "",
+        tab_stop: true,
+        child: widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: style.text.label.size * 0.5,
+            padding: padded_for(style),
+            surface: surface_of(style, parts),
+            align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+            children: [
+                chevron_widget(e.open, parts.ink, side),
+                widget.label_in_face(e.title, style.text.label.size, parts.ink, style.text.label.face)
+            ],
+            name: ""
+        })
+    })
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        children: if e.open { [header, indented(content, side + style.text.label.size * 0.5)] } else { [header] },
+        // **Unnamed, so that one name means one node.** If the section carried `e.name` too, a
+        // look-up would find the outer box and `a11y` would have two nodes answering to it -- and
+        // the box a caller wants for `expander_input` is the header's anyway.
+        name: ""
+    })
 }
 
 // ---------------------------------------------------------- the progress bar
@@ -1168,6 +1372,16 @@ fn stepper_width(style: Style) -> float {
     return style.space.l
 }
 
+// The two steppers' names, said once. `cursor_at` looks them up in the laid tree to tell an arrow
+// from the text box, and a second spelling of either is a cursor that is right in one place.
+fn up_part(name: string) -> string {
+    return concat(name, "-up")
+}
+
+fn down_part(name: string) -> string {
+    return concat(name, "-down")
+}
+
 fn up_box(bounds: Rect, style: Style) -> Rect {
     val w = stepper_width(style)
     return geom.rect_of(bounds.x + bounds.width - w, bounds.y, w, bounds.height * 0.5)
@@ -1241,6 +1455,7 @@ fn press_at(input: Input) -> Option<Point> {
         Release(_) { Option<Point>.None }
         Move(_) { Option<Point>.None }
         Wheel(_) { Option<Point>.None }
+        SecondaryPress(_) { Option<Point>.None }
     }
 }
 
@@ -1254,6 +1469,7 @@ fn key_down(input: Input) -> Option<Keystroke> {
         Release(_) { Option<Keystroke>.None }
         Move(_) { Option<Keystroke>.None }
         Wheel(_) { Option<Keystroke>.None }
+        SecondaryPress(_) { Option<Keystroke>.None }
     }
 }
 
@@ -1276,14 +1492,15 @@ fn wheel_on(input: Input, bounds: Rect) -> Option<int> {
         Paste(_) { Option<int>.None }
         Release(_) { Option<int>.None }
         Move(_) { Option<int>.None }
+        SecondaryPress(_) { Option<int>.None }
     }
 }
 
 pub fn number_field_widget(n: NumberField, f: Frame) -> widget.Widget {
     val style = f.style
     val m = f.metrics
-    val up_name = concat(n.entry.name, "-up")
-    val down_name = concat(n.entry.name, "-down")
+    val up_name = up_part(n.entry.name)
+    val down_name = down_part(n.entry.name)
     val w = stepper_width(style)
     // **Half the field's own box each, so the two of them are exactly as tall as it is.** Worked
     // out rather than given: the column cannot ask the field how tall it came out, and a stack
@@ -1797,6 +2014,7 @@ fn entry_step(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metr
         }
         Release(_) { kept(with e { dragging: false }) }
         Wheel(_) { kept(e) }
+        SecondaryPress(_) { kept(e) }
     }
 }
 
@@ -1810,6 +2028,7 @@ fn pointer_input(input: Input) -> bool {
         Text(_) { false }
         Paste(_) { false }
         Wheel(_) { false }
+        SecondaryPress(_) { false }
     }
 }
 
@@ -2543,6 +2762,7 @@ pub fn list_input(l: List, input: Input, bounds: Rect, f: Frame) -> ListStep {
         Paste(_) { held_still(l) }
         Release(_) { held_still(l) }
         Move(_) { held_still(l) }
+        SecondaryPress(_) { held_still(l) }
     }
 }
 
@@ -2790,6 +3010,7 @@ pub fn tabs_input(t: Tabs, input: Input, bounds: Rect) -> TabStep {
         // **A wheel over a tab strip does nothing.** Some toolkits cycle the tabs with it; the
         // result is a user scrolling a page and changing what the page is.
         Wheel(_) { tabs_still(t) }
+        SecondaryPress(_) { tabs_still(t) }
     }
 }
 
@@ -3019,6 +3240,7 @@ pub fn tree_input(t: Tree, input: Input, bounds: Rect, f: Frame) -> TreeStep {
         Paste(_) { tree_still(t) }
         Release(_) { tree_still(t) }
         Move(_) { tree_still(t) }
+        SecondaryPress(_) { tree_still(t) }
     }
 }
 
@@ -3516,6 +3738,7 @@ pub fn scroll_bar_input(
         KeyUp(_) { bar_still(b, offset) }
         Text(_) { bar_still(b, offset) }
         Paste(_) { bar_still(b, offset) }
+        SecondaryPress(_) { bar_still(b, offset) }
     }
 }
 
@@ -3959,6 +4182,7 @@ fn closed_combo_input(c: ComboBox, input: Input, at: Rect) -> ComboBoxStep {
         Release(_) { combo_unchanged(c) }
         Move(_) { combo_unchanged(c) }
         Wheel(_) { combo_unchanged(c) }
+        SecondaryPress(_) { combo_unchanged(c) }
     }
 }
 
@@ -4045,6 +4269,7 @@ fn closed_menu_input(m: Menu, input: Input, title_bounds: Rect) -> MenuStep {
         Release(_) { menu_unchanged(m) }
         Move(_) { menu_unchanged(m) }
         Wheel(_) { menu_unchanged(m) }
+        SecondaryPress(_) { menu_unchanged(m) }
     }
 }
 
@@ -4088,6 +4313,7 @@ fn open_popup_input(
         Release(_) { Key.Other("") }
         Move(_) { Key.Other("") }
         Wheel(_) { Key.Other("") }
+        SecondaryPress(_) { Key.Other("") }
     }
     // **Escape closes without choosing, and that is a dismissal rather than a choice of nothing.**
     if Key.is_Escape(pressed) {
@@ -4215,6 +4441,1185 @@ pub fn menu_title_widget(menu: Menu, f: Frame) -> widget.Widget {
 pub fn menu_popup_layer(menu: Menu, at: Rect, f: Frame) -> widget.Layer {
     val style = f.style
     return widget.layer_at(at, true, popped(list_widget(menu.items, f), style))
+}
+
+// -------------------------------------------------------------- the date field
+
+// A date, typed or picked off a calendar.
+//
+// **The text is the value and the calendar is a way of writing it**, which is the decision
+// everything here follows from. A field holding a `LocalDate` and showing text derived from it
+// cannot hold what a user is halfway through typing: "2026-11-" is not a date and is plainly on
+// the way to one. That is the number field's argument in another shape, and it ends the same way
+// -- the `Entry` holds the truth and `date_in` answers an `Option`.
+// Which grid the calendar is showing.
+//
+// **Three views and not a separate popup each**, which is what every date picker settled on: the
+// header is a button, and pressing it zooms out -- days to months to years -- while choosing
+// zooms back in. A year twelve years away is then four presses rather than a hundred and
+// forty-four on a month arrow.
+pub enum CalendarView {
+    Days
+    Months
+    Years
+}
+
+pub struct DateField {
+    entry: Entry
+    // Where the keyboard is in the open calendar, and whose month the calendar shows.
+    //
+    // **Not the value.** A user paging through months with the arrows has chosen nothing yet, and
+    // a calendar that moved the value as the highlight moved would write a date into the field on
+    // the way past -- the number field's `committed` rule, met again.
+    at: time.LocalDate
+    open: bool
+    view: CalendarView
+    // **Injected and not read from a global**, for `Style`'s reason exactly: a module that reached
+    // for `locale.default()` could not be tested against two locales, and which day the week
+    // starts on is precisely the thing that differs between them. `date_field_of` takes the
+    // default so that the common case says nothing, and a caller with two panels in two languages
+    // can still set it per field.
+    locale: Locale
+}
+
+pub struct DateStep {
+    field: DateField
+    changed: bool
+}
+
+val iso_date = "yyyy-MM-dd"
+
+pub fn date_field_of(name: string, label: string, on: time.LocalDate) -> DateField {
+    return date_field_of(name, label, on, locale.default())
+}
+
+pub fn date_field_of(name: string, label: string, on: time.LocalDate, l: Locale) -> DateField {
+    return DateField {
+        entry: entry_of(name, label, time.format(on, time.datetime_format_of(iso_date))),
+        at: on,
+        open: false,
+        view: CalendarView.Days,
+        locale: l
+    }
+}
+
+// The date in the field, or nothing while it does not hold one.
+//
+// **`parse_localdate` is the judge**, not a length check or a regular expression: it is the same
+// function that reads a date anywhere else in the library, so a string this accepts and one the
+// rest of the program accepts cannot drift apart.
+pub fn date_in(d: DateField) -> Option<time.LocalDate> {
+    return switch time.parse_localdate(d.entry.editor.text, time.datetime_format_of(iso_date)) {
+        Ok(on) { Option<time.LocalDate>.Some(on) }
+        Err(_) { Option<time.LocalDate>.None }
+    }
+}
+
+pub fn date_or(d: DateField, fallback: time.LocalDate) -> time.LocalDate {
+    return switch date_in(d) {
+        Some(on) { on }
+        None { fallback }
+    }
+}
+
+// The button that opens the calendar, and the name a click on it answers to.
+pub fn date_button_name(d: DateField) -> string {
+    return concat(d.entry.name, "-calendar")
+}
+
+fn date_still(d: DateField) -> DateStep {
+    return DateStep { field: d, changed: false }
+}
+
+fn written(d: DateField, on: time.LocalDate) -> DateStep {
+    val text = time.format(on, time.datetime_format_of(iso_date))
+    return DateStep {
+        field: with d {
+            entry: with d.entry { editor: edit.editor_of(text) },
+            at: on,
+            open: false,
+            // Back to days, so the calendar is where it was left when it next opens.
+            view: CalendarView.Days
+        },
+        changed: text != d.entry.editor.text
+    }
+}
+
+// Which day of the week a date is, 0 for Sunday through 6 for Saturday -- `locale.day_name`'s
+// numbering, which is POSIX's.
+//
+// **Worked out from the epoch day rather than from a table**, because the epoch day is already the
+// one number that orders every date: 1970-01-01 was a Thursday, so adding four and taking the
+// remainder puts Sunday at zero. The guard is for dates before 1970, where the remainder of a
+// negative number is negative in this language as it is in C.
+fn weekday_of(on: time.LocalDate) -> int {
+    return wrapped(time.to_epoch_day(on) + 4, 7)
+}
+
+fn wrapped(v: int, by: int) -> int {
+    val m = v % by
+    if m < 0 {
+        return m + by
+    }
+    return m
+}
+
+// The first cell of the grid: the first of `on`'s month, moved back to the locale's own first day
+// of the week.
+//
+// **Sunday in the United States and Japan, Monday across most of Europe, Saturday in much of the
+// Arabic-speaking world** -- and `locale.first_weekday` is what says so, asked of the host rather
+// than kept as a list here that would be wrong for the languages nobody on the team speaks.
+fn grid_start(d: DateField) -> time.LocalDate {
+    val first = time.add_days(d.at, 1 - d.at.day)
+    val begins = locale.first_weekday(d.locale)
+    return time.add_days(first, 0 - wrapped(weekday_of(first) - begins, 7))
+}
+
+fn cell_date(d: DateField, index: int) -> time.LocalDate {
+    return time.add_days(grid_start(d), index)
+}
+
+// Six rows, always.
+//
+// **A grid whose height changes with the month is a popup that jumps under the pointer**: February
+// in a common year starting on a Monday needs four rows and a 31-day month starting on a Sunday
+// needs six, so a calendar sized to its month would resize five times a year while a user paged
+// through it. Six rows hold every case, and the days either side of the month are drawn faded
+// rather than left blank -- they are real dates and clicking one is a reasonable thing to mean.
+val calendar_rows = 6
+val calendar_columns = 7
+
+// The months and the years share one shape: twelve cells, three across.
+val block_columns = 3
+val block_rows = 4
+val years_in_block = 12
+
+fn columns_in(v: CalendarView) -> int {
+    return switch v {
+        Days { calendar_columns }
+        Months { block_columns }
+        Years { block_columns }
+    }
+}
+
+fn rows_in(v: CalendarView) -> int {
+    return switch v {
+        Days { calendar_rows }
+        Months { block_rows }
+        Years { block_rows }
+    }
+}
+
+// **Wide enough for an abbreviated day name**, which is what sets it rather than the digits: two
+// figures fit in anything, and at 1.3 the header read "WedThu" with no gap between them.
+fn calendar_cell(f: Frame) -> float {
+    return row_height(f.metrics, f.style) * 1.6
+}
+
+fn calendar_head(f: Frame) -> float {
+    return row_height(f.metrics, f.style) + calendar_cell(f) * 0.7
+}
+
+// **One size for all three views**, taken from the day grid, which is the largest. A popup that
+// resized as a user zoomed out would move under the pointer between the press that opened the
+// months and the press that chose one.
+fn calendar_size(f: Frame) -> widget.Size {
+    return widget.size_of(
+        calendar_cell(f) * (calendar_columns as float),
+        calendar_head(f) + calendar_cell(f) * (calendar_rows as float)
+    )
+}
+
+// The box of one cell of the current view, inside the popup's box.
+fn cell_box(at: Rect, index: int, f: Frame, v: CalendarView) -> Rect {
+    val across = columns_in(v)
+    val wide = at.width / (across as float)
+    val tall = (at.height - calendar_head(f)) / (rows_in(v) as float)
+    return geom.rect_of(
+        at.x + ((index % across) as float) * wide,
+        at.y + calendar_head(f) + ((index / across) as float) * tall,
+        wide,
+        tall
+    )
+}
+
+// Where the calendar goes: under the field, pushed back inside the window.
+//
+// **One function, asked by the layer and by the hit test**, which is `context_menu_box`'s rule and
+// the reason it is a rule: worked out twice, a click could land on the fourth of the month while
+// the fifth was drawn under the pointer.
+pub fn calendar_box(d: DateField, laid: Laid, within: Rect, f: Frame) -> Rect {
+    val size = calendar_size(f)
+    val under = switch widget.node_named(laid, d.entry.name) {
+        Some(n) { geom.rect_of(n.bounds.x, n.bounds.y + n.bounds.height, n.bounds.width, n.bounds.height) }
+        None { geom.rect_of(within.x, within.y, 0.0, 0.0) }
+    }
+    val x = held_within(under.x, size.width, within.x, within.width)
+    val y = if under.y + size.height <= within.y + within.height {
+        under.y
+    } else {
+        under.y - under.height - size.height
+    }
+    return geom.rect_of(x, held_within(y, size.height, within.y, within.height), size.width, size.height)
+}
+
+// Which cell of the current view a point is in, or -1.
+//
+// **Arithmetic, where a toolbar reads its parts out of the laid tree.** The difference is that
+// these grids are uniform -- forty-two cells of one size, or twelve -- so the division is exact
+// and there is nothing for a second calculation to get wrong. A toolbar's commands are an icon, a
+// word and a rule, and only their laid boxes know where they ended up.
+fn calendar_cell_at(at: Rect, p: Point, f: Frame, v: CalendarView) -> int {
+    val top = at.y + calendar_head(f)
+    if p.y < top {
+        return 0 - 1
+    }
+    val across = columns_in(v)
+    val down = rows_in(v)
+    val column = ((p.x - at.x) / (at.width / (across as float))) as int
+    val row = ((p.y - top) / ((at.height - calendar_head(f)) / (down as float))) as int
+    if column < 0 || column >= across || row < 0 || row >= down {
+        return 0 - 1
+    }
+    return row * across + column
+}
+
+// The first year of the block the calendar is showing: twelve-year blocks on fixed boundaries, so
+// that paging forward and back returns to the same twelve rather than drifting by one each time.
+fn year_block(d: DateField) -> int {
+    return d.at.year - wrapped(d.at.year, years_in_block)
+}
+
+pub fn date_field_input(d: DateField, input: Input, laid: Laid, within: Rect, f: Frame) -> DateStep {
+    if d.entry.disabled {
+        return date_still(d)
+    }
+    if d.open {
+        return open_calendar_input(d, input, laid, within, f)
+    }
+    if Press(p) = input {
+        if holds_point(laid, date_button_name(d), p) {
+            // Opens on the date the field holds, so a user who typed one and then reached for the
+            // calendar is not sent back to today.
+            return date_still(with d { open: true, at: date_or(d, d.at) })
+        }
+    }
+    // Everything else is the field's: a date is typed as text, which is the point of the `Entry`.
+    val step = entry_input(d.entry, input, box_named(laid, d.entry.name, within), f)
+    return DateStep {
+        field: with d { entry: step.entry },
+        changed: step.entry.editor.text != d.entry.editor.text
+    }
+}
+
+fn box_named(laid: Laid, name: string, fallback: Rect) -> Rect {
+    return switch widget.node_named(laid, name) {
+        Some(n) { n.bounds }
+        None { fallback }
+    }
+}
+
+fn open_calendar_input(d: DateField, input: Input, laid: Laid, within: Rect, f: Frame) -> DateStep {
+    return switch input {
+        Press(p) { calendar_pressed(d, p, laid, within, f) }
+        KeyDown(k) { calendar_keyed(d, k) }
+        KeyUp(_) { date_still(d) }
+        Text(_) { date_still(d) }
+        Paste(_) { date_still(d) }
+        Release(_) { date_still(d) }
+        Move(_) { date_still(d) }
+        // **A wheel pages the months**, which is what a pointer over a calendar means everywhere.
+        Wheel(w) { date_still(with d { at: time.add_months(d.at, 0 - w.vertical) }) }
+        SecondaryPress(_) { date_still(with d { open: false }) }
+    }
+}
+
+fn calendar_pressed(d: DateField, p: Point, laid: Laid, within: Rect, f: Frame) -> DateStep {
+    val at = calendar_box(d, laid, within, f)
+    if !widget.contains(at, p) {
+        // A click away from an open popup shuts it, which is what makes it dismissable.
+        return date_still(with d { open: false })
+    }
+    val cell = calendar_cell_at(at, p, f, d.view)
+    if cell < 0 {
+        return date_still(header_pressed(d, at, p))
+    }
+    return chosen_cell(d, cell)
+}
+
+// The header: the outer thirds page, the middle zooms out.
+//
+// **Pressing the title is how a year twelve years away stops being a hundred and forty-four
+// presses on a month arrow**, which is the whole reason the three views exist. Days zoom to
+// months, months to years, and years stay -- there is nowhere further out to go.
+fn header_pressed(d: DateField, at: Rect, p: Point) -> DateField {
+    val third = at.width / 3.0
+    if p.x < at.x + third {
+        return paged(d, 0 - 1)
+    }
+    if p.x > at.x + at.width - third {
+        return paged(d, 1)
+    }
+    return with d { view: zoomed_out(d.view) }
+}
+
+fn zoomed_out(v: CalendarView) -> CalendarView {
+    return switch v {
+        Days { CalendarView.Months }
+        Months { CalendarView.Years }
+        Years { CalendarView.Years }
+    }
+}
+
+// **A page means a different span in each view**, which is what a user expects of the same two
+// arrows: a month of days, a year of months, a block of years.
+fn paged(d: DateField, by: int) -> DateField {
+    return switch d.view {
+        Days { with d { at: time.add_months(d.at, by) } }
+        Months { with d { at: time.add_years(d.at, by) } }
+        Years { with d { at: time.add_years(d.at, by * years_in_block) } }
+    }
+}
+
+// Choosing in a zoomed-out view zooms back in rather than committing: a month is not a date, and
+// a user who picked March has said nothing yet about which March day they mean.
+fn chosen_cell(d: DateField, cell: int) -> DateStep {
+    return switch d.view {
+        Days { written(d, cell_date(d, cell)) }
+        Months { date_still(with d { at: on_month(d.at, cell + 1), view: CalendarView.Days }) }
+        Years {
+            date_still(with d {
+                at: on_year(d.at, year_block(d) + cell),
+                view: CalendarView.Months
+            })
+        }
+    }
+}
+
+// **The day is clamped to the month's length**, which is the one piece of arithmetic a month
+// picker owes: choosing February from the 31st of January is a date that does not exist, and
+// `localdate_of` is the function that knows it does not.
+fn on_month(from: time.LocalDate, month: int) -> time.LocalDate {
+    return time.add_months(time.add_days(from, 1 - from.day), month - from.month)
+}
+
+fn on_year(from: time.LocalDate, year: int) -> time.LocalDate {
+    return time.add_years(time.add_days(from, 1 - from.day), year - from.year)
+}
+
+fn calendar_keyed(d: DateField, k: Keystroke) -> DateStep {
+    if Key.is_Escape(k.key) {
+        // Escape zooms back in before it shuts, so one key undoes one step.
+        if !CalendarView.is_Days(d.view) {
+            return date_still(with d { view: zoomed_in(d.view) })
+        }
+        return date_still(with d { open: false })
+    }
+    if Key.is_Enter(k.key) {
+        if CalendarView.is_Days(d.view) {
+            return written(d, d.at)
+        }
+        return date_still(with d { view: zoomed_in(d.view) })
+    }
+    if Key.is_Left(k.key) { return date_still(stepped_by(d, 0 - 1)) }
+    if Key.is_Right(k.key) { return date_still(stepped_by(d, 1)) }
+    if Key.is_Up(k.key) { return date_still(stepped_by(d, 0 - columns_in(d.view))) }
+    if Key.is_Down(k.key) { return date_still(stepped_by(d, columns_in(d.view))) }
+    if Key.is_PageUp(k.key) { return date_still(paged(d, 0 - 1)) }
+    if Key.is_PageDown(k.key) { return date_still(paged(d, 1)) }
+    return date_still(d)
+}
+
+fn zoomed_in(v: CalendarView) -> CalendarView {
+    return switch v {
+        Days { CalendarView.Days }
+        Months { CalendarView.Days }
+        Years { CalendarView.Months }
+    }
+}
+
+// **One arrow key means one cell of whatever grid is showing**, so Right is a day among days and a
+// month among months -- and Down is a week, a row of three months, or a row of three years,
+// because that is where the eye goes.
+fn stepped_by(d: DateField, by: int) -> DateField {
+    return switch d.view {
+        Days { with d { at: time.add_days(d.at, by) } }
+        Months { with d { at: time.add_months(d.at, by) } }
+        Years { with d { at: time.add_years(d.at, by) } }
+    }
+}
+
+pub fn date_field_widget(d: DateField, f: Frame) -> widget.Widget {
+    val style = f.style
+    val parts = parts_for(style, mood_of(d.entry.disabled, false, false, hovered_in(f, d.entry.name)))
+    val side = line_for(f.metrics, style.text.label)
+    val button = widget.part_of(
+        date_button_name(d),
+        widget.Role.Button,
+        "Choose a date",
+        with widget.no_state() { disabled: d.entry.disabled, expanded: Option<bool>.Some(d.open) },
+        widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: padded_for(style),
+            surface: surface_of(style, parts_for(style, mood_of(
+                d.entry.disabled,
+                d.open,
+                false,
+                hovered_in(f, date_button_name(d))
+            ))),
+            align: widget.centred(),
+            children: [chevron_widget(true, parts.ink, side)],
+            name: ""
+        })
+    )
+    val inside = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        // **`expand` on the field**, which is what makes a date field given a width use it: see
+        // `number_field_widget`, where the same row drew a 50-point control inside a 160-point box.
+        children: [
+            widget.expand(entry_inside(field_runs(d.entry, style, parts, f.metrics), style, parts)),
+            button
+        ],
+        name: ""
+    })
+    return widget.Widget.Control(widget.Focusable {
+        name: d.entry.name,
+        role: widget.Role.DateEditor,
+        label: d.entry.label,
+        description: "as year-month-day",
+        value: d.entry.editor.text,
+        state: with widget.no_state() { disabled: d.entry.disabled, readonly: d.entry.readonly },
+        focus_part: "",
+        tab_stop: true,
+        child: inside
+    })
+}
+
+// The month grid, or nothing while it is shut.
+pub fn calendar_layer(d: DateField, laid: Laid, within: Rect, f: Frame) -> Option<widget.Layer> {
+    if !d.open {
+        return Option<widget.Layer>.None
+    }
+    return Option<widget.Layer>.Some(widget.layer_at(
+        calendar_box(d, laid, within, f),
+        true,
+        popped(calendar_widget(d, f), f.style)
+    ))
+}
+
+fn calendar_widget(d: DateField, f: Frame) -> widget.Widget {
+    val rows = mutable_array_new<widget.Widget>()
+    push(rows, calendar_title(d, f))
+    if CalendarView.is_Days(d.view) {
+        push(rows, calendar_weekdays(d, f))
+    }
+    var r = 0
+    while r < rows_in(d.view) {
+        val cells = mutable_array_new<widget.Widget>()
+        var c = 0
+        while c < columns_in(d.view) {
+            push(cells, calendar_cell_widget(d, r * columns_in(d.view) + c, f))
+            c = c + 1
+        }
+        push(rows, widget.row_of(0.0, snapshot(cells)))
+        r = r + 1
+    }
+    return widget.Widget.Control(widget.Focusable {
+        name: concat(d.entry.name, "/calendar"),
+        role: widget.Role.Calendar,
+        label: d.entry.label,
+        description: "",
+        value: time.format(d.at, time.datetime_format_of(iso_date), d.locale),
+        state: widget.no_state(),
+        focus_part: "",
+        tab_stop: false,
+        child: widget.column_of(0.0, snapshot(rows))
+    })
+}
+
+// What the header says, which is what pressing it will zoom out of.
+fn calendar_heading(d: DateField) -> string {
+    return switch d.view {
+        // **The month's name from the locale**, not a table here: `time` already knows how to say
+        // November in the language the machine is set to, and a second table in `controls` would
+        // be one that knows it in English only.
+        Days { time.format(d.at, time.datetime_format_of("MMMM yyyy"), d.locale) }
+        Months { time.format(d.at, time.datetime_format_of("yyyy"), d.locale) }
+        Years { concat(str(year_block(d)), " to ", str(year_block(d) + years_in_block - 1)) }
+    }
+}
+
+fn calendar_title(d: DateField, f: Frame) -> widget.Widget {
+    val style = f.style
+    val side = line_for(f.metrics, style.text.label)
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+        children: [
+            widget.fixed_of(side * 2.0, row_height(f.metrics, style), pager_widget(true, style.ink, side)),
+            widget.expand(widget.label_in_face(
+                calendar_heading(d),
+                style.text.label.size,
+                style.ink,
+                style.text.label.face
+            )),
+            widget.fixed_of(side * 2.0, row_height(f.metrics, style), pager_widget(false, style.ink, side))
+        ],
+        name: ""
+    })
+}
+
+// **The weekday names are the first row's own dates, formatted.** There is no table of day names
+// here and there does not need to be: the seven cells at the top of the grid *are* the week in the
+// locale's own order, starting on the day `locale.first_weekday` named -- so asking `time` to name
+// them is both shorter and right in every language it knows, and right about the order too.
+fn calendar_weekdays(d: DateField, f: Frame) -> widget.Widget {
+    val style = f.style
+    val cells = mutable_array_new<widget.Widget>()
+    var c = 0
+    while c < calendar_columns {
+        push(cells, widget.fixed_of(
+            calendar_cell(f),
+            calendar_cell(f) * 0.7,
+            widget.label_in_face(
+                time.format(cell_date(d, c), time.datetime_format_of("EEE"), d.locale),
+                style.text.caption.size,
+                style.states.disabled.ink,
+                style.text.caption.face
+            )
+        ))
+        c = c + 1
+    }
+    return widget.row_of(0.0, snapshot(cells))
+}
+
+fn calendar_cell_widget(d: DateField, index: int, f: Frame) -> widget.Widget {
+    return switch d.view {
+        Days { calendar_day(d, index, f) }
+        Months { block_cell(d, index, month_label(d, index), index + 1 == d.at.month, f) }
+        Years {
+            block_cell(d, index, str(year_block(d) + index), year_block(d) + index == d.at.year, f)
+        }
+    }
+}
+
+fn month_label(d: DateField, index: int) -> string {
+    return locale.month_name(d.locale, index + 1, false)
+}
+
+// One cell of the months or years grid: three across, four down, in the same box the day grid
+// fills with seven and six.
+fn block_cell(d: DateField, index: int, says: string, chosen: bool, f: Frame) -> widget.Widget {
+    val style = f.style
+    val parts = parts_for(style, mood_of(false, false, chosen, false))
+    return widget.fixed_of(
+        calendar_cell(f) * ((calendar_columns as float) / (block_columns as float)),
+        calendar_cell(f) * ((calendar_rows as float) / (block_rows as float)),
+        widget.part_of(
+            concat(d.entry.name, "/cell/", str(index)),
+            widget.Role.Button,
+            says,
+            with widget.no_state() { selected: chosen },
+            widget.Widget.Group(widget.Stack {
+                direction: widget.Direction.Row,
+                spacing: 0.0,
+                padding: widget.no_insets(),
+                surface: if chosen { surface_of(style, parts) } else { widget.no_surface() },
+                align: widget.centred(),
+                children: [widget.label_in_face(
+                    says,
+                    style.text.body.size,
+                    if chosen { parts.ink } else { style.ink },
+                    style.text.body.face
+                )],
+                name: ""
+            })
+        )
+    )
+}
+
+fn calendar_day(d: DateField, index: int, f: Frame) -> widget.Widget {
+    val style = f.style
+    val on = cell_date(d, index)
+    val here = on.month == d.at.month
+    val chosen = time.localdate_compare(on, d.at) == 0
+    val parts = parts_for(style, mood_of(false, false, chosen, false))
+    // **The days either side of the month are faded, not blank.** They are real dates and clicking
+    // one is a reasonable thing to mean -- and a grid with holes in it reads as broken.
+    val ink = if here { parts.ink } else { style.states.disabled.ink }
+    return widget.fixed_of(calendar_cell(f), calendar_cell(f), widget.part_of(
+        concat(d.entry.name, "/day/", str(index)),
+        widget.Role.Button,
+        time.format(on, time.datetime_format_of(iso_date), d.locale),
+        with widget.no_state() { selected: chosen },
+        widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            surface: if chosen { surface_of(style, parts) } else { widget.no_surface() },
+            align: widget.centred(),
+            children: [widget.label_in_face(str(on.day), style.text.body.size, ink, style.text.body.face)],
+            name: ""
+        })
+    ))
+}
+
+// ---------------------------------------------------------------- the toolbar
+
+// A strip of commands, which is not a row of buttons.
+//
+// **One tab stop, and the arrows move inside it.** That is the whole reason this is a control and
+// not an arrangement: a row of eight buttons puts eight stops in the tab order, so a user reaching
+// the field below it presses Tab nine times. Every platform's toolbar is one stop that the arrows
+// walk, which is also what `Role.ToolBar` tells a reader -- that the arrows will work here and
+// that Tab will leave.
+//
+// **The commands are drawn by `button_inside`**, the same function an ordinary button is drawn by,
+// so a theme cannot reach one and not the other. What they are *not* is `Focusable`s of their own,
+// which is exactly the tab strip's arrangement: parts for a click and for a reader, one stop for
+// Tab.
+pub enum ToolItem {
+    Command(Button)
+    // A rule between two groups of commands. **Not a `Separator` control**, deliberately: that
+    // role means a draggable divider here, and `cursor_for` turns it into a resize arrow from the
+    // shape of its box. A toolbar's rule is decoration and must not promise a drag.
+    Divider
+}
+
+pub struct Toolbar {
+    name: string
+    label: string
+    items: [ToolItem]
+    // Which command the arrows are on, and -1 when the strip holds none. Always an index that
+    // names a `Command`: `stepped_along` skips the dividers so the arrows never stop on one.
+    at: int
+    // The command the pointer is holding down, or -1.
+    //
+    // **The toolbar's own, where every other control reads `pressed_in(f, name)`.** The frame
+    // carries the name `target` answered, and `target` answers the *tab stop* -- which here is the
+    // toolbar, not the command inside it. So the strip has to remember which of its parts is down.
+    held: int
+    disabled: bool
+    // Whatever did not fit, offered as a menu.
+    //
+    // **Its rows are never stored**, only its open-or-shut and its highlight: which commands
+    // overflow depends on the width the strip was given, and a stored list of them is a second
+    // answer to that question, free to disagree with the one the window drew.
+    more: ContextMenu
+}
+
+pub struct ToolbarStep {
+    toolbar: Toolbar
+    // The name of the command that fired, or "".
+    //
+    // **A name and not an index**, because an application routes by name everywhere else here and
+    // because an index renumbers the moment a divider is added above it.
+    fired: string
+}
+
+pub fn toolbar_of(name: string, label: string, items: [ToolItem]) -> Toolbar {
+    return Toolbar {
+        name: name,
+        label: label,
+        items: items,
+        at: first_command(items),
+        held: 0 - 1,
+        disabled: false,
+        more: context_menu_of(concat(name, "/more"), "More commands", [])
+    }
+}
+
+fn first_command(items: [ToolItem]) -> int {
+    var i = 0
+    while i < len(items) {
+        if Command(_) = items[i] {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// The part name a command answers to: the strip's name and the index, as a tab's is.
+pub fn tool_name(t: Toolbar, index: int) -> string {
+    return concat(t.name, "/", str(index))
+}
+
+// The trailing button that opens the overflow.
+pub fn toolbar_more_name(t: Toolbar) -> string {
+    return concat(t.name, "/more-button")
+}
+
+fn command_at(t: Toolbar, index: int) -> Option<Button> {
+    if index < 0 || index >= len(t.items) {
+        return Option<Button>.None
+    }
+    if Command(b) = t.items[index] {
+        return Option<Button>.Some(b)
+    }
+    return Option<Button>.None
+}
+
+fn tool_height(f: Frame) -> float {
+    val pad = padded_for(f.style)
+    return line_for(f.metrics, f.style.text.label) + pad.top + pad.bottom
+}
+
+fn tool_item_widget(t: Toolbar, index: int, f: Frame) -> widget.Widget {
+    return switch t.items[index] {
+        Command(b) { command_part(t, index, b, f) }
+        Divider { tool_divider(f) }
+    }
+}
+
+fn command_part(t: Toolbar, index: int, b: Button, f: Frame) -> widget.Widget {
+    val name = tool_name(t, index)
+    val dead = t.disabled || b.disabled
+    val parts = parts_for(f.style, mood_of(dead, t.held == index, false, hovered_in(f, name)))
+    return widget.part_of(
+        name,
+        widget.Role.Button,
+        announced_name(b),
+        with widget.no_state() { disabled: dead },
+        button_inside(with b { name: name }, parts, f.style)
+    )
+}
+
+// A rule, drawn as a path in a unit box -- the check mark's rule and the chevron's, for the same
+// reason: a box scaled into is centred by its own geometry and needs no font.
+fn tool_divider(f: Frame) -> widget.Widget {
+    return widget.fixed_of(
+        f.style.space.m,
+        tool_height(f),
+        widget.drawn_of(shape.rect_path(geom.rect_of(0.45, 0.15, 0.1, 0.7)), f.style.states.disabled.ink)
+    )
+}
+
+// How many of the leading items fit in `width`, measured rather than estimated.
+//
+// **`widget.measure` is the same measurement layout will make**, so the strip cannot decide that
+// seven fit and then draw an eighth over the edge. Room for the overflow button is reserved before
+// anything is counted when not everything fits -- which is the arithmetic that is wrong in every
+// toolbar that hides one command behind a "more" button wide enough for three.
+pub fn toolbar_fits(t: Toolbar, width: float, f: Frame) -> int {
+    val all = len(t.items)
+    if measured_run(t, all, f) <= width {
+        return all
+    }
+    val room = width - widget.measure(more_part(t, f), f.metrics).width
+    var count = 0
+    while count < all {
+        if measured_run(t, count + 1, f) > room {
+            return count
+        }
+        count = count + 1
+    }
+    return all
+}
+
+fn measured_run(t: Toolbar, upto: int, f: Frame) -> float {
+    var total = 0.0
+    var i = 0
+    while i < upto {
+        total = total + widget.measure(tool_item_widget(t, i, f), f.metrics).width
+        i = i + 1
+    }
+    return total
+}
+
+fn more_part(t: Toolbar, f: Frame) -> widget.Widget {
+    val name = toolbar_more_name(t)
+    val parts = parts_for(f.style, mood_of(t.disabled, t.more.menu.open, false, hovered_in(f, name)))
+    return widget.part_of(
+        name,
+        widget.Role.Button,
+        "More commands",
+        with widget.no_state() { disabled: t.disabled, expanded: Option<bool>.Some(t.more.menu.open) },
+        // **A drawn chevron and not a character.** The obvious mark is a guillemet or an ellipsis,
+        // and F302 is the whole argument against it: a face that lacks the code point draws a
+        // hollow box, and the first font found on this machine lacks plenty. A path needs no font.
+        widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: padded_for(f.style),
+            surface: surface_of(f.style, parts),
+            align: widget.centred(),
+            children: [chevron_widget(true, parts.ink, line_for(f.metrics, f.style.text.label))],
+            name: ""
+        })
+    )
+}
+
+// The labels of the commands that did not fit, which is what the overflow menu offers.
+fn overflow_labels(t: Toolbar, width: float, f: Frame) -> [string] {
+    val shown = toolbar_fits(t, width, f)
+    val out = mutable_array_new<string>()
+    var i = shown
+    while i < len(t.items) {
+        if Command(b) = t.items[i] {
+            push(out, announced_name(b))
+        }
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
+// The index in `items` of the n-th overflowing command, so a choice in the menu names the right
+// command however many dividers were skipped on the way.
+fn overflow_index(t: Toolbar, width: float, f: Frame, nth: int) -> int {
+    var seen = 0
+    var i = toolbar_fits(t, width, f)
+    while i < len(t.items) {
+        if Command(_) = t.items[i] {
+            if seen == nth {
+                return i
+            }
+            seen = seen + 1
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// The stored overflow menu with its rows filled in from the width it is being shown at.
+fn refreshed_more(t: Toolbar, width: float, f: Frame) -> ContextMenu {
+    val rows = overflow_labels(t, width, f)
+    return with t.more { menu: with t.more.menu { items: with t.more.menu.items { items: rows } } }
+}
+
+pub fn toolbar_widget(t: Toolbar, width: float, f: Frame) -> widget.Widget {
+    val shown = toolbar_fits(t, width, f)
+    val cells = mutable_array_new<widget.Widget>()
+    var i = 0
+    while i < shown {
+        push(cells, tool_item_widget(t, i, f))
+        i = i + 1
+    }
+    if shown < len(t.items) {
+        push(cells, more_part(t, f))
+    }
+    return widget.Widget.Control(widget.Focusable {
+        name: t.name,
+        role: widget.Role.ToolBar,
+        label: t.label,
+        description: "",
+        value: "",
+        state: with widget.no_state() { disabled: t.disabled },
+        // **The command the arrows are on, not the strip.** A ring round the whole toolbar says
+        // all eight commands are focused when one of them is -- the tab strip's argument, and the
+        // reason `focus_part` exists.
+        focus_part: if t.at < 0 { "" } else { tool_name(t, t.at) },
+        tab_stop: true,
+        child: widget.row_of(0.0, snapshot(cells))
+    })
+}
+
+// The overflow popup, or nothing while it is shut.
+pub fn toolbar_layer(t: Toolbar, laid: Laid, width: float, within: Rect, f: Frame) -> Option<widget.Layer> {
+    return context_menu_layer(opened_more(t, laid, width, f), within, f)
+}
+
+// The overflow menu placed under its own button, with its rows filled in.
+fn opened_more(t: Toolbar, laid: Laid, width: float, f: Frame) -> ContextMenu {
+    val fresh = refreshed_more(t, width, f)
+    return switch widget.node_named(laid, toolbar_more_name(t)) {
+        Some(n) { with fresh { at: geom.point_of(n.bounds.x, n.bounds.y + n.bounds.height) } }
+        None { fresh }
+    }
+}
+
+// **Takes the laid tree, where a tab strip takes a box and divides it.** A strip of tabs is a row
+// of equal columns, so arithmetic finds the one under a point; a toolbar's commands are an icon,
+// a word and a rule, every one a different width. Their laid boxes are the only thing that knows
+// where they ended up, and `cursor_at` reads parts out of the tree for the same reason.
+pub fn toolbar_input(
+    t: Toolbar,
+    input: Input,
+    laid: Laid,
+    width: float,
+    within: Rect,
+    f: Frame
+) -> ToolbarStep {
+    if t.disabled {
+        return toolbar_still(t)
+    }
+    if t.more.menu.open {
+        return more_input(t, input, laid, width, within, f)
+    }
+    return switch input {
+        Press(p) { toolbar_pressed(t, p, laid, width, f) }
+        Release(p) { toolbar_released(t, p, laid, width, f) }
+        KeyDown(k) { toolbar_still(stepped_along(t, k)) }
+        // **Space fires on the way up**, which is the library's rule everywhere: a key held down
+        // is a command not yet committed to.
+        KeyUp(k) { toolbar_keyed(t, k) }
+        Move(_) { toolbar_still(t) }
+        Text(_) { toolbar_still(t) }
+        Paste(_) { toolbar_still(t) }
+        Wheel(_) { toolbar_still(t) }
+        SecondaryPress(_) { toolbar_still(t) }
+    }
+}
+
+fn more_input(
+    t: Toolbar,
+    input: Input,
+    laid: Laid,
+    width: float,
+    within: Rect,
+    f: Frame
+) -> ToolbarStep {
+    val step = context_menu_input(opened_more(t, laid, width, f), input, within, f)
+    val shut = with t { more: with t.more { menu: with t.more.menu { open: step.context.menu.open } } }
+    if step.chosen < 0 {
+        return toolbar_still(shut)
+    }
+    return switch command_at(t, overflow_index(t, width, f, step.chosen)) {
+        Some(b) { ToolbarStep { toolbar: shut, fired: b.name } }
+        None { toolbar_still(shut) }
+    }
+}
+
+fn toolbar_pressed(t: Toolbar, p: Point, laid: Laid, width: float, f: Frame) -> ToolbarStep {
+    if holds_point(laid, toolbar_more_name(t), p) {
+        return toolbar_still(with t { more: with t.more { menu: opened_at(refreshed_more(t, width, f).menu) } })
+    }
+    val hit = item_under(t, laid, p, width, f)
+    if hit < 0 {
+        return toolbar_still(t)
+    }
+    return toolbar_still(with t { held: hit, at: hit })
+}
+
+fn toolbar_released(t: Toolbar, p: Point, laid: Laid, width: float, f: Frame) -> ToolbarStep {
+    val was = t.held
+    val let_go = with t { held: 0 - 1 }
+    // **The release has to land on the command the press did**, which is a button's rule: a user
+    // who presses the wrong one and drags off has cancelled it.
+    if was < 0 || item_under(t, laid, p, width, f) != was {
+        return toolbar_still(let_go)
+    }
+    return switch command_at(t, was) {
+        Some(b) { ToolbarStep { toolbar: let_go, fired: b.name } }
+        None { toolbar_still(let_go) }
+    }
+}
+
+fn toolbar_keyed(t: Toolbar, k: Keystroke) -> ToolbarStep {
+    if !Key.is_Space(k.key) && !Key.is_Enter(k.key) {
+        return toolbar_still(t)
+    }
+    return switch command_at(t, t.at) {
+        Some(b) { ToolbarStep { toolbar: t, fired: b.name } }
+        None { toolbar_still(t) }
+    }
+}
+
+// Clamped rather than wrapped, as the tab strip's arrows are, and **skipping the dividers**: a
+// rule is not a place the keyboard can be.
+fn stepped_along(t: Toolbar, k: Keystroke) -> Toolbar {
+    if Key.is_Right(k.key) { return with t { at: next_command(t, t.at, 1) } }
+    if Key.is_Left(k.key) { return with t { at: next_command(t, t.at, 0 - 1) } }
+    if Key.is_Home(k.key) { return with t { at: first_command(t.items) } }
+    if Key.is_End(k.key) { return with t { at: last_command(t.items) } }
+    return t
+}
+
+fn next_command(t: Toolbar, from: int, by: int) -> int {
+    var i = from + by
+    while i >= 0 && i < len(t.items) {
+        if Command(_) = t.items[i] {
+            return i
+        }
+        i = i + by
+    }
+    return from
+}
+
+fn last_command(items: [ToolItem]) -> int {
+    var i = len(items) - 1
+    while i >= 0 {
+        if Command(_) = items[i] {
+            return i
+        }
+        i = i - 1
+    }
+    return 0 - 1
+}
+
+fn item_under(t: Toolbar, laid: Laid, p: Point, width: float, f: Frame) -> int {
+    var i = 0
+    val shown = toolbar_fits(t, width, f)
+    while i < shown {
+        if holds_point(laid, tool_name(t, i), p) {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+fn holds_point(laid: Laid, name: string, p: Point) -> bool {
+    return switch widget.node_named(laid, name) {
+        Some(n) { widget.contains(n.bounds, p) }
+        None { false }
+    }
+}
+
+fn toolbar_still(t: Toolbar) -> ToolbarStep {
+    return ToolbarStep { toolbar: t, fired: "" }
+}
+
+// ------------------------------------------------------------ the context menu
+
+// Commands offered where the pointer is.
+//
+// **A menu that hangs off nothing**, which is the whole of the difference and all of the new
+// work. A `Menu` is opened by pressing a title that says "File", so the title's laid box answers
+// both where the popup goes and how wide it is -- which is why `menu_popup_layer` can leave that
+// arithmetic to its caller. A context menu is opened by a gesture at a point. There is no box to
+// take anything from, so it has to measure its own rows and place itself, and to do that without
+// falling off the edge of a window whose size it is told rather than knows.
+//
+// **The rows, the arrows, Home and End, Escape and the highlight are `Menu`'s**, reused whole
+// rather than written a second time. What is new is the gesture, the measuring and the placement.
+pub struct ContextMenu {
+    menu: Menu
+    // Where it was asked for, in the window's own points. Meaningless while it is shut, which is
+    // why nothing reads it unless `menu.open`.
+    at: Point
+}
+
+pub fn context_menu_of(name: string, label: string, items: [string]) -> ContextMenu {
+    return ContextMenu { menu: menu_of(name, label, items), at: geom.point_of(0.0, 0.0) }
+}
+
+pub fn context_menu_open(c: ContextMenu) -> bool {
+    return c.menu.open
+}
+
+// How wide the popup has to be: the longest row, plus the room a row is drawn with.
+//
+// **Measured rather than given**, because there is no title to inherit a width from. A fixed
+// width would either clip the longest command or leave a band of empty menu beside the shortest,
+// and both of those are visible in a screenshot while being invisible to every test that only
+// asks what the menu contains.
+fn context_menu_width(c: ContextMenu, f: Frame) -> float {
+    val style = f.style
+    val m = f.metrics
+    var widest = 0.0
+    for row in c.menu.items.items {
+        val w = widget.width_in(m, face_for(m, style.text.body.face), row, style.text.body.size)
+        if w > widest {
+            widest = w
+        }
+    }
+    return widest + style.padding.left + style.padding.right
+}
+
+// Where the popup goes: at the pointer, pushed back inside the window.
+//
+// **The same `held_within` a tooltip uses**, and for the same reason: a menu hanging off the
+// right-hand edge is a menu with its commands cut in half. Downwards unless there is no room
+// below, in which case upwards from the pointer -- which is what a secondary click near the foot
+// of a window needs, and the case a developer with a large screen never meets.
+//
+// **One function, asked by both the layer and the input.** The popup's box decides where it is
+// painted *and* whether a click landed in it; worked out twice, a menu could be dismissed by a
+// click on one of its own rows.
+pub fn context_menu_box(c: ContextMenu, within: Rect, f: Frame) -> Rect {
+    val wide = context_menu_width(c, f)
+    val tall = (len(c.menu.items.items) as float) * row_height(f.metrics, f.style)
+    val x = held_within(c.at.x, wide, within.x, within.width)
+    val below = c.at.y
+    val y = if below + tall <= within.y + within.height {
+        below
+    } else {
+        c.at.y - tall
+    }
+    return geom.rect_of(x, held_within(y, tall, within.y, within.height), wide, tall)
+}
+
+// Whether this input is the keyboard asking for a context menu.
+//
+// **A context menu reachable only by the mouse is an inaccessible control**, and the two keys that
+// reach one are the same everywhere: the Menu key beside the right-hand Alt, and Shift+F10 for the
+// keyboards that have no Menu key. Neither is in `Key`, because neither is a key any *control*
+// dispatches on -- they arrive as `Other`, which is what that variant is for.
+//
+// **Where it then opens is the application's to say**, because only the application knows where
+// the focus is. `context_menu_opened_at` is the other half.
+pub fn context_menu_key(input: Input) -> bool {
+    if KeyDown(k) = input {
+        if Other(name) = k.key {
+            return name == "Menu" || (name == "F10" && k.shift)
+        }
+    }
+    return false
+}
+
+// Opened at a point of the caller's choosing: under the focused control, for the keyboard.
+pub fn context_menu_opened_at(c: ContextMenu, p: Point) -> ContextMenu {
+    return with c { menu: opened_at(c.menu), at: p }
+}
+
+// **Opened by the gesture itself**, so that the one place deciding what the secondary button
+// means is this library rather than every application that wants a context menu. An application
+// hands its inputs over and reads the step, exactly as it does for a menu on a bar.
+pub fn context_menu_input(c: ContextMenu, input: Input, within: Rect, f: Frame) -> ContextStep {
+    if SecondaryPress(p) = input {
+        val at = with c { at: p }
+        return context_step(with at { menu: opened_at(at.menu) }, 0 - 1, false)
+    }
+    if !c.menu.open {
+        return context_step(c, 0 - 1, false)
+    }
+    // **An empty title box**, which is the honest answer: a context menu has no title, so no click
+    // can ever be on one. `menu_input` asks `contains` of it and gets `false` for every point.
+    val step = menu_input(c.menu, input, geom.rect_of(0.0, 0.0, 0.0, 0.0), context_menu_box(c, within, f), f)
+    return context_step(with c { menu: step.menu }, step.chosen, step.dismissed)
+}
+
+pub struct ContextStep {
+    context: ContextMenu
+    // The item chosen, or -1, and whether it closed without choosing -- `MenuStep`'s two outputs,
+    // carried through unchanged.
+    chosen: int
+    dismissed: bool
+}
+
+fn context_step(c: ContextMenu, chosen: int, dismissed: bool) -> ContextStep {
+    return ContextStep { context: c, chosen: chosen, dismissed: dismissed }
+}
+
+fn opened_at(m: Menu) -> Menu {
+    return opened(m).menu
+}
+
+// The popup, or nothing while it is shut.
+//
+// **An `Option`, where `menu_popup_layer` returns a layer and leaves "is it open" to the caller.**
+// A context menu is the only popup here with nowhere to hang off, so a caller holding a closed one
+// has no anchor to build an empty layer from -- which is exactly what the menu demo does today,
+// with a zero-sized layer holding `Nothing`.
+pub fn context_menu_layer(c: ContextMenu, within: Rect, f: Frame) -> Option<widget.Layer> {
+    if !c.menu.open {
+        return Option<widget.Layer>.None
+    }
+    return Option<widget.Layer>.Some(widget.layer_at(
+        context_menu_box(c, within, f),
+        true,
+        popped(list_widget(c.menu.items, f), f.style)
+    ))
 }
 
 // ------------------------------------------------------------------ dialogs
@@ -4522,6 +5927,7 @@ pub fn split_pane_input(s: SplitPane, input: Input, bounds: Rect, f: Frame) -> S
         // points wide and the wheel is aimed at content; a pane that resized because the pointer
         // was two points off the list it was over is a surprise with no way to undo it.
         Wheel(_) { split_still(s) }
+        SecondaryPress(_) { split_still(s) }
     }
 }
 
@@ -4960,6 +6366,7 @@ pub fn table_input(t: Table, input: Input, bounds: Rect, f: Frame) -> TableStep 
         Paste(_) { table_still(t) }
         Release(_) { table_still(t) }
         Move(_) { table_still(t) }
+        SecondaryPress(_) { table_still(t) }
     }
 }
 
@@ -5052,6 +6459,7 @@ fn table_resized(t: Table, input: Input, style: Style, bounds: Rect) -> TableSte
         KeyUp(_) { table_still(t) }
         Text(_) { table_still(t) }
         Paste(_) { table_still(t) }
+        SecondaryPress(_) { table_still(t) }
     }
 }
 
@@ -5420,6 +6828,7 @@ pub fn radios_input(r: Radios, input: Input, bounds: Rect, f: Frame) -> RadioSte
         // options has not asked to change their answer, and a group that changed it would be a
         // form that fills itself in wrong as you read it.
         Wheel(_) { radios_still(r) }
+        SecondaryPress(_) { radios_still(r) }
     }
 }
 
@@ -5707,6 +7116,7 @@ pub fn slider_input(s: Slider, input: Input, bounds: Rect) -> SliderStep {
         // slider under the pointer is the thing the pointer is for, and every volume control ever
         // built answers the wheel.
         Wheel(w) { slider_to(s, s.value + (w.vertical as float) * slider_step(s)) }
+        SecondaryPress(_) { slider_still(s) }
     }
 }
 
@@ -6657,5 +8067,6 @@ pub fn is_text_input(input: Input) -> bool {
         Release(_) { false }
         Move(_) { false }
         Wheel(_) { false }
+        SecondaryPress(_) { false }
     }
 }

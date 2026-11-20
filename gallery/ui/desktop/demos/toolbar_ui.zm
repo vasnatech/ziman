@@ -1,0 +1,26 @@
+// The Toolbar demo, as design.
+use controls
+use widget
+
+val gap = 12.0
+val label_width = 90.0
+
+pub struct Screen {
+    strip: widget.Widget
+    width: widget.Widget
+    said: string
+}
+
+// **The slider goes in a row**, which is the Slider demo's arrangement and not a preference: a
+// slider is a child of a column that stretches it, so on its own it is drawn as a band the height
+// of whatever room is left. In a row it takes the height of the label beside it.
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        it.strip,
+        widget.row_of(gap, [
+            widget.wide_of(label_width, widget.label_of("Strip width", f.style.text.caption.size, f.style.ink)),
+            widget.expand(it.width)
+        ]),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+    ])
+}

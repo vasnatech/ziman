@@ -1,0 +1,109 @@
+// A titled section that folds away, and the thing that makes it worth having.
+//
+// **A folded section is not laid out at all**, which is the whole demonstration and the one claim
+// a screenshot cannot make. Three sections drawn open and shut would show a chevron turning; what
+// matters is that shutting one takes its controls *out of the window* -- a reader stops reading
+// them and Tab stops visiting them, because there is nothing there to skip.
+//
+// That is the difference between hiding a thing and drawing it somewhere invisible, and it is a
+// difference only the keyboard and the screen reader can see -- which is why this demo is worth
+// opening with a reader running rather than only looking at.
+use boxes
+use controls
+use demos/expander_ui
+use widget
+use widget.Toggle
+
+pub struct Demo {
+    connection: controls.Expander
+    headers: controls.Expander
+    advanced: controls.Expander
+    redirects: controls.CheckBox
+    agent: controls.Entry
+    verify: controls.Switch
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        connection: controls.expander_of("expander-connection", "Connection", true),
+        headers: controls.expander_of("expander-headers", "Headers", false),
+        advanced: controls.expander_of("expander-advanced", "Advanced", false),
+        redirects: controls.check_box_of("expander-redirects", "Follow redirects", Toggle.On),
+        agent: controls.entry_of("expander-agent", "User-Agent", "curly/1.0"),
+        verify: controls.switch_of("expander-verify", "Verify TLS certificates", Toggle.On)
+    }
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return expander_ui.screen(
+        expander_ui.Screen {
+            connection: controls.expander_widget(d.connection, controls.check_box_widget(d.redirects, f), f),
+            headers: controls.expander_widget(d.headers, controls.entry_widget(d.agent, f), f),
+            advanced: controls.expander_widget(d.advanced, controls.switch_widget(d.verify, f), f),
+            said: said(d)
+        },
+        f
+    )
+}
+
+// **Says which sections are open and nothing about how many controls that makes**, deliberately:
+// `view` builds a widget and never sees the laid tree, so any count here would be a second
+// calculation of something the window already knows -- free to disagree with it and impossible to
+// check. The claim this demo makes is the one `a_shut_section_holds_nothing_a_tab_can_reach`
+// proves in the library's own suite.
+fn said(d: Demo) -> string {
+    return concat(
+        "Open: ",
+        opened(d),
+        ". Fold one and its controls leave the window -- they are not laid out, so a reader has nothing to read and Tab has nothing to skip."
+    )
+}
+
+fn opened(d: Demo) -> string {
+    var names = ""
+    for e in [d.connection, d.headers, d.advanced] {
+        if e.open {
+            names = if names == "" { e.title } else { concat(names, ", ", e.title) }
+        }
+    }
+    if names == "" {
+        return "nothing -- the three headers are the only controls here"
+    }
+    return names
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "expander-connection" {
+        return with d {
+            connection: controls.expander_input(d.connection, input, boxes.bounds_of(laid, name)).expander
+        }
+    }
+    if name == "expander-headers" {
+        return with d {
+            headers: controls.expander_input(d.headers, input, boxes.bounds_of(laid, name)).expander
+        }
+    }
+    if name == "expander-advanced" {
+        return with d {
+            advanced: controls.expander_input(d.advanced, input, boxes.bounds_of(laid, name)).expander
+        }
+    }
+    if name == "expander-redirects" {
+        return with d {
+            redirects: controls.check_box_input(d.redirects, input, boxes.bounds_of(laid, name)).check_box
+        }
+    }
+    if name == "expander-agent" {
+        return with d { agent: controls.entry_input(d.agent, input, boxes.bounds_of(laid, name), f).entry }
+    }
+    if name == "expander-verify" {
+        return with d { verify: controls.switch_input(d.verify, input, boxes.bounds_of(laid, name)).control }
+    }
+    return d
+}

@@ -649,6 +649,16 @@ pub enum Input {
     // keystrokes into one.
     Paste(string)
     Press(Point)
+    // The secondary button, which is the one that asks "what can I do here?".
+    //
+    // **A variant and not a flag on `Press`**, because the two mean different things and nearly
+    // every control wants only the first. A `Press` carrying a button number is a number each of
+    // the twenty-odd places that match on a press has to remember to check, and the one that
+    // forgets fires its command on a right-click -- which is exactly what this library did until
+    // this variant existed: `desktop.input_of` threw the platform's button away, so a right-click,
+    // a middle-click and a left-click were the same event and every button in every window
+    // activated on all three.
+    SecondaryPress(Point)
     Release(Point)
     Move(Point)
     Wheel(Wheel)
@@ -727,6 +737,26 @@ pub fn switch_of(name: string, label: string, on: Toggle) -> Switch
 pub fn switch_input(s: Switch, input: Input, bounds: Rect) -> SwitchStep
 
 pub fn switch_widget(s: Switch, f: Frame) -> widget.Widget
+
+pub struct Expander {
+    name: string
+    title: string
+    disabled: bool
+    // Whether the section is showing. The application owns it, as it owns which tab is chosen.
+    open: bool
+    held: bool
+}
+
+pub struct ExpanderStep {
+    expander: Expander
+    toggled: bool
+}
+
+pub fn expander_of(name: string, title: string, open: bool) -> Expander
+
+pub fn expander_input(e: Expander, input: Input, bounds: Rect) -> ExpanderStep
+
+pub fn expander_widget(e: Expander, content: widget.Widget, f: Frame) -> widget.Widget
 
 pub enum Progress {
     Fraction(float)
@@ -1128,6 +1158,135 @@ pub fn menu_input(
 pub fn menu_title_widget(menu: Menu, f: Frame) -> widget.Widget
 
 pub fn menu_popup_layer(menu: Menu, at: Rect, f: Frame) -> widget.Layer
+
+pub enum CalendarView {
+    Days
+    Months
+    Years
+}
+
+pub struct DateField {
+    entry: Entry
+    // Where the keyboard is in the open calendar, and whose month the calendar shows.
+    //
+    // **Not the value.** A user paging through months with the arrows has chosen nothing yet, and
+    // a calendar that moved the value as the highlight moved would write a date into the field on
+    // the way past -- the number field's `committed` rule, met again.
+    at: time.LocalDate
+    open: bool
+    view: CalendarView
+    // **Injected and not read from a global**, for `Style`'s reason exactly: a module that reached
+    // for `locale.default()` could not be tested against two locales, and which day the week
+    // starts on is precisely the thing that differs between them. `date_field_of` takes the
+    // default so that the common case says nothing, and a caller with two panels in two languages
+    // can still set it per field.
+    locale: Locale
+}
+
+pub struct DateStep {
+    field: DateField
+    changed: bool
+}
+
+pub fn date_field_of(name: string, label: string, on: time.LocalDate) -> DateField
+
+pub fn date_field_of(name: string, label: string, on: time.LocalDate, l: Locale) -> DateField
+
+pub fn date_in(d: DateField) -> Option<time.LocalDate>
+
+pub fn date_or(d: DateField, fallback: time.LocalDate) -> time.LocalDate
+
+pub fn date_button_name(d: DateField) -> string
+
+pub fn calendar_box(d: DateField, laid: Laid, within: Rect, f: Frame) -> Rect
+
+pub fn date_field_input(d: DateField, input: Input, laid: Laid, within: Rect, f: Frame) -> DateStep
+
+pub fn date_field_widget(d: DateField, f: Frame) -> widget.Widget
+
+pub fn calendar_layer(d: DateField, laid: Laid, within: Rect, f: Frame) -> Option<widget.Layer>
+
+pub enum ToolItem {
+    Command(Button)
+    // A rule between two groups of commands. **Not a `Separator` control**, deliberately: that
+    // role means a draggable divider here, and `cursor_for` turns it into a resize arrow from the
+    // shape of its box. A toolbar's rule is decoration and must not promise a drag.
+    Divider
+}
+
+pub struct Toolbar {
+    name: string
+    label: string
+    items: [ToolItem]
+    // Which command the arrows are on, and -1 when the strip holds none. Always an index that
+    // names a `Command`: `stepped_along` skips the dividers so the arrows never stop on one.
+    at: int
+    // The command the pointer is holding down, or -1.
+    //
+    // **The toolbar's own, where every other control reads `pressed_in(f, name)`.** The frame
+    // carries the name `target` answered, and `target` answers the *tab stop* -- which here is the
+    // toolbar, not the command inside it. So the strip has to remember which of its parts is down.
+    held: int
+    disabled: bool
+    // Whatever did not fit, offered as a menu.
+    //
+    // **Its rows are never stored**, only its open-or-shut and its highlight: which commands
+    // overflow depends on the width the strip was given, and a stored list of them is a second
+    // answer to that question, free to disagree with the one the window drew.
+    more: ContextMenu
+}
+
+pub struct ToolbarStep {
+    toolbar: Toolbar
+    // The name of the command that fired, or "".
+    //
+    // **A name and not an index**, because an application routes by name everywhere else here and
+    // because an index renumbers the moment a divider is added above it.
+    fired: string
+}
+
+pub fn toolbar_of(name: string, label: string, items: [ToolItem]) -> Toolbar
+
+pub fn tool_name(t: Toolbar, index: int) -> string
+
+pub fn toolbar_more_name(t: Toolbar) -> string
+
+pub fn toolbar_fits(t: Toolbar, width: float, f: Frame) -> int
+
+pub fn toolbar_widget(t: Toolbar, width: float, f: Frame) -> widget.Widget
+
+pub fn toolbar_layer(t: Toolbar, laid: Laid, width: float, within: Rect, f: Frame) -> Option<widget.Layer>
+
+pub fn toolbar_input(
+
+pub struct ContextMenu {
+    menu: Menu
+    // Where it was asked for, in the window's own points. Meaningless while it is shut, which is
+    // why nothing reads it unless `menu.open`.
+    at: Point
+}
+
+pub fn context_menu_of(name: string, label: string, items: [string]) -> ContextMenu
+
+pub fn context_menu_open(c: ContextMenu) -> bool
+
+pub fn context_menu_box(c: ContextMenu, within: Rect, f: Frame) -> Rect
+
+pub fn context_menu_key(input: Input) -> bool
+
+pub fn context_menu_opened_at(c: ContextMenu, p: Point) -> ContextMenu
+
+pub fn context_menu_input(c: ContextMenu, input: Input, within: Rect, f: Frame) -> ContextStep
+
+pub struct ContextStep {
+    context: ContextMenu
+    // The item chosen, or -1, and whether it closed without choosing -- `MenuStep`'s two outputs,
+    // carried through unchanged.
+    chosen: int
+    dismissed: bool
+}
+
+pub fn context_menu_layer(c: ContextMenu, within: Rect, f: Frame) -> Option<widget.Layer>
 
 pub enum DialogAnswer {
     Confirm
@@ -3528,6 +3687,8 @@ pub fn use_system() -> Locale
 pub fn month_name(l: Locale, month: int, full: bool) -> string
 
 pub fn day_name(l: Locale, day: int, full: bool) -> string
+
+pub fn first_weekday(l: Locale) -> int
 
 pub fn decimal_separator(l: Locale) -> string
 
@@ -7307,6 +7468,16 @@ pub enum Role {
     // spin button and nothing of the kind for a field, and the range is the thing a user most
     // needs told before typing into it.
     SpinButton
+    // A strip of commands, which is **one** stop in the tab order with its own arrow keys --
+    // the reason it is a role and not a row of buttons. Every platform's reader announces a
+    // toolbar so that a user knows the arrows will work here and Tab will leave.
+    ToolBar
+    // A field holding a date, and the month grid that writes one into it. **Two roles, not
+    // one**, because they are two things a reader meets separately: the field is where the
+    // value is and the calendar is a popup that opens over the window, and a user tabbing
+    // through a form hears the first without ever meeting the second.
+    DateEditor
+    Calendar
     // Two panes and the divider between them. **The divider is a `Separator` inside this**, which
     // is how both ATK and GTK have it: the pane is what contains the two halves and publishes
     // where the split sits, and the handle is the thin thing you take hold of.

@@ -1,0 +1,118 @@
+// Commands offered where the pointer is.
+//
+// **Until this existed the library could not see a right-click at all.** `desktop.input_of` threw
+// the platform's button number away, so every button on the mouse arrived as `Input.Press` -- and
+// a right-click or a middle-click on any button in any window fired it. `Input.SecondaryPress` is
+// what fixed that, and a context menu is what it is for.
+//
+// **It hangs off nothing, which is the whole of the new work.** A menu on a bar takes its width
+// and its position from the title that opened it. This one is opened by a gesture at a point, so
+// it measures its own rows and places itself -- and pushes itself back inside the window, which is
+// the case a developer with a large screen never reaches. Press the right-hand button near the
+// bottom-right corner of the panel and watch it go up instead of down.
+use controls
+use demos/context_ui
+use geom
+use widget
+
+val panel_name = "context-panel"
+
+pub struct Demo {
+    menu: controls.ContextMenu
+    said: string
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        menu: controls.context_menu_of(
+            "context",
+            "Request",
+            ["Copy as curl", "Duplicate", "Rename", "Delete"]
+        ),
+        said: "Press the right-hand mouse button inside the panel."
+    }
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return context_ui.screen(
+        context_ui.Screen {
+            // **A tab stop, which is what makes the keyboard route mean anything.** The panel
+            // could be a `part_of` -- somewhere a click lands, nothing Tab reaches -- and the demo
+            // would look identical and be unusable without a mouse. Shift+F10 opens the menu for
+            // *the focused thing*, so there has to be something to focus.
+            panel: widget.Widget.Control(widget.Focusable {
+                name: panel_name,
+                role: widget.Role.Group,
+                label: "Request",
+                description: "Press the Menu key or Shift+F10 for its commands",
+                value: "",
+                state: widget.no_state(),
+                focus_part: "",
+                tab_stop: true,
+                child: panel_of(f)
+            }),
+            said: d.said
+        },
+        f
+    )
+}
+
+fn panel_of(f: controls.Frame) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.insets_of(24.0, 36.0, 24.0, 36.0),
+        surface: widget.filled(f.style.panel),
+        align: widget.centred(),
+        children: [widget.label_of(
+            "Right-click in here",
+            f.style.text.body.size,
+            f.style.ink
+        )],
+        name: ""
+    })
+}
+
+// **The window's own box, not the panel's**, which is what the menu is kept inside: a popup that
+// stopped at the edge of the control that opened it would be clipped by a panel near the edge of
+// the window and fall off the window near the middle of it.
+pub fn layer_at(d: Demo, laid: widget.Laid, f: controls.Frame) -> Option<widget.Layer> {
+    return controls.context_menu_layer(d.menu, laid.bounds, f)
+}
+
+// Just inside the panel's top-left, so the menu appears over the thing it belongs to.
+fn corner_of(laid: widget.Laid) -> geom.Point {
+    return switch widget.node_named(laid, panel_name) {
+        Some(n) { geom.point_of(n.bounds.x + 12.0, n.bounds.y + 12.0) }
+        None { geom.point_of(0.0, 0.0) }
+    }
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    // **Only inside the panel**, so that a right-click on the catalogue tree is the tree's
+    // business. While it is open every input goes to it, which is what lets a click anywhere
+    // dismiss it.
+    if !controls.context_menu_open(d.menu) && name != panel_name {
+        return d
+    }
+    // **The keyboard opens it at the focused control**, which is where a user looking at the
+    // focus ring expects it: the library says *that* this input asks for a menu and the
+    // application says *where*, because only the application knows what has the focus.
+    if controls.context_menu_key(input) {
+        return with d { menu: controls.context_menu_opened_at(d.menu, corner_of(laid)) }
+    }
+    val step = controls.context_menu_input(d.menu, input, laid.bounds, f)
+    if step.chosen < 0 {
+        return with d { menu: step.context }
+    }
+    return with d {
+        menu: step.context,
+        said: concat(step.context.menu.items.items[step.chosen], " chosen.")
+    }
+}

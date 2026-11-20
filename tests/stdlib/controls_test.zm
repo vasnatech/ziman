@@ -8,11 +8,13 @@ use a11y
 use controls
 use focus
 use geom
+use locale
 use paint
 use scene
 use shape
 use test
 use theme
+use time
 use widget
 use widget.caret_name
 
@@ -702,6 +704,542 @@ fn a_number_field_is_one_tab_stop() {
         metrics()
     )
     test.assert_eq(len(focus.controls(laid)), 1)
+}
+
+// --- the date field
+
+// **Taller than it looks.** These tests measure with a line box twice the type size, which is
+// deliberate and exaggerated, so a calendar here is roughly half as tall again as one drawn
+// with a real face. The window has to be able to hold one for the placement to be testable.
+val date_window = geom.rect_of(0.0, 0.0, 400.0, 560.0)
+
+fn november() -> time.LocalDate {
+    return switch time.localdate_of(2026, 11, 19) {
+        Ok(d) { d }
+        Err(_) { time.localdate_from_epoch_day(0) }
+    }
+}
+
+fn due() -> controls.DateField {
+    return controls.date_field_of("due", "Due", november())
+}
+
+fn date_laid(d: controls.DateField) -> widget.Laid {
+    return widget.layout(
+        controls.date_field_widget(d, frame()),
+        geom.rect_of(0.0, 0.0, 240.0, 30.0),
+        metrics()
+    )
+}
+
+fn date_step(d: controls.DateField, input: controls.Input) -> controls.DateStep {
+    return controls.date_field_input(d, input, date_laid(d), date_window, frame())
+}
+
+fn opened_calendar() -> controls.DateField {
+    return date_step(due(), controls.Input.Press(centre_in(date_laid(due()), controls.date_button_name(due())))).field
+}
+
+// 1970-01-01 was a Thursday, so epoch day 4 is a Monday. Derived from the one fact the epoch
+// fixes rather than from a calendar I worked out by hand.
+fn a_monday() -> time.LocalDate {
+    return time.localdate_from_epoch_day(4)
+}
+
+fn same_weekday(a: time.LocalDate, b: time.LocalDate) -> bool {
+    return (time.to_epoch_day(a) - time.to_epoch_day(b)) % 7 == 0
+}
+
+fn day_written(d: controls.DateField) -> string {
+    return d.entry.editor.text
+}
+
+// **The text is the value**, which is what lets the field hold what a user is halfway through
+// typing. "2026-11-" is not a date and is plainly on the way to one; a field keeping a
+// `LocalDate` could not hold it at all.
+#[test]
+fn a_date_field_holds_text_and_answers_a_date_only_when_it_has_one() {
+    test.assert_eq(day_written(due()), "2026-11-19")
+    switch controls.date_in(due()) {
+        Some(on) { test.assert_eq(on.day, 19) }
+        None { test.assert(false) }
+    }
+    val halfway = with due() { entry: with due().entry { editor: edit.editor_of("2026-11-") } }
+    switch controls.date_in(halfway) {
+        Some(_) { test.assert(false) }
+        None { test.assert(true) }
+    }
+}
+
+// **The week starts where the locale says it does**, which is the thing a hand-written calendar
+// gets wrong: Sunday in the United States and Japan, Monday across most of Europe, Saturday in
+// much of the Arabic-speaking world. `locale.first_weekday` asks the host rather than carrying a
+// list here that would be wrong for the languages nobody on this team speaks.
+//
+// The grid also runs day by day with no gap: the dates either side of the month are real dates
+// drawn faded, not holes.
+#[test]
+fn the_grid_starts_on_the_locales_own_first_day() {
+    val american = opened_in(locale.of("en_US.UTF-8"))
+    val british = opened_in(locale.of("en_GB.UTF-8"))
+    test.assert_eq(first_cell_weekday(american), locale.first_weekday(locale.of("en_US.UTF-8")))
+    test.assert_eq(first_cell_weekday(british), locale.first_weekday(locale.of("en_GB.UTF-8")))
+    // And the two really do differ on this machine, or the assertions above prove nothing.
+    test.assert(first_cell_weekday(american) != first_cell_weekday(british))
+
+    val grid = controls.calendar_box(british, date_laid(british), date_window, frame())
+    val first = date_step(british, controls.Input.Press(cell_centre(grid, 0))).field
+    val second = date_step(british, controls.Input.Press(cell_centre(grid, 1))).field
+    switch controls.date_in(first) {
+        Some(a) {
+            switch controls.date_in(second) {
+                Some(b) { test.assert_eq(time.diff_days(b, a), 1) }
+                None { test.assert(false) }
+            }
+        }
+        None { test.assert(false) }
+    }
+}
+
+fn opened_in(l: Locale) -> controls.DateField {
+    val field = controls.date_field_of("due", "Due", november(), l)
+    return date_step(field, controls.Input.Press(centre_in(date_laid(field), controls.date_button_name(field)))).field
+}
+
+// Which day of the week the grid's first cell falls on, 0 for Sunday, read back out of the field
+// by pressing that cell.
+fn first_cell_weekday(d: controls.DateField) -> int {
+    val grid = controls.calendar_box(d, date_laid(d), date_window, frame())
+    return switch controls.date_in(date_step(d, controls.Input.Press(cell_centre(grid, 0))).field) {
+        Some(on) { weekday_number(on) }
+        None { 0 - 1 }
+    }
+}
+
+// 1970-01-01 was a Thursday, so epoch day 4 is a Sunday-based 0... epoch day 0 is weekday 4.
+fn weekday_number(on: time.LocalDate) -> int {
+    val m = (time.to_epoch_day(on) + 4) % 7
+    if m < 0 {
+        return m + 7
+    }
+    return m
+}
+
+// **Paging the months must not write anything into the field.** A user looking for next March has
+// chosen nothing yet, and a calendar that moved the value as the highlight moved would leave a
+// date behind on the way past -- the number field's `committed` rule in another shape.
+#[test]
+fn paging_the_calendar_leaves_the_value_where_it_was() {
+    val open = opened_calendar()
+    val paged = date_step(open, controls.Input.KeyDown(key(controls.Key.PageDown))).field
+    test.assert_eq(day_written(paged), "2026-11-19")
+    test.assert_eq(paged.at.month, 12)
+    val walked = date_step(paged, controls.Input.KeyDown(key(controls.Key.Down))).field
+    test.assert_eq(day_written(walked), "2026-11-19")
+    // And Enter is what commits it.
+    val taken = date_step(walked, controls.Input.KeyDown(key(enter)))
+    test.assert(taken.changed)
+    test.assert_eq(day_written(taken.field), "2026-12-26")
+    test.assert_false(taken.field.open)
+}
+
+// **Pressing the title zooms out, and choosing zooms back in.** A year twelve years away is four
+// presses this way and a hundred and forty-four on a month arrow, which is the whole reason the
+// months and years views exist.
+//
+// **Choosing a month is not choosing a date.** A user who picked March has said nothing about
+// which March day they mean, so it steps back to the days rather than writing anything.
+#[test]
+fn the_title_zooms_out_through_months_to_years() {
+    val days = opened_calendar()
+    test.assert(controls.CalendarView.is_Days(days.view))
+
+    val months = date_step(days, controls.Input.Press(title_middle(days))).field
+    test.assert(controls.CalendarView.is_Months(months.view))
+    val years = date_step(months, controls.Input.Press(title_middle(months))).field
+    test.assert(controls.CalendarView.is_Years(years.view))
+    // There is nowhere further out to go.
+    test.assert(controls.CalendarView.is_Years(date_step(years, controls.Input.Press(title_middle(years))).field.view))
+
+    // Choosing a year zooms to its months, and a month to its days -- neither writes a value.
+    val grid = controls.calendar_box(years, date_laid(years), date_window, frame())
+    // Blocks of twelve on fixed boundaries, so 2026 sits in 2016 to 2027: row 3, column 0 is the
+    // tenth cell and so 2025.
+    val picked_year = date_step(years, controls.Input.Press(cell_centre_of(grid, 0, 3)))
+    test.assert_false(picked_year.changed)
+    test.assert(controls.CalendarView.is_Months(picked_year.field.view))
+    test.assert_eq(picked_year.field.at.year, 2025)
+    test.assert_eq(day_written(picked_year.field), "2026-11-19")
+
+    // Row 0, column 2 is the third month.
+    val picked_month = date_step(picked_year.field, controls.Input.Press(cell_centre_of(grid, 2, 0)))
+    test.assert_false(picked_month.changed)
+    test.assert(controls.CalendarView.is_Days(picked_month.field.view))
+    test.assert_eq(picked_month.field.at.month, 3)
+    test.assert_eq(picked_month.field.at.year, 2025)
+    test.assert_eq(day_written(picked_month.field), "2026-11-19")
+}
+
+// **The two arrows page by whatever the view is showing**: a month of days, a year of months, a
+// block of years.
+#[test]
+fn the_arrows_page_by_what_is_on_screen() {
+    val days = opened_calendar()
+    test.assert_eq(date_step(days, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.month, 12)
+
+    val months = date_step(days, controls.Input.Press(title_middle(days))).field
+    test.assert_eq(date_step(months, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.year, 2027)
+
+    val years = date_step(months, controls.Input.Press(title_middle(months))).field
+    test.assert_eq(date_step(years, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.year, 2038)
+}
+
+// Escape zooms back in before it shuts, so one key undoes one step rather than throwing away
+// three.
+#[test]
+fn escape_zooms_in_before_it_shuts() {
+    val days = opened_calendar()
+    val months = date_step(days, controls.Input.Press(title_middle(days))).field
+    val back = date_step(months, controls.Input.KeyDown(key(controls.Key.Escape))).field
+    test.assert(controls.CalendarView.is_Days(back.view))
+    test.assert(back.open)
+    test.assert_false(date_step(back, controls.Input.KeyDown(key(controls.Key.Escape))).field.open)
+}
+
+// The middle third of the header, which is the part that zooms rather than pages.
+fn title_middle(d: controls.DateField) -> geom.Point {
+    val grid = controls.calendar_box(d, date_laid(d), date_window, frame())
+    return geom.point_of(grid.x + grid.width * 0.5, grid.y + 2.0)
+}
+
+// A cell of the months or years grid, three across.
+fn cell_centre_of(grid: geom.Rect, column: int, rows_down: int) -> geom.Point {
+    val wide = grid.width / 3.0
+    val head = grid.height - (grid.width / 7.0) * 6.0
+    val tall = (grid.height - head) / 4.0
+    return geom.point_of(
+        grid.x + (column as float) * wide + wide * 0.5,
+        grid.y + head + (rows_down as float) * tall + tall * 0.5
+    )
+}
+
+// **Escape shuts it without writing**, which is the other half of the same rule.
+#[test]
+fn escape_shuts_the_calendar_and_writes_nothing() {
+    val gone = date_step(opened_calendar(), controls.Input.KeyDown(key(controls.Key.Escape)))
+    test.assert_false(gone.field.open)
+    test.assert_false(gone.changed)
+    test.assert_eq(day_written(gone.field), "2026-11-19")
+}
+
+// **A calendar hanging off the bottom of the window is a calendar with half its month missing.**
+#[test]
+fn a_calendar_near_the_foot_of_the_window_goes_above_the_field() {
+    val open = opened_calendar()
+    val low = widget.layout(
+        controls.date_field_widget(open, frame()),
+        geom.rect_of(0.0, 520.0, 240.0, 30.0),
+        metrics()
+    )
+    val grid = controls.calendar_box(open, low, date_window, frame())
+    test.assert(grid.y >= date_window.y)
+    test.assert(grid.y + grid.height <= date_window.y + date_window.height)
+}
+
+fn cell_centre(grid: geom.Rect, index: int) -> geom.Point {
+    val side = grid.width / 7.0
+    val head = grid.height - side * 6.0
+    return geom.point_of(
+        grid.x + ((index % 7) as float) * side + side * 0.5,
+        grid.y + head + ((index / 7) as float) * side + side * 0.5
+    )
+}
+
+// --- the toolbar
+
+val tools_wide = 600.0
+val tools_box = geom.rect_of(0.0, 0.0, 600.0, 40.0)
+
+fn tool_strip() -> controls.Toolbar {
+    return controls.toolbar_of("bar", "Request", [
+        controls.ToolItem.Command(controls.button_of("bar-send", "Send")),
+        controls.ToolItem.Command(controls.button_of("bar-stop", "Stop")),
+        controls.ToolItem.Divider,
+        controls.ToolItem.Command(controls.button_of("bar-save", "Save")),
+        controls.ToolItem.Command(controls.button_of("bar-share", "Share"))
+    ])
+}
+
+fn tools_laid(t: controls.Toolbar, width: float) -> widget.Laid {
+    return widget.layout(
+        controls.toolbar_widget(t, width, frame()),
+        geom.rect_of(0.0, 0.0, width, 40.0),
+        metrics()
+    )
+}
+
+fn tools_step(t: controls.Toolbar, input: controls.Input, width: float) -> controls.ToolbarStep {
+    return controls.toolbar_input(t, input, tools_laid(t, width), width, tools_box, frame())
+}
+
+fn tool_arrowed(t: controls.Toolbar, k: controls.Key) -> controls.Toolbar {
+    return tools_step(t, controls.Input.KeyDown(key(k)), tools_wide).toolbar
+}
+
+fn centre_of(t: controls.Toolbar, name: string) -> geom.Point {
+    return switch widget.node_named(tools_laid(t, tools_wide), name) {
+        Some(n) { geom.point_of(n.bounds.x + n.bounds.width * 0.5, n.bounds.y + n.bounds.height * 0.5) }
+        None { geom.point_of(0.0 - 1.0, 0.0 - 1.0) }
+    }
+}
+
+// **The headline, and the only reason a toolbar is a control rather than a row.** Eight buttons in
+// a row are eight stops in the tab order, so a user reaching the field underneath presses Tab nine
+// times. Every platform's toolbar is one stop that the arrows walk.
+#[test]
+fn a_toolbar_is_one_tab_stop_however_many_commands_it_holds() {
+    test.assert_eq(len(focus.controls(tools_laid(tool_strip(), tools_wide))), 1)
+}
+
+// **And the arrows never stop on a rule.** A divider is decoration; a keyboard that could land on
+// one would give the user a position where Space does nothing.
+#[test]
+fn the_arrows_walk_the_commands_and_never_stop_on_a_rule() {
+    test.assert_eq(tool_strip().at, 0)
+    test.assert_eq(tool_arrowed(tool_strip(), controls.Key.Right).at, 1)
+    // Index 2 is the divider, so Right from 1 lands on 3.
+    test.assert_eq(tool_arrowed(tool_arrowed(tool_strip(), controls.Key.Right), controls.Key.Right).at, 3)
+    test.assert_eq(tool_arrowed(tool_strip(), controls.Key.End).at, 4)
+    // Clamped at the end rather than wrapped, as a tab strip is.
+    test.assert_eq(tool_arrowed(tool_arrowed(tool_strip(), controls.Key.End), controls.Key.Right).at, 4)
+    test.assert_eq(tool_arrowed(tool_strip(), controls.Key.Left).at, 0)
+}
+
+// **Space fires on the way up**, which is the rule everywhere here: a key held down is a command
+// not yet committed to.
+#[test]
+fn space_fires_the_command_the_arrows_are_on() {
+    val t = tool_strip()
+    test.assert_eq(tools_step(t, controls.Input.KeyUp(key(space)), tools_wide).fired, "bar-send")
+    test.assert_eq(tools_step(t, controls.Input.KeyDown(key(space)), tools_wide).fired, "")
+    val moved = tool_arrowed(t, controls.Key.Right)
+    test.assert_eq(tools_step(moved, controls.Input.KeyUp(key(space)), tools_wide).fired, "bar-stop")
+}
+
+// **A release has to land on the command the press did**, which is a button's rule: a user who
+// presses the wrong one and drags off has cancelled it.
+#[test]
+fn a_command_fires_on_the_release_and_a_drag_off_it_cancels() {
+    val t = tool_strip()
+    val on_send = centre_of(t, "bar/0")
+    val on_stop = centre_of(t, "bar/1")
+    val held = tools_step(t, controls.Input.Press(on_send), tools_wide).toolbar
+    test.assert_eq(held.held, 0)
+    test.assert_eq(tools_step(held, controls.Input.Release(on_send), tools_wide).fired, "bar-send")
+    test.assert_eq(tools_step(held, controls.Input.Release(on_stop), tools_wide).fired, "")
+}
+
+// **A rule must not promise a drag.** `Role.Separator` means a draggable divider here and
+// `cursor_for` turns it into a resize arrow from the shape of its box, so a toolbar's rule is
+// deliberately not one -- and this is what would catch it being made one by mistake.
+#[test]
+fn a_toolbars_rule_does_not_promise_a_drag() {
+    val t = tool_strip()
+    val before = centre_of(t, "bar/1")
+    val after = centre_of(t, "bar/3")
+    val between = (before.x + after.x) * 0.5
+    test.assert_eq(cursor_over(tools_laid(t, tools_wide), between, before.y), "arrow")
+}
+
+// **What does not fit is still reachable.** A toolbar that silently drops its last two commands is
+// worse than one that never had them, because nothing on screen says they are missing.
+#[test]
+fn what_does_not_fit_goes_into_the_overflow_and_still_fires() {
+    val t = tool_strip()
+    test.assert_eq(controls.toolbar_fits(t, tools_wide, frame()), 5)
+    val narrow = 150.0
+    val shown = controls.toolbar_fits(t, narrow, frame())
+    test.assert(shown < 5)
+
+    // The overflow button is in the tree only when something overflowed.
+    test.assert(holds_named(tools_laid(t, narrow), controls.toolbar_more_name(t)))
+    test.assert_false(holds_named(tools_laid(t, tools_wide), controls.toolbar_more_name(t)))
+
+    val opened = controls.toolbar_input(
+        t,
+        controls.Input.Press(centre_in(tools_laid(t, narrow), controls.toolbar_more_name(t))),
+        tools_laid(t, narrow),
+        narrow,
+        tools_box,
+        frame()
+    ).toolbar
+    test.assert(opened.more.menu.open)
+}
+
+fn holds_named(l: widget.Laid, name: string) -> bool {
+    return switch widget.node_named(l, name) {
+        Some(_) { true }
+        None { false }
+    }
+}
+
+fn centre_in(l: widget.Laid, name: string) -> geom.Point {
+    return switch widget.node_named(l, name) {
+        Some(n) { geom.point_of(n.bounds.x + n.bounds.width * 0.5, n.bounds.y + n.bounds.height * 0.5) }
+        None { geom.point_of(0.0 - 1.0, 0.0 - 1.0) }
+    }
+}
+
+// --- the context menu
+
+val window_box = geom.rect_of(0.0, 0.0, 400.0, 300.0)
+
+fn commands() -> controls.ContextMenu {
+    return controls.context_menu_of("ctx", "Request", ["Copy as curl", "Duplicate", "Delete"])
+}
+
+fn asked_at(x: float, y: float) -> controls.ContextMenu {
+    return controls.context_menu_input(
+        commands(),
+        controls.Input.SecondaryPress(geom.point_of(x, y)),
+        window_box,
+        frame()
+    ).context
+}
+
+// **The gesture is the library's, not every application's.** A context menu opened by a caller's
+// own `if` would open on a different button in each program that wanted one -- and until
+// `Input.SecondaryPress` existed there was no button to open it on, because `desktop.input_of`
+// threw the platform's button away and every click was a left click.
+#[test]
+fn a_secondary_press_opens_a_context_menu_where_the_pointer_is() {
+    val shut = commands()
+    test.assert_false(controls.context_menu_open(shut))
+    val open = asked_at(40.0, 50.0)
+    test.assert(controls.context_menu_open(open))
+    val at = controls.context_menu_box(open, window_box, frame())
+    test.assert_eq(at.x, 40.0)
+    test.assert_eq(at.y, 50.0)
+}
+
+// **And an ordinary press does not.** This is the half that was broken for every control in the
+// library, not just this one: with no secondary variant, a right-click on a button fired it.
+#[test]
+fn the_secondary_button_does_not_work_an_ordinary_control() {
+    val fired = controls.button_input(
+        controls.button_of("save", "Save"),
+        controls.Input.SecondaryPress(inside()),
+        box
+    )
+    test.assert_false(fired.activated)
+    test.assert_false(fired.button.held)
+}
+
+// **A menu over the edge of the window is a menu with its commands cut in half**, and the corner
+// is the case a developer with a large screen never reaches: there is no room below *or* to the
+// right, so it has to go up and back.
+#[test]
+fn a_context_menu_asked_for_in_the_corner_stays_inside_the_window() {
+    val corner = controls.context_menu_box(asked_at(395.0, 295.0), window_box, frame())
+    test.assert(corner.x >= window_box.x)
+    test.assert(corner.y >= window_box.y)
+    test.assert(corner.x + corner.width <= window_box.x + window_box.width)
+    test.assert(corner.y + corner.height <= window_box.y + window_box.height)
+}
+
+// **Measured, because there is no title to inherit a width from.** A fixed width would clip the
+// longest command or leave a band of empty menu beside the shortest.
+#[test]
+fn a_context_menu_is_wide_enough_for_its_longest_command() {
+    val narrow = controls.context_menu_box(asked_at(10.0, 10.0), window_box, frame())
+    val wider = controls.context_menu_box(
+        controls.context_menu_input(
+            controls.context_menu_of("ctx", "Request", ["Copy as curl with every header spelled out"]),
+            controls.Input.SecondaryPress(geom.point_of(10.0, 10.0)),
+            window_box,
+            frame()
+        ).context,
+        window_box,
+        frame()
+    )
+    test.assert(wider.width > narrow.width)
+}
+
+// **The box the popup is painted in is the box a click is tested against.** Worked out twice they
+// could disagree, and a menu that can be dismissed by clicking one of its own rows is the result.
+#[test]
+fn a_press_on_a_context_menus_own_row_chooses_rather_than_dismisses() {
+    val open = asked_at(40.0, 50.0)
+    val at = controls.context_menu_box(open, window_box, frame())
+    val on_first = geom.point_of(at.x + 4.0, at.y + 2.0)
+    val step = controls.context_menu_input(open, controls.Input.Press(on_first), window_box, frame())
+    test.assert_false(step.dismissed)
+}
+
+// --- the expander
+
+val section_box = geom.rect_of(0.0, 0.0, 200.0, 120.0)
+
+fn advanced(open: bool) -> controls.Expander {
+    return controls.expander_of("advanced", "Advanced", open)
+}
+
+fn section(e: controls.Expander) -> widget.Widget {
+    return controls.expander_widget(
+        e,
+        controls.button_widget(controls.button_of("go", "Go"), frame()),
+        frame()
+    )
+}
+
+// The header's own box, which is what the name finds and what a caller hands to `expander_input`.
+fn header_of(e: controls.Expander) -> geom.Rect {
+    val l = widget.layout(section(e), section_box, metrics())
+    return switch widget.node_named(l, "advanced") {
+        Some(n) { n.bounds }
+        None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
+    }
+}
+
+// **A press down in the content must not fold the section away under the user's hand.** The
+// header is what carries the name, so the box a caller looks up is a strip at the top and a
+// release below it is a release outside the control -- which is the whole of the protection, and
+// this is the assertion that the geometry really is that shape.
+#[test]
+fn a_section_folds_from_its_header_and_not_from_its_content() {
+    val head = header_of(advanced(true))
+    test.assert(head.height < section_box.height)
+
+    val at = geom.point_of(head.x + 10.0, head.y + head.height * 0.5)
+    val held = controls.expander_input(advanced(false), controls.Input.Press(at), head)
+    test.assert(held.expander.held)
+    test.assert_false(held.toggled)
+    val fired = controls.expander_input(held.expander, controls.Input.Release(at), head)
+    test.assert(fired.toggled)
+    test.assert(fired.expander.open)
+
+    val deep = geom.point_of(head.x + 10.0, section_box.height - 5.0)
+    val away = controls.expander_input(held.expander, controls.Input.Release(deep), head)
+    test.assert_false(away.toggled)
+}
+
+// **A shut section is not in the tree at all**, which is the difference between hiding something
+// and drawing it somewhere invisible. Content that is laid out but unseen is content a reader
+// reads out and a Tab lands in, and a window whose focus disappears into a folded section is a
+// window the keyboard has lost its place in.
+#[test]
+fn a_shut_section_holds_nothing_a_tab_can_reach() {
+    test.assert_eq(len(focus.controls(widget.layout(section(advanced(true)), section_box, metrics()))), 2)
+    test.assert_eq(len(focus.controls(widget.layout(section(advanced(false)), section_box, metrics()))), 1)
+}
+
+// **A button whose `expanded` state says what pressing it did**, which is what ATK and ARIA both
+// model a disclosure as -- neither has an expander role. `State.expanded` has been in `widget`
+// since accessibility was built and a tree row was the only thing that ever set it.
+#[test]
+fn an_expander_says_whether_it_is_open() {
+    test.assert_eq(said_of(section(advanced(true)), "advanced"), "button, Advanced, expanded")
+    test.assert_eq(said_of(section(advanced(false)), "advanced"), "button, Advanced, collapsed")
 }
 
 // --- the tooltip
@@ -5466,6 +6004,26 @@ fn a_text_field_asks_for_the_text_cursor_and_a_button_does_not() {
         metrics()
     )
     test.assert_eq(cursor_over(go, 40.0, 15.0), "arrow")
+}
+
+// **A pointer that keeps the text shape over a button says the button is not one.** A number
+// field's steppers are buttons by look and behaviour but deliberately not `Control` nodes, so
+// `cursor_at`'s role table called the whole field a `SpinButton` and handed back the I-beam over
+// the arrows as well.
+//
+// **The points are the ones `a_press_on_a_stepper_steps_it` presses**, which is the assertion
+// that matters: the shape and the gesture are worked out by different code -- the cursor from the
+// steppers' laid boxes, the press from `up_box` arithmetic -- and this is what pins them to the
+// same two places. A cursor that changed shape a few points away from where the click lands is
+// the bug `split_pane_cursor` exists to avoid.
+#[test]
+fn the_pointer_is_an_arrow_over_a_stepper_and_text_in_the_field() {
+    val l = widget.layout(controls.number_field_widget(port_field(), frame()), number_box, metrics())
+    val right = number_box.x + number_box.width - 2.0
+    test.assert_eq(cursor_over(l, right, 2.0), "arrow")
+    test.assert_eq(cursor_over(l, right, number_box.height - 2.0), "arrow")
+    // The text box keeps the I-beam, which is the half of this the role table already had right.
+    test.assert_eq(cursor_over(l, 20.0, number_box.height * 0.5), "text")
 }
 
 #[test]

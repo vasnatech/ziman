@@ -400,7 +400,9 @@ fn curves_in(path: shape.Path) -> int {
     return n
 }
 
-// The ring is the last thing `paint_focused` pushes, so it is the last op.
+// The ring is pushed as the focused control's own subtree finishes. In a tree that is nothing but
+// that control it is still the last op; `a_layer_over_the_focused_control_covers_its_ring` is the
+// case where it is not.
 fn ring_of(l: widget.Laid) -> shape.Path {
     val ops = widget.paint_focused(l, fake_metrics(), "it", black(), 2.0).ops
     test.assert(len(ops) > 0)
@@ -2065,4 +2067,60 @@ fn a_filled_band_of_no_height_is_caught() {
         name: ""
     })
     test.assert_len(1, widget.measured_as_nothing(laid_in(centring(band))))
+}
+
+// **A popup opened over the focused control must cover its ring, not sit under it.**
+//
+// The ring used to be pushed once the whole tree had been collected, so it was the last op in the
+// scene and landed on top of everything that had been painted -- every layer included. A context
+// menu is exactly the case that shows it: a secondary press moves the focus to what was clicked
+// and *then* opens a menu over it, so the ring drew across the menu's own first rows.
+#[test]
+fn a_layer_over_the_focused_control_covers_its_ring() {
+    val under = widget.focusable_of("it", widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.filled(black()),
+        align: widget.stretched(),
+        children: [a_label("x")],
+        name: ""
+    }))
+    val over = widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.filled(black()),
+        align: widget.stretched(),
+        children: [a_label("menu")],
+        name: "popup"
+    })
+    val l = widget.layout(
+        widget.layered_of([
+            widget.base_layer(under),
+            widget.layer_at(geom.rect_of(10.0, 10.0, 80.0, 40.0), true, over)
+        ]),
+        geom.rect_of(0.0, 0.0, 200.0, 100.0),
+        fake_metrics()
+    )
+    val ops = widget.paint_focused(l, fake_metrics(), "it", black(), 2.0).ops
+    val ring = first_stroke(ops)
+    test.assert(ring >= 0)
+    // The popup is painted after the base layer, so its ops come after the ring's.
+    test.assert(ring < len(ops) - 1)
+}
+
+fn first_stroke(ops: [scene.Op]) -> int {
+    var i = 0
+    while i < len(ops) {
+        switch ops[i] {
+            StrokePath(_) { return i }
+            Fill(_) { unit }
+            Text(_) { unit }
+            DrawImage(_) { unit }
+            Nested(_) { unit }
+        }
+        i = i + 1
+    }
+    return 0 - 1
 }

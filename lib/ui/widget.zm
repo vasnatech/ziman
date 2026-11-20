@@ -1150,6 +1150,16 @@ pub enum Role {
     // spin button and nothing of the kind for a field, and the range is the thing a user most
     // needs told before typing into it.
     SpinButton
+    // A strip of commands, which is **one** stop in the tab order with its own arrow keys --
+    // the reason it is a role and not a row of buttons. Every platform's reader announces a
+    // toolbar so that a user knows the arrows will work here and Tab will leave.
+    ToolBar
+    // A field holding a date, and the month grid that writes one into it. **Two roles, not
+    // one**, because they are two things a reader meets separately: the field is where the
+    // value is and the calendar is a popup that opens over the window, and a user tabbing
+    // through a form hears the first without ever meeting the second.
+    DateEditor
+    Calendar
     // Two panes and the divider between them. **The divider is a `Separator` inside this**, which
     // is how both ATK and GTK have it: the pane is what contains the two halves and publishes
     // where the split sits, and the handle is the thin thing you take hold of.
@@ -2209,7 +2219,7 @@ pub val caret_name = "caret"
 // one frame with the focus on a tree.
 pub fn paint(l: Laid, m: Metrics) -> scene.Scene {
     val ops = mutable_array_new<Op>()
-    collect(l, m, ops, "", false)
+    collect(l, m, ops, "", false, no_ring())
     return scene.with_ops(
         scene.scene_of(l.bounds.x + l.bounds.width, l.bounds.y + l.bounds.height),
         snapshot(ops)
@@ -2218,36 +2228,11 @@ pub fn paint(l: Laid, m: Metrics) -> scene.Scene {
 
 pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: float) -> scene.Scene {
     val ops = mutable_array_new<Op>()
-    collect(l, m, ops, focused, false)
-    if Some(node) = focus_node(l, ringed_name(l, focused)) {
-        // Drawn **inside** the control's own box rather than around it: a ring outside overlaps
-        // whatever is next to it, and in a dense form that is the neighbouring control.
-        val half = width * 0.5
-        val box = node.bounds
-        // **The radius comes from the control, not from a theme.** This drew a square ring with
-        // `rect_path` until 2026-11-13, which was indistinguishable from right while
-        // `default_style` left the corners square -- and wrong the moment F286 made a rounded look
-        // possible, as a square ring across the corners of a rounded button.
-        //
-        // Asking the box it is drawing around beats taking a number from the style: a check box
-        // caps its own radius against its side (`controls.face_within`), so a themed value would
-        // be the one the control *did not* use. Zero keeps the old output exactly, because
-        // `round_rect_path` answers a plain rectangle for anything at or below zero -- which is
-        // also why the shrink below is not clamped.
-        val radius = radius_of(node)
-        push(ops, scene.stroke(
-            // **The corners the control is drawn with**, not four of them: a tab is rounded along
-            // its top only, and a ring that closed round the bottom would draw a line between the
-            // tab and the body it is joined to -- the one line `tab_face_of` exists to leave out.
-            box_path(
-                corners_of(node),
-                geom.rect_of(box.x + half, box.y + half, box.width - width, box.height - width),
-                radius - half
-            ),
-            paint.Paint.Solid(ring),
-            paint.stroke_of(width)
-        ))
-    }
+    collect(l, m, ops, focused, false, Ringing {
+        name: ringed_name(l, focused),
+        colour: ring,
+        width: width
+    })
     return scene.with_ops(
         scene.scene_of(l.bounds.x + l.bounds.width, l.bounds.y + l.bounds.height),
         snapshot(ops)
@@ -2358,7 +2343,7 @@ fn focus_node(l: Laid, name: string) -> Option<Laid> {
 // The ops alone, for a caller composing a scene of its own. **No focus, so no caret**, as `paint`.
 pub fn paint_ops(l: Laid, m: Metrics) -> [Op] {
     val ops = mutable_array_new<Op>()
-    collect(l, m, ops, "", false)
+    collect(l, m, ops, "", false, no_ring())
     return snapshot(ops)
 }
 
@@ -2506,7 +2491,24 @@ fn paint_surface(s: Surface, whole: Rect, ops: MutableArray<Op>) {
 // for an unfocused field would shift that field's trailing text by a point and change its natural
 // width. The box is laid out always and inked only for the focused control, so nothing moves when
 // the focus does.
-fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: bool) {
+// The focus ring the paint walk is carrying, with "" for none.
+//
+// **Carried through the walk rather than appended after it**, which is the whole of F309. The ring
+// used to be pushed once the tree had been collected, so it was the last thing painted and landed
+// on top of *everything* -- including a popup opened over the control that has the focus. A
+// context menu is exactly that: a secondary press moves the focus to what was clicked and then
+// opens a menu over it, so the ring drew across the menu's first rows.
+struct Ringing {
+    name: string
+    colour: Color
+    width: float
+}
+
+fn no_ring() -> Ringing {
+    return Ringing { name: "", colour: paint.rgb(0.0, 0.0, 0.0), width: 0.0 }
+}
+
+fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: bool, ring: Ringing) {
     if l.name == caret_name && !mine {
         return
     }
@@ -2559,7 +2561,7 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: 
     if Scroll(_) = l.widget {
         val inner = mutable_array_new<Op>()
         for child in l.children {
-            collect(child, m, inner, caret_for, inside)
+            collect(child, m, inner, caret_for, inside, ring)
         }
         push(ops, scene.clipped(shape.rect_path(l.bounds), snapshot(inner)))
         return
@@ -2580,7 +2582,7 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: 
         val inner = mutable_array_new<Op>()
         var out = false
         for child in l.children {
-            collect(child, m, inner, caret_for, inside)
+            collect(child, m, inner, caret_for, inside, ring)
             if escapes(child, l.bounds) {
                 out = true
             }
@@ -2598,6 +2600,43 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: 
         return
     }
     for child in l.children {
-        collect(child, m, ops, caret_for, inside)
+        collect(child, m, ops, caret_for, inside, ring)
     }
+    // **After this control's own subtree and before anything painted later**, which is what puts
+    // a popup over the ring of the control it was opened from. A `Control` is never a `Scroll` or
+    // a `Sized` itself -- those wrap it or sit inside it -- so this one place is every place.
+    if Control(it) = l.widget {
+        if ring.name != "" && it.name == ring.name {
+            push_ring(l, ops, ring)
+        }
+    }
+}
+
+fn push_ring(node: Laid, ops: MutableArray<Op>, ring: Ringing) {
+    // Drawn **inside** the control's own box rather than around it: a ring outside overlaps
+    // whatever is next to it, and in a dense form that is the neighbouring control.
+    val half = ring.width * 0.5
+    val at = node.bounds
+    // **The radius comes from the control, not from a theme.** This drew a square ring with
+    // `rect_path` until 2026-11-13, which was indistinguishable from right while `default_style`
+    // left the corners square -- and wrong the moment F286 made a rounded look possible, as a
+    // square ring across the corners of a rounded button.
+    //
+    // Asking the box it is drawing around beats taking a number from the style: a check box caps
+    // its own radius against its side (`controls.face_within`), so a themed value would be the one
+    // the control *did not* use. Zero keeps the old output exactly, because `round_rect_path`
+    // answers a plain rectangle for anything at or below zero -- which is also why the shrink
+    // below is not clamped.
+    push(ops, scene.stroke(
+        // **The corners the control is drawn with**, not four of them: a tab is rounded along its
+        // top only, and a ring that closed round the bottom would draw a line between the tab and
+        // the body it is joined to -- the one line `tab_face_of` exists to leave out.
+        box_path(
+            corners_of(node),
+            geom.rect_of(at.x + half, at.y + half, at.width - ring.width, at.height - ring.width),
+            radius_of(node) - half
+        ),
+        paint.Paint.Solid(ring.colour),
+        paint.stroke_of(ring.width)
+    ))
 }

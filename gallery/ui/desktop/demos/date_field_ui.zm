@@ -1,0 +1,18 @@
+// The Date field demo, as design.
+use controls
+use widget
+
+val gap = 10.0
+val field_width = 180.0
+
+pub struct Screen {
+    field: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.wide_of(field_width, it.field),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+    ])
+}

@@ -435,6 +435,9 @@ fn role_word(r: Role) -> string {
         Switch { "switch" }
         ProgressBar { "progress bar" }
         SpinButton { "spin button" }
+        ToolBar { "toolbar" }
+        DateEditor { "date field" }
+        Calendar { "calendar" }
         RadioButton { "radio button" }
         TextField { "text field" }
         Password { "password text" }

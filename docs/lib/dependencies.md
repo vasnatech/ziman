@@ -141,10 +141,12 @@ flowchart LR
     controls --> edit
     controls --> focus
     controls --> geom
+    controls --> locale
     controls --> math
     controls --> paint
     controls --> scene
     controls --> shape
+    controls --> time
     controls --> widget
     crypto --> encoding
     crypto --> random
@@ -437,7 +439,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `charset`, `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
-| `controls` | `edit`, `focus`, `geom`, `math`, `paint`, `scene`, `shape`, `widget` | `desktop`, `theme` |
+| `controls` | `edit`, `focus`, `geom`, `locale`, `math`, `paint`, `scene`, `shape`, `time`, `widget` | `desktop`, `theme` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `charset`, `fs`, `io`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `batch`, `eql`, `migrate` |
@@ -470,7 +472,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `json` | `charset`, `math`, `number` | `codec`, `csv`, `expr`, `jwt`, `log`, `ndjson`, `paging`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
-| `locale` | - | `client`, `encoding`, `eql`, `http`, `ini`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `svg`, `time`, `toml`, `url`, `xml`, `yaml` |
+| `locale` | - | `client`, `controls`, `encoding`, `eql`, `http`, `ini`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `svg`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
 | `math` | - | `controls`, `geom`, `icons`, `image`, `json`, `markdown`, `paint`, `properties`, `raster`, `shape`, `stroker`, `svg`, `theme` |
@@ -509,7 +511,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `test` | `regex` | - |
 | `theme` | `controls`, `geom`, `math`, `paint`, `widget` | - |
 | `thread` | - | - |
-| `time` | `clock`, `db`, `json`, `locale`, `zone` | `batch`, `client`, `eql`, `migrate`, `schedule`, `toml` |
+| `time` | `clock`, `db`, `json`, `locale`, `zone` | `batch`, `client`, `controls`, `eql`, `migrate`, `schedule`, `toml` |
 | `toml` | `charset`, `json`, `locale`, `number`, `time` | `codec` |
 | `truetype` | `charset`, `geom`, `shape` | `font`, `pdf`, `raster` |
 | `url` | `charset`, `locale`, `number` | `db`, `http`, `rest` |

@@ -296,6 +296,16 @@ pub enum Input {
     // keystrokes into one.
     Paste(string)
     Press(Point)
+    // The secondary button, which is the one that asks "what can I do here?".
+    //
+    // **A variant and not a flag on `Press`**, because the two mean different things and nearly
+    // every control wants only the first. A `Press` carrying a button number is a number each of
+    // the twenty-odd places that match on a press has to remember to check, and the one that
+    // forgets fires its command on a right-click -- which is exactly what this library did until
+    // this variant existed: `desktop.input_of` threw the platform's button away, so a right-click,
+    // a middle-click and a left-click were the same event and every button in every window
+    // activated on all three.
+    SecondaryPress(Point)
     Release(Point)
     Move(Point)
     Wheel(Wheel)
@@ -590,6 +600,67 @@ one colour a look is recognised by, and what reads on it. The five state rows st
 off track and the ink, so a hovered or disabled switch is the look's hovered or disabled face --
 but an *on* switch is not a state of the control, it is its value, and a value that said
 `states.selected.face` would be a pale tint of the accent where every platform draws a solid one.
+
+## The expander
+
+### `Expander`
+
+```
+pub struct Expander {
+    name: string
+    title: string
+    disabled: bool
+    // Whether the section is showing. The application owns it, as it owns which tab is chosen.
+    open: bool
+    held: bool
+}
+```
+
+A titled section that folds away.
+
+**A button that happens to hide something**, which is both the design and the accessibility
+story. Neither ATK nor ARIA has an "expander" role, and neither is missing one: a disclosure is
+a button whose `expanded` state says what pressing it did, and a reader announcing "Advanced,
+collapsed, button" has told the user everything there is to know. `State.expanded` has been in
+`widget` since accessibility was built, and until now a tree row was the only thing that set it.
+
+**The header is the control and the section is not.** This is a named group holding a focusable
+header and, when it is open, the content -- rather than one control with the content inside it,
+which would nest every button in the section underneath a button and hand a reader a tree it
+cannot describe. It is the number field's rule the other way up: there one control had to
+swallow its parts, here the parts must not be swallowed.
+
+### `ExpanderStep`
+
+```
+pub struct ExpanderStep {
+    expander: Expander
+    toggled: bool
+}
+```
+
+### `expander_of`
+
+```
+pub fn expander_of(name: string, title: string, open: bool) -> Expander
+```
+
+### `expander_input`
+
+```
+pub fn expander_input(e: Expander, input: Input, bounds: Rect) -> ExpanderStep
+```
+
+**These are the header's bounds and not the section's**, which is the one thing a caller has to
+get right and the reason the header is what carries the name: `boxes.bounds_of(laid, name)`
+finds the header, so a press in the content is outside this box by construction and folds
+nothing away under the user's hand. Every other control here takes its own box the same way.
+
+### `expander_widget`
+
+```
+pub fn expander_widget(e: Expander, content: widget.Widget, f: Frame) -> widget.Widget
+```
 
 ## The progress bar
 
@@ -1769,6 +1840,377 @@ for why it cannot be a child of the title. A placed layer, so a click away from 
 to what is beneath as well as closing the menu.
 
 Takes the keyboard while it is open, because an open menu owns the arrows.
+
+## The date field
+
+### `CalendarView`
+
+```
+pub enum CalendarView {
+    Days
+    Months
+    Years
+}
+```
+
+A date, typed or picked off a calendar.
+
+**The text is the value and the calendar is a way of writing it**, which is the decision
+everything here follows from. A field holding a `LocalDate` and showing text derived from it
+cannot hold what a user is halfway through typing: "2026-11-" is not a date and is plainly on
+the way to one. That is the number field's argument in another shape, and it ends the same way
+-- the `Entry` holds the truth and `date_in` answers an `Option`.
+Which grid the calendar is showing.
+
+**Three views and not a separate popup each**, which is what every date picker settled on: the
+header is a button, and pressing it zooms out -- days to months to years -- while choosing
+zooms back in. A year twelve years away is then four presses rather than a hundred and
+forty-four on a month arrow.
+
+### `DateField`
+
+```
+pub struct DateField {
+    entry: Entry
+    // Where the keyboard is in the open calendar, and whose month the calendar shows.
+    //
+    // **Not the value.** A user paging through months with the arrows has chosen nothing yet, and
+    // a calendar that moved the value as the highlight moved would write a date into the field on
+    // the way past -- the number field's `committed` rule, met again.
+    at: time.LocalDate
+    open: bool
+    view: CalendarView
+    // **Injected and not read from a global**, for `Style`'s reason exactly: a module that reached
+    // for `locale.default()` could not be tested against two locales, and which day the week
+    // starts on is precisely the thing that differs between them. `date_field_of` takes the
+    // default so that the common case says nothing, and a caller with two panels in two languages
+    // can still set it per field.
+    locale: Locale
+}
+```
+
+### `DateStep`
+
+```
+pub struct DateStep {
+    field: DateField
+    changed: bool
+}
+```
+
+### `date_field_of`
+
+```
+pub fn date_field_of(name: string, label: string, on: time.LocalDate) -> DateField
+```
+
+```
+pub fn date_field_of(name: string, label: string, on: time.LocalDate, l: Locale) -> DateField
+```
+
+### `date_in`
+
+```
+pub fn date_in(d: DateField) -> Option<time.LocalDate>
+```
+
+The date in the field, or nothing while it does not hold one.
+
+**`parse_localdate` is the judge**, not a length check or a regular expression: it is the same
+function that reads a date anywhere else in the library, so a string this accepts and one the
+rest of the program accepts cannot drift apart.
+
+### `date_or`
+
+```
+pub fn date_or(d: DateField, fallback: time.LocalDate) -> time.LocalDate
+```
+
+### `date_button_name`
+
+```
+pub fn date_button_name(d: DateField) -> string
+```
+
+The button that opens the calendar, and the name a click on it answers to.
+
+### `calendar_box`
+
+```
+pub fn calendar_box(d: DateField, laid: Laid, within: Rect, f: Frame) -> Rect
+```
+
+Where the calendar goes: under the field, pushed back inside the window.
+
+**One function, asked by the layer and by the hit test**, which is `context_menu_box`'s rule and
+the reason it is a rule: worked out twice, a click could land on the fourth of the month while
+the fifth was drawn under the pointer.
+
+### `date_field_input`
+
+```
+pub fn date_field_input(d: DateField, input: Input, laid: Laid, within: Rect, f: Frame) -> DateStep
+```
+
+### `date_field_widget`
+
+```
+pub fn date_field_widget(d: DateField, f: Frame) -> widget.Widget
+```
+
+### `calendar_layer`
+
+```
+pub fn calendar_layer(d: DateField, laid: Laid, within: Rect, f: Frame) -> Option<widget.Layer>
+```
+
+The month grid, or nothing while it is shut.
+
+## The toolbar
+
+### `ToolItem`
+
+```
+pub enum ToolItem {
+    Command(Button)
+    // A rule between two groups of commands. **Not a `Separator` control**, deliberately: that
+    // role means a draggable divider here, and `cursor_for` turns it into a resize arrow from the
+    // shape of its box. A toolbar's rule is decoration and must not promise a drag.
+    Divider
+}
+```
+
+A strip of commands, which is not a row of buttons.
+
+**One tab stop, and the arrows move inside it.** That is the whole reason this is a control and
+not an arrangement: a row of eight buttons puts eight stops in the tab order, so a user reaching
+the field below it presses Tab nine times. Every platform's toolbar is one stop that the arrows
+walk, which is also what `Role.ToolBar` tells a reader -- that the arrows will work here and
+that Tab will leave.
+
+**The commands are drawn by `button_inside`**, the same function an ordinary button is drawn by,
+so a theme cannot reach one and not the other. What they are *not* is `Focusable`s of their own,
+which is exactly the tab strip's arrangement: parts for a click and for a reader, one stop for
+Tab.
+
+### `Toolbar`
+
+```
+pub struct Toolbar {
+    name: string
+    label: string
+    items: [ToolItem]
+    // Which command the arrows are on, and -1 when the strip holds none. Always an index that
+    // names a `Command`: `stepped_along` skips the dividers so the arrows never stop on one.
+    at: int
+    // The command the pointer is holding down, or -1.
+    //
+    // **The toolbar's own, where every other control reads `pressed_in(f, name)`.** The frame
+    // carries the name `target` answered, and `target` answers the *tab stop* -- which here is the
+    // toolbar, not the command inside it. So the strip has to remember which of its parts is down.
+    held: int
+    disabled: bool
+    // Whatever did not fit, offered as a menu.
+    //
+    // **Its rows are never stored**, only its open-or-shut and its highlight: which commands
+    // overflow depends on the width the strip was given, and a stored list of them is a second
+    // answer to that question, free to disagree with the one the window drew.
+    more: ContextMenu
+}
+```
+
+### `ToolbarStep`
+
+```
+pub struct ToolbarStep {
+    toolbar: Toolbar
+    // The name of the command that fired, or "".
+    //
+    // **A name and not an index**, because an application routes by name everywhere else here and
+    // because an index renumbers the moment a divider is added above it.
+    fired: string
+}
+```
+
+### `toolbar_of`
+
+```
+pub fn toolbar_of(name: string, label: string, items: [ToolItem]) -> Toolbar
+```
+
+### `tool_name`
+
+```
+pub fn tool_name(t: Toolbar, index: int) -> string
+```
+
+The part name a command answers to: the strip's name and the index, as a tab's is.
+
+### `toolbar_more_name`
+
+```
+pub fn toolbar_more_name(t: Toolbar) -> string
+```
+
+The trailing button that opens the overflow.
+
+### `toolbar_fits`
+
+```
+pub fn toolbar_fits(t: Toolbar, width: float, f: Frame) -> int
+```
+
+How many of the leading items fit in `width`, measured rather than estimated.
+
+**`widget.measure` is the same measurement layout will make**, so the strip cannot decide that
+seven fit and then draw an eighth over the edge. Room for the overflow button is reserved before
+anything is counted when not everything fits -- which is the arithmetic that is wrong in every
+toolbar that hides one command behind a "more" button wide enough for three.
+
+### `toolbar_widget`
+
+```
+pub fn toolbar_widget(t: Toolbar, width: float, f: Frame) -> widget.Widget
+```
+
+### `toolbar_layer`
+
+```
+pub fn toolbar_layer(t: Toolbar, laid: Laid, width: float, within: Rect, f: Frame) -> Option<widget.Layer>
+```
+
+The overflow popup, or nothing while it is shut.
+
+### `toolbar_input`
+
+```
+pub fn toolbar_input(
+    t: Toolbar,
+    input: Input,
+    laid: Laid,
+    width: float,
+    within: Rect,
+    f: Frame
+) -> ToolbarStep
+```
+
+**Takes the laid tree, where a tab strip takes a box and divides it.** A strip of tabs is a row
+of equal columns, so arithmetic finds the one under a point; a toolbar's commands are an icon,
+a word and a rule, every one a different width. Their laid boxes are the only thing that knows
+where they ended up, and `cursor_at` reads parts out of the tree for the same reason.
+
+## The context menu
+
+### `ContextMenu`
+
+```
+pub struct ContextMenu {
+    menu: Menu
+    // Where it was asked for, in the window's own points. Meaningless while it is shut, which is
+    // why nothing reads it unless `menu.open`.
+    at: Point
+}
+```
+
+Commands offered where the pointer is.
+
+**A menu that hangs off nothing**, which is the whole of the difference and all of the new
+work. A `Menu` is opened by pressing a title that says "File", so the title's laid box answers
+both where the popup goes and how wide it is -- which is why `menu_popup_layer` can leave that
+arithmetic to its caller. A context menu is opened by a gesture at a point. There is no box to
+take anything from, so it has to measure its own rows and place itself, and to do that without
+falling off the edge of a window whose size it is told rather than knows.
+
+**The rows, the arrows, Home and End, Escape and the highlight are `Menu`'s**, reused whole
+rather than written a second time. What is new is the gesture, the measuring and the placement.
+
+### `context_menu_of`
+
+```
+pub fn context_menu_of(name: string, label: string, items: [string]) -> ContextMenu
+```
+
+### `context_menu_open`
+
+```
+pub fn context_menu_open(c: ContextMenu) -> bool
+```
+
+### `context_menu_box`
+
+```
+pub fn context_menu_box(c: ContextMenu, within: Rect, f: Frame) -> Rect
+```
+
+Where the popup goes: at the pointer, pushed back inside the window.
+
+**The same `held_within` a tooltip uses**, and for the same reason: a menu hanging off the
+right-hand edge is a menu with its commands cut in half. Downwards unless there is no room
+below, in which case upwards from the pointer -- which is what a secondary click near the foot
+of a window needs, and the case a developer with a large screen never meets.
+
+**One function, asked by both the layer and the input.** The popup's box decides where it is
+painted *and* whether a click landed in it; worked out twice, a menu could be dismissed by a
+click on one of its own rows.
+
+### `context_menu_key`
+
+```
+pub fn context_menu_key(input: Input) -> bool
+```
+
+Whether this input is the keyboard asking for a context menu.
+
+**A context menu reachable only by the mouse is an inaccessible control**, and the two keys that
+reach one are the same everywhere: the Menu key beside the right-hand Alt, and Shift+F10 for the
+keyboards that have no Menu key. Neither is in `Key`, because neither is a key any *control*
+dispatches on -- they arrive as `Other`, which is what that variant is for.
+
+**Where it then opens is the application's to say**, because only the application knows where
+the focus is. `context_menu_opened_at` is the other half.
+
+### `context_menu_opened_at`
+
+```
+pub fn context_menu_opened_at(c: ContextMenu, p: Point) -> ContextMenu
+```
+
+Opened at a point of the caller's choosing: under the focused control, for the keyboard.
+
+### `context_menu_input`
+
+```
+pub fn context_menu_input(c: ContextMenu, input: Input, within: Rect, f: Frame) -> ContextStep
+```
+
+**Opened by the gesture itself**, so that the one place deciding what the secondary button
+means is this library rather than every application that wants a context menu. An application
+hands its inputs over and reads the step, exactly as it does for a menu on a bar.
+
+### `ContextStep`
+
+```
+pub struct ContextStep {
+    context: ContextMenu
+    // The item chosen, or -1, and whether it closed without choosing -- `MenuStep`'s two outputs,
+    // carried through unchanged.
+    chosen: int
+    dismissed: bool
+}
+```
+
+### `context_menu_layer`
+
+```
+pub fn context_menu_layer(c: ContextMenu, within: Rect, f: Frame) -> Option<widget.Layer>
+```
+
+The popup, or nothing while it is shut.
+
+**An `Option`, where `menu_popup_layer` returns a layer and leaves "is it open" to the caller.**
+A context menu is the only popup here with nowhere to hang off, so a caller holding a closed one
+has no anchor to build an empty layer from -- which is exactly what the menu demo does today,
+with a zero-sized layer holding `Nothing`.
 
 ## Dialogs
 
