@@ -1,8 +1,14 @@
 // A table: a header that stays, rows that scroll, columns you can drag by their edges.
 //
+// **Press a column's title to sort by it**, again to reverse it, and a third time to put the
+// order back the way it was given. Three states and not two, because the order a caller gave is
+// meaningful and a header that could only toggle would throw it away the moment somebody touched
+// it. Sort by Mass and watch 9 come before 10 -- held as text it would not, which is what F321
+// was for.
+//
 // **Drag a column's trailing edge in the header** -- the grip is four points either side of it,
 // in the header and nowhere else, because four points from a boundary in the middle of the data
-// is a selection in every table ever written.
+// is a selection in every table ever written. The title between the grips is what sorts.
 //
 // **A cell holds a value, not a string**, which is `TableModel.getColumnClass` without the
 // reflection: the atomic numbers are `Whole`, the masses are `Number`, "Metal" is a `Flag` drawn
@@ -87,10 +93,23 @@ pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
 }
 
 fn said(d: Demo) -> string {
-    if d.table.selected < 0 {
-        return "Nothing selected."
+    return concat(
+        "Selected: ",
+        controls.row_label(d.table, d.table.selected),
+        ". ",
+        ordered_by(d.table)
+    )
+}
+
+fn ordered_by(t: controls.Table) -> string {
+    if t.sorted_by < 0 {
+        return "In the order they were given -- press a title to sort."
     }
-    return concat("Selected: ", controls.row_label(d.table, d.table.selected))
+    return concat(
+        "Sorted by ",
+        t.columns[t.sorted_by].title,
+        if t.ascending { ", ascending." } else { ", descending." }
+    )
 }
 
 // What the pointer is over, asked of the control so the pointer cannot show arrows where a drag would select a row.

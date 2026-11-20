@@ -1,0 +1,38 @@
+// The Autocomplete demo, as design.
+use controls
+use widget
+
+val gap = 10.0
+val field_width = 260.0
+
+pub struct Screen {
+    says: widget.Widget
+    strict_says: widget.Widget
+    field: widget.Widget
+    strict: widget.Widget
+    said: string
+    chosen: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        it.says,
+        widget.row_of(0.0, [widget.wide_of(field_width, it.field), widget.flex()]),
+        it.strict_says,
+        widget.row_of(0.0, [widget.wide_of(field_width, it.strict), widget.flex()]),
+        widget.label_of(it.chosen, f.style.text.body.size, f.style.ink),
+        // **A live region**, which is the only way an application says something the user did
+        // not go and look for. The count changes under their typing and a reader is a cursor: it
+        // reads what the user arrives at, so without this the narrowing is told to nobody.
+        //
+        // **Polite, so it waits for the reader to finish its sentence.** An assertive region
+        // interrupts, which a result count has not earned.
+        widget.part_of(
+            "auto-count",
+            widget.Role.Status,
+            it.said,
+            widget.no_state(),
+            widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+        )
+    ])
+}

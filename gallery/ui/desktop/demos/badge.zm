@@ -1,0 +1,98 @@
+// A count or a word beside the thing it belongs to.
+//
+// **Press Add and listen, not just look.** The button says "Messages, 3" as one phrase. A badge
+// drawn beside a label would be two nodes a reader meets separately -- "Messages", then "3" --
+// where the user sees one fact. That is why a badge is a field on a control rather than a widget
+// next to one, exactly as an icon is.
+//
+// **Keep pressing past 99.** The cap lives in the library, because twelve applications each
+// choosing where to cut off would give one window three different answers.
+//
+// **Press Clear.** A count of nothing is not a badge at all: a badge showing "0" is a dot that
+// means "no news" in a place a user has learnt means "news".
+//
+// The quiet badges below are the other use -- a status word that is merely true, in the ordinary
+// face rather than the accent.
+use boxes
+use controls
+use demos/badge_ui
+use widget
+
+pub struct Demo {
+    unread: int
+    add: controls.Button
+    many: controls.Button
+    clear: controls.Button
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        unread: 3,
+        add: controls.button_of("badge-add", "Add one"),
+        many: controls.button_of("badge-many", "Add twenty"),
+        clear: controls.button_of("badge-clear", "Clear")
+    }
+}
+
+fn nav_button(name: string, label: string, n: int) -> controls.Button {
+    return with controls.button_of(name, label) { badge: controls.count_badge_of(n) }
+}
+
+fn said(d: Demo) -> string {
+    if d.unread <= 0 {
+        return "No unread messages"
+    }
+    if d.unread == 1 {
+        return "1 unread message"
+    }
+    return concat(str(d.unread), " unread messages")
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return badge_ui.screen(
+        badge_ui.Screen {
+            nav: widget.row_of(8.0, [
+                controls.button_widget(nav_button("badge-messages", "Messages", d.unread), f),
+                controls.button_widget(nav_button("badge-alerts", "Alerts", 2), f),
+                // No badge at all, which is what a count of nothing looks like.
+                controls.button_widget(nav_button("badge-settings", "Settings", 0), f),
+                widget.flex()
+            ]),
+            bump: widget.row_of(8.0, [
+                controls.button_widget(d.add, f),
+                controls.button_widget(d.many, f),
+                controls.button_widget(d.clear, f)
+            ]),
+            statuses: widget.row_of(8.0, [
+                controls.badge_widget(controls.badge_of("Draft"), f),
+                controls.badge_widget(controls.badge_of("Signed"), f),
+                controls.badge_widget(with controls.badge_of("Abnormal") { loud: true }, f),
+                widget.flex()
+            ]),
+            said: said(d)
+        },
+        f
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "badge-add" {
+        val step = controls.button_input(d.add, input, boxes.bounds_of(laid, name))
+        return with d { add: step.button, unread: if step.activated { d.unread + 1 } else { d.unread } }
+    }
+    if name == "badge-many" {
+        val step = controls.button_input(d.many, input, boxes.bounds_of(laid, name))
+        return with d { many: step.button, unread: if step.activated { d.unread + 20 } else { d.unread } }
+    }
+    if name == "badge-clear" {
+        val step = controls.button_input(d.clear, input, boxes.bounds_of(laid, name))
+        return with d { clear: step.button, unread: if step.activated { 0 } else { d.unread } }
+    }
+    return d
+}

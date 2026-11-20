@@ -1,0 +1,28 @@
+// The Badge demo, as design.
+use controls
+use widget
+
+val gap = 14.0
+val row_gap = 10.0
+
+pub struct Screen {
+    nav: widget.Widget
+    bump: widget.Widget
+    statuses: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        it.nav,
+        widget.row_of(row_gap, [it.bump, widget.flex()]),
+        widget.part_of(
+            "badge-count",
+            widget.Role.Status,
+            it.said,
+            widget.no_state(),
+            widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+        ),
+        it.statuses
+    ])
+}

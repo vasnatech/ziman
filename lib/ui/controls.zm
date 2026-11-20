@@ -25,6 +25,7 @@ use geom
 use geom.Point
 use geom.Rect
 use locale
+use math
 use math.floor
 use number
 use paint
@@ -337,6 +338,8 @@ fn cursor_for(node: Laid) -> widget.Cursor {
         ProgressBar { widget.Cursor.Arrow }
         SpinButton { widget.Cursor.Text }
         ToolBar { widget.Cursor.Arrow }
+        Status { widget.Cursor.Arrow }
+        Alert { widget.Cursor.Arrow }
         DateEditor { widget.Cursor.Arrow }
         Calendar { widget.Cursor.Arrow }
         RadioButton { widget.Cursor.Arrow }
@@ -384,6 +387,9 @@ pub struct Button {
     // **A button with no label is announced by its icon's name**, which is the one case where an
     // icon is not decoration. A button with both says only its label.
     icon: Option<widget.Icon>
+    // A count or a word beside the label, part of the same fact. See `Badge`, which explains why
+    // this is a field here rather than a widget a caller puts next to the button.
+    badge: Option<Badge>
     disabled: bool
     held: bool
 }
@@ -393,6 +399,7 @@ pub fn button_of(name: string, label: string) -> Button {
         name: name,
         label: label,
         icon: Option<widget.Icon>.None,
+        badge: Option<Badge>.None,
         disabled: false,
         held: false
     }
@@ -480,6 +487,10 @@ fn still(b: Button) -> ButtonStep {
 // is gathered at all, and it speaks without them because that is the one case where an icon is
 // not decoration.
 fn announced_name(b: Button) -> string {
+    return with_badge(button_words(b), b.badge)
+}
+
+fn button_words(b: Button) -> string {
     if b.label != "" {
         return b.label
     }
@@ -546,6 +557,9 @@ fn button_inside(b: Button, parts: Parts, style: Style) -> widget.Widget {
     // **The gap is the stack's own spacing, not a widget between the two.** An empty label would
     // measure zero and still read as a child to a reader; `Stack.spacing` is what exists for the
     // space between children, and it is zero when there is only one of them.
+    if Some(badge) = b.badge {
+        push(content, badge_inside(badge, style))
+    }
     val gap = if prelude.len(content) > 1 { style.icon_gap } else { 0.0 }
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
@@ -942,6 +956,33 @@ fn pager_widget(back: bool, ink: Color, side: float) -> widget.Widget {
 // scale -- the icon's rule, for the icon's reason.
 fn chevron_widget(down: bool, ink: Color, side: float) -> widget.Widget {
     return widget.fixed_of(side, side, widget.drawn_of(chevron(down), ink))
+}
+
+// The mark on a sorted column's title: the disclosure chevron, and the same triangle turned over
+// for the other direction. **Not a second shape**, so a theme that changed one changes both.
+fn sort_mark(ascending: bool) -> shape.Path {
+    val b = shape.path_builder()
+    if ascending {
+        shape.move_to(b, geom.point_of(0.25, 0.62))
+        shape.line_to(b, geom.point_of(0.75, 0.62))
+        shape.line_to(b, geom.point_of(0.5, 0.34))
+    } else {
+        shape.move_to(b, geom.point_of(0.25, 0.38))
+        shape.line_to(b, geom.point_of(0.75, 0.38))
+        shape.line_to(b, geom.point_of(0.5, 0.66))
+    }
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+// What a reader is told about a sorted column. **On the header's own label**, because that is the
+// node a reader lands on when it walks the titles -- and because `a11y` has no live region, so
+// there is nowhere to say "now sorted by mass" as it happens.
+fn header_label(t: Table, column: int) -> string {
+    if t.sorted_by != column {
+        return t.columns[column].title
+    }
+    return concat(t.columns[column].title, if t.ascending { ", ascending" } else { ", descending" })
 }
 
 // A radio's dot: a circle, because a radio is a circle and the thing inside it is too.
@@ -5631,6 +5672,803 @@ fn toolbar_still(t: Toolbar) -> ToolbarStep {
     return ToolbarStep { toolbar: t, fired: "" }
 }
 
+// ------------------------------------------------------------------ the badge
+
+// A count or a word beside the thing it belongs to.
+//
+// **The whole of the difficulty is accessibility**, not drawing. A badge drawn beside a label is
+// two nodes a reader meets separately -- "Medications", then "3" -- where the user sees one fact.
+// So it is a **field on a control** rather than a widget beside one, exactly as `Button.icon` is,
+// and the control folds it into what it announces.
+pub struct Badge {
+    text: string
+    // **Loud wears the accent**, for a count that is asking to be noticed: unread messages, things
+    // needing attention. Quiet is the ordinary face, for a status word that is merely true.
+    loud: bool
+}
+
+pub fn badge_of(text: string) -> Badge {
+    return Badge { text: text, loud: false }
+}
+
+// A count, capped.
+//
+// **The cap is here and not in twelve callers**, which is the only reason this is a constructor
+// rather than a literal: "99+" is a convention, and twelve applications each choosing where to cut
+// off would give one window three different answers. Zero is not a badge at all -- a count of
+// nothing is nothing to say, and a badge showing "0" is a dot that means "no news" in a place a
+// user has learnt means "news".
+pub fn count_badge_of(n: int) -> Option<Badge> {
+    if n <= 0 {
+        return Option<Badge>.None
+    }
+    return Option<Badge>.Some(Badge {
+        text: if n > badge_cap { concat(str(badge_cap), "+") } else { str(n) },
+        loud: true
+    })
+}
+
+val badge_cap = 99
+
+pub fn badge_widget(b: Badge, f: Frame) -> widget.Widget {
+    return badge_inside(b, f.style)
+}
+
+// **Takes a `Style` and not a `Frame`**, because a button draws one from inside `button_inside`,
+// which has no metrics and does not need any: a badge is a word in a capsule, and neither wants
+// measuring.
+fn badge_inside(b: Badge, style: Style) -> widget.Widget {
+    val ink = if b.loud { style.on_accent } else { style.ink }
+    val face = if b.loud { style.accent } else { paint.flat_of(style.states.rest.face) }
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.insets_of(style.space.xs, 0.0, style.space.xs, 0.0),
+        // **A capsule whatever shape scale is in force**, which is the switch's argument: a badge
+        // that is not a capsule is a label with a background, and the roundness is what makes it
+        // read as a count rather than as part of the text.
+        surface: widget.Surface {
+            inset: 0.0,
+            fill: Option<Paint>.Some(Paint.Solid(face)),
+            border: Option<widget.Border>.None,
+            corner: widget.Radius.Fraction(0.5),
+            corners: widget.Corners.All,
+            shadow: Option<widget.Shadow>.None
+        },
+        align: widget.centred(),
+        children: [widget.label_in_face(b.text, style.text.caption.size, ink, style.text.caption.face)],
+        name: ""
+    })
+}
+
+// What a control says when it carries one: its own name, then the badge.
+//
+// **One phrase and not two nodes**, which is the point of the whole arrangement: a reader saying
+// "Medications" and then, separately, "3" has read the user two facts where there is one.
+fn with_badge(says: string, b: Option<Badge>) -> string {
+    return switch b {
+        Some(it) { if says == "" { it.text } else { concat(says, ", ", it.text) } }
+        None { says }
+    }
+}
+
+// ---------------------------------------------------------------- the search field
+
+// A field for searching, which is an entry and two things beside it.
+//
+// **Worth having once rather than fifteen times.** It is a composition -- an entry, a mark, a
+// button -- but the button is a control *inside* a control, which is the arrangement the number
+// field had to get right and the tooltip demo had to name. Fifteen applications assembling it
+// would be fifteen chances to make the clear button a second tab stop.
+pub struct Search {
+    entry: Entry
+}
+
+// **There is no placeholder here, deliberately.** A hint drawn inside an empty field has to share
+// the box with the caret, which means it belongs to `Entry` and its run building rather than to a
+// composition sitting on top of one -- and a half-built one that made the caret disappear while
+// the field was empty would be worse than none. A label beside the field says the same thing and
+// keeps saying it after somebody types, which is what the accessibility guidance asks for anyway.
+
+pub struct SearchStep {
+    search: Search
+    // The text changed, which for a search field is the only output that matters: there is nothing
+    // to commit, because what is typed *is* the query.
+    changed: bool
+}
+
+pub fn search_of(name: string, label: string) -> Search {
+    return Search { entry: entry_of(name, label, "") }
+}
+
+pub fn search_text(s: Search) -> string {
+    return s.entry.editor.text
+}
+
+// The clear button's own name, which a caller needs to route a press by.
+pub fn search_clear_name(s: Search) -> string {
+    return concat(s.entry.name, "/clear")
+}
+
+fn search_still(s: Search) -> SearchStep {
+    return SearchStep { search: s, changed: false }
+}
+
+fn search_cleared(s: Search) -> SearchStep {
+    return SearchStep {
+        search: with s { entry: with s.entry { editor: edit.editor_of("") } },
+        changed: search_text(s) != ""
+    }
+}
+
+// **Escape clears the field**, which is what every search box does and the reason the key is worth
+// spending here: a user who wants their list back should not have to select the text first.
+//
+// **A press on the clear mark clears it and leaves the focus in the field**, because the next
+// thing a user does after clearing a search is type another one. A clear button that took the
+// focus would make them click back.
+pub fn search_input(s: Search, input: Input, bounds: Rect, f: Frame) -> SearchStep {
+    if s.entry.disabled {
+        return search_still(s)
+    }
+    if KeyDown(k) = input {
+        if Key.is_Escape(k.key) {
+            return search_cleared(s)
+        }
+    }
+    if Press(p) = input {
+        if search_text(s) != "" && widget.contains(clear_box(s, bounds, f), p) {
+            return search_cleared(s)
+        }
+    }
+    val step = entry_input(s.entry, input, bounds, f)
+    return SearchStep {
+        search: with s { entry: step.entry },
+        changed: step.entry.editor.text != search_text(s)
+    }
+}
+
+// Where the clear mark sits: a square at the trailing edge, the field's own height.
+//
+// **Worked out from the control's bounds**, which is the stepper column's rule and the scroll
+// bar's: one control, one box, and its parts derived from the style that drew them.
+fn clear_box(s: Search, bounds: Rect, f: Frame) -> Rect {
+    val side = search_mark_side(f)
+    return geom.rect_of(bounds.x + bounds.width - side, bounds.y, side, bounds.height)
+}
+
+fn search_mark_side(f: Frame) -> float {
+    val pad = padded_for(f.style)
+    return line_for(f.metrics, f.style.text.body) + pad.left + pad.right
+}
+
+// A magnifier: a ring and a handle, as two subpaths of one path.
+//
+// **Drawn and not typed**, which is F302 for the fourth time: a face that lacks the code point
+// draws a hollow box, and the first font found on this machine lacks plenty.
+fn magnifier_path() -> shape.Path {
+    val b = shape.path_builder()
+    ring_into(b, 0.42, 0.40, 0.26, 0.17)
+    shape.move_to(b, geom.point_of(0.60, 0.62))
+    shape.line_to(b, geom.point_of(0.86, 0.88))
+    shape.line_to(b, geom.point_of(0.78, 0.94))
+    shape.line_to(b, geom.point_of(0.52, 0.68))
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+// A ring as one subpath: round the outside and back round the inside, which closes into an
+// annulus without needing a winding rule to cut the hole.
+fn ring_into(b: shape.PathBuilder, cx: float, cy: float, outer: float, inner: float) {
+    val steps = 16
+    var i = 0
+    while i <= steps {
+        val at = 6.2831853 * ((i as float) / (steps as float))
+        val p = geom.point_of(cx + outer * math.cos(at), cy + outer * math.sin(at))
+        if i == 0 {
+            shape.move_to(b, p)
+        } else {
+            shape.line_to(b, p)
+        }
+        i = i + 1
+    }
+    var j = steps
+    while j >= 0 {
+        val at = 6.2831853 * ((j as float) / (steps as float))
+        shape.line_to(b, geom.point_of(cx + inner * math.cos(at), cy + inner * math.sin(at)))
+        j = j - 1
+    }
+    shape.close_path(b)
+}
+
+// A cross, for the clear mark.
+fn cross_path() -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(0.3, 0.36))
+    shape.line_to(b, geom.point_of(0.36, 0.3))
+    shape.line_to(b, geom.point_of(0.5, 0.44))
+    shape.line_to(b, geom.point_of(0.64, 0.3))
+    shape.line_to(b, geom.point_of(0.7, 0.36))
+    shape.line_to(b, geom.point_of(0.56, 0.5))
+    shape.line_to(b, geom.point_of(0.7, 0.64))
+    shape.line_to(b, geom.point_of(0.64, 0.7))
+    shape.line_to(b, geom.point_of(0.5, 0.56))
+    shape.line_to(b, geom.point_of(0.36, 0.7))
+    shape.line_to(b, geom.point_of(0.3, 0.64))
+    shape.line_to(b, geom.point_of(0.44, 0.5))
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+// The field: the magnifier, the text, and the clear mark once there is something to clear.
+//
+// **The clear mark is a part and not a control**, so it is somewhere a click lands and a reader
+// can name without becoming a second stop in the tab order. A search box that put its clear button
+// in the tab order would make Tab out of a search field take two presses, in every form that has
+// one.
+//
+// **It appears only when there is something to clear**, because a button that does nothing is
+// worse than no button: the pointer changes over it and promises otherwise.
+pub fn search_widget(s: Search, f: Frame) -> widget.Widget {
+    val style = f.style
+    val parts = parts_for(style, mood_of(s.entry.disabled, false, false, hovered_in(f, s.entry.name)))
+    val side = line_for(f.metrics, style.text.body)
+    val row = mutable_array_new<widget.Widget>()
+    push(row, widget.fixed_of(
+        search_mark_side(f),
+        search_mark_side(f),
+        widget.drawn_of(magnifier_path(), style.states.disabled.ink)
+    ))
+    push(row, widget.expand(entry_inside(field_runs(s.entry, style, parts, f.metrics), style, parts)))
+    if search_text(s) != "" {
+        push(row, widget.part_of(
+            search_clear_name(s),
+            widget.Role.Button,
+            "Clear the search",
+            with widget.no_state() { disabled: s.entry.disabled },
+            widget.fixed_of(
+                search_mark_side(f),
+                search_mark_side(f),
+                widget.Widget.Group(widget.Stack {
+                    direction: widget.Direction.Row,
+                    spacing: 0.0,
+                    padding: widget.no_insets(),
+                    surface: widget.no_surface(),
+                    align: widget.centred(),
+                    children: [widget.fixed_of(side * 0.8, side * 0.8, widget.drawn_of(cross_path(), parts.ink))],
+                    name: ""
+                })
+            )
+        ))
+    }
+    return widget.Widget.Control(widget.Focusable {
+        name: s.entry.name,
+        role: widget.Role.TextField,
+        label: s.entry.label,
+        description: "",
+        value: search_text(s),
+        state: with widget.no_state() { disabled: s.entry.disabled, readonly: s.entry.readonly },
+        focus_part: "",
+        tab_stop: true,
+        child: widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.no_insets(),
+            surface: surface_of(style, parts),
+            align: widget.stretched(),
+            children: snapshot(row),
+            name: ""
+        })
+    })
+}
+
+// ----------------------------------------------------------------- the panel
+
+// What a panel has to show, which is four things and not two.
+//
+// **A loading flag is not enough**, which is the whole reason this is an enum. A panel that is
+// empty and one that is still fetching look the same to a boolean and must not look the same to a
+// user: "no records" and "not yet" are different facts, and a panel that showed "no records" while
+// a query was still running has told the user something untrue. A failure is a third fact again,
+// and the one most often drawn as an empty list.
+pub enum Waiting {
+    // Nothing has been asked for yet.
+    Idle
+    Loading
+    // There is content, and it is what the caller passed.
+    Ready
+    // It did not work. The words are the caller's, because only the caller knows what failed.
+    Failed(string)
+}
+
+// A panel, and what it is doing.
+pub struct Panel {
+    name: string
+    label: string
+    // What to say when it is `Ready` and holds nothing -- "No medications recorded". **Separate
+    // from `Idle`'s silence**, because an empty answer is an answer.
+    empty: string
+    state: Waiting
+    // How far round the spinner is, 0 to 1, advanced by the application. `lib/ui` has no clock;
+    // see `Progress.Busy`, which takes its phase the same way and for the same reason.
+    phase: float
+}
+
+pub fn panel_of(name: string, label: string, empty: string) -> Panel {
+    return Panel { name: name, label: label, empty: empty, state: Waiting.Idle, phase: 0.0 }
+}
+
+pub fn panel_loading(p: Panel) -> Panel {
+    return with p { state: Waiting.Loading }
+}
+
+pub fn panel_ready(p: Panel) -> Panel {
+    return with p { state: Waiting.Ready }
+}
+
+pub fn panel_failed(p: Panel, why: string) -> Panel {
+    return with p { state: Waiting.Failed(why) }
+}
+
+// What a reader is told the panel is doing.
+//
+// **The words a live region speaks**, which is why this is public and why F329 came first: a panel
+// that finishes while the user is looking elsewhere has to be able to say so, and before there was
+// a live region every application would have invented its own way of not saying it.
+pub fn said_waiting(p: Panel, holds_anything: bool) -> string {
+    return switch p.state {
+        Idle { "" }
+        Loading { concat(p.label, ": loading") }
+        Ready { if holds_anything { concat(p.label, ": ready") } else { concat(p.label, ": ", p.empty) } }
+        Failed(why) { concat(p.label, ": ", why) }
+    }
+}
+
+// Whether a failure should interrupt the reader rather than wait its turn.
+//
+// **Only a failure does.** A panel that finished is news the user can hear when the reader gets to
+// it; a panel that could not is news they are about to act on without.
+pub fn waiting_is_urgent(p: Panel) -> bool {
+    return Waiting.is_Failed(p.state)
+}
+
+// A spinner: an arc that goes round.
+//
+// **A ring segment built as one polygon**, because `shape` has no arc and a spinner drawn as
+// several dots would be several paths where `drawn_of` takes one. The sector is the outer arc and
+// the inner arc walked back, which closes into a crescent.
+//
+// **It is a function of a phase the application owns**, exactly as `Progress.Busy` is: `lib/ui`
+// has no clock and is not going to grow one, so the thing that knows how much time has passed is
+// the thing that says so.
+fn spinner_path(phase: float) -> shape.Path {
+    val steps = 10
+    val sweep = 1.6
+    val from = held_to_unit(phase) * 6.2831853
+    val outer = 0.46
+    val inner = 0.32
+    val points = mutable_array_new<Point>()
+    var i = 0
+    while i <= steps {
+        val at = from + sweep * ((i as float) / (steps as float))
+        push(points, geom.point_of(0.5 + outer * math.cos(at), 0.5 + outer * math.sin(at)))
+        i = i + 1
+    }
+    var j = steps
+    while j >= 0 {
+        val at = from + sweep * ((j as float) / (steps as float))
+        push(points, geom.point_of(0.5 + inner * math.cos(at), 0.5 + inner * math.sin(at)))
+        j = j - 1
+    }
+    return shape.polygon_path(snapshot(points), true)
+}
+
+pub fn spinner_widget(phase: float, ink: Color, side: float) -> widget.Widget {
+    return widget.fixed_of(side, side, widget.drawn_of(spinner_path(phase), ink))
+}
+
+// The panel: its content when it is ready, and what it is doing when it is not.
+//
+// **What it is not showing is not laid out at all**, which is the expander's rule (F304) and here
+// it is what makes the keyboard behave: a Tab cannot land in a form that is still being fetched,
+// because there is no form there yet. A panel that drew a spinner *over* its content would have
+// every control underneath still reachable, still focusable, and still editable -- which is how a
+// user edits a record that is about to be replaced by the one still arriving.
+//
+// **The live region is part of the panel and not the caller's job** (F329). A panel that finishes
+// while the user is looking elsewhere has to say so, and if each application wrote that itself
+// they would each write it differently -- which is the argument that pulled the live region
+// forward in the first place.
+pub fn panel_widget(p: Panel, content: widget.Widget, f: Frame) -> widget.Widget {
+    val style = f.style
+    val holds = !widget.is_nothing_widget(content)
+    val inside = switch p.state {
+        Idle { widget.Widget.Nothing }
+        Loading { waiting_widget(p, f) }
+        Ready { if holds { content } else { message_widget(p.empty, style, style.states.disabled.ink) } }
+        Failed(why) { message_widget(why, style, style.ink) }
+    }
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Column,
+        spacing: style.space.s,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        children: [
+            // **The region first, so a reader meets it before the content.** It draws nothing --
+            // the words are already on screen in the panel itself -- and exists to be spoken.
+            widget.part_of(
+                concat(p.name, "/state"),
+                if waiting_is_urgent(p) { widget.Role.Alert } else { widget.Role.Status },
+                said_waiting(p, holds),
+                widget.no_state(),
+                widget.Widget.Nothing
+            ),
+            inside
+        ],
+        name: p.name
+    })
+}
+
+// What a panel shows while it waits: the spinner and the words beside it.
+//
+// **The phase is the panel's caller's**, as `Progress.Busy`'s is: `lib/ui` has no clock, so the
+// thing that knows how much time has passed is the thing that says so.
+fn waiting_widget(p: Panel, f: Frame) -> widget.Widget {
+    val style = f.style
+    val side = line_for(f.metrics, style.text.body)
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: style.space.s,
+        padding: padded_for(style),
+        surface: widget.no_surface(),
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Centre },
+        children: [
+            spinner_widget(p.phase, style.states.disabled.ink, side),
+            widget.label_in_face("Loading", style.text.body.size, style.states.disabled.ink, style.text.body.face)
+        ],
+        name: ""
+    })
+}
+
+fn message_widget(words: string, style: Style, ink: Color) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: padded_for(style),
+        surface: widget.no_surface(),
+        align: widget.centred(),
+        children: [widget.label_in_face(words, style.text.body.size, ink, style.text.body.face)],
+        name: ""
+    })
+}
+
+// ------------------------------------------------------------ the autocomplete
+
+// A field that suggests from a known set as it is typed into.
+//
+// **The most asked-for control in the application this toolkit is being measured against**: twelve
+// bespoke ones over one generic dropdown. Every piece of it already existed here -- the entry, the
+// filtered list, the popup layer -- and none of the assembly did, which is where the behaviour
+// lives.
+//
+// **It is a combo box that can be typed into**, and the differences from `ComboBox` are the whole
+// design: the list narrows as you type, the set is held whole so the control can say how many of
+// it match, and a value that is in no suggestion is either refused or kept depending on what the
+// field is for.
+pub struct Autocomplete {
+    entry: Entry
+    // Every candidate. **Held whole and not pre-filtered by the caller**, because the control has
+    // to be able to say "three of a hundred and twenty" -- and because a caller filtering for it
+    // would be a second implementation of the matching rule, free to disagree with the one that
+    // decides what the popup shows.
+    all: [string]
+    // The suggestion list's own state: which row is highlighted, how far it has scrolled.
+    //
+    // **Its `items` are not state.** Which suggestions exist is a function of what has been typed,
+    // so they are filled in from the filter before anything reads them. The toolbar's overflow
+    // menu keeps its rows the same way and for the same reason: a stored copy of a derived list is
+    // a second answer to a question that already has one.
+    suggestions: List
+    open: bool
+    // Whether a value matching no suggestion may be committed.
+    //
+    // **False by default, because "autocomplete" means completing from a known set.** A diagnosis,
+    // a medication, a MIME type: the value is a code and a field that accepted anything typed into
+    // it would be a field that silently accepts bad data. A caller whose field is a free note says
+    // so.
+    free_text: bool
+    // The last value committed, which is what the text reverts to when a user abandons what they
+    // were typing.
+    chosen: string
+}
+
+pub struct AutocompleteStep {
+    field: Autocomplete
+    // The value committed by this input, or "" for none. **A string and not an index**, because a
+    // free-text field commits something that is in no list and an index could not name it.
+    chosen: string
+    changed: bool
+}
+
+pub fn autocomplete_of(name: string, label: string, all: [string]) -> Autocomplete {
+    return Autocomplete {
+        entry: entry_of(name, label, ""),
+        all: all,
+        suggestions: with list_of(concat(name, "/suggestions"), label, []) {
+            role: widget.Role.List,
+            item_role: widget.Role.ListItem
+        },
+        open: false,
+        free_text: false,
+        chosen: ""
+    }
+}
+
+// What the user has typed.
+pub fn autocomplete_text(a: Autocomplete) -> string {
+    return a.entry.editor.text
+}
+
+// The candidates the typed text matches.
+//
+// **Case-insensitive substring, and the case folding is deliberately the locale-free one.**
+// `to_lower(s, locale)` would be more correct for *display* and is wrong here: under `tr_TR` it
+// maps `I` to `ı`, so a Turkish user typing an ASCII `i` would stop matching `Ibuprofen`. Matching
+// wants one fold for everybody, which is what the single-argument form gives.
+//
+// **It is ASCII-only, and that is a real limit rather than a simplification.** `to_lower` leaves
+// every byte above 0x7f alone, so `Ärztin` does not match `ärztin`. Full case folding is a
+// roadmap item (`lib/core/locale.zm`'s header says so); until it lands, an accented candidate
+// matches only if its case already agrees.
+pub fn autocomplete_matches(a: Autocomplete) -> [string] {
+    val typed = to_lower(trim(autocomplete_text(a)))
+    if typed == "" {
+        return a.all
+    }
+    val out = mutable_array_new<string>()
+    for one in a.all {
+        if contains(to_lower(one), typed) {
+            push(out, one)
+        }
+    }
+    return snapshot(out)
+}
+
+// What a reader is told about the narrowing.
+//
+// **This is the half of an autocomplete everybody leaves out**, and it is why the whole set is
+// held rather than a filtered one: a list that silently goes from a hundred rows to three has told
+// a sighted user something and a blind user nothing.
+//
+// **It rides on the control's description**, which is where it can go today: `a11y` has no live
+// region, so there is no way to say a thing *as it changes* -- only to say it when a reader next
+// reaches the control. That gap is recorded rather than worked around.
+pub fn autocomplete_said(a: Autocomplete) -> string {
+    val found = len(autocomplete_matches(a))
+    if !a.open {
+        return ""
+    }
+    if found == 0 {
+        return "no suggestions"
+    }
+    if found == len(a.all) {
+        return concat(str(found), " suggestions")
+    }
+    return concat(str(found), " of ", str(len(a.all)), " suggestions")
+}
+
+// The suggestion list with its rows filled in from the filter.
+fn refreshed_suggestions(a: Autocomplete) -> List {
+    return with a.suggestions { items: autocomplete_matches(a) }
+}
+
+fn autocomplete_still(a: Autocomplete) -> AutocompleteStep {
+    return AutocompleteStep { field: a, chosen: "", changed: false }
+}
+
+// A value committed: the text becomes it, the popup shuts, and the step says what it was.
+fn committed_to(a: Autocomplete, value: string) -> AutocompleteStep {
+    return AutocompleteStep {
+        field: with a {
+            entry: with a.entry { editor: edit.editor_of(value) },
+            chosen: value,
+            open: false,
+            suggestions: with a.suggestions { selected: 0 - 1 }
+        },
+        chosen: value,
+        changed: value != a.chosen
+    }
+}
+
+// Abandoned: the text goes back to the last committed value and the popup shuts.
+//
+// **Which is not the same as committing what was typed.** A field whose value must come from the
+// list cannot keep half a word somebody stopped typing, and one that silently kept it would be a
+// field that reports a value nothing in the system knows.
+fn abandoned(a: Autocomplete) -> AutocompleteStep {
+    return autocomplete_still(with a {
+        entry: with a.entry { editor: edit.editor_of(a.chosen) },
+        open: false,
+        suggestions: with a.suggestions { selected: 0 - 1 }
+    })
+}
+
+// The highlighted suggestion, or "" when none is.
+pub fn autocomplete_highlighted(a: Autocomplete) -> string {
+    val rows = autocomplete_matches(a)
+    val at = a.suggestions.selected
+    if at < 0 || at >= len(rows) {
+        return ""
+    }
+    return rows[at]
+}
+
+// What an input does to the field.
+//
+// **The five decisions this control had to take**, written here because they are what separates a
+// usable autocomplete from the twelve hand-rolled ones it is meant to replace:
+//
+//  1. **Typing filters and opens**, and clears the highlight. A highlight that survived the text
+//     changing under it would point at a row that is no longer the row it pointed at.
+//  2. **The arrows do not write into the field.** Some toolkits fill the entry as you arrow
+//     ("inline autocomplete"); it reads well and it means a user who arrows past their answer has
+//     had their typing destroyed. Moving the highlight is looking, Enter is choosing -- which is
+//     the calendar's rule and the number field's.
+//  3. **The popup stays open when nothing matches**, and says so. A popup that vanished would be
+//     indistinguishable from one that broke, and the user would not know whether to keep typing.
+//  4. **Enter with nothing highlighted does not take the first match.** That is how a form ends up
+//     holding a diagnosis nobody chose. It commits the typed text when the field allows free text
+//     and abandons it when the field does not.
+//  5. **Escape shuts the popup and keeps the typing**; a second Escape gives the typing up. One
+//     key, one step, which is what the calendar's Escape does between its views.
+pub fn autocomplete_input(
+    a: Autocomplete,
+    input: Input,
+    bounds: Rect,
+    popup: Rect,
+    f: Frame
+) -> AutocompleteStep {
+    if a.entry.disabled {
+        return autocomplete_still(a)
+    }
+    if KeyDown(k) = input {
+        if Key.is_Escape(k.key) {
+            if a.open {
+                return autocomplete_still(with a { open: false })
+            }
+            return abandoned(a)
+        }
+        if Key.is_Enter(k.key) {
+            return entered(a)
+        }
+        if a.open && (Key.is_Down(k.key) || Key.is_Up(k.key) || Key.is_Home(k.key) || Key.is_End(k.key)) {
+            return moved(a, input, popup, f)
+        }
+        // **Down opens a shut field with everything in it**, which is the combo box's gesture and
+        // what a user with no idea what the field accepts will try first.
+        if !a.open && Key.is_Down(k.key) {
+            return autocomplete_still(with a { open: true })
+        }
+    }
+    if Press(p) = input {
+        if a.open && widget.contains(popup, p) {
+            return pressed_suggestion(a, input, popup, f)
+        }
+        if !widget.contains(bounds, p) {
+            return abandoned(a)
+        }
+        // **A press in the field opens the suggestions**, and still places the caret. A field
+        // holding a browsable set that showed nothing when clicked would be the calendar header's
+        // defect again: it works, and nothing on screen says so. Escape is how it shuts.
+        return opened_by(typed_into(a, input, bounds, f))
+    }
+    return typed_into(a, input, bounds, f)
+}
+
+fn opened_by(step: AutocompleteStep) -> AutocompleteStep {
+    return with step { field: with step.field { open: true } }
+}
+
+fn entered(a: Autocomplete) -> AutocompleteStep {
+    val picked = autocomplete_highlighted(a)
+    if picked != "" {
+        return committed_to(a, picked)
+    }
+    if a.free_text {
+        return committed_to(a, trim(autocomplete_text(a)))
+    }
+    return abandoned(a)
+}
+
+fn moved(a: Autocomplete, input: Input, popup: Rect, f: Frame) -> AutocompleteStep {
+    val step = list_input(refreshed_suggestions(a), input, popup, f)
+    return autocomplete_still(with a {
+        suggestions: with a.suggestions { selected: step.list.selected, offset: step.list.offset }
+    })
+}
+
+fn pressed_suggestion(a: Autocomplete, input: Input, popup: Rect, f: Frame) -> AutocompleteStep {
+    val step = list_input(refreshed_suggestions(a), input, popup, f)
+    val rows = autocomplete_matches(a)
+    val at = step.list.selected
+    if at < 0 || at >= len(rows) {
+        return autocomplete_still(a)
+    }
+    return committed_to(a, rows[at])
+}
+
+// Everything else is the entry's, and whatever it did to the text reopens the popup and clears
+// the highlight -- see decision 1.
+fn typed_into(a: Autocomplete, input: Input, bounds: Rect, f: Frame) -> AutocompleteStep {
+    val step = entry_input(a.entry, input, bounds, f)
+    val before = autocomplete_text(a)
+    val after = step.entry.editor.text
+    if after == before {
+        return autocomplete_still(with a { entry: step.entry })
+    }
+    return autocomplete_still(with a {
+        entry: step.entry,
+        open: true,
+        suggestions: with a.suggestions { selected: 0 - 1, offset: 0.0 }
+    })
+}
+
+// The field itself: an entry that says what it is and how many suggestions it has.
+pub fn autocomplete_widget(a: Autocomplete, f: Frame) -> widget.Widget {
+    val style = f.style
+    val parts = parts_for(style, mood_of(a.entry.disabled, false, false, hovered_in(f, a.entry.name)))
+    return widget.Widget.Control(widget.Focusable {
+        name: a.entry.name,
+        // **A combo box to a reader**, which is what it is: a text field whose value comes from a
+        // list. `TextField` would tell a user nothing about the list, and there is no separate
+        // role for the editable kind -- ARIA says a combobox with a text input is still a
+        // combobox.
+        role: widget.Role.ComboBox,
+        label: a.entry.label,
+        // The count rides here; see `autocomplete_said` for why it cannot ride anywhere better
+        // yet.
+        description: autocomplete_said(a),
+        value: autocomplete_text(a),
+        state: with widget.no_state() {
+            disabled: a.entry.disabled,
+            readonly: a.entry.readonly,
+            expanded: Option<bool>.Some(a.open)
+        },
+        focus_part: "",
+        tab_stop: true,
+        child: entry_inside(field_runs(a.entry, style, parts, f.metrics), style, parts)
+    })
+}
+
+// The suggestions, or nothing while the field is shut.
+//
+// **An `Option`, as the context menu's is**: a caller holding a closed field has nothing to anchor
+// an empty layer to, and the menu demo's zero-sized layer holding `Nothing` is what that costs.
+pub fn autocomplete_popup_layer(a: Autocomplete, at: Rect, f: Frame) -> Option<widget.Layer> {
+    if !a.open {
+        return Option<widget.Layer>.None
+    }
+    return Option<widget.Layer>.Some(widget.layer_at(
+        at,
+        true,
+        popped(list_widget(refreshed_suggestions(a), f), f.style)
+    ))
+}
+
+// How tall the popup wants to be: a row per suggestion, and never more than this many on screen.
+//
+// **Bounded, because the whole set shows when nothing has been typed.** A hundred and twenty
+// medications would otherwise open a popup taller than the window, and the list scrolls.
+val most_suggestions = 8
+
+pub fn autocomplete_popup_height(a: Autocomplete, f: Frame) -> float {
+    val rows = len(autocomplete_matches(a))
+    val showing = if rows > most_suggestions { most_suggestions } else { rows }
+    val least = if showing < 1 { 1 } else { showing }
+    return (least as float) * row_height(f.metrics, f.style)
+}
+
 // ------------------------------------------------------------ the context menu
 
 // Commands offered where the pointer is.
@@ -6427,6 +7265,14 @@ pub struct Table {
     // header that drifts from its columns, and it drifts by exactly the bug you cannot see in a
     // screenshot.
     offset_x: float
+    // Which column the rows are ordered by, or -1 for the order they were given in.
+    //
+    // **The data is never reordered.** `selected` is an index into `rows`, so sorting the array
+    // would silently move the selection to a different record -- and the order the caller gave is
+    // a fact about the data that a view should not be able to destroy. `sorted_order` is an index
+    // projection, which is `Tree.visible_rows`'s pattern.
+    sorted_by: int
+    ascending: bool
     // Which column's trailing edge is being dragged, or -1.
     resizing: int
     // How far the pointer was from that edge when it took hold, so a resize does not snap the edge
@@ -6454,6 +7300,8 @@ pub fn table_of(
         columns: columns,
         rows: rows,
         locale: l,
+        sorted_by: 0 - 1,
+        ascending: true,
         selected: if len(rows) == 0 { 0 - 1 } else { 0 },
         headers: true,
         offset: 0.0,
@@ -6500,6 +7348,164 @@ pub fn value_at(t: Table, row: int, column: int) -> Value {
 // typed value is `value_at`, and the two exist for different readers.
 pub fn cell_at(t: Table, row: int, column: int) -> string {
     return value_text(value_at(t, row, column), t.locale)
+}
+
+// How two values order against each other, for sorting a column.
+//
+// **This is what F321 was for.** A column of text sorts "10" before "9", which makes a sorted
+// table worse than an unsorted one -- the user believes an order that is not there. Holding the
+// value means a number compares as a number and a date as a date.
+//
+// **Different kinds fall back to their text**, which is the honest answer for a column somebody
+// filled with two sorts of thing: there is no meaning to "is this date larger than that word",
+// and refusing to sort would be worse than ordering them predictably.
+pub fn compare_values(a: Value, b: Value) -> int {
+    if Number(x) = a {
+        if Number(y) = b {
+            return ranked(x < y, x > y)
+        }
+    }
+    if Whole(x) = a {
+        if Whole(y) = b {
+            return ranked(x < y, x > y)
+        }
+    }
+    if Code(x) = a {
+        if Code(y) = b {
+            return ranked(x < y, x > y)
+        }
+    }
+    if Exact(x) = a {
+        if Exact(y) = b {
+            return ranked(x < y, x > y)
+        }
+    }
+    if Big(x) = a {
+        if Big(y) = b {
+            return ranked(x < y, x > y)
+        }
+    }
+    if Date(x) = a {
+        if Date(y) = b {
+            return time.localdate_compare(x, y)
+        }
+    }
+    if Flag(x) = a {
+        if Flag(y) = b {
+            return ranked(toggle_rank(x) < toggle_rank(y), toggle_rank(x) > toggle_rank(y))
+        }
+    }
+    val left = value_text(a, locale.root())
+    val right = value_text(b, locale.root())
+    return ranked(left < right, left > right)
+}
+
+fn ranked(less: bool, more: bool) -> int {
+    if less {
+        return 0 - 1
+    }
+    if more {
+        return 1
+    }
+    return 0
+}
+
+// Off, then partly, then on -- which is the order a reader of a column of check boxes expects,
+// and the order the three states are declared in.
+fn toggle_rank(t: Toggle) -> int {
+    return switch t {
+        Off { 0 }
+        Mixed { 1 }
+        On { 2 }
+    }
+}
+
+// The rows in the order they are shown, as indices into `rows`.
+//
+// **An index projection and not a reordering.** `selected` is an index into `rows`, so sorting the
+// array itself would silently move the selection to a different record -- and the order a caller
+// gave is a fact about the data that a view must not be able to destroy. `Tree.visible_rows` is
+// the same shape for the same reason.
+//
+// **A `Blank` sorts to the end whichever way the column is pointing.** A missing measurement is
+// not smaller than every number and larger than none of them; it is absent, and the end is where
+// every spreadsheet puts it. Flipping it with the rest would make reversing a column move the
+// holes from the top to the bottom, which reads as data moving.
+pub fn sorted_order(t: Table) -> [int] {
+    val order = mutable_array_new<int>()
+    var i = 0
+    while i < len(t.rows) {
+        push(order, i)
+        i = i + 1
+    }
+    if t.sorted_by < 0 || t.sorted_by >= len(t.columns) {
+        return snapshot(order)
+    }
+    val column = t.sorted_by
+    val up = t.ascending
+    return sort_with(snapshot(order), fn(a: int, b: int) -> int {
+        val left = value_at(t, a, column)
+        val right = value_at(t, b, column)
+        val left_blank = Value.is_Blank(left)
+        val right_blank = Value.is_Blank(right)
+        if left_blank && right_blank {
+            return 0
+        }
+        if left_blank {
+            return 1
+        }
+        if right_blank {
+            return 0 - 1
+        }
+        val order_of = compare_values(left, right)
+        return if up { order_of } else { 0 - order_of }
+    })
+}
+
+// Where a data row sits on screen, or -1 when it is not shown.
+//
+// **The inverse of `sorted_order`, and the reason it exists at all**: a press and an arrow key
+// both answer in *visual* positions while `selected` is a *data* index, and a control that
+// confused the two would select a different record than the one under the pointer. That is the
+// calendar's twenty-two points in another costume.
+pub fn display_at(t: Table, row: int) -> int {
+    val order = sorted_order(t)
+    var i = 0
+    while i < len(order) {
+        if order[i] == row {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// The data row shown at a visual position, or -1.
+pub fn row_shown_at(t: Table, position: int) -> int {
+    val order = sorted_order(t)
+    if position < 0 || position >= len(order) {
+        return 0 - 1
+    }
+    return order[position]
+}
+
+// Sorting by a column: the first press orders it upward, the next reverses it, and the third
+// clears the sort.
+//
+// **Three states and not two**, because the order a caller gave is meaningful -- a query already
+// ordered by date, a list already in the order a user arranged it -- and a table that could only
+// toggle between two sorts would have thrown that away the moment somebody touched a header.
+pub fn sorted_on(t: Table, column: int) -> Table {
+    if column < 0 || column >= len(t.columns) {
+        return t
+    }
+    if t.sorted_by != column {
+        return with t { sorted_by: column, ascending: true }
+    }
+    if t.ascending {
+        return with t { ascending: false }
+    }
+    return with t { sorted_by: 0 - 1, ascending: true }
 }
 
 // A row as a reader hears it: its cells in order, comma separated.
@@ -6568,6 +7574,29 @@ fn band_height(t: Table, style: Style, m: widget.Metrics) -> float {
 // **The last column's edge is not a grip.** There is nothing to its right to give or take the
 // points, so dragging it would either do nothing or resize a different column -- and a grip that
 // does nothing is worse than no grip, because the pointer changed shape and promised otherwise.
+// Whether a point is in the strip of column titles.
+//
+// **The same `band_height` the header is drawn with**, so the zone that sorts is exactly the zone
+// that shows titles -- worked out a second time it would be the calendar's twenty-two points
+// again, in a control that already has two index spaces to keep straight.
+fn in_header(t: Table, style: Style, bounds: Rect, p: Point, m: widget.Metrics) -> bool {
+    val band = band_height(t, style, m)
+    return band > 0.0 && p.y >= bounds.y && p.y < bounds.y + band
+}
+
+// Which column a point is over, or -1.
+fn column_at(t: Table, bounds: Rect, p: Point) -> int {
+    var i = 0
+    while i < len(t.columns) {
+        val from = bounds.x + column_x(t, i) - t.offset_x
+        if p.x >= from && p.x < from + t.columns[i].width {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
 pub fn edge_at(t: Table, style: Style, bounds: Rect, p: Point, m: widget.Metrics) -> int {
     val band = band_height(t, style, m)
     if band <= 0.0 || len(t.columns) < 2 {
@@ -6645,10 +7674,18 @@ pub fn table_input(t: Table, input: Input, bounds: Rect, f: Frame) -> TableStep 
                 }
             } else {
                 if !widget.contains(body, p) {
-                    table_still(t)
+                    // **The header's titles sort.** A press here reached nothing before: the
+                    // resize grips are `edge_at`'s and the rows are the body's, and the title
+                    // between them was the one part of the control that did nothing at all.
+                    if in_header(t, style, bounds, p, m) {
+                        table_still(sorted_on(t, column_at(t, bounds, p)))
+                    } else {
+                        table_still(t)
+                    }
                 } else {
-                    val row = floor((p.y - body.y + t.offset) / tall)
-                    if row < 0 || row > last {
+                    val at = floor((p.y - body.y + t.offset) / tall)
+                    val row = row_shown_at(t, at)
+                    if at < 0 || at > last || row < 0 {
                         table_still(t)
                     } else {
                         TableStep {
@@ -6789,10 +7826,13 @@ fn table_key(t: Table, k: Keystroke, body: Rect, tall: float) -> TableStep {
         return table_still(t)
     }
     val per_page = table_page(t, body, tall)
-    if Key.is_Down(k.key) { return table_to(t, t.selected + 1, body, tall) }
-    if Key.is_Up(k.key) { return table_to(t, t.selected - 1, body, tall) }
-    if Key.is_PageDown(k.key) { return table_to(t, t.selected + per_page, body, tall) }
-    if Key.is_PageUp(k.key) { return table_to(t, t.selected - per_page, body, tall) }
+    // Where the selection is *on screen*, which is what the arrows move through. Unsorted the two
+    // are the same number, which is why this was invisible until a column could be sorted.
+    val here = display_at(t, t.selected)
+    if Key.is_Down(k.key) { return table_to(t, here + 1, body, tall) }
+    if Key.is_Up(k.key) { return table_to(t, here - 1, body, tall) }
+    if Key.is_PageDown(k.key) { return table_to(t, here + per_page, body, tall) }
+    if Key.is_PageUp(k.key) { return table_to(t, here - per_page, body, tall) }
     if Key.is_Home(k.key) { return table_to(t, 0, body, tall) }
     if Key.is_End(k.key) { return table_to(t, last, body, tall) }
     if Key.is_Enter(k.key) || Key.is_Space(k.key) {
@@ -6810,13 +7850,18 @@ fn table_page(t: Table, body: Rect, tall: float) -> int {
 
 // Moves the selection and brings it into view by the least that works, as a list's does -- against
 // the **body's** height, which is the whole reason `table_body` exists.
-fn table_to(t: Table, want: int, body: Rect, tall: float) -> TableStep {
+// **`at` is a position on screen and not an index into `rows`**, which is the whole of what
+// sorting introduced: the selection is a data index and the scroll is a distance down the screen,
+// and a sorted table is the first time those two are different numbers. Confusing them would
+// select a different record from the one the user is looking at.
+fn table_to(t: Table, at: int, body: Rect, tall: float) -> TableStep {
     val last = len(t.rows) - 1
-    val row = if want < 0 { 0 } else { if want > last { last } else { want } }
+    val position = if at < 0 { 0 } else { if at > last { last } else { at } }
+    val row = row_shown_at(t, position)
     val revealed = widget.scroll_to_reveal(
         body.height,
         t.offset,
-        (row as float) * tall,
+        (position as float) * tall,
         tall
     )
     return TableStep {
@@ -6894,6 +7939,34 @@ fn cell_box_widget(t: Table, style: Style, column: int, content: widget.Widget) 
     }))
 }
 
+// A title, with the mark that says this column is what the rows are ordered by.
+//
+// **The mark is in the cell and not beside the strip**, so it scrolls sideways with the column it
+// belongs to -- a sort mark that stayed put while its title scrolled away would be pointing at
+// whatever arrived underneath it.
+fn header_cell_widget(
+    t: Table,
+    style: Style,
+    column: int,
+    ink: Color,
+    m: widget.Metrics
+) -> widget.Widget {
+    val title = widget.label_in_face(t.columns[column].title, style.text.body.size, ink, style.text.body.face)
+    if t.sorted_by != column {
+        return cell_box_widget(t, style, column, title)
+    }
+    val side = line_for(m, style.text.body)
+    return cell_box_widget(t, style, column, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: style.space.xs,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.Alignment { across: widget.Across.Centre, along: t.columns[column].align },
+        children: [title, widget.fixed_of(side, side, widget.drawn_of(sort_mark(t.ascending), ink))],
+        name: ""
+    }))
+}
+
 fn cell_widget(t: Table, style: Style, column: int, text: string, ink: Color) -> widget.Widget {
     return cell_box_widget(
         t,
@@ -6965,9 +8038,9 @@ fn header_widget(t: Table, style: Style, ink: Color, m: widget.Metrics) -> widge
         push(cells, widget.part_of(
             column_header_name(t, i),
             widget.Role.ColumnHeader,
-            t.columns[i].title,
+            header_label(t, i),
             with widget.no_state() { disabled: t.disabled },
-            cell_widget(t, style, i, t.columns[i].title, ink)
+            header_cell_widget(t, style, i, ink, m)
         ))
         i = i + 1
     }
@@ -7020,8 +8093,13 @@ pub fn table_widget(t: Table, f: Frame) -> widget.Widget {
     val ink = parts_for(style, mood_of(t.disabled, false, false, false)).ink
     val tall = row_height(m, style)
     val rows = mutable_array_new<widget.Widget>()
-    var r = 0
-    while r < len(t.rows) {
+    // **Walked in display order, with `r` the data row it lands on.** The names, the selection and
+    // what a reader hears all key off the record; only where it sits on screen comes from the
+    // order.
+    val order = sorted_order(t)
+    var at = 0
+    while at < len(order) {
+        val r = order[at]
         val chosen = r == t.selected
         val row_parts = parts_for(
             style,
@@ -7072,7 +8150,7 @@ pub fn table_widget(t: Table, f: Frame) -> widget.Widget {
             children: [widget.expand(body), widget.fixed_of(0.0, style.stroke.hair, rule(style))],
             name: ""
         })))
-        r = r + 1
+        at = at + 1
     }
     val body = widget.expand(widget.named_scroll(
         concat(t.name, "/body"),

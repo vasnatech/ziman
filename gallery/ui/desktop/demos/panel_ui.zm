@@ -1,0 +1,27 @@
+// The Panel demo, as design.
+use controls
+use widget
+
+val gap = 12.0
+val panel_height = 150.0
+
+pub struct Screen {
+    alone: widget.Widget
+    buttons: widget.Widget
+    panel: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        // **The spinner on its own**, because it is usable without a panel: a button that is
+        // working, a row that is refreshing. The panel is the convention; this is the mark.
+        widget.row_of(gap, [
+            it.alone,
+            widget.label_of("A spinner on its own", f.style.text.caption.size, f.style.ink)
+        ]),
+        it.buttons,
+        widget.tall_of(panel_height, it.panel),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+    ])
+}

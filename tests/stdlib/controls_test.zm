@@ -6733,3 +6733,477 @@ fn an_absent_value_becomes_a_blank_cell() {
     test.assert(controls.Value.is_Text(controls.value_or_blank(Option<string>.Some("x"))))
     test.assert(controls.Value.is_Exact(controls.value_or_blank(Option<decimal>.Some(1.0d))))
 }
+
+// --- the autocomplete
+
+val suggest_box = geom.rect_of(0.0, 0.0, 200.0, 24.0)
+val suggest_popup = geom.rect_of(0.0, 24.0, 200.0, 120.0)
+
+fn drugs() -> controls.Autocomplete {
+    return controls.autocomplete_of("drug", "Medication", [
+        "Aspirin",
+        "Ibuprofen",
+        "Co-amoxiclav",
+        "Paracetamol",
+        "Amoxicillin"
+    ])
+}
+
+fn auto_step(a: controls.Autocomplete, input: controls.Input) -> controls.AutocompleteStep {
+    return controls.autocomplete_input(a, input, suggest_box, suggest_popup, frame())
+}
+
+fn auto_typed(a: controls.Autocomplete, text: string) -> controls.Autocomplete {
+    var now = a
+    for ch in chars(text) {
+        now = auto_step(now, controls.Input.Text(ch)).field
+    }
+    return now
+}
+
+fn matched(a: controls.Autocomplete) -> string {
+    return join(Option<string>.None, Option<string>.None, Option<string>.Some(","), controls.autocomplete_matches(a))
+}
+
+// **Typing filters and opens**, and the match is a substring rather than a prefix: medical names
+// are long and the part a user remembers is often in the middle -- "amox" finds Co-amoxiclav as
+// well as Amoxicillin.
+#[test]
+fn typing_filters_by_substring_and_opens_the_suggestions() {
+    val typed = auto_typed(drugs(), "amox")
+    test.assert(typed.open)
+    test.assert_eq(matched(typed), "Co-amoxiclav,Amoxicillin")
+    // Case-insensitively, by the locale-free fold: see `autocomplete_matches`.
+    test.assert_eq(matched(auto_typed(drugs(), "ASPIR")), "Aspirin")
+    // And an empty field offers everything rather than nothing.
+    test.assert_eq(len(controls.autocomplete_matches(drugs())), 5)
+}
+
+// **The arrows do not write into the field.** Filling the entry as the highlight moves reads
+// well and destroys the typing of a user who arrows past their answer: moving the highlight is
+// looking, Enter is choosing.
+#[test]
+fn the_arrows_move_the_highlight_without_touching_the_text() {
+    val typed = auto_typed(drugs(), "a")
+    val moved = auto_step(typed, controls.Input.KeyDown(key(controls.Key.Down))).field
+    test.assert_eq(controls.autocomplete_text(moved), "a")
+    test.assert(controls.autocomplete_highlighted(moved) != "")
+    test.assert_eq(controls.autocomplete_text(typed), controls.autocomplete_text(moved))
+}
+
+// **The popup stays open when nothing matches, and says so.** One that vanished would be
+// indistinguishable from one that broke, and the user would not know whether to keep typing.
+#[test]
+fn nothing_matching_leaves_the_popup_open_and_says_so() {
+    val none = auto_typed(drugs(), "zzz")
+    test.assert(none.open)
+    test.assert_eq(matched(none), "")
+    test.assert_eq(controls.autocomplete_said(none), "no suggestions")
+}
+
+// **This is the half every home-grown autocomplete leaves out.** A list that silently goes from a
+// hundred rows to three has told a sighted user something and a blind user nothing.
+#[test]
+fn a_reader_is_told_how_far_the_list_has_narrowed() {
+    test.assert_eq(controls.autocomplete_said(auto_typed(drugs(), "amox")), "2 of 5 suggestions")
+    // Four of the five hold an "a" -- Ibuprofen does not.
+    test.assert_eq(controls.autocomplete_said(auto_typed(drugs(), "a")), "4 of 5 suggestions")
+    // When everything still matches it says so plainly rather than "5 of 5", which reads as a
+    // filter that has done something.
+    val all_open = auto_step(drugs(), controls.Input.KeyDown(key(controls.Key.Down))).field
+    test.assert_eq(controls.autocomplete_said(all_open), "5 suggestions")
+    // Shut, it says nothing -- there is no list to describe.
+    test.assert_eq(controls.autocomplete_said(drugs()), "")
+}
+
+// **Enter with nothing highlighted does not take the first match**, which is how a form ends up
+// holding a diagnosis nobody chose. A field that allows free text keeps what was typed; one that
+// does not gives it up.
+#[test]
+fn enter_with_no_highlight_never_guesses() {
+    val typed = auto_typed(drugs(), "amox")
+    val strict = auto_step(typed, controls.Input.KeyDown(key(enter)))
+    test.assert_eq(strict.chosen, "")
+    test.assert_eq(controls.autocomplete_text(strict.field), "")
+    test.assert_false(strict.field.open)
+
+    val loose = auto_step(with typed { free_text: true }, controls.Input.KeyDown(key(enter)))
+    test.assert_eq(loose.chosen, "amox")
+    test.assert(loose.changed)
+
+    // With a highlight, Enter takes it.
+    val onto = auto_step(typed, controls.Input.KeyDown(key(controls.Key.Down))).field
+    val picked = auto_step(onto, controls.Input.KeyDown(key(enter)))
+    test.assert_eq(picked.chosen, "Co-amoxiclav")
+    test.assert_eq(controls.autocomplete_text(picked.field), "Co-amoxiclav")
+}
+
+// **Escape shuts the popup and keeps the typing; a second Escape gives it up.** One key, one step
+// -- which is what the calendar's Escape does between its views.
+#[test]
+fn escape_shuts_the_popup_before_it_gives_up_the_typing() {
+    val typed = auto_typed(drugs(), "amox")
+    val shut = auto_step(typed, controls.Input.KeyDown(key(controls.Key.Escape))).field
+    test.assert_false(shut.open)
+    test.assert_eq(controls.autocomplete_text(shut), "amox")
+
+    val given_up = auto_step(shut, controls.Input.KeyDown(key(controls.Key.Escape))).field
+    test.assert_eq(controls.autocomplete_text(given_up), "")
+}
+
+// **A value already committed is what the text reverts to**, not the empty string: abandoning a
+// half-typed replacement must not clear a field that already held something.
+#[test]
+fn abandoning_a_change_puts_the_committed_value_back() {
+    val typed = auto_typed(drugs(), "amox")
+    val onto = auto_step(typed, controls.Input.KeyDown(key(controls.Key.Down))).field
+    val held = auto_step(onto, controls.Input.KeyDown(key(enter))).field
+    test.assert_eq(controls.autocomplete_text(held), "Co-amoxiclav")
+
+    val retyped = auto_typed(held, "zz")
+    val gone = auto_step(auto_step(retyped, controls.Input.KeyDown(key(controls.Key.Escape))).field,
+        controls.Input.KeyDown(key(controls.Key.Escape))).field
+    test.assert_eq(controls.autocomplete_text(gone), "Co-amoxiclav")
+}
+
+// A shut field opens on Down with everything in it, which is the combo box's gesture and what a
+// user with no idea what the field accepts will try first.
+#[test]
+fn down_opens_a_shut_field_on_the_whole_set() {
+    val opened = auto_step(drugs(), controls.Input.KeyDown(key(controls.Key.Down))).field
+    test.assert(opened.open)
+    test.assert_eq(len(controls.autocomplete_matches(opened)), 5)
+}
+
+// **It is a combo box to a reader**, which is what ARIA says a text input with a list is -- and
+// the count rides on the description, which is where it can go until there is a live region.
+#[test]
+fn an_autocomplete_announces_itself_as_a_combo_box_with_a_count() {
+    val typed = auto_typed(drugs(), "amox")
+    test.assert_eq(
+        said_of(controls.autocomplete_widget(typed, frame()), "drug"),
+        "combo box, Medication, amox, expanded, 2 of 5 suggestions"
+    )
+}
+
+// --- sorting a table
+
+fn sortable() -> controls.Table {
+    return controls.table_of("sorted", "Readings", typed_columns(), [
+        [controls.Value.Text("Beta"), controls.Value.Whole(9), controls.Value.Flag(widget.Toggle.On)],
+        [controls.Value.Text("Alpha"), controls.Value.Whole(10), controls.Value.Flag(widget.Toggle.Off)],
+        [controls.Value.Text("Gamma"), controls.Value.Blank, controls.Value.Flag(widget.Toggle.Mixed)]
+    ], locale.of("en_GB.UTF-8"))
+}
+
+fn order_of(t: controls.Table) -> string {
+    val out = mutable_array_new<string>()
+    for row in controls.sorted_order(t) {
+        push(out, controls.cell_at(t, row, 0))
+    }
+    return join(Option<string>.None, Option<string>.None, Option<string>.Some(","), snapshot(out))
+}
+
+// **This is what F321 was for.** A column of text sorts "10" before "9", which makes a sorted
+// table worse than an unsorted one: the user believes an order that is not there.
+#[test]
+fn a_number_column_sorts_as_numbers_and_not_as_text() {
+    val by_number = controls.sorted_on(sortable(), 1)
+    test.assert_eq(order_of(by_number), "Beta,Alpha,Gamma")
+    // 9 before 10, which string comparison gets backwards.
+    test.assert_eq(controls.cell_at(by_number, controls.sorted_order(by_number)[0], 1), "9")
+}
+
+// **A `Blank` sorts to the end whichever way the column points.** A missing measurement is not
+// smaller than every number and larger than none; it is absent, and flipping it with the rest
+// would make reversing a column look like data moving.
+#[test]
+fn a_blank_stays_at_the_end_in_both_directions() {
+    val up = controls.sorted_on(sortable(), 1)
+    val down = controls.sorted_on(up, 1)
+    test.assert_false(up.ascending == down.ascending)
+    test.assert_eq(order_of(up), "Beta,Alpha,Gamma")
+    test.assert_eq(order_of(down), "Alpha,Beta,Gamma")
+}
+
+// **Three states, not two.** The order a caller gave is meaningful -- a query already ordered by
+// date -- and a header that could only toggle between two sorts would throw it away the moment
+// somebody touched it.
+#[test]
+fn a_third_press_puts_the_given_order_back() {
+    val once = controls.sorted_on(sortable(), 0)
+    val twice = controls.sorted_on(once, 0)
+    val thrice = controls.sorted_on(twice, 0)
+    test.assert_eq(order_of(once), "Alpha,Beta,Gamma")
+    test.assert_eq(order_of(twice), "Gamma,Beta,Alpha")
+    test.assert_eq(thrice.sorted_by, 0 - 1)
+    test.assert_eq(order_of(thrice), "Beta,Alpha,Gamma")
+}
+
+// **The selection follows the record and not the row it was sitting on.** `selected` is an index
+// into `rows`, so sorting the data itself would silently move it to a different record -- which
+// is why the order is a projection.
+#[test]
+fn sorting_keeps_the_selection_on_the_same_record() {
+    val t = with sortable() { selected: 0 }
+    test.assert_eq(controls.cell_at(t, t.selected, 0), "Beta")
+    val sorted = controls.sorted_on(t, 0)
+    test.assert_eq(controls.cell_at(sorted, sorted.selected, 0), "Beta")
+    // And it has moved on screen, from the first row to the second.
+    test.assert_eq(controls.display_at(t, 0), 0)
+    test.assert_eq(controls.display_at(sorted, 0), 1)
+}
+
+// **The two index spaces have to agree**: a position on screen maps to a record and back. This is
+// the calendar's twenty-two points in another costume -- a control that confused them would
+// select a different record from the one under the pointer.
+#[test]
+fn a_position_and_a_record_round_trip_through_each_other() {
+    val sorted = controls.sorted_on(sortable(), 0)
+    var at = 0
+    while at < 3 {
+        test.assert_eq(controls.display_at(sorted, controls.row_shown_at(sorted, at)), at)
+        at = at + 1
+    }
+    // Off the end is -1 rather than a wrong row.
+    test.assert_eq(controls.row_shown_at(sorted, 3), 0 - 1)
+    test.assert_eq(controls.display_at(sorted, 9), 0 - 1)
+}
+
+// A flag column orders off, then partly, then on -- the order the three states are declared in.
+#[test]
+fn a_flag_column_orders_by_what_the_toggle_means() {
+    test.assert_eq(order_of(controls.sorted_on(sortable(), 2)), "Alpha,Gamma,Beta")
+}
+
+// **The header says which way it is pointing**, because `a11y` has no live region: there is
+// nowhere to announce the change as it happens, so a reader has to hear it on arrival.
+#[test]
+fn a_sorted_column_tells_a_reader_which_way() {
+    val sorted = controls.sorted_on(sortable(), 0)
+    test.assert_eq(
+        said_of(controls.table_widget(sorted, frame()), controls.column_header_name(sorted, 0)),
+        "column header, Name, ascending"
+    )
+}
+
+// --- a panel that is waiting
+
+fn records() -> widget.Widget {
+    return controls.button_widget(controls.button_of("panel-edit", "Edit"), frame())
+}
+
+fn panel() -> controls.Panel {
+    return controls.panel_of("meds", "Medications", "No medications recorded")
+}
+
+fn panel_laid(p: controls.Panel, content: widget.Widget) -> widget.Laid {
+    return widget.layout(
+        controls.panel_widget(p, content, frame()),
+        geom.rect_of(0.0, 0.0, 200.0, 120.0),
+        metrics()
+    )
+}
+
+fn panel_says(p: controls.Panel, content: widget.Widget) -> string {
+    return switch a11y.node_of(a11y.tree_of(panel_laid(p, content), "x", ""), "meds/state") {
+        Some(n) { n.name }
+        None { "(absent)" }
+    }
+}
+
+// **A Tab cannot land in a form that is still being fetched**, because there is no form there
+// yet. This is the expander's rule and here it is what makes the keyboard behave: a panel that
+// drew a spinner *over* its content would leave every control underneath reachable, focusable and
+// editable -- which is how a user edits a record that is about to be replaced by the one still
+// arriving.
+#[test]
+fn a_waiting_panel_holds_nothing_a_tab_can_reach() {
+    test.assert_eq(len(focus.controls(panel_laid(controls.panel_ready(panel()), records()))), 1)
+    test.assert_eq(len(focus.controls(panel_laid(controls.panel_loading(panel()), records()))), 0)
+    test.assert_eq(len(focus.controls(panel_laid(panel(), records()))), 0)
+    test.assert_eq(
+        len(focus.controls(panel_laid(controls.panel_failed(panel(), "Could not load"), records()))),
+        0
+    )
+}
+
+// **A loading flag is not enough**, which is why this is an enum: a panel that is empty and one
+// that is still fetching look the same to a boolean and must not look the same to a user. "No
+// medications recorded" while a query is still running is a statement that is not true yet.
+#[test]
+fn an_empty_panel_and_a_waiting_one_do_not_say_the_same_thing() {
+    test.assert_eq(panel_says(controls.panel_loading(panel()), records()), "Medications: loading")
+    test.assert_eq(
+        panel_says(controls.panel_ready(panel()), widget.Widget.Nothing),
+        "Medications: No medications recorded"
+    )
+    test.assert_eq(panel_says(controls.panel_ready(panel()), records()), "Medications: ready")
+    // Nothing has been asked for yet, so there is nothing to say.
+    test.assert_eq(panel_says(panel(), records()), "")
+}
+
+// **A failure interrupts and the rest waits its turn.** A panel that finished is news the user can
+// hear when the reader reaches it; a panel that could not is news they are about to act without.
+#[test]
+fn only_a_failure_interrupts_the_reader() {
+    val failed = controls.panel_failed(panel(), "Could not load")
+    test.assert(controls.waiting_is_urgent(failed))
+    test.assert_false(controls.waiting_is_urgent(controls.panel_loading(panel())))
+    test.assert_eq(panel_says(failed, records()), "Medications: Could not load")
+    // Which is the role the region carries, and so the politeness it is spoken with.
+    switch a11y.node_of(a11y.tree_of(panel_laid(failed, records()), "x", ""), "meds/state") {
+        Some(n) { test.assert(widget.Role.is_Alert(n.role)) }
+        None { test.assert(false) }
+    }
+}
+
+// **A panel that finished while the user was looking elsewhere says so**, which is what F329 was
+// built for and the half this task could not have met an hour before it.
+#[test]
+fn finishing_is_announced_rather_than_waited_to_be_found() {
+    val before = a11y.tree_of(panel_laid(controls.panel_loading(panel()), records()), "x", "")
+    val after = a11y.tree_of(panel_laid(controls.panel_ready(panel()), records()), "x", "")
+    val said = a11y.announcements(before, after)
+    test.assert_eq(len(said), 1)
+    test.assert_eq(said[0].text, "Medications: ready")
+    test.assert_false(said[0].assertive)
+    // And a panel that is still loading on the next frame says nothing at all.
+    test.assert_eq(len(a11y.announcements(before, before)), 0)
+}
+
+// --- the search field
+
+val search_box = geom.rect_of(0.0, 0.0, 200.0, 26.0)
+
+fn finder() -> controls.Search {
+    return controls.search_of("find", "Search medications")
+}
+
+fn search_step(s: controls.Search, input: controls.Input) -> controls.SearchStep {
+    return controls.search_input(s, input, search_box, frame())
+}
+
+fn search_typed(s: controls.Search, text: string) -> controls.Search {
+    var now = s
+    for ch in chars(text) {
+        now = search_step(now, controls.Input.Text(ch)).search
+    }
+    return now
+}
+
+fn search_laid(s: controls.Search) -> widget.Laid {
+    return widget.layout(controls.search_widget(s, frame()), search_box, metrics())
+}
+
+// **The clear mark must not be a second tab stop.** A search box that put it in the tab order
+// would make Tab out of a search field take two presses, in every form that has one.
+#[test]
+fn a_search_field_is_one_tab_stop_even_with_something_to_clear() {
+    test.assert_eq(len(focus.controls(search_laid(finder()))), 1)
+    test.assert_eq(len(focus.controls(search_laid(search_typed(finder(), "asp")))), 1)
+}
+
+// **The mark appears only when there is something to clear**, because a button that does nothing
+// is worse than no button: the pointer changes over it and promises otherwise.
+#[test]
+fn the_clear_mark_is_absent_until_there_is_something_to_clear() {
+    test.assert_false(holds_named(search_laid(finder()), controls.search_clear_name(finder())))
+    test.assert(holds_named(
+        search_laid(search_typed(finder(), "asp")),
+        controls.search_clear_name(finder())
+    ))
+}
+
+// A press on the mark clears the field, and the focus is not taken: the next thing a user does
+// after clearing a search is type another one.
+#[test]
+fn pressing_the_mark_clears_the_field() {
+    val typed = search_typed(finder(), "asp")
+    test.assert_eq(controls.search_text(typed), "asp")
+    val at = centre_in(search_laid(typed), controls.search_clear_name(typed))
+    val step = search_step(typed, controls.Input.Press(at))
+    test.assert_eq(controls.search_text(step.search), "")
+    test.assert(step.changed)
+}
+
+// **Escape clears it**, which is what every search box does and why the key is worth spending
+// here: a user who wants their list back should not have to select the text first.
+#[test]
+fn escape_clears_the_search() {
+    val typed = search_typed(finder(), "asp")
+    val step = search_step(typed, controls.Input.KeyDown(key(controls.Key.Escape)))
+    test.assert_eq(controls.search_text(step.search), "")
+    test.assert(step.changed)
+    // On an empty field it changes nothing, so a caller can let Escape fall through to a dialog.
+    test.assert_false(search_step(finder(), controls.Input.KeyDown(key(controls.Key.Escape))).changed)
+}
+
+// **A reader hears the label, not a placeholder**: this field has none, deliberately, because a
+// hint inside the box disappears the moment somebody types.
+#[test]
+fn a_search_field_announces_what_it_searches() {
+    test.assert_eq(
+        said_of(controls.search_widget(search_typed(finder(), "asp"), frame()), "find"),
+        "text field, Search medications, asp"
+    )
+}
+
+// --- the badge
+
+fn badged(n: int) -> controls.Button {
+    return with controls.button_of("meds", "Medications") { badge: controls.count_badge_of(n) }
+}
+
+// **One phrase and not two nodes**, which is the whole point of the arrangement: a reader saying
+// "Medications" and then, separately, "3" has read the user two facts where there is one.
+#[test]
+fn a_badge_is_part_of_what_its_control_says() {
+    test.assert_eq(said_of(controls.button_widget(badged(3), frame()), "meds"), "button, Medications, 3")
+    test.assert_eq(said_of(controls.button_widget(badged(0), frame()), "meds"), "button, Medications")
+}
+
+// And it is not a node of its own, so a reader walking the tree does not meet it twice: the
+// button with a badge is visited exactly as often as the button without one.
+#[test]
+fn a_badge_adds_nothing_a_reader_visits() {
+    test.assert_eq(len(badge_reachable(3)), len(badge_reachable(0)))
+    test.assert_eq(len(badge_reachable(3)), 1)
+}
+
+fn badge_reachable(n: int) -> [a11y.Node] {
+    return a11y.reachable(a11y.tree_of(
+        widget.layout(
+            controls.button_widget(badged(n), frame()),
+            geom.rect_of(0.0, 0.0, 200.0, 30.0),
+            metrics()
+        ),
+        "x",
+        ""
+    ))
+}
+
+// **Zero is not a badge at all.** A count of nothing is nothing to say, and a badge showing "0" is
+// a dot that means "no news" in a place a user has learnt means "news".
+#[test]
+fn a_count_of_nothing_is_not_shown() {
+    test.assert(Option.is_None(controls.count_badge_of(0)))
+    test.assert(Option.is_None(controls.count_badge_of(0 - 4)))
+    test.assert(Option.is_Some(controls.count_badge_of(1)))
+}
+
+// **The cap lives here and not in twelve callers**: "99+" is a convention, and twelve applications
+// each choosing where to cut off would give one window three different answers.
+#[test]
+fn a_large_count_is_capped_in_one_place() {
+    test.assert_eq(badge_words(controls.count_badge_of(99)), "99")
+    test.assert_eq(badge_words(controls.count_badge_of(100)), "99+")
+    test.assert_eq(badge_words(controls.count_badge_of(4821)), "99+")
+}
+
+fn badge_words(b: Option<controls.Badge>) -> string {
+    return switch b {
+        Some(it) { it.text }
+        None { "" }
+    }
+}

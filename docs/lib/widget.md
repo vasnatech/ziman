@@ -1303,6 +1303,18 @@ pub enum Role {
     // through a form hears the first without ever meeting the second.
     DateEditor
     Calendar
+    // Somewhere the application says something the user did not go and look for: a result count
+    // that changed under their typing, a panel that finished loading, a save that failed.
+    //
+    // **The politeness is the role, which is ARIA's own answer.** `role="status"` *is* polite and
+    // `role="alert"` *is* assertive, so a separate field would be a second way to say a thing the
+    // role already says -- and a node whose role and politeness disagreed would have no meaning.
+    //
+    // **A reader is a cursor**, and everything else here is read when the user arrives at it.
+    // These two are the only way for an application to say something without the user having gone
+    // anywhere. See `a11y.announcements`.
+    Status
+    Alert
     // Two panes and the divider between them. **The divider is a `Separator` inside this**, which
     // is how both ATK and GTK have it: the pane is what contains the two halves and publishes
     // where the split sits, and the handle is the thin thing you take hold of.
@@ -2017,6 +2029,20 @@ not, and that is exactly the kind of arithmetic every caller would get wrong onc
 **Leading and trailing, not west and east.** Swing added `LINE_START` and `LINE_END` in 1.4 for
 the same reason, and the vertical pair keep their plain names because a page's top does not
 mirror in Arabic or Hebrew.
+
+### `is_nothing_widget`
+
+```
+pub fn is_nothing_widget(w: Widget) -> bool
+```
+
+**An `Expand` holding nothing is still nothing**, which is the case `border_of` creates for
+itself: a missing centre is wrapped before it is filtered.
+Whether a widget would draw and measure as nothing at all.
+
+**Public because a panel has to tell "no content" from "content that is empty"** -- an empty
+answer is an answer, and a panel showing "No medications recorded" when it was handed nothing
+at all would be inventing one.
 
 ## Layout
 

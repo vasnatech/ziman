@@ -11,6 +11,8 @@
 // stem rather than listing them -- so a demo cannot be added with its design file forgotten.
 use controls
 use demos/accessibility
+use demos/autocomplete
+use demos/badge
 use demos/button
 use demos/check_box
 use demos/combo_box
@@ -27,10 +29,12 @@ use demos/list
 use demos/look_and_feel
 use demos/menu
 use demos/number_field
+use demos/panel
 use demos/picture
 use demos/progress
 use demos/radios
 use demos/scroll_bar
+use demos/search
 use demos/slider
 use demos/split_pane
 use demos/switches
@@ -57,6 +61,10 @@ pub enum Demo {
     DateField(date_field.Demo)
     Grid(grid.Demo)
     Flow(flow.Demo)
+    Autocomplete(autocomplete.Demo)
+    Panel(panel.Demo)
+    Search(search.Demo)
+    Badge(badge.Demo)
     Radios(radios.Demo)
     TextField(text_field.Demo)
     TextArea(text_area.Demo)
@@ -94,6 +102,10 @@ pub fn all() -> [Demo] {
         Demo.DateField(date_field.demo()),
         Demo.Grid(grid.demo()),
         Demo.Flow(flow.demo()),
+        Demo.Autocomplete(autocomplete.demo()),
+        Demo.Panel(panel.demo()),
+        Demo.Search(search.demo()),
+        Demo.Badge(badge.demo()),
         Demo.Radios(radios.demo()),
         Demo.TextField(text_field.demo()),
         Demo.TextArea(text_area.demo()),
@@ -130,6 +142,10 @@ pub fn title_of(d: Demo) -> string {
         DateField(_) { "Date field" }
         Grid(_) { "A form" }
         Flow(_) { "Wrapping" }
+        Autocomplete(_) { "Autocomplete" }
+        Panel(_) { "A panel that waits" }
+        Search(_) { "Search" }
+        Badge(_) { "Badge" }
         Radios(_) { "Radio group" }
         TextField(_) { "Text field" }
         TextArea(_) { "Text area" }
@@ -167,6 +183,10 @@ pub fn stem_of(d: Demo) -> string {
         DateField(_) { "date_field" }
         Grid(_) { "grid" }
         Flow(_) { "flow" }
+        Autocomplete(_) { "autocomplete" }
+        Panel(_) { "panel" }
+        Search(_) { "search" }
+        Badge(_) { "badge" }
         Radios(_) { "radios" }
         TextField(_) { "text_field" }
         TextArea(_) { "text_area" }
@@ -238,6 +258,15 @@ pub fn tick_of(d: Demo, f: controls.Frame) -> Option<Demo> {
         DateField(_) { Option<Demo>.None }
         Grid(_) { Option<Demo>.None }
         Flow(_) { Option<Demo>.None }
+        Autocomplete(_) { Option<Demo>.None }
+        Panel(it) {
+            switch panel.tick(it, f) {
+                Some(one) { Option<Demo>.Some(Demo.Panel(one)) }
+                None { Option<Demo>.None }
+            }
+        }
+        Search(_) { Option<Demo>.None }
+        Badge(_) { Option<Demo>.None }
     }
 }
 
@@ -255,6 +284,10 @@ pub fn view_of(d: Demo, f: controls.Frame) -> widget.Widget {
         DateField(it) { date_field.view(it, f) }
         Grid(it) { grid.view(it, f) }
         Flow(it) { flow.view(it, f) }
+        Autocomplete(it) { autocomplete.view(it, f) }
+        Panel(it) { panel.view(it, f) }
+        Search(it) { search.view(it, f) }
+        Badge(it) { badge.view(it, f) }
         Radios(it) { radios.view(it, f) }
         TextField(it) { text_field.view(it, f) }
         TextArea(it) { text_area.view(it, f) }
@@ -297,6 +330,10 @@ pub fn input_to(
         DateField(it) { Demo.DateField(date_field.input(it, name, input, laid, f)) }
         Grid(it) { Demo.Grid(grid.input(it, name, input, laid, f)) }
         Flow(it) { Demo.Flow(flow.input(it, name, input, laid, f)) }
+        Autocomplete(it) { Demo.Autocomplete(autocomplete.input(it, name, input, laid, f)) }
+        Panel(it) { Demo.Panel(panel.input(it, name, input, laid, f)) }
+        Search(it) { Demo.Search(search.input(it, name, input, laid, f)) }
+        Badge(it) { Demo.Badge(badge.input(it, name, input, laid, f)) }
         Radios(it) { Demo.Radios(radios.input(it, name, input, laid, f)) }
         TextField(it) { Demo.TextField(text_field.input(it, name, input, laid, f)) }
         TextArea(it) { Demo.TextArea(text_area.input(it, name, input, laid, f)) }
@@ -346,6 +383,10 @@ pub fn anchor_of(d: Demo) -> string {
         DateField(_) { "" }
         Grid(_) { "grid-method" }
         Flow(_) { "" }
+        Autocomplete(_) { "" }
+        Panel(_) { "" }
+        Search(_) { "" }
+        Badge(_) { "" }
         Radios(_) { "" }
         Slider(_) { "" }
         Link(_) { "" }
@@ -423,6 +464,10 @@ pub fn layer_of(d: Demo, at: geom.Rect, laid: widget.Laid, f: controls.Frame) ->
         DateField(it) { date_field.layer_at(it, laid, f) }
         Grid(it) { grid.layer_at(it, at, f) }
         Flow(_) { Option<widget.Layer>.None }
+        Autocomplete(it) { autocomplete.layer_at(it, laid, f) }
+        Panel(_) { Option<widget.Layer>.None }
+        Search(_) { Option<widget.Layer>.None }
+        Badge(_) { Option<widget.Layer>.None }
         Radios(_) { Option<widget.Layer>.None }
         Slider(_) { Option<widget.Layer>.None }
         Link(_) { Option<widget.Layer>.None }
@@ -464,6 +509,10 @@ pub fn group_of(d: Demo) -> string {
         DateField(_) { "Controls" }
         Grid(_) { "Layout" }
         Flow(_) { "Layout" }
+        Autocomplete(_) { "Controls" }
+        Panel(_) { "Controls" }
+        Search(_) { "Controls" }
+        Badge(_) { "Controls" }
         Radios(_) { "Controls" }
         Slider(_) { "Controls" }
         Link(_) { "Controls" }
@@ -512,6 +561,10 @@ pub fn cursor_of(
         DateField(_) { widget.Cursor.Text }
         Grid(_) { widget.Cursor.Arrow }
         Flow(_) { widget.Cursor.Arrow }
+        Autocomplete(_) { widget.Cursor.Text }
+        Panel(_) { widget.Cursor.Arrow }
+        Search(_) { widget.Cursor.Text }
+        Badge(_) { widget.Cursor.Arrow }
         Radios(_) { widget.Cursor.Arrow }
         Slider(_) { widget.Cursor.Arrow }
         Link(_) { widget.Cursor.Arrow }

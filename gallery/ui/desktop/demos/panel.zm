@@ -1,0 +1,141 @@
+// A panel, and the four things it can be doing.
+//
+// **Press Load and then Tab.** While it is loading the focus goes straight past it, because the
+// content is not laid out at all -- a panel that drew a spinner *over* its records would leave
+// every one of them reachable, focusable and editable while the ones replacing them were still
+// arriving.
+//
+// **Press Empty.** "No medications recorded" is not the same statement as "loading", and a panel
+// that said the first while the second was true would be telling the user something untrue. That
+// is why this is an enum and not a flag.
+//
+// **Press Fail.** The message interrupts the screen reader where finishing waits its turn: a
+// panel that finished is news a user can hear when they get to it, and a panel that could not is
+// news they are about to act without.
+//
+// The spinner takes a phase the application advances, exactly as the busy progress bar does --
+// `lib/ui` has no clock, so whatever knows how much time has passed is what says so.
+use boxes
+use controls
+use demos/panel_ui
+use widget
+
+pub struct Demo {
+    panel: controls.Panel
+    load: controls.Button
+    empty: controls.Button
+    fail: controls.Button
+    ready: controls.Button
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        panel: controls.panel_of("panel-meds", "Medications", "No medications recorded"),
+        load: controls.button_of("panel-load", "Load"),
+        ready: controls.button_of("panel-ready", "Ready"),
+        empty: controls.button_of("panel-empty", "Empty"),
+        fail: controls.button_of("panel-fail", "Fail")
+    }
+}
+
+// **Only while it is loading**, which is what keeps a still window still: a demo that ticked for
+// ever would repaint the gallery sixty times a second to animate nothing.
+pub fn tick(d: Demo, f: controls.Frame) -> Option<Demo> {
+    if !controls.Waiting.is_Loading(d.panel.state) {
+        return Option<Demo>.None
+    }
+    return Option<Demo>.Some(with d {
+        panel: with d.panel { phase: wrapped_phase(d.panel.phase + 0.02) }
+    })
+}
+
+fn wrapped_phase(v: float) -> float {
+    if v > 1.0 {
+        return v - 1.0
+    }
+    return v
+}
+
+fn records(d: Demo, f: controls.Frame) -> widget.Widget {
+    if controls.Waiting.is_Ready(d.panel.state) && d.panel.phase >= 0.0 {
+        return widget.column_of(6.0, [
+            controls.button_widget(controls.button_of("panel-aspirin", "Aspirin, 75mg"), f),
+            controls.button_widget(controls.button_of("panel-ramipril", "Ramipril, 5mg"), f)
+        ])
+    }
+    return widget.Widget.Nothing
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return panel_ui.screen(
+        panel_ui.Screen {
+            alone: controls.spinner_widget(
+                d.panel.phase,
+                f.style.accent,
+                controls.line_for(f.metrics, f.style.text.body)
+            ),
+            buttons: widget.row_of(8.0, [
+                controls.button_widget(d.load, f),
+                controls.button_widget(d.ready, f),
+                controls.button_widget(d.empty, f),
+                controls.button_widget(d.fail, f)
+            ]),
+            panel: controls.panel_widget(d.panel, records(d, f), f),
+            said: concat("A reader hears: \"", controls.said_waiting(d.panel, true), "\"")
+        },
+        f
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "panel-load" {
+        return after(d, controls.button_input(d.load, input, boxes.bounds_of(laid, name)), name)
+    }
+    if name == "panel-ready" {
+        return after(d, controls.button_input(d.ready, input, boxes.bounds_of(laid, name)), name)
+    }
+    if name == "panel-empty" {
+        return after(d, controls.button_input(d.empty, input, boxes.bounds_of(laid, name)), name)
+    }
+    if name == "panel-fail" {
+        return after(d, controls.button_input(d.fail, input, boxes.bounds_of(laid, name)), name)
+    }
+    return d
+}
+
+// **The button is asked once.** Asking it twice -- once for how it should be drawn and once for
+// whether it fired -- is two answers to one question, which is the shape of defect this gallery
+// keeps finding in its own library.
+fn after(d: Demo, step: controls.ButtonStep, name: string) -> Demo {
+    val moved = if step.activated { wanted(d, name) } else { d.panel }
+    if name == "panel-load" {
+        return with d { load: step.button, panel: moved }
+    }
+    if name == "panel-ready" {
+        return with d { ready: step.button, panel: moved }
+    }
+    if name == "panel-empty" {
+        return with d { empty: step.button, panel: moved }
+    }
+    return with d { fail: step.button, panel: moved }
+}
+
+fn wanted(d: Demo, name: string) -> controls.Panel {
+    if name == "panel-load" {
+        return with controls.panel_loading(d.panel) { phase: 0.0 }
+    }
+    if name == "panel-ready" {
+        return controls.panel_ready(d.panel)
+    }
+    if name == "panel-empty" {
+        // **An empty answer is an answer**: ready, and holding nothing. See `records`.
+        return with controls.panel_ready(d.panel) { phase: 0.0 - 1.0 }
+    }
+    return controls.panel_failed(d.panel, "Could not reach the server")
+}

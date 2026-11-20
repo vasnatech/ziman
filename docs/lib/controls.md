@@ -426,6 +426,9 @@ pub struct Button {
     // **A button with no label is announced by its icon's name**, which is the one case where an
     // icon is not decoration. A button with both says only its label.
     icon: Option<widget.Icon>
+    // A count or a word beside the label, part of the same fact. See `Badge`, which explains why
+    // this is a field here rather than a widget a caller puts next to the button.
+    badge: Option<Badge>
     disabled: bool
     held: bool
 }
@@ -2113,6 +2116,412 @@ of equal columns, so arithmetic finds the one under a point; a toolbar's command
 a word and a rule, every one a different width. Their laid boxes are the only thing that knows
 where they ended up, and `cursor_at` reads parts out of the tree for the same reason.
 
+## The badge
+
+### `Badge`
+
+```
+pub struct Badge {
+    text: string
+    // **Loud wears the accent**, for a count that is asking to be noticed: unread messages, things
+    // needing attention. Quiet is the ordinary face, for a status word that is merely true.
+    loud: bool
+}
+```
+
+A count or a word beside the thing it belongs to.
+
+**The whole of the difficulty is accessibility**, not drawing. A badge drawn beside a label is
+two nodes a reader meets separately -- "Medications", then "3" -- where the user sees one fact.
+So it is a **field on a control** rather than a widget beside one, exactly as `Button.icon` is,
+and the control folds it into what it announces.
+
+### `badge_of`
+
+```
+pub fn badge_of(text: string) -> Badge
+```
+
+### `count_badge_of`
+
+```
+pub fn count_badge_of(n: int) -> Option<Badge>
+```
+
+A count, capped.
+
+**The cap is here and not in twelve callers**, which is the only reason this is a constructor
+rather than a literal: "99+" is a convention, and twelve applications each choosing where to cut
+off would give one window three different answers. Zero is not a badge at all -- a count of
+nothing is nothing to say, and a badge showing "0" is a dot that means "no news" in a place a
+user has learnt means "news".
+
+### `badge_widget`
+
+```
+pub fn badge_widget(b: Badge, f: Frame) -> widget.Widget
+```
+
+## The search field
+
+### `Search`
+
+```
+pub struct Search {
+    entry: Entry
+}
+```
+
+A field for searching, which is an entry and two things beside it.
+
+**Worth having once rather than fifteen times.** It is a composition -- an entry, a mark, a
+button -- but the button is a control *inside* a control, which is the arrangement the number
+field had to get right and the tooltip demo had to name. Fifteen applications assembling it
+would be fifteen chances to make the clear button a second tab stop.
+
+### `SearchStep`
+
+```
+pub struct SearchStep {
+    search: Search
+    // The text changed, which for a search field is the only output that matters: there is nothing
+    // to commit, because what is typed *is* the query.
+    changed: bool
+}
+```
+
+### `search_of`
+
+```
+pub fn search_of(name: string, label: string) -> Search
+```
+
+### `search_text`
+
+```
+pub fn search_text(s: Search) -> string
+```
+
+### `search_clear_name`
+
+```
+pub fn search_clear_name(s: Search) -> string
+```
+
+The clear button's own name, which a caller needs to route a press by.
+
+### `search_input`
+
+```
+pub fn search_input(s: Search, input: Input, bounds: Rect, f: Frame) -> SearchStep
+```
+
+**Escape clears the field**, which is what every search box does and the reason the key is worth
+spending here: a user who wants their list back should not have to select the text first.
+
+**A press on the clear mark clears it and leaves the focus in the field**, because the next
+thing a user does after clearing a search is type another one. A clear button that took the
+focus would make them click back.
+
+### `search_widget`
+
+```
+pub fn search_widget(s: Search, f: Frame) -> widget.Widget
+```
+
+The field: the magnifier, the text, and the clear mark once there is something to clear.
+
+**The clear mark is a part and not a control**, so it is somewhere a click lands and a reader
+can name without becoming a second stop in the tab order. A search box that put its clear button
+in the tab order would make Tab out of a search field take two presses, in every form that has
+one.
+
+**It appears only when there is something to clear**, because a button that does nothing is
+worse than no button: the pointer changes over it and promises otherwise.
+
+## The panel
+
+### `Waiting`
+
+```
+pub enum Waiting {
+    // Nothing has been asked for yet.
+    Idle
+    Loading
+    // There is content, and it is what the caller passed.
+    Ready
+    // It did not work. The words are the caller's, because only the caller knows what failed.
+    Failed(string)
+}
+```
+
+What a panel has to show, which is four things and not two.
+
+**A loading flag is not enough**, which is the whole reason this is an enum. A panel that is
+empty and one that is still fetching look the same to a boolean and must not look the same to a
+user: "no records" and "not yet" are different facts, and a panel that showed "no records" while
+a query was still running has told the user something untrue. A failure is a third fact again,
+and the one most often drawn as an empty list.
+
+### `Panel`
+
+```
+pub struct Panel {
+    name: string
+    label: string
+    // What to say when it is `Ready` and holds nothing -- "No medications recorded". **Separate
+    // from `Idle`'s silence**, because an empty answer is an answer.
+    empty: string
+    state: Waiting
+    // How far round the spinner is, 0 to 1, advanced by the application. `lib/ui` has no clock;
+    // see `Progress.Busy`, which takes its phase the same way and for the same reason.
+    phase: float
+}
+```
+
+A panel, and what it is doing.
+
+### `panel_of`
+
+```
+pub fn panel_of(name: string, label: string, empty: string) -> Panel
+```
+
+### `panel_loading`
+
+```
+pub fn panel_loading(p: Panel) -> Panel
+```
+
+### `panel_ready`
+
+```
+pub fn panel_ready(p: Panel) -> Panel
+```
+
+### `panel_failed`
+
+```
+pub fn panel_failed(p: Panel, why: string) -> Panel
+```
+
+### `said_waiting`
+
+```
+pub fn said_waiting(p: Panel, holds_anything: bool) -> string
+```
+
+What a reader is told the panel is doing.
+
+**The words a live region speaks**, which is why this is public and why F329 came first: a panel
+that finishes while the user is looking elsewhere has to be able to say so, and before there was
+a live region every application would have invented its own way of not saying it.
+
+### `waiting_is_urgent`
+
+```
+pub fn waiting_is_urgent(p: Panel) -> bool
+```
+
+Whether a failure should interrupt the reader rather than wait its turn.
+
+**Only a failure does.** A panel that finished is news the user can hear when the reader gets to
+it; a panel that could not is news they are about to act on without.
+
+### `spinner_widget`
+
+```
+pub fn spinner_widget(phase: float, ink: Color, side: float) -> widget.Widget
+```
+
+### `panel_widget`
+
+```
+pub fn panel_widget(p: Panel, content: widget.Widget, f: Frame) -> widget.Widget
+```
+
+The panel: its content when it is ready, and what it is doing when it is not.
+
+**What it is not showing is not laid out at all**, which is the expander's rule (F304) and here
+it is what makes the keyboard behave: a Tab cannot land in a form that is still being fetched,
+because there is no form there yet. A panel that drew a spinner *over* its content would have
+every control underneath still reachable, still focusable, and still editable -- which is how a
+user edits a record that is about to be replaced by the one still arriving.
+
+**The live region is part of the panel and not the caller's job** (F329). A panel that finishes
+while the user is looking elsewhere has to say so, and if each application wrote that itself
+they would each write it differently -- which is the argument that pulled the live region
+forward in the first place.
+
+## The autocomplete
+
+### `Autocomplete`
+
+```
+pub struct Autocomplete {
+    entry: Entry
+    // Every candidate. **Held whole and not pre-filtered by the caller**, because the control has
+    // to be able to say "three of a hundred and twenty" -- and because a caller filtering for it
+    // would be a second implementation of the matching rule, free to disagree with the one that
+    // decides what the popup shows.
+    all: [string]
+    // The suggestion list's own state: which row is highlighted, how far it has scrolled.
+    //
+    // **Its `items` are not state.** Which suggestions exist is a function of what has been typed,
+    // so they are filled in from the filter before anything reads them. The toolbar's overflow
+    // menu keeps its rows the same way and for the same reason: a stored copy of a derived list is
+    // a second answer to a question that already has one.
+    suggestions: List
+    open: bool
+    // Whether a value matching no suggestion may be committed.
+    //
+    // **False by default, because "autocomplete" means completing from a known set.** A diagnosis,
+    // a medication, a MIME type: the value is a code and a field that accepted anything typed into
+    // it would be a field that silently accepts bad data. A caller whose field is a free note says
+    // so.
+    free_text: bool
+    // The last value committed, which is what the text reverts to when a user abandons what they
+    // were typing.
+    chosen: string
+}
+```
+
+A field that suggests from a known set as it is typed into.
+
+**The most asked-for control in the application this toolkit is being measured against**: twelve
+bespoke ones over one generic dropdown. Every piece of it already existed here -- the entry, the
+filtered list, the popup layer -- and none of the assembly did, which is where the behaviour
+lives.
+
+**It is a combo box that can be typed into**, and the differences from `ComboBox` are the whole
+design: the list narrows as you type, the set is held whole so the control can say how many of
+it match, and a value that is in no suggestion is either refused or kept depending on what the
+field is for.
+
+### `AutocompleteStep`
+
+```
+pub struct AutocompleteStep {
+    field: Autocomplete
+    // The value committed by this input, or "" for none. **A string and not an index**, because a
+    // free-text field commits something that is in no list and an index could not name it.
+    chosen: string
+    changed: bool
+}
+```
+
+### `autocomplete_of`
+
+```
+pub fn autocomplete_of(name: string, label: string, all: [string]) -> Autocomplete
+```
+
+### `autocomplete_text`
+
+```
+pub fn autocomplete_text(a: Autocomplete) -> string
+```
+
+What the user has typed.
+
+### `autocomplete_matches`
+
+```
+pub fn autocomplete_matches(a: Autocomplete) -> [string]
+```
+
+The candidates the typed text matches.
+
+**Case-insensitive substring, and the case folding is deliberately the locale-free one.**
+`to_lower(s, locale)` would be more correct for *display* and is wrong here: under `tr_TR` it
+maps `I` to `ı`, so a Turkish user typing an ASCII `i` would stop matching `Ibuprofen`. Matching
+wants one fold for everybody, which is what the single-argument form gives.
+
+**It is ASCII-only, and that is a real limit rather than a simplification.** `to_lower` leaves
+every byte above 0x7f alone, so `Ärztin` does not match `ärztin`. Full case folding is a
+roadmap item (`lib/core/locale.zm`'s header says so); until it lands, an accented candidate
+matches only if its case already agrees.
+
+### `autocomplete_said`
+
+```
+pub fn autocomplete_said(a: Autocomplete) -> string
+```
+
+What a reader is told about the narrowing.
+
+**This is the half of an autocomplete everybody leaves out**, and it is why the whole set is
+held rather than a filtered one: a list that silently goes from a hundred rows to three has told
+a sighted user something and a blind user nothing.
+
+**It rides on the control's description**, which is where it can go today: `a11y` has no live
+region, so there is no way to say a thing *as it changes* -- only to say it when a reader next
+reaches the control. That gap is recorded rather than worked around.
+
+### `autocomplete_highlighted`
+
+```
+pub fn autocomplete_highlighted(a: Autocomplete) -> string
+```
+
+The highlighted suggestion, or "" when none is.
+
+### `autocomplete_input`
+
+```
+pub fn autocomplete_input(
+    a: Autocomplete,
+    input: Input,
+    bounds: Rect,
+    popup: Rect,
+    f: Frame
+) -> AutocompleteStep
+```
+
+What an input does to the field.
+
+**The five decisions this control had to take**, written here because they are what separates a
+usable autocomplete from the twelve hand-rolled ones it is meant to replace:
+
+ 1. **Typing filters and opens**, and clears the highlight. A highlight that survived the text
+    changing under it would point at a row that is no longer the row it pointed at.
+ 2. **The arrows do not write into the field.** Some toolkits fill the entry as you arrow
+    ("inline autocomplete"); it reads well and it means a user who arrows past their answer has
+    had their typing destroyed. Moving the highlight is looking, Enter is choosing -- which is
+    the calendar's rule and the number field's.
+ 3. **The popup stays open when nothing matches**, and says so. A popup that vanished would be
+    indistinguishable from one that broke, and the user would not know whether to keep typing.
+ 4. **Enter with nothing highlighted does not take the first match.** That is how a form ends up
+    holding a diagnosis nobody chose. It commits the typed text when the field allows free text
+    and abandons it when the field does not.
+ 5. **Escape shuts the popup and keeps the typing**; a second Escape gives the typing up. One
+    key, one step, which is what the calendar's Escape does between its views.
+
+### `autocomplete_widget`
+
+```
+pub fn autocomplete_widget(a: Autocomplete, f: Frame) -> widget.Widget
+```
+
+The field itself: an entry that says what it is and how many suggestions it has.
+
+### `autocomplete_popup_layer`
+
+```
+pub fn autocomplete_popup_layer(a: Autocomplete, at: Rect, f: Frame) -> Option<widget.Layer>
+```
+
+The suggestions, or nothing while the field is shut.
+
+**An `Option`, as the context menu's is**: a caller holding a closed field has nothing to anchor
+an empty layer to, and the menu demo's zero-sized layer holding `Nothing` is what that costs.
+
+### `autocomplete_popup_height`
+
+```
+pub fn autocomplete_popup_height(a: Autocomplete, f: Frame) -> float
+```
+
 ## The context menu
 
 ### `ContextMenu`
@@ -2595,6 +3004,14 @@ pub struct Table {
     // header that drifts from its columns, and it drifts by exactly the bug you cannot see in a
     // screenshot.
     offset_x: float
+    // Which column the rows are ordered by, or -1 for the order they were given in.
+    //
+    // **The data is never reordered.** `selected` is an index into `rows`, so sorting the array
+    // would silently move the selection to a different record -- and the order the caller gave is
+    // a fact about the data that a view should not be able to destroy. `sorted_order` is an index
+    // projection, which is `Tree.visible_rows`'s pattern.
+    sorted_by: int
+    ascending: bool
     // Which column's trailing edge is being dragged, or -1.
     resizing: int
     // How far the pointer was from that edge when it took hold, so a resize does not snap the edge
@@ -2667,6 +3084,74 @@ What is in a cell, as text: what a text cell draws and what a reader hears.
 **Still a `string` and still this name**, because that is what every caller of it wants -- the
 typed value is `value_at`, and the two exist for different readers.
 
+### `compare_values`
+
+```
+pub fn compare_values(a: Value, b: Value) -> int
+```
+
+How two values order against each other, for sorting a column.
+
+**This is what F321 was for.** A column of text sorts "10" before "9", which makes a sorted
+table worse than an unsorted one -- the user believes an order that is not there. Holding the
+value means a number compares as a number and a date as a date.
+
+**Different kinds fall back to their text**, which is the honest answer for a column somebody
+filled with two sorts of thing: there is no meaning to "is this date larger than that word",
+and refusing to sort would be worse than ordering them predictably.
+
+### `sorted_order`
+
+```
+pub fn sorted_order(t: Table) -> [int]
+```
+
+The rows in the order they are shown, as indices into `rows`.
+
+**An index projection and not a reordering.** `selected` is an index into `rows`, so sorting the
+array itself would silently move the selection to a different record -- and the order a caller
+gave is a fact about the data that a view must not be able to destroy. `Tree.visible_rows` is
+the same shape for the same reason.
+
+**A `Blank` sorts to the end whichever way the column is pointing.** A missing measurement is
+not smaller than every number and larger than none of them; it is absent, and the end is where
+every spreadsheet puts it. Flipping it with the rest would make reversing a column move the
+holes from the top to the bottom, which reads as data moving.
+
+### `display_at`
+
+```
+pub fn display_at(t: Table, row: int) -> int
+```
+
+Where a data row sits on screen, or -1 when it is not shown.
+
+**The inverse of `sorted_order`, and the reason it exists at all**: a press and an arrow key
+both answer in *visual* positions while `selected` is a *data* index, and a control that
+confused the two would select a different record than the one under the pointer. That is the
+calendar's twenty-two points in another costume.
+
+### `row_shown_at`
+
+```
+pub fn row_shown_at(t: Table, position: int) -> int
+```
+
+The data row shown at a visual position, or -1.
+
+### `sorted_on`
+
+```
+pub fn sorted_on(t: Table, column: int) -> Table
+```
+
+Sorting by a column: the first press orders it upward, the next reverses it, and the third
+clears the sort.
+
+**Three states and not two**, because the order a caller gave is meaningful -- a query already
+ordered by date, a list already in the order a user arranged it -- and a table that could only
+toggle between two sorts would have thrown that away the moment somebody touched a header.
+
 ### `row_label`
 
 ```
@@ -2719,16 +3204,6 @@ the kind of subtraction that gets written four times and forgotten once.
 ```
 pub fn edge_at(t: Table, style: Style, bounds: Rect, p: Point, m: widget.Metrics) -> int
 ```
-
-Which column's trailing edge is under this point, or -1 for none.
-
-**Only in the header**, which is where a resize grip belongs: a drag starting over the rows is a
-selection in every table ever written, and treating a press four points from a column boundary
-in the middle of the data as a resize would make selecting a row a gamble.
-
-**The last column's edge is not a grip.** There is nothing to its right to give or take the
-points, so dragging it would either do nothing or resize a different column -- and a grip that
-does nothing is worse than no grip, because the pointer changed shape and promised otherwise.
 
 ### `table_row_name`
 

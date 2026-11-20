@@ -1,0 +1,27 @@
+// The Search demo, as design.
+use controls
+use widget
+
+val gap = 10.0
+val field_width = 280.0
+val list_height = 170.0
+
+pub struct Screen {
+    field: widget.Widget
+    found: widget.Widget
+    said: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.row_of(0.0, [widget.wide_of(field_width, it.field), widget.flex()]),
+        widget.part_of(
+            "search-count",
+            widget.Role.Status,
+            it.said,
+            widget.no_state(),
+            widget.label_of(it.said, f.style.text.caption.size, f.style.ink)
+        ),
+        widget.tall_of(list_height, it.found)
+    ])
+}

@@ -1,0 +1,111 @@
+// A field for searching, and the list it narrows.
+//
+// **Type, and then press Escape.** The list comes back without your having to select the text
+// first, which is what every search box does and why the key is worth spending here.
+//
+// **The clear mark appears only when there is something to clear.** A button that does nothing is
+// worse than no button: the pointer changes over it and promises otherwise.
+//
+// **Tab out of the field.** It takes one press, not two -- the clear mark is a part rather than a
+// control, so a click and a reader can reach it and the tab order cannot.
+//
+// The count beside it is a live region, so the narrowing is spoken and not only shown.
+use boxes
+use controls
+use demos/search_ui
+use widget
+
+pub struct Demo {
+    find: controls.Search
+    found: controls.List
+}
+
+fn everything() -> [string] {
+    return [
+        "Amoxicillin",
+        "Aspirin",
+        "Atorvastatin",
+        "Co-amoxiclav",
+        "Ibuprofen",
+        "Levothyroxine",
+        "Metformin",
+        "Omeprazole",
+        "Paracetamol",
+        "Ramipril",
+        "Salbutamol",
+        "Simvastatin"
+    ]
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        find: controls.search_of("search-find", "Search medications"),
+        found: controls.list_of("search-found", "Medications", everything())
+    }
+}
+
+// **Derived, never stored.** What matches is a function of what has been typed, so there is no
+// second copy of it to fall out of step -- the autocomplete holds its whole set for the same
+// reason.
+fn matching(d: Demo) -> [string] {
+    val typed = to_lower(trim(controls.search_text(d.find)))
+    if typed == "" {
+        return everything()
+    }
+    val out = mutable_array_new<string>()
+    for one in everything() {
+        if contains(to_lower(one), typed) {
+            push(out, one)
+        }
+    }
+    return snapshot(out)
+}
+
+fn said(d: Demo) -> string {
+    val found = len(matching(d))
+    if found == len(everything()) {
+        return concat(str(found), " medications")
+    }
+    if found == 0 {
+        return "Nothing matches"
+    }
+    return concat(str(found), " of ", str(len(everything())), " medications")
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return search_ui.screen(
+        search_ui.Screen {
+            field: controls.search_widget(d.find, f),
+            found: controls.list_widget(with d.found { items: matching(d) }, f),
+            said: said(d)
+        },
+        f
+    )
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "search-found" {
+        return with d {
+            found: controls.list_input(
+                with d.found { items: matching(d) },
+                input,
+                boxes.bounds_of(laid, name),
+                f
+            ).list
+        }
+    }
+    val step = controls.search_input(d.find, input, boxes.bounds_of(laid, "search-find"), f)
+    if !step.changed {
+        return with d { find: step.search }
+    }
+    // **The selection goes when the list under it does.** A row index into a list that has just
+    // been re-filtered points at a different medicine, which is the two-index-spaces defect the
+    // table had to be taught about.
+    return with d { find: step.search, found: with d.found { selected: 0 - 1, offset: 0.0 } }
+}
