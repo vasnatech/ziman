@@ -145,6 +145,7 @@ flowchart LR
     codec --> xml
     codec --> yaml
     controls --> a11y
+    controls --> chart
     controls --> edit
     controls --> focus
     controls --> geom
@@ -447,12 +448,12 @@ otherwise: everything on a layer depends only on lower layers.
 | `batch` | `datasource`, `db`, `time`, `uuid` | - |
 | `bits` | - | `image` |
 | `charset` | - | `codec`, `csv`, `font`, `fs`, `ini`, `io`, `json`, `ndjson`, `pdf`, `properties`, `terminal`, `toml`, `truetype`, `url`, `window`, `xml`, `yaml` |
-| `chart` | `geom`, `paint`, `scene`, `shape` | - |
+| `chart` | `geom`, `paint`, `scene`, `shape` | `controls` |
 | `client` | `clock`, `compress`, `encoding`, `http`, `io`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `charset`, `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
-| `controls` | `a11y`, `edit`, `focus`, `geom`, `locale`, `math`, `number`, `paint`, `scene`, `shape`, `time`, `widget` | `desktop`, `navigate`, `theme` |
+| `controls` | `a11y`, `chart`, `edit`, `focus`, `geom`, `locale`, `math`, `number`, `paint`, `scene`, `shape`, `time`, `widget` | `desktop`, `navigate`, `theme` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `charset`, `fs`, `io`, `json`, `number` | `codec` |
 | `datasource` | `clock`, `db` | `batch`, `eql`, `migrate` |

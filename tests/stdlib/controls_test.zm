@@ -9,6 +9,7 @@ use controls
 use focus
 use geom
 use locale
+use chart
 use paint
 use scene
 use shape
@@ -7474,4 +7475,107 @@ fn a_card_without_actions_is_shorter_than_one_with_them() {
     )
     test.assert(acted.height >= bare.height)
     test.assert(bare.width > 0.0)
+}
+
+// --- the chart view
+
+fn readings_chart() -> controls.ChartView {
+    return controls.chart_view_of(
+        "weight",
+        "Day",
+        with chart.chart_of(
+            ["Mon", "Tue", "Wed"],
+            [
+                chart.bar_series("Taken", [2.0, 3.0], paint.rgb8(0, 0, 0)),
+                chart.line_series("Target", [3.0, 3.0, 3.0], paint.rgb8(0, 0, 0))
+            ]
+        ) {
+            bands: [chart.Band { from: 2.0, to: 4.0, ink: paint.rgb8(0, 0, 0) }]
+        }
+    )
+}
+
+// **A chart's accessible form is its table**, built from the same `Chart` the drawing is built
+// from -- so what a reader hears cannot drift from what an eye is shown, because there is one set
+// of numbers and not two.
+#[test]
+fn a_chart_publishes_the_numbers_it_draws() {
+    val rows = controls.chart_rows(readings_chart())
+    test.assert_eq(len(rows), 3)
+    test.assert_eq(len(rows[0]), 3)
+    test.assert_eq(controls.value_text(rows[0][0], locale.of("en-GB")), "Mon")
+    test.assert_eq(controls.value_text(rows[1][1], locale.of("en-GB")), "3")
+    // **Blank, not zero.** The bar series stops at Tuesday; a missing reading drawn as zero is a
+    // reading, and a chart that invented one would be lying in the one place it is believed.
+    test.assert(controls.Value.is_Blank(rows[2][1]))
+    test.assert_eq(controls.value_text(rows[2][2], locale.of("en-GB")), "3")
+}
+
+// **A chart is focusable, unlike a card or a screen.** It carries information reachable no other
+// way, so it is a tab stop and its readings are what it announces.
+#[test]
+fn a_chart_is_a_tab_stop_where_a_card_is_not() {
+    val laid = widget.layout(
+        controls.chart_widget(readings_chart(), frame()),
+        geom.rect_of(0.0, 0.0, 300.0, 160.0),
+        metrics()
+    )
+    test.assert_eq(len(focus.controls(laid)), 1)
+    test.assert_eq(focus.controls(laid)[0].name, "weight")
+}
+
+// **Left and right walk the readings**, which is the whole keyboard a chart needs: one a keyboard
+// cannot walk is a picture, and a picture of numbers is what this is trying not to be.
+#[test]
+fn the_arrows_walk_a_charts_readings() {
+    val area = geom.rect_of(0.0, 0.0, 300.0, 160.0)
+    val first = controls.chart_input(
+        readings_chart(),
+        controls.Input.KeyDown(key(controls.Key.Right)),
+        area,
+        frame()
+    )
+    test.assert(first.moved)
+    test.assert_eq(first.view.at, 0)
+    val last = controls.chart_input(
+        first.view,
+        controls.Input.KeyDown(key(controls.Key.End)),
+        area,
+        frame()
+    )
+    test.assert_eq(last.view.at, 2)
+    // The ends hold rather than running off.
+    test.assert_false(
+        controls.chart_input(last.view, controls.Input.KeyDown(key(controls.Key.Right)), area, frame()).moved
+    )
+}
+
+// What it says about the reading it is on -- the words a hover readout shows and a reader hears.
+#[test]
+fn a_chart_says_the_reading_it_is_on() {
+    val area = geom.rect_of(0.0, 0.0, 300.0, 160.0)
+    val on_tuesday = with readings_chart() { at: 1 }
+    test.assert_eq(
+        controls.chart_said(on_tuesday, locale.of("en-GB")),
+        "Tue, Taken 3, Target 3"
+    )
+    test.assert_eq(controls.chart_said(with readings_chart() { at: 0 - 1 }, locale.of("en-GB")), "")
+}
+
+// The pointer names the slot it is actually over, worked out from the same `plot_box` the drawing
+// uses -- the invariant the calendar cost twenty-two points for lacking.
+#[test]
+fn the_pointer_names_the_slot_it_stands_over() {
+    val area = geom.rect_of(0.0, 0.0, 300.0, 160.0)
+    val v = readings_chart()
+    val plot = chart.plot_box(v.data, area, controls.chart_style_of(frame()))
+    var i = 0
+    while i < 3 {
+        val centre = chart.x_at(v.data, i, plot, controls.chart_style_of(frame()))
+        test.assert_eq(
+            controls.chart_slot_at(v, geom.point_of(centre, plot.y + 10.0), area, frame()),
+            i
+        )
+        i = i + 1
+    }
 }

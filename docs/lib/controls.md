@@ -2197,6 +2197,109 @@ of equal columns, so arithmetic finds the one under a point; a toolbar's command
 a word and a rule, every one a different width. Their laid boxes are the only thing that knows
 where they ended up, and `cursor_at` reads parts out of the tree for the same reason.
 
+## The chart
+
+### `ChartView`
+
+```
+pub struct ChartView {
+    name: string
+    label: string
+    data: chart.Chart
+    // The row a keyboard or a pointer is on, or -1. **A chart's selection is a reading**, which is
+    // what a hover readout shows and what a reader is told.
+    at: int
+}
+```
+
+A chart, and the table a reader hears instead of it.
+
+**A chart is the one thing in a window a screen reader cannot read at all.** The usual answers
+are a text summary, which is a guess at what matters, or nothing, which is most of the web.
+
+**This library's answer is that a chart's accessible form is its table.** `Table` already holds
+`Value`, already spells a number or a date in a locale and already sorts; a reader already knows
+how to walk one. A chart and a table of the same numbers are the same `[[Value]]`, so what a
+reader hears cannot drift from what is drawn -- there is one of it.
+
+**And so a chart *is* focusable**, unlike a card or a screen. It carries information reachable
+no other way, so it is a tab stop and its rows are what it announces.
+
+### `chart_view_of`
+
+```
+pub fn chart_view_of(name: string, label: string, data: chart.Chart) -> ChartView
+```
+
+### `chart_rows`
+
+```
+pub fn chart_rows(v: ChartView) -> [[Value]]
+```
+
+The chart as a table: one row per label, one column per series.
+
+**Built from the same `Chart` the drawing is built from**, which is the whole point: a reader
+and an eye are shown the same numbers because there is only one set of them.
+
+### `chart_columns`
+
+```
+pub fn chart_columns(v: ChartView) -> [Column]
+```
+
+### `chart_said`
+
+```
+pub fn chart_said(v: ChartView, l: Locale) -> string
+```
+
+What the control says about the reading it is on.
+
+### `ChartStep`
+
+```
+pub struct ChartStep {
+    view: ChartView
+    // The reading moved. What an application watches to show a readout beside the chart.
+    moved: bool
+}
+```
+
+### `chart_input`
+
+```
+pub fn chart_input(v: ChartView, input: Input, bounds: Rect, f: Frame) -> ChartStep
+```
+
+**Left and right walk the readings, which is the whole keyboard a chart needs.** A chart a
+keyboard cannot walk is a picture, and a picture of numbers is what this is trying not to be.
+
+### `chart_slot_at`
+
+```
+pub fn chart_slot_at(v: ChartView, p: Point, bounds: Rect, f: Frame) -> int
+```
+
+Which reading a point is over.
+
+**Worked out from the same `plot_box` the drawing uses**, so the readout cannot name one slot
+while the pointer stands over another -- the defect the calendar cost twenty-two points to.
+
+### `chart_style_of`
+
+```
+pub fn chart_style_of(f: Frame) -> chart.ChartStyle
+```
+
+The look's own colours and sizes, as a chart wants them.
+
+### `chart_widget`
+
+```
+pub fn chart_widget(v: ChartView, f: Frame) -> widget.Widget
+```
+
 ## The card
 
 ### `Card`

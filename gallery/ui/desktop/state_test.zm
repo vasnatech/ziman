@@ -227,6 +227,7 @@ fn every_kind_of_widget_appears_in_some_demo() {
     for kind in [
         "Text",
         "Drawing",
+        "Canvas",
         "Picture",
         "Group",
         "Sized",
@@ -258,6 +259,7 @@ fn kind_of(w: widget.Widget) -> string {
         Nothing { "Nothing" }
         Text(_) { "Text" }
         Drawing(_) { "Drawing" }
+        Canvas(_) { "Canvas" }
         Picture(_) { "Picture" }
         Group(_) { "Group" }
         Sized(_) { "Sized" }

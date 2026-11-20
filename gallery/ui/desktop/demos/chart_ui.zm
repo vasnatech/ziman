@@ -1,0 +1,20 @@
+// The Chart demo, as design.
+use controls
+use widget
+
+val gap = 10.0
+val chart_height = 190.0
+
+pub struct Screen {
+    chart: widget.Widget
+    said: string
+    rows: widget.Widget
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        widget.tall_of(chart_height, it.chart),
+        widget.label_of(it.said, f.style.text.caption.size, f.style.ink),
+        widget.expand(it.rows)
+    ])
+}

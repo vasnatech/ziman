@@ -19,6 +19,7 @@
 // application holds whatever its window needs, routes an input with `target`, and calls the update
 // for the control that input was for.
 use a11y
+use chart
 use edit
 use focus
 use geom
@@ -5756,6 +5757,190 @@ fn holds_point(laid: Laid, name: string, p: Point) -> bool {
 
 fn toolbar_still(t: Toolbar) -> ToolbarStep {
     return ToolbarStep { toolbar: t, fired: "" }
+}
+
+// ------------------------------------------------------------------ the chart
+
+// A chart, and the table a reader hears instead of it.
+//
+// **A chart is the one thing in a window a screen reader cannot read at all.** The usual answers
+// are a text summary, which is a guess at what matters, or nothing, which is most of the web.
+//
+// **This library's answer is that a chart's accessible form is its table.** `Table` already holds
+// `Value`, already spells a number or a date in a locale and already sorts; a reader already knows
+// how to walk one. A chart and a table of the same numbers are the same `[[Value]]`, so what a
+// reader hears cannot drift from what is drawn -- there is one of it.
+//
+// **And so a chart *is* focusable**, unlike a card or a screen. It carries information reachable
+// no other way, so it is a tab stop and its rows are what it announces.
+pub struct ChartView {
+    name: string
+    label: string
+    data: chart.Chart
+    // The row a keyboard or a pointer is on, or -1. **A chart's selection is a reading**, which is
+    // what a hover readout shows and what a reader is told.
+    at: int
+}
+
+pub fn chart_view_of(name: string, label: string, data: chart.Chart) -> ChartView {
+    return ChartView { name: name, label: label, data: data, at: 0 - 1 }
+}
+
+// The chart as a table: one row per label, one column per series.
+//
+// **Built from the same `Chart` the drawing is built from**, which is the whole point: a reader
+// and an eye are shown the same numbers because there is only one set of them.
+pub fn chart_rows(v: ChartView) -> [[Value]] {
+    val rows = mutable_array_new<[Value]>()
+    var i = 0
+    while i < len(v.data.labels) {
+        val cells = mutable_array_new<Value>()
+        push(cells, Value.Text(v.data.labels[i]))
+        for s in v.data.series {
+            if i < chart.points_shown(v.data, s) {
+                push(cells, Value.Number(s.points[i]))
+            } else {
+                // **Blank, not zero.** A missing reading drawn as zero is a reading.
+                push(cells, Value.Blank)
+            }
+        }
+        push(rows, snapshot(cells))
+        i = i + 1
+    }
+    return snapshot(rows)
+}
+
+pub fn chart_columns(v: ChartView) -> [Column] {
+    val cols = mutable_array_new<Column>()
+    push(cols, column_of(v.label, 120.0))
+    for s in v.data.series {
+        push(cols, column_of(s.name, 100.0))
+    }
+    return snapshot(cols)
+}
+
+// What the control says about the reading it is on.
+pub fn chart_said(v: ChartView, l: Locale) -> string {
+    if v.at < 0 || v.at >= len(v.data.labels) {
+        return ""
+    }
+    val out = mutable_string_new()
+    append(out, v.data.labels[v.at])
+    for s in v.data.series {
+        if v.at < chart.points_shown(v.data, s) {
+            append(out, ", ")
+            append(out, s.name)
+            append(out, " ")
+            append(out, value_text(Value.Number(s.points[v.at]), l))
+        }
+    }
+    return snapshot(out)
+}
+
+pub struct ChartStep {
+    view: ChartView
+    // The reading moved. What an application watches to show a readout beside the chart.
+    moved: bool
+}
+
+// **Left and right walk the readings, which is the whole keyboard a chart needs.** A chart a
+// keyboard cannot walk is a picture, and a picture of numbers is what this is trying not to be.
+pub fn chart_input(v: ChartView, input: Input, bounds: Rect, f: Frame) -> ChartStep {
+    val n = len(v.data.labels)
+    if n == 0 {
+        return ChartStep { view: v, moved: false }
+    }
+    if KeyDown(k) = input {
+        if Key.is_Left(k.key) {
+            return chart_moved(v, if v.at <= 0 { 0 } else { v.at - 1 })
+        }
+        if Key.is_Right(k.key) {
+            return chart_moved(v, if v.at + 1 >= n { n - 1 } else { v.at + 1 })
+        }
+        if Key.is_Home(k.key) {
+            return chart_moved(v, 0)
+        }
+        if Key.is_End(k.key) {
+            return chart_moved(v, n - 1)
+        }
+    }
+    if Move(p) = input {
+        if widget.contains(bounds, p) {
+            return chart_moved(v, chart_slot_at(v, p, bounds, f))
+        }
+    }
+    return ChartStep { view: v, moved: false }
+}
+
+fn chart_moved(v: ChartView, to: int) -> ChartStep {
+    return ChartStep { view: with v { at: to }, moved: to != v.at }
+}
+
+// Which reading a point is over.
+//
+// **Worked out from the same `plot_box` the drawing uses**, so the readout cannot name one slot
+// while the pointer stands over another -- the defect the calendar cost twenty-two points to.
+pub fn chart_slot_at(v: ChartView, p: Point, bounds: Rect, f: Frame) -> int {
+    val n = len(v.data.labels)
+    if n == 0 {
+        return 0 - 1
+    }
+    val plot = chart.plot_box(v.data, bounds, chart_style_of(f))
+    if plot.width <= 0.0 {
+        return 0 - 1
+    }
+    val slot = ((p.x - plot.x) / plot.width * (n as float)) as int
+    if slot < 0 {
+        return 0
+    }
+    if slot >= n {
+        return n - 1
+    }
+    return slot
+}
+
+// The look's own colours and sizes, as a chart wants them.
+pub fn chart_style_of(f: Frame) -> chart.ChartStyle {
+    val style = f.style
+    return chart.ChartStyle {
+        ink: style.states.disabled.ink,
+        grid: style.grid,
+        text_size: style.text.caption.size,
+        font: style.text.caption.face,
+        line_width: style.stroke.line,
+        bar_fill: 0.62,
+        left_gutter: style.text.caption.size * 2.6,
+        bottom_gutter: style.text.caption.size * 1.9
+    }
+}
+
+pub fn chart_widget(v: ChartView, f: Frame) -> widget.Widget {
+    val data = v.data
+    val style = chart_style_of(f)
+    return widget.Widget.Control(widget.Focusable {
+        name: v.name,
+        role: widget.Role.Image,
+        label: v.label,
+        // **What a reader is told when it arrives**, which is a count and not a shape: "a line
+        // going up" is an interpretation, and the numbers are right there to be walked.
+        description: chart_summary(v),
+        value: chart_said(v, locale.default()),
+        state: widget.no_state(),
+        focus_part: "",
+        tab_stop: true,
+        child: widget.canvas_of(concat(v.name, "/plot"), fn(box: Rect) -> [scene.Op] {
+            return chart.chart_scene(data, box, style).ops
+        })
+    })
+}
+
+fn chart_summary(v: ChartView) -> string {
+    return concat(
+        str(len(v.data.series)),
+        if len(v.data.series) == 1 { " series over " } else { " series over " },
+        str(len(v.data.labels)),
+        " readings. Left and right walk them."
+    )
 }
 
 // ------------------------------------------------------------------- the card

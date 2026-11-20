@@ -100,6 +100,31 @@ pub struct Label {
 // One colour, because this is a *mark* rather than a picture. A mark tints with the control's
 // state -- disabled, pressed -- and a picture does not; conflating them is how a disabled button
 // ends up with a bright icon on a grey label.
+// Arbitrary drawing: whatever a caller wants, in whatever box the layout gives it.
+//
+// **The escape hatch every toolkit has** -- Swing's `paintComponent`, GTK's `draw` -- and the one
+// this one did not. `Drawing` is a single path in a single colour, which is an icon; anything with
+// two colours in it, or any text, had nowhere to go. A chart is the case that found this.
+//
+// **A function of the box, not a fixed list of ops.** `Drawing` authors its path in a unit box and
+// scales it, which is right for an icon and wrong for anything with words in it: scaling a unit
+// box would scale the type with it, so a wide chart would have larger labels than a narrow one.
+// Being handed the real box instead keeps a 9-point label 9 points at every size.
+//
+// **It has no children and no text**, so a reader is told nothing by it -- which is honest rather
+// than convenient. A canvas that carries meaning owes the caller an accessible form of that
+// meaning beside it; `chart` publishes its rows as a table for exactly this reason.
+pub struct Painted {
+    draw: fn(geom.Rect) -> [scene.Op]
+    // What a click or a hit test calls this, as every other named widget has.
+    name: string
+}
+
+// A canvas: draw whatever you like into the box this is given.
+pub fn canvas_of(name: string, draw: fn(geom.Rect) -> [scene.Op]) -> Widget {
+    return Widget.Canvas(Painted { draw: draw, name: name })
+}
+
 pub struct Drawn {
     path: shape.Path
     colour: Color
@@ -1374,6 +1399,7 @@ pub enum Widget {
     Text(Label)
     // A path scaled into its box: a mark rather than a picture. See `Drawn`.
     Drawing(Drawn)
+    Canvas(Painted)
     // A decoded image drawn into its box: a picture rather than a mark. See `Pictured`.
     Picture(Pictured)
     Group(Stack)
@@ -1610,6 +1636,7 @@ pub fn measured(w: Widget, m: Metrics) -> Measured {
         // control it belongs to, from the text it sits beside, so measuring it would be the
         // widget answering a question that is not its to answer.
         Drawing(_) { just(size_of(0.0, 0.0)) }
+        Canvas(_) { just(size_of(0.0, 0.0)) }
         // **A picture does have one**, which is the difference between content and a mark: a
         // photograph is a size before it is anywhere, and a column of them is as tall as they are.
         Picture(it) { just(size_of(it.width, it.height)) }
@@ -2550,6 +2577,7 @@ fn is_nothing(w: Widget) -> bool {
         Expand(it) { is_nothing(it.child) }
         Text(_) { false }
         Drawing(_) { false }
+        Canvas(_) { false }
         Picture(_) { false }
         Group(_) { false }
         Sized(_) { false }
@@ -2628,6 +2656,7 @@ fn place(w: Widget, within: Rect, m: Metrics, index: int, parent_name: string) -
     val name = if own_name == "" { parent_name } else { own_name }
     return switch w {
         Drawing(_) { leaf(w, within, index, name) }
+        Canvas(_) { leaf(w, within, index, name) }
         Grid(it) { place_grid(it, w, within, m, index, name) }
         Flow(it) { place_flow(it, w, within, m, index, name) }
         Picture(_) { leaf(w, within, index, name) }
@@ -2803,6 +2832,7 @@ fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, index: int, name: 
 fn flex_weight(w: Widget) -> Option<float> {
     return switch w {
         Drawing(_) { Option<float>.None }
+        Canvas(_) { Option<float>.None }
         // **A grid is not flexible.** It has a natural size -- the sum of its tracks -- and a
         // `Share` track is how room is given *inside* it, which is a different question from
         // how much room the grid itself asks a parent for.
@@ -2840,6 +2870,7 @@ fn across_of(s: Size, direction: Direction) -> float {
 fn name_of(w: Widget) -> string {
     return switch w {
         Drawing(it) { it.name }
+        Canvas(it) { it.name }
         Grid(it) { it.name }
         Flow(it) { it.name }
         Picture(it) { it.name }
@@ -2992,6 +3023,7 @@ fn puts_ink_down(w: Widget) -> bool {
         Grid(_) { false }
         Flow(_) { false }
         Drawing(_) { true }
+        Canvas(_) { true }
         Nothing { false }
         Text(_) { false }
         Picture(_) { false }
@@ -3047,6 +3079,7 @@ pub fn role_of(l: Laid) -> Role {
         Grid(_) { Role.Unknown }
         Flow(_) { Role.Unknown }
         Drawing(_) { Role.Unknown }
+        Canvas(_) { Role.Unknown }
         Picture(_) { Role.Unknown }
         Layered(_) { Role.Unknown }
         Nothing { Role.Unknown }
@@ -3071,6 +3104,7 @@ pub fn text_of(l: Laid) -> string {
         Flow(_) { "" }
         Control(_) { "" }
         Drawing(_) { "" }
+        Canvas(_) { "" }
         Picture(_) { "" }
         Layered(_) { "" }
         Nothing { "" }
@@ -3100,6 +3134,7 @@ pub fn tip_in(l: Laid) -> string {
         Grid(_) { "" }
         Flow(_) { "" }
         Drawing(_) { "" }
+        Canvas(_) { "" }
         Picture(_) { "" }
         Layered(_) { "" }
         Nothing { "" }
@@ -3117,6 +3152,7 @@ pub fn tip_in(l: Laid) -> string {
 pub fn is_tab_stop(l: Laid) -> bool {
     return switch l.widget {
         Drawing(_) { false }
+        Canvas(_) { false }
         Grid(_) { false }
         Flow(_) { false }
         Picture(_) { false }
@@ -3136,6 +3172,7 @@ pub fn is_tab_stop(l: Laid) -> bool {
 pub fn is_control(l: Laid) -> bool {
     return switch l.widget {
         Drawing(_) { false }
+        Canvas(_) { false }
         Grid(_) { false }
         Flow(_) { false }
         Picture(_) { false }
@@ -3478,6 +3515,15 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: 
     }
     if Group(it) = l.widget {
         paint_surface(it.surface, l.bounds, ops)
+    }
+    // **The canvas, which no exhaustive switch could force.** This function tests with `if` and
+    // not a `switch`, so a variant it does not mention is simply never drawn -- silently, and only
+    // on screen. The comment on `collect` warns about exactly this and it applies here too.
+    if Canvas(it) = l.widget {
+        val painter = it.draw
+        for op in painter(l.bounds) {
+            push(ops, op)
+        }
     }
     if Drawing(it) = l.widget {
         // The path is authored in a unit box, so this is the one transform that makes an icon

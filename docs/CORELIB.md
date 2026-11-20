@@ -1368,6 +1368,37 @@ pub fn toolbar_layer(t: Toolbar, laid: Laid, width: float, within: Rect, f: Fram
 
 pub fn toolbar_input(
 
+pub struct ChartView {
+    name: string
+    label: string
+    data: chart.Chart
+    // The row a keyboard or a pointer is on, or -1. **A chart's selection is a reading**, which is
+    // what a hover readout shows and what a reader is told.
+    at: int
+}
+
+pub fn chart_view_of(name: string, label: string, data: chart.Chart) -> ChartView
+
+pub fn chart_rows(v: ChartView) -> [[Value]]
+
+pub fn chart_columns(v: ChartView) -> [Column]
+
+pub fn chart_said(v: ChartView, l: Locale) -> string
+
+pub struct ChartStep {
+    view: ChartView
+    // The reading moved. What an application watches to show a readout beside the chart.
+    moved: bool
+}
+
+pub fn chart_input(v: ChartView, input: Input, bounds: Rect, f: Frame) -> ChartStep
+
+pub fn chart_slot_at(v: ChartView, p: Point, bounds: Rect, f: Frame) -> int
+
+pub fn chart_style_of(f: Frame) -> chart.ChartStyle
+
+pub fn chart_widget(v: ChartView, f: Frame) -> widget.Widget
+
 pub struct Card {
     panel: Panel
     // Beside the title, and decoration: the title is what a reader hears, so an icon that
@@ -7425,6 +7456,14 @@ pub struct Label {
     name: string
 }
 
+pub struct Painted {
+    draw: fn(geom.Rect) -> [scene.Op]
+    // What a click or a hit test calls this, as every other named widget has.
+    name: string
+}
+
+pub fn canvas_of(name: string, draw: fn(geom.Rect) -> [scene.Op]) -> Widget
+
 pub struct Drawn {
     path: shape.Path
     colour: Color
@@ -7946,6 +7985,7 @@ pub enum Widget {
     Text(Label)
     // A path scaled into its box: a mark rather than a picture. See `Drawn`.
     Drawing(Drawn)
+    Canvas(Painted)
     // A decoded image drawn into its box: a picture rather than a mark. See `Pictured`.
     Picture(Pictured)
     Group(Stack)

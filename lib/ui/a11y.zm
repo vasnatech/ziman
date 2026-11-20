@@ -419,6 +419,7 @@ fn path_key(path: string) -> string {
 fn focusable_in(l: Laid) -> Option<widget.Focusable> {
     return switch l.widget {
         Drawing(_) { Option<widget.Focusable>.None }
+        Canvas(_) { Option<widget.Focusable>.None }
         Picture(_) { Option<widget.Focusable>.None }
         Control(f) { Option<widget.Focusable>.Some(f) }
         // A viewport is not a control: it scrolls, and what a reader navigates to are the things
@@ -443,6 +444,7 @@ fn role_for(l: Laid) -> Role {
     return switch l.widget {
         Picture(_) { Role.Image }
         Drawing(_) { Role.Label }
+        Canvas(_) { Role.Label }
         Text(_) { Role.Label }
         Scroll(_) { Role.Label }
         Layered(_) { Role.Label }
@@ -463,6 +465,7 @@ fn text_of(l: Laid) -> string {
         // announce twice -- "Save button, save" -- and an icon *without* a label is named by the
         // control that holds it, which is where the name belongs.
         Drawing(_) { "" }
+        Canvas(_) { "" }
         // **A picture speaks, where a mark does not.** Its alternative text is the only thing a
         // reader can say about it, so it is gathered like a label -- which also means a button
         // whose whole content is a picture is named by that text, the same way an icon-only

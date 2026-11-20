@@ -15,6 +15,7 @@ use demos/autocomplete
 use demos/badge
 use demos/button
 use demos/card
+use demos/chart
 use demos/check_box
 use demos/combo_box
 use demos/composing
@@ -69,6 +70,7 @@ pub enum Demo {
     Badge(badge.Demo)
     Card(card.Demo)
     Navigate(navigate.Demo)
+    Chart(chart.Demo)
     Radios(radios.Demo)
     TextField(text_field.Demo)
     TextArea(text_area.Demo)
@@ -112,6 +114,7 @@ pub fn all() -> [Demo] {
         Demo.Badge(badge.demo()),
         Demo.Card(card.demo()),
         Demo.Navigate(navigate.demo()),
+        Demo.Chart(chart.demo()),
         Demo.Radios(radios.demo()),
         Demo.TextField(text_field.demo()),
         Demo.TextArea(text_area.demo()),
@@ -154,6 +157,7 @@ pub fn title_of(d: Demo) -> string {
         Badge(_) { "Badge" }
         Card(_) { "Card" }
         Navigate(_) { "Navigate" }
+        Chart(_) { "Chart" }
         Radios(_) { "Radio group" }
         TextField(_) { "Text field" }
         TextArea(_) { "Text area" }
@@ -197,6 +201,7 @@ pub fn stem_of(d: Demo) -> string {
         Badge(_) { "badge" }
         Card(_) { "card" }
         Navigate(_) { "navigate" }
+        Chart(_) { "chart" }
         Radios(_) { "radios" }
         TextField(_) { "text_field" }
         TextArea(_) { "text_area" }
@@ -284,6 +289,7 @@ pub fn tick_of(d: Demo, f: controls.Frame) -> Option<Demo> {
             }
         }
         Navigate(_) { Option<Demo>.None }
+        Chart(_) { Option<Demo>.None }
     }
 }
 
@@ -307,6 +313,7 @@ pub fn view_of(d: Demo, f: controls.Frame) -> widget.Widget {
         Badge(it) { badge.view(it, f) }
         Card(it) { card.view(it, f) }
         Navigate(it) { navigate.view(it, f) }
+        Chart(it) { chart.view(it, f) }
         Radios(it) { radios.view(it, f) }
         TextField(it) { text_field.view(it, f) }
         TextArea(it) { text_area.view(it, f) }
@@ -355,6 +362,7 @@ pub fn input_to(
         Badge(it) { Demo.Badge(badge.input(it, name, input, laid, f)) }
         Card(it) { Demo.Card(card.input(it, name, input, laid, f)) }
         Navigate(it) { Demo.Navigate(navigate.input(it, name, input, laid, f)) }
+        Chart(it) { Demo.Chart(chart.input(it, name, input, laid, f)) }
         Radios(it) { Demo.Radios(radios.input(it, name, input, laid, f)) }
         TextField(it) { Demo.TextField(text_field.input(it, name, input, laid, f)) }
         TextArea(it) { Demo.TextArea(text_area.input(it, name, input, laid, f)) }
@@ -410,6 +418,7 @@ pub fn anchor_of(d: Demo) -> string {
         Badge(_) { "" }
         Card(_) { "" }
         Navigate(_) { "" }
+        Chart(_) { "" }
         Radios(_) { "" }
         Slider(_) { "" }
         Link(_) { "" }
@@ -493,6 +502,7 @@ pub fn layer_of(d: Demo, at: geom.Rect, laid: widget.Laid, f: controls.Frame) ->
         Badge(_) { Option<widget.Layer>.None }
         Card(_) { Option<widget.Layer>.None }
         Navigate(_) { Option<widget.Layer>.None }
+        Chart(_) { Option<widget.Layer>.None }
         Radios(_) { Option<widget.Layer>.None }
         Slider(_) { Option<widget.Layer>.None }
         Link(_) { Option<widget.Layer>.None }
@@ -540,6 +550,7 @@ pub fn group_of(d: Demo) -> string {
         Badge(_) { "Controls" }
         Card(_) { "Controls" }
         Navigate(_) { "Controls" }
+        Chart(_) { "Controls" }
         Radios(_) { "Controls" }
         Slider(_) { "Controls" }
         Link(_) { "Controls" }
@@ -594,6 +605,7 @@ pub fn cursor_of(
         Badge(_) { widget.Cursor.Arrow }
         Card(_) { widget.Cursor.Arrow }
         Navigate(_) { widget.Cursor.Arrow }
+        Chart(_) { widget.Cursor.Arrow }
         Radios(_) { widget.Cursor.Arrow }
         Slider(_) { widget.Cursor.Arrow }
         Link(_) { widget.Cursor.Arrow }

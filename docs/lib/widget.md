@@ -200,12 +200,12 @@ pub struct Label {
 A run of text. No wrapping: a label is one line, and a paragraph that wraps is a different
 widget with a different measurement (and `graphics/layout` already knows how to break one).
 
-### `Drawn`
+### `Painted`
 
 ```
-pub struct Drawn {
-    path: shape.Path
-    colour: Color
+pub struct Painted {
+    draw: fn(geom.Rect) -> [scene.Op]
+    // What a click or a hit test calls this, as every other named widget has.
     name: string
 }
 ```
@@ -220,6 +220,38 @@ belongs to decides, from the text it sits beside.
 One colour, because this is a *mark* rather than a picture. A mark tints with the control's
 state -- disabled, pressed -- and a picture does not; conflating them is how a disabled button
 ends up with a bright icon on a grey label.
+Arbitrary drawing: whatever a caller wants, in whatever box the layout gives it.
+
+**The escape hatch every toolkit has** -- Swing's `paintComponent`, GTK's `draw` -- and the one
+this one did not. `Drawing` is a single path in a single colour, which is an icon; anything with
+two colours in it, or any text, had nowhere to go. A chart is the case that found this.
+
+**A function of the box, not a fixed list of ops.** `Drawing` authors its path in a unit box and
+scales it, which is right for an icon and wrong for anything with words in it: scaling a unit
+box would scale the type with it, so a wide chart would have larger labels than a narrow one.
+Being handed the real box instead keeps a 9-point label 9 points at every size.
+
+**It has no children and no text**, so a reader is told nothing by it -- which is honest rather
+than convenient. A canvas that carries meaning owes the caller an accessible form of that
+meaning beside it; `chart` publishes its rows as a table for exactly this reason.
+
+### `canvas_of`
+
+```
+pub fn canvas_of(name: string, draw: fn(geom.Rect) -> [scene.Op]) -> Widget
+```
+
+A canvas: draw whatever you like into the box this is given.
+
+### `Drawn`
+
+```
+pub struct Drawn {
+    path: shape.Path
+    colour: Color
+    name: string
+}
+```
 
 ### `Pictured`
 
@@ -1505,6 +1537,7 @@ pub enum Widget {
     Text(Label)
     // A path scaled into its box: a mark rather than a picture. See `Drawn`.
     Drawing(Drawn)
+    Canvas(Painted)
     // A decoded image drawn into its box: a picture rather than a mark. See `Pictured`.
     Picture(Pictured)
     Group(Stack)

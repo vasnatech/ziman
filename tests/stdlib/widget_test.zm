@@ -2419,6 +2419,7 @@ fn as_flow(w: widget.Widget) -> widget.Flowed {
         Nothing { empty_flow() }
         Text(_) { empty_flow() }
         Drawing(_) { empty_flow() }
+        Canvas(_) { empty_flow() }
         Picture(_) { empty_flow() }
         Group(_) { empty_flow() }
         Sized(_) { empty_flow() }
@@ -2502,4 +2503,39 @@ fn an_absent_region_costs_no_gap() {
     val row = l.children[0].children[0]
     test.assert_eq(len(row.children), 1)
     test.assert_eq(row.children[0].bounds.x, 0.0)
+}
+
+// --- the canvas
+
+// **A canvas is handed its real box, not a unit one.** `Drawing` authors in a unit box and scales,
+// which is right for an icon and wrong for anything with words in it: scaling would scale the type
+// too, so a wide chart would have larger labels than a narrow one.
+#[test]
+fn a_canvas_is_drawn_into_the_box_it_was_given() {
+    val w = widget.canvas_of("plot", fn(box: geom.Rect) -> [scene.Op] {
+        return [scene.fill(shape.rect_path(box), paint.solid(paint.rgb8(0, 0, 0)))]
+    })
+    val laid = widget.layout(
+        widget.fixed_of(120.0, 40.0, w),
+        geom.rect_of(5.0, 7.0, 300.0, 200.0),
+        fake_metrics()
+    )
+    // **Its ops really reach the scene**, which no exhaustive switch could have forced: `paint`
+    // tests variants with `if`, so a canvas it did not mention would simply never be drawn --
+    // silently, and only on screen.
+    val drawn = widget.paint(laid, fake_metrics())
+    test.assert_eq(scene.op_count(drawn), 1)
+    test.assert_eq(widget.measure(w, fake_metrics()).width, 0.0)
+}
+
+// It is named, so a click has something to land on, and it says nothing to a reader -- which is
+// honest: a canvas that carries meaning owes an accessible form of that meaning beside it.
+#[test]
+fn a_canvas_is_named_and_silent() {
+    val w = widget.canvas_of("plot", fn(box: geom.Rect) -> [scene.Op] { return [] })
+    val laid = widget.layout(w, geom.rect_of(0.0, 0.0, 50.0, 50.0), fake_metrics())
+    switch widget.node_named(laid, "plot") {
+        Some(n) { test.assert_eq(n.bounds.width, 50.0) }
+        None { test.assert(false) }
+    }
 }

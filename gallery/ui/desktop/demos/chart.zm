@@ -1,0 +1,90 @@
+// A chart, and the table a reader hears instead of it.
+//
+// **Tab to it, then press Left and Right.** A chart a keyboard cannot walk is a picture, and a
+// picture of numbers is what this is trying not to be. Hover does the same thing with the pointer.
+//
+// **The table below is not a second copy of the data.** It is built from the same `chart.Chart`
+// the drawing is built from, which is this library's answer to the thing no charting library
+// answers: a chart is the one object in a window a screen reader cannot read at all, and the usual
+// replies are a text summary, which guesses at what matters, or nothing.
+//
+// The shaded band is the feature here that is not decoration. A reading is meaningful against a
+// range, and a chart that drew the line and left the range out has shown the number and hidden the
+// meaning.
+use boxes
+use chart
+use controls
+use demos/chart_ui
+use locale
+use paint
+use widget
+
+pub struct Demo {
+    view: controls.ChartView
+    rows: controls.Table
+}
+
+fn data() -> chart.Chart {
+    return with chart.chart_of(
+        ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        [
+            chart.bar_series("Taken", [2.0, 3.0, 3.0, 1.0, 3.0, 2.0, 3.0], paint.rgb8(186, 208, 236)),
+            chart.line_series("Target", [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0], paint.rgb8(28, 110, 214))
+        ]
+    ) {
+        bands: [chart.Band { from: 2.0, to: 4.0, ink: paint.rgb8(228, 244, 228) }]
+    }
+}
+
+pub fn demo() -> Demo {
+    val view = controls.chart_view_of("chart-doses", "Day", data())
+    return Demo {
+        view: view,
+        rows: controls.table_of(
+            "chart-rows",
+            "The same readings, as a reader hears them",
+            controls.chart_columns(view),
+            controls.chart_rows(view)
+        )
+    }
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return chart_ui.screen(
+        chart_ui.Screen {
+            chart: controls.chart_widget(d.view, f),
+            said: said(d),
+            rows: controls.table_widget(d.rows, f)
+        },
+        f
+    )
+}
+
+fn said(d: Demo) -> string {
+    val words = controls.chart_said(d.view, locale.default())
+    if words == "" {
+        return "Nothing selected. Tab to the chart, then press Left or Right."
+    }
+    return concat("Reading: ", words)
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == "chart-rows" {
+        return with d {
+            rows: controls.table_input(d.rows, input, boxes.bounds_of(laid, name), f).table
+        }
+    }
+    val step = controls.chart_input(d.view, input, boxes.bounds_of(laid, "chart-doses"), f)
+    if !step.moved {
+        return d
+    }
+    // **The table follows the chart**, because they are one set of readings: a row highlighted in
+    // one and not the other would be two answers to where the user is.
+    return with d { view: step.view, rows: with d.rows { selected: step.view.at } }
+}
