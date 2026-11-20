@@ -8,10 +8,12 @@ use boxes
 use controls
 use demos/combo_box_ui
 use geom
+use locale
 use widget
 
 pub struct Demo {
     picker: controls.ComboBox
+    doses: controls.ComboBox
 }
 
 pub fn demo() -> Demo {
@@ -21,6 +23,23 @@ pub fn demo() -> Demo {
             "Environment",
             ["(global)", "local", "staging", "production"],
             1
+        ),
+        // **The same control holding values rather than words.** A picker of doses held as
+        // strings has already chosen a format; held as `Value.Exact` it is told the locale once
+        // and spells itself -- and an application reading the choice back gets the decimal, not a
+        // string it would have to parse in whichever locale it happened to be written in. This is
+        // Swing's `ListModel` question, answered on the value instead of in a renderer.
+        doses: controls.combo_box_of(
+            "combo-doses",
+            "Dose",
+            [
+                controls.Value.Exact(2.5d),
+                controls.Value.Exact(5.0d),
+                controls.Value.Exact(12.75d),
+                controls.Value.Exact(1250.5d)
+            ],
+            1,
+            locale.of("de-DE")
         )
     }
 }
@@ -31,7 +50,9 @@ pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
     return combo_box_ui.screen(
         combo_box_ui.Screen {
             picker: controls.combo_box_widget(d.picker, controls.frame_of(style, m)),
-            said: said(d)
+            doses: controls.combo_box_widget(d.doses, controls.frame_of(style, m)),
+            said: said(d),
+            typed: typed_said(d)
         },
         f
     )
@@ -51,19 +72,23 @@ pub fn anchor(d: Demo) -> string {
     if d.picker.open {
         return "combo-demo"
     }
+    if d.doses.open {
+        return "combo-doses"
+    }
     return ""
 }
 
 pub fn layer(d: Demo, at: geom.Rect, f: controls.Frame) -> widget.Layer {
     val style = f.style
     val m = f.metrics
+    val which = if d.doses.open { d.doses } else { d.picker }
     return controls.combo_box_popup_layer(
-        d.picker,
+        which,
         geom.rect_of(
             at.x,
             at.y + at.height,
             at.width,
-            (len(d.picker.items.items) as float) * controls.row_height(m, style)
+            (len(which.items.items) as float) * controls.row_height(m, style)
         ),
         controls.frame_of(style, m)
     )
@@ -89,5 +114,35 @@ pub fn input(
             ).combo
         }
     }
+    if name == "combo-doses" || name == "combo-doses/items" {
+        return with d {
+            doses: controls.combo_box_input(
+                d.doses,
+                input,
+                boxes.bounds_of(laid, "combo-doses"),
+                boxes.bounds_of(laid, "combo-doses/items"),
+                controls.frame_of(style, m)
+            ).combo
+        }
+    }
     return d
+}
+
+// **What the application has, beside what the box shows.** The two stopped being the same thing
+// the moment a picker could hold a decimal: an application that read the text back and parsed it
+// would be undoing the formatting it just asked for, in the locale it asked for it in.
+fn typed_said(d: Demo) -> string {
+    val shown = controls.combo_box_value(d.doses)
+    return switch controls.combo_box_chosen(d.doses) {
+        Exact(mg) { concat("Shows \"", shown, "\" (German), and the value is ", str(mg), " mg.") }
+        Blank { "Nothing chosen." }
+        Text(_) { shown }
+        Number(_) { shown }
+        Whole(_) { shown }
+        Code(_) { shown }
+        Big(_) { shown }
+        Date(_) { shown }
+        Flag(_) { shown }
+        Mark(_) { shown }
+    }
 }

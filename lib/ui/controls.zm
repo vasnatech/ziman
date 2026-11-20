@@ -2720,7 +2720,12 @@ pub fn entry_widget(e: Entry, f: Frame) -> widget.Widget {
 pub struct List {
     name: string
     label: string
-    items: [string]
+    // **The rows, as values rather than as text.** Swing's `JList` takes a `ListModel` of objects
+    // and renders each through a cell renderer, which is how a list of dates sorts and prints as
+    // dates rather than as whatever `toString` happened to give. `Value` is this library's answer
+    // to the same question and is already the `Table`'s, so a list and a table holding the same
+    // column hold it the same way -- see `Value`, and `Table.rows`.
+    items: [Value]
     // The selected row, or -1 for none -- which is a real state, not an error: an empty list has no
     // selection, and neither does one the user has not touched.
     selected: int
@@ -2738,15 +2743,23 @@ pub struct List {
     // handling to rename two roles would have been the alternative.
     role: widget.Role
     item_role: widget.Role
+    // How a `Number`, a `Date` or an `Exact` is written out. The `Table` carries one for the same
+    // reason: a value knows what it is, and only a locale knows how it is spelled.
+    locale: Locale
     // The drag state of the bar down its right edge, as a tree has.
     bar: ScrollBar
 }
 
-pub fn list_of(name: string, label: string, items: [string]) -> List {
+pub fn list_of(name: string, label: string, items: [Value]) -> List {
+    return list_of(name, label, items, locale.default())
+}
+
+pub fn list_of(name: string, label: string, items: [Value], l: Locale) -> List {
     return List {
         name: name,
         label: label,
         items: items,
+        locale: l,
         selected: if len(items) == 0 { 0 - 1 } else { 0 },
         offset: 0.0,
         disabled: false,
@@ -2754,6 +2767,49 @@ pub fn list_of(name: string, label: string, items: [string]) -> List {
         item_role: widget.Role.ListItem,
         bar: scroll_bar_of(concat(name, "/bar"), 20.0)
     }
+}
+
+// A list of plain text, which is what most of them are.
+//
+// **Kept so that a list of words says nothing about types**, and so that every caller written
+// before `Value` existed still compiles -- `table_of` keeps the same door for the same reason.
+pub fn list_of(name: string, label: string, items: [string]) -> List {
+    return list_of(name, label, as_values(items))
+}
+
+// What a row says, spelled in the list's own locale.
+//
+// **Here rather than at every call site**, because the alternative is each caller reaching for
+// `value_text` and the list's locale together, and the one that forgets prints a date in the root
+// locale while the rows above it are in the user's. Out of range gives "", which an empty list and
+// an untouched selection both make real.
+pub fn list_text_at(l: List, i: int) -> string {
+    if i < 0 || i >= len(l.items) {
+        return ""
+    }
+    return value_text(l.items[i], l.locale)
+}
+
+// An empty list of values, which an empty literal cannot be: see `autocomplete_of`.
+pub fn no_values() -> [Value] {
+    return snapshot(mutable_array_new<Value>())
+}
+
+// Plain text as values.
+//
+// Public as well as used here: a caller that builds its rows as strings -- a filter, a search --
+// needs the same conversion the text constructors do, and the alternative is every one of them
+// writing the same four-line loop.
+pub fn as_text_values(items: [string]) -> [Value] {
+    return as_values(items)
+}
+
+fn as_values(items: [string]) -> [Value] {
+    val out = mutable_array_new<Value>()
+    for text in items {
+        push(out, Value.Text(text))
+    }
+    return snapshot(out)
 }
 
 pub struct ListStep {
@@ -2934,7 +2990,12 @@ pub fn list_widget(l: List, f: Frame) -> widget.Widget {
             // **The row's own ink, not the list's.** A face from one row and a word from another
             // is the half-implemented state the rows exist to prevent -- and a look whose
             // selection is the accent needs `on_accent` here or the text vanishes into it.
-            children: [widget.label_in_face(l.items[i], style.text.body.size, row_parts.ink, style.text.body.face)],
+            children: [widget.label_in_face(
+                value_text(l.items[i], l.locale),
+                style.text.body.size,
+                row_parts.ink,
+                style.text.body.face
+            )],
             name: ""
         })
         push(rows, widget.fixed_of(
@@ -2943,7 +3004,7 @@ pub fn list_widget(l: List, f: Frame) -> widget.Widget {
             widget.part_of(
                 row_name(l, i),
                 l.item_role,
-                l.items[i],
+                value_text(l.items[i], l.locale),
                 with widget.no_state() { selected: chosen, disabled: l.disabled },
                 row
             )
@@ -4013,11 +4074,21 @@ pub struct ComboBoxStep {
     dismissed: bool
 }
 
-pub fn combo_box_of(name: string, label: string, items: [string], selected: int) -> ComboBox {
+pub fn combo_box_of(name: string, label: string, items: [Value], selected: int) -> ComboBox {
+    return combo_box_of(name, label, items, selected, locale.default())
+}
+
+pub fn combo_box_of(
+    name: string,
+    label: string,
+    items: [Value],
+    selected: int,
+    l: Locale
+) -> ComboBox {
     return ComboBox {
         name: name,
         label: label,
-        items: with list_of(concat(name, "/items"), label, items) {
+        items: with list_of(concat(name, "/items"), label, items, l) {
             selected: if selected < 0 || selected >= len(items) { 0 - 1 } else { selected }
         },
         open: false,
@@ -4025,11 +4096,24 @@ pub fn combo_box_of(name: string, label: string, items: [string], selected: int)
     }
 }
 
+// A picker of plain words, which is what most of them are. See `list_of`'s own text door.
+pub fn combo_box_of(name: string, label: string, items: [string], selected: int) -> ComboBox {
+    return combo_box_of(name, label, as_values(items), selected)
+}
+
 // The value it is showing, or "" when nothing is chosen -- which an empty item list makes real.
 pub fn combo_box_value(c: ComboBox) -> string {
+    return value_text(combo_box_chosen(c), c.items.locale)
+}
+
+// **The value itself, not its spelling.** `combo_box_value` is what the box *shows*; this is what
+// the application *has*, and the two stopped being the same thing the moment a combo could hold a
+// date. An application that read the text back and parsed it would be undoing the formatting it
+// just asked for, in the locale it asked for it in.
+pub fn combo_box_chosen(c: ComboBox) -> Value {
     val at = c.items.selected
     if at < 0 || at >= len(c.items.items) {
-        return ""
+        return Value.Blank
     }
     return c.items.items[at]
 }
@@ -4161,7 +4245,7 @@ fn combo_typed(c: ComboBox, typed: string) -> ComboBoxStep {
     var step = 1
     while step <= n {
         val at = (c.items.selected + step) % n
-        if starts_with(to_lower(c.items.items[at]), want) {
+        if starts_with(to_lower(value_text(c.items.items[at], c.items.locale)), want) {
             return combo_moved(c, at)
         }
         step = step + 1
@@ -5486,7 +5570,9 @@ fn overflow_index(t: Toolbar, width: float, f: Frame, nth: int) -> int {
 // The stored overflow menu with its rows filled in from the width it is being shown at.
 fn refreshed_more(t: Toolbar, width: float, f: Frame) -> ContextMenu {
     val rows = overflow_labels(t, width, f)
-    return with t.more { menu: with t.more.menu { items: with t.more.menu.items { items: rows } } }
+    return with t.more {
+        menu: with t.more.menu { items: with t.more.menu.items { items: as_values(rows) } }
+    }
 }
 
 pub fn toolbar_widget(t: Toolbar, width: float, f: Frame) -> widget.Widget {
@@ -5833,13 +5919,22 @@ pub fn search_input(s: Search, input: Input, bounds: Rect, f: Frame) -> SearchSt
 // **Worked out from the control's bounds**, which is the stepper column's rule and the scroll
 // bar's: one control, one box, and its parts derived from the style that drew them.
 fn clear_box(s: Search, bounds: Rect, f: Frame) -> Rect {
+    val pad = padded_for(f.style)
     val side = search_mark_side(f)
-    return geom.rect_of(bounds.x + bounds.width - side, bounds.y, side, bounds.height)
+    return geom.rect_of(
+        bounds.x + bounds.width - pad.right - side,
+        bounds.y + pad.top,
+        side,
+        bounds.height - pad.top - pad.bottom
+    )
 }
 
+// **The text line, and not the line plus the padding.** The first spelling added the field's
+// *horizontal* padding to a *vertical* measurement, so the marks were taller than the line they
+// sit beside and the whole control came out taller than an ordinary field -- the one thing a
+// search box must not be, since it stands next to ordinary fields in every form.
 fn search_mark_side(f: Frame) -> float {
-    val pad = padded_for(f.style)
-    return line_for(f.metrics, f.style.text.body) + pad.left + pad.right
+    return line_for(f.metrics, f.style.text.body)
 }
 
 // A magnifier: a ring and a handle, as two subpaths of one path.
@@ -5912,33 +6007,30 @@ fn cross_path() -> shape.Path {
 pub fn search_widget(s: Search, f: Frame) -> widget.Widget {
     val style = f.style
     val parts = parts_for(style, mood_of(s.entry.disabled, false, false, hovered_in(f, s.entry.name)))
-    val side = line_for(f.metrics, style.text.body)
+    val side = search_mark_side(f)
     val row = mutable_array_new<widget.Widget>()
-    push(row, widget.fixed_of(
-        search_mark_side(f),
-        search_mark_side(f),
-        widget.drawn_of(magnifier_path(), style.states.disabled.ink)
-    ))
-    push(row, widget.expand(entry_inside(field_runs(s.entry, style, parts, f.metrics), style, parts)))
+    push(row, widget.fixed_of(side, side, widget.drawn_of(magnifier_path(), style.states.disabled.ink)))
+    // **One box, one surface, one padding.** The first version wrapped `entry_inside`, which
+    // brings its own surface and its own padding -- so the control drew a field inside a field and
+    // stood a padding taller than the plain entry beside it. The marks go *in* the field's box,
+    // which is what a search box looks like, so the box is built here rather than borrowed.
+    push(row, widget.expand(widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        // Zero, as in `entry_inside`: any spacing would push the caret off the boundary it marks.
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
+        align: widget.stretched(),
+        children: field_runs(s.entry, style, parts, f.metrics),
+        name: ""
+    })))
     if search_text(s) != "" {
         push(row, widget.part_of(
             search_clear_name(s),
             widget.Role.Button,
             "Clear the search",
             with widget.no_state() { disabled: s.entry.disabled },
-            widget.fixed_of(
-                search_mark_side(f),
-                search_mark_side(f),
-                widget.Widget.Group(widget.Stack {
-                    direction: widget.Direction.Row,
-                    spacing: 0.0,
-                    padding: widget.no_insets(),
-                    surface: widget.no_surface(),
-                    align: widget.centred(),
-                    children: [widget.fixed_of(side * 0.8, side * 0.8, widget.drawn_of(cross_path(), parts.ink))],
-                    name: ""
-                })
-            )
+            widget.fixed_of(side, side, widget.drawn_of(cross_path(), parts.ink))
         ))
     }
     return widget.Widget.Control(widget.Focusable {
@@ -5952,8 +6044,8 @@ pub fn search_widget(s: Search, f: Frame) -> widget.Widget {
         tab_stop: true,
         child: widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
-            spacing: 0.0,
-            padding: widget.no_insets(),
+            spacing: style.icon_gap,
+            padding: padded_for(style),
             surface: surface_of(style, parts),
             align: widget.stretched(),
             children: snapshot(row),
@@ -6195,7 +6287,10 @@ pub fn autocomplete_of(name: string, label: string, all: [string]) -> Autocomple
     return Autocomplete {
         entry: entry_of(name, label, ""),
         all: all,
-        suggestions: with list_of(concat(name, "/suggestions"), label, []) {
+        // **`no_values()` and not `[]`.** An empty literal carries no element type, so with both
+        // a `[Value]` and a `[string]` door open it cannot choose between them -- the one cost of
+        // keeping the older spelling working, and it is paid here rather than by every caller.
+        suggestions: with list_of(concat(name, "/suggestions"), label, no_values()) {
             role: widget.Role.List,
             item_role: widget.Role.ListItem
         },
@@ -6260,7 +6355,7 @@ pub fn autocomplete_said(a: Autocomplete) -> string {
 
 // The suggestion list with its rows filled in from the filter.
 fn refreshed_suggestions(a: Autocomplete) -> List {
-    return with a.suggestions { items: autocomplete_matches(a) }
+    return with a.suggestions { items: as_values(autocomplete_matches(a)) }
 }
 
 fn autocomplete_still(a: Autocomplete) -> AutocompleteStep {
@@ -6508,7 +6603,12 @@ fn context_menu_width(c: ContextMenu, f: Frame) -> float {
     val m = f.metrics
     var widest = 0.0
     for row in c.menu.items.items {
-        val w = widget.width_in(m, face_for(m, style.text.body.face), row, style.text.body.size)
+        val w = widget.width_in(
+            m,
+            face_for(m, style.text.body.face),
+            value_text(row, c.menu.items.locale),
+            style.text.body.size
+        )
         if w > widest {
             widest = w
         }

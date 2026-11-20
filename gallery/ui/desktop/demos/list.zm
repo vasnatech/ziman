@@ -6,14 +6,49 @@
 use boxes
 use controls
 use demos/list_ui
+use locale
+use time
 use widget
 
 pub struct Demo {
     list: controls.List
+    typed: controls.List
 }
 
 pub fn demo() -> Demo {
-    return Demo { list: controls.list_of("list-demo", "Languages", items()) }
+    return Demo {
+        list: controls.list_of("list-demo", "Languages", items()),
+        typed: controls.list_of("list-typed", "Doses", doses(), locale.of("de-DE"))
+    }
+}
+
+// **A list holds values, not their spelling** -- Swing's `ListModel` and this library's `Value`
+// arriving at the same place, and the same place the table already is. Held as strings, every one
+// of these rows would have had its format chosen by whatever built it; held as values, the list is
+// told the locale once and the rows follow. This one is German, so the decimal mark is a comma and
+// the thousands separator a stop.
+//
+// The date is ISO on purpose and `controls.date_text` says why: there is a source for each
+// locale's month names and none for its date *pattern*.
+fn doses() -> [controls.Value] {
+    return [
+        controls.Value.Exact(2.5d),
+        controls.Value.Exact(1250.75d),
+        controls.Value.Whole(500),
+        // Not grouped, because it identifies rather than counts: see `Value.Code`.
+        controls.Value.Code(2026),
+        controls.Value.Date(taken_on()),
+        controls.Value.Flag(widget.Toggle.On),
+        // Which is not the empty string.
+        controls.Value.Blank
+    ]
+}
+
+fn taken_on() -> time.LocalDate {
+    return switch time.localdate_of(2026, 3, 9) {
+        Ok(d) { d }
+        Err(_) { time.localdate_from_epoch_day(0) }
+    }
 }
 
 fn items() -> [string] {
@@ -30,6 +65,7 @@ pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
     return list_ui.screen(
         list_ui.Screen {
             list: controls.list_widget(d.list, controls.frame_of(style, m)),
+            typed: controls.list_widget(d.typed, controls.frame_of(style, m)),
             said: said(d)
         },
         f
@@ -40,7 +76,7 @@ fn said(d: Demo) -> string {
     if d.list.selected < 0 {
         return "Nothing selected."
     }
-    return concat("Selected: ", d.list.items[d.list.selected])
+    return concat("Selected: ", controls.list_text_at(d.list, d.list.selected))
 }
 
 pub fn input(

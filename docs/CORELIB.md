@@ -939,7 +939,12 @@ pub fn entry_widget(e: Entry, f: Frame) -> widget.Widget
 pub struct List {
     name: string
     label: string
-    items: [string]
+    // **The rows, as values rather than as text.** Swing's `JList` takes a `ListModel` of objects
+    // and renders each through a cell renderer, which is how a list of dates sorts and prints as
+    // dates rather than as whatever `toString` happened to give. `Value` is this library's answer
+    // to the same question and is already the `Table`'s, so a list and a table holding the same
+    // column hold it the same way -- see `Value`, and `Table.rows`.
+    items: [Value]
     // The selected row, or -1 for none -- which is a real state, not an error: an empty list has no
     // selection, and neither does one the user has not touched.
     selected: int
@@ -957,11 +962,24 @@ pub struct List {
     // handling to rename two roles would have been the alternative.
     role: widget.Role
     item_role: widget.Role
+    // How a `Number`, a `Date` or an `Exact` is written out. The `Table` carries one for the same
+    // reason: a value knows what it is, and only a locale knows how it is spelled.
+    locale: Locale
     // The drag state of the bar down its right edge, as a tree has.
     bar: ScrollBar
 }
 
+pub fn list_of(name: string, label: string, items: [Value]) -> List
+
+pub fn list_of(name: string, label: string, items: [Value], l: Locale) -> List
+
 pub fn list_of(name: string, label: string, items: [string]) -> List
+
+pub fn list_text_at(l: List, i: int) -> string
+
+pub fn no_values() -> [Value]
+
+pub fn as_text_values(items: [string]) -> [Value]
 
 pub struct ListStep {
     list: List
@@ -1150,9 +1168,15 @@ pub struct ComboBoxStep {
     dismissed: bool
 }
 
+pub fn combo_box_of(name: string, label: string, items: [Value], selected: int) -> ComboBox
+
+pub fn combo_box_of(
+
 pub fn combo_box_of(name: string, label: string, items: [string], selected: int) -> ComboBox
 
 pub fn combo_box_value(c: ComboBox) -> string
+
+pub fn combo_box_chosen(c: ComboBox) -> Value
 
 pub fn combo_box_text(c: ComboBox) -> string
 

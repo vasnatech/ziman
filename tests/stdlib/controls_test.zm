@@ -473,7 +473,10 @@ fn a_bar_announces_a_percentage_or_that_it_is_busy() {
         "progress bar, Copying files, 100%"
     )
     test.assert_eq(
-        said_of(controls.progress_bar_widget(controls.busy_bar_of("wait", "Contacting the server", 0.5), frame()), "wait"),
+        said_of(
+            controls.progress_bar_widget(controls.busy_bar_of("wait", "Contacting the server", 0.5), frame()),
+            "wait"
+        ),
         "progress bar, Contacting the server, busy"
     )
 }
@@ -586,10 +589,20 @@ fn a_fractional_step_reads_in_its_shortest_exact_form() {
 // value altered by accident.
 #[test]
 fn the_arrows_step_and_a_wheel_only_counts_over_the_field() {
-    val up = controls.number_field_input(port_field(), controls.Input.KeyDown(key(controls.Key.Up)), number_box, frame())
+    val up = controls.number_field_input(
+        port_field(),
+        controls.Input.KeyDown(key(controls.Key.Up)),
+        number_box,
+        frame()
+    )
     test.assert(up.changed)
     test.assert_eq(text_in(up.field), "8081")
-    val down = controls.number_field_input(port_field(), controls.Input.KeyDown(key(controls.Key.Down)), number_box, frame())
+    val down = controls.number_field_input(
+        port_field(),
+        controls.Input.KeyDown(key(controls.Key.Down)),
+        number_box,
+        frame()
+    )
     test.assert_eq(text_in(down.field), "8079")
 
     val over = controls.Input.Wheel(controls.Wheel { at: geom.point_of(10.0, 10.0), vertical: 1, horizontal: 0 })
@@ -1501,7 +1514,12 @@ fn a_tip_sits_below_its_control_and_inside_the_window() {
 // the control already says; see `tip_layer`.
 #[test]
 fn a_tip_is_not_a_control_and_takes_no_keys() {
-    val layer = controls.tip_layer("Save", geom.rect_of(0.0, 0.0, 40.0, 20.0), geom.rect_of(0.0, 0.0, 300.0, 200.0), frame())
+    val layer = controls.tip_layer(
+        "Save",
+        geom.rect_of(0.0, 0.0, 40.0, 20.0),
+        geom.rect_of(0.0, 0.0, 300.0, 200.0),
+        frame()
+    )
     test.assert_false(layer.takes_keys)
     val laid = widget.layout(layer.content, geom.rect_of(0.0, 0.0, 100.0, 30.0), metrics())
     test.assert_eq(len(focus.controls(laid)), 0)
@@ -2142,7 +2160,7 @@ val key_end = controls.Key.End
 #[test]
 fn a_new_list_selects_its_first_row_and_an_empty_one_selects_nothing() {
     test.assert_eq(five().selected, 0)
-    test.assert_eq(controls.list_of("empty", "Nothing", []).selected, 0 - 1)
+    test.assert_eq(controls.list_of("empty", "Nothing", controls.no_values()).selected, 0 - 1)
 }
 
 #[test]
@@ -2241,7 +2259,7 @@ fn a_click_selects_the_row_under_the_pointer_through_the_offset() {
 
 #[test]
 fn a_click_past_the_last_row_changes_nothing() {
-    val step = to_list(with five() { items: ["Ada"] }, controls.Input.Press(on_row(1, 10.0)))
+    val step = to_list(with five() { items: [controls.Value.Text("Ada")] }, controls.Input.Press(on_row(1, 10.0)))
     test.assert_eq(step.list.selected, 0)
     test.assert_false(step.moved)
 }
@@ -6861,8 +6879,10 @@ fn abandoning_a_change_puts_the_committed_value_back() {
     test.assert_eq(controls.autocomplete_text(held), "Co-amoxiclav")
 
     val retyped = auto_typed(held, "zz")
-    val gone = auto_step(auto_step(retyped, controls.Input.KeyDown(key(controls.Key.Escape))).field,
-        controls.Input.KeyDown(key(controls.Key.Escape))).field
+    val gone = auto_step(
+        auto_step(retyped, controls.Input.KeyDown(key(controls.Key.Escape))).field,
+        controls.Input.KeyDown(key(controls.Key.Escape))
+    ).field
     test.assert_eq(controls.autocomplete_text(gone), "Co-amoxiclav")
 }
 
@@ -7205,5 +7225,177 @@ fn badge_words(b: Option<controls.Badge>) -> string {
     return switch b {
         Some(it) { it.text }
         None { "" }
+    }
+}
+
+// **A search field is exactly as tall as an ordinary field.** It stands next to ordinary fields in
+// every form the port has, so any difference reads as a mistake -- and the first version was a
+// padding taller, two ways at once: it sized its marks by adding the field's *horizontal* padding
+// to a *vertical* measurement, and it wrapped `entry_inside`, which brought a second surface and a
+// second padding with it. Both passed every test there was, because no test asked how tall it was.
+#[test]
+fn a_search_field_is_the_height_of_an_ordinary_field() {
+    val plain = widget.measure(controls.entry_widget(controls.entry_of("e", "Name", ""), frame()), metrics())
+    val empty = widget.measure(controls.search_widget(finder(), frame()), metrics())
+    val full = widget.measure(controls.search_widget(search_typed(finder(), "asp"), frame()), metrics())
+    test.assert_eq(empty.height, plain.height)
+    // And the mark appearing must not change it either.
+    test.assert_eq(full.height, plain.height)
+}
+
+// The clear mark is where it is drawn, which is the invariant the calendar cost 22 points by not
+// having: hit-testing and drawing must ask the same function.
+#[test]
+fn the_clear_mark_is_hit_where_it_is_drawn() {
+    val typed = search_typed(finder(), "asp")
+    val laid = search_laid(typed)
+    val drawn = box_named(laid, controls.search_clear_name(typed))
+    val step = search_step(typed, controls.Input.Press(geom.point_of(
+        drawn.x + drawn.width * 0.5,
+        drawn.y + drawn.height * 0.5
+    )))
+    test.assert_eq(controls.search_text(step.search), "")
+    // A press just outside it lands in the text, not on the mark.
+    test.assert_eq(
+        controls.search_text(search_step(typed, controls.Input.Press(geom.point_of(
+            drawn.x - 2.0,
+            drawn.y + drawn.height * 0.5
+        ))).search),
+        "asp"
+    )
+}
+
+// --- a list of values
+
+fn dated() -> controls.List {
+    return controls.list_of(
+        "when",
+        "Taken",
+        [
+            controls.Value.Date(day_of(2026, 3, 9)),
+            controls.Value.Date(day_of(2026, 11, 20))
+        ],
+        locale.of("de-DE")
+    )
+}
+
+// **A list holds values, not their spelling**, which is `JList`'s `ListModel` and this library's
+// `Value` meeting where the `Table` already does. A list of amounts held as strings has already
+// chosen a format, in whatever locale the code that built it happened to assume.
+#[test]
+fn a_list_spells_its_values_in_its_own_locale() {
+    val amounts = [controls.Value.Exact(2.5d), controls.Value.Exact(1250.75d)]
+    val german = controls.list_of("dose", "Dose", amounts, locale.of("de-DE"))
+    test.assert_eq(controls.list_text_at(german, 0), "2,5")
+    test.assert_eq(controls.list_text_at(german, 1), "1.250,75")
+    test.assert_eq(controls.list_text_at(with german { locale: locale.of("en-GB") }, 1), "1,250.75")
+    // Out of range is "", which an untouched selection and an empty list both make real.
+    test.assert_eq(controls.list_text_at(german, 7), "")
+    test.assert_eq(controls.list_text_at(german, 0 - 1), "")
+}
+
+// **Dates are ISO everywhere in this library, and `date_text` says why**: there is a source for
+// each locale's month and weekday *names* and none for its date *pattern*, and guessing one in a
+// format whose whole job is to be read correctly is worse than being unambiguous. What matters
+// here is that a list agrees with the date field standing next to it, which this pins.
+#[test]
+fn a_date_in_a_list_is_spelled_as_the_date_field_spells_it() {
+    val when = controls.list_of("when", "Taken", [controls.Value.Date(day_of(2026, 3, 9))], locale.of("de-DE"))
+    test.assert_eq(controls.list_text_at(when, 0), "2026-03-09")
+    test.assert_eq(
+        controls.list_text_at(with when { locale: locale.of("en-GB") }, 0),
+        controls.date_text(controls.date_field_of("d", "D", day_of(2026, 3, 9), locale.of("en-GB")))
+    )
+}
+
+// And what it draws is what it says, rather than two spellings of one row.
+#[test]
+fn a_list_draws_and_announces_the_same_words() {
+    val german = controls.list_of("dose", "Dose", [controls.Value.Exact(1250.75d)], locale.of("de-DE"))
+    val laid = widget.layout(
+        controls.list_widget(german, frame()),
+        geom.rect_of(0.0, 0.0, 200.0, 90.0),
+        metrics()
+    )
+    val said = switch a11y.node_of(a11y.tree_of(laid, "x", ""), "dose/0") {
+        Some(n) { n.name }
+        None { "(absent)" }
+    }
+    test.assert(contains(said, "1.250,75"))
+}
+
+// **The text door still works**, which is the whole reason it is an overload: every caller written
+// before this still compiles, and a list of words says nothing about types.
+#[test]
+fn a_list_of_words_still_takes_words() {
+    val plain = controls.list_of("l", "Names", ["Ada", "Grace"])
+    test.assert_eq(controls.list_text_at(plain, 1), "Grace")
+}
+
+// **A combo box has a value and a spelling, and they stopped being the same thing.** An
+// application that read the text back and parsed it would be undoing the formatting it just asked
+// for, in the locale it asked for it in.
+#[test]
+fn a_combo_box_gives_back_the_value_not_its_spelling() {
+    val c = controls.combo_box_of(
+        "dose",
+        "Dose",
+        [controls.Value.Exact(2.5d), controls.Value.Exact(5.0d)],
+        0,
+        locale.of("de-DE")
+    )
+    test.assert_eq(controls.combo_box_value(c), "2,5")
+    if Exact(d) = controls.combo_box_chosen(c) {
+        test.assert_eq(d, 2.5d)
+    } else {
+        test.assert(false)
+    }
+    // Nothing chosen is `Blank`, which is not the empty string: see `Value`.
+    val none = with c { items: with c.items { selected: 0 - 1 } }
+    test.assert(controls.Value.is_Blank(controls.combo_box_chosen(none)))
+    test.assert_eq(controls.combo_box_value(none), "")
+}
+
+fn day_of(y: int, m: int, d: int) -> time.LocalDate {
+    return switch time.localdate_of(y, m, d) {
+        Ok(one) { one }
+        Err(_) { time.localdate_from_epoch_day(0) }
+    }
+}
+
+// **Type-ahead matches what the user can see**, not an underlying spelling they cannot. A picker
+// of German amounts whose type-ahead matched `2.5` would be answering a question nobody asked:
+// the row on screen says `2,5`.
+#[test]
+fn combo_type_ahead_matches_the_spelling_on_screen() {
+    val c = controls.combo_box_of(
+        "dose",
+        "Dose",
+        [controls.Value.Exact(1250.5d), controls.Value.Exact(2.5d)],
+        0,
+        locale.of("de-DE")
+    )
+    val step = controls.combo_box_input(
+        with c { items: with c.items { selected: 0 } },
+        controls.Input.Text("2"),
+        geom.rect_of(0.0, 0.0, 120.0, 26.0),
+        geom.rect_of(0.0, 26.0, 120.0, 52.0),
+        frame()
+    )
+    // "2,5" begins with 2; "1.250,5" does not.
+    test.assert_eq(step.chosen, 1)
+}
+
+// **The text door still works**, which is why it is an overload and not a replacement: every
+// picker written before `Value` existed still compiles and still says the same thing.
+#[test]
+fn a_combo_box_of_words_still_takes_words() {
+    val c = controls.combo_box_of("env", "Environment", ["local", "staging"], 1)
+    test.assert_eq(controls.combo_box_value(c), "staging")
+    test.assert_eq(controls.combo_box_text(c), "staging")
+    if Text(it) = controls.combo_box_chosen(c) {
+        test.assert_eq(it, "staging")
+    } else {
+        test.assert(false)
     }
 }

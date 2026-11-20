@@ -110,7 +110,7 @@ pub fn input(
 
 fn word_of(taken: controls.MenuStep, d: Demo) -> string {
     if taken.chosen >= 0 {
-        return concat("Chosen: ", taken.menu.items.items[taken.chosen])
+        return concat("Chosen: ", controls.list_text_at(taken.menu.items, taken.chosen))
     }
     if taken.dismissed {
         return "Dismissed without choosing."

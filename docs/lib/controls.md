@@ -1128,7 +1128,12 @@ pub fn entry_widget(e: Entry, f: Frame) -> widget.Widget
 pub struct List {
     name: string
     label: string
-    items: [string]
+    // **The rows, as values rather than as text.** Swing's `JList` takes a `ListModel` of objects
+    // and renders each through a cell renderer, which is how a list of dates sorts and prints as
+    // dates rather than as whatever `toString` happened to give. `Value` is this library's answer
+    // to the same question and is already the `Table`'s, so a list and a table holding the same
+    // column hold it the same way -- see `Value`, and `Table.rows`.
+    items: [Value]
     // The selected row, or -1 for none -- which is a real state, not an error: an empty list has no
     // selection, and neither does one the user has not touched.
     selected: int
@@ -1146,6 +1151,9 @@ pub struct List {
     // handling to rename two roles would have been the alternative.
     role: widget.Role
     item_role: widget.Role
+    // How a `Number`, a `Date` or an `Exact` is written out. The `Table` carries one for the same
+    // reason: a value knows what it is, and only a locale knows how it is spelled.
+    locale: Locale
     // The drag state of the bar down its right edge, as a tree has.
     bar: ScrollBar
 }
@@ -1162,8 +1170,54 @@ hundred rows as its own name.
 ### `list_of`
 
 ```
+pub fn list_of(name: string, label: string, items: [Value]) -> List
+```
+
+```
+pub fn list_of(name: string, label: string, items: [Value], l: Locale) -> List
+```
+
+```
 pub fn list_of(name: string, label: string, items: [string]) -> List
 ```
+
+A list of plain text, which is what most of them are.
+
+**Kept so that a list of words says nothing about types**, and so that every caller written
+before `Value` existed still compiles -- `table_of` keeps the same door for the same reason.
+
+### `list_text_at`
+
+```
+pub fn list_text_at(l: List, i: int) -> string
+```
+
+What a row says, spelled in the list's own locale.
+
+**Here rather than at every call site**, because the alternative is each caller reaching for
+`value_text` and the list's locale together, and the one that forgets prints a date in the root
+locale while the rows above it are in the user's. Out of range gives "", which an empty list and
+an untouched selection both make real.
+
+### `no_values`
+
+```
+pub fn no_values() -> [Value]
+```
+
+An empty list of values, which an empty literal cannot be: see `autocomplete_of`.
+
+### `as_text_values`
+
+```
+pub fn as_text_values(items: [string]) -> [Value]
+```
+
+Plain text as values.
+
+Public as well as used here: a caller that builds its rows as strings -- a filter, a search --
+needs the same conversion the text constructors do, and the alternative is every one of them
+writing the same four-line loop.
 
 ### `ListStep`
 
@@ -1734,8 +1788,24 @@ pub struct ComboBoxStep {
 ### `combo_box_of`
 
 ```
+pub fn combo_box_of(name: string, label: string, items: [Value], selected: int) -> ComboBox
+```
+
+```
+pub fn combo_box_of(
+    name: string,
+    label: string,
+    items: [Value],
+    selected: int,
+    l: Locale
+) -> ComboBox
+```
+
+```
 pub fn combo_box_of(name: string, label: string, items: [string], selected: int) -> ComboBox
 ```
+
+A picker of plain words, which is what most of them are. See `list_of`'s own text door.
 
 ### `combo_box_value`
 
@@ -1744,6 +1814,17 @@ pub fn combo_box_value(c: ComboBox) -> string
 ```
 
 The value it is showing, or "" when nothing is chosen -- which an empty item list makes real.
+
+### `combo_box_chosen`
+
+```
+pub fn combo_box_chosen(c: ComboBox) -> Value
+```
+
+**The value itself, not its spelling.** `combo_box_value` is what the box *shows*; this is what
+the application *has*, and the two stopped being the same thing the moment a combo could hold a
+date. An application that read the text back and parsed it would be undoing the formatting it
+just asked for, in the locale it asked for it in.
 
 ### `combo_box_text`
 

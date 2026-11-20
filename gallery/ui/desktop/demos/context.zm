@@ -113,6 +113,6 @@ pub fn input(
     }
     return with d {
         menu: step.context,
-        said: concat(step.context.menu.items.items[step.chosen], " chosen.")
+        said: concat(controls.list_text_at(step.context.menu.items, step.chosen), " chosen.")
     }
 }

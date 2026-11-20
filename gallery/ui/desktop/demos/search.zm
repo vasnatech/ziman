@@ -76,7 +76,7 @@ pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
     return search_ui.screen(
         search_ui.Screen {
             field: controls.search_widget(d.find, f),
-            found: controls.list_widget(with d.found { items: matching(d) }, f),
+            found: controls.list_widget(with d.found { items: controls.as_text_values(matching(d)) }, f),
             said: said(d)
         },
         f
@@ -93,7 +93,7 @@ pub fn input(
     if name == "search-found" {
         return with d {
             found: controls.list_input(
-                with d.found { items: matching(d) },
+                with d.found { items: controls.as_text_values(matching(d)) },
                 input,
                 boxes.bounds_of(laid, name),
                 f
