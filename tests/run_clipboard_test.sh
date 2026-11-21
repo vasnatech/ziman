@@ -109,6 +109,31 @@ fi
 kill "$owner_pid" 2>/dev/null
 owner_pid=""
 
+# **Wait for the clipboard to stop changing hands before the next case writes to it.**
+#
+# Killing the owner does not leave the selection unowned on a desktop with a clipboard manager:
+# the manager notices and takes it over, *asynchronously*, serving what the dead owner held. If
+# the next case's `xclip -i` takes the selection while that takeover is still in flight, the
+# manager's grab lands afterwards and wins -- and the next case reads the dead ziman's text back:
+#
+#     expected [xclip wrote this N], got [ziman clipboard N]
+#
+# which is how this was found, in a pre-push run. Eight standalone runs never reproduced it; the
+# rest of the gate loading the machine is what widens the window.
+#
+# **Settled means two reads agreeing, not a sleep and not a particular value.** A machine with no
+# clipboard manager leaves the selection unowned and answers nothing at all, and both of those are
+# stable states -- so what is waited for is the ownership to stop moving, whatever it stops on.
+settle_attempt=0
+settled_as="$( (command -v xclip >/dev/null && timeout 5 xclip -o -selection clipboard 2>/dev/null) || true)"
+while [ "$settle_attempt" -lt 50 ]; do
+    sleep 0.1
+    again="$( (command -v xclip >/dev/null && timeout 5 xclip -o -selection clipboard 2>/dev/null) || true)"
+    [ "$again" = "$settled_as" ] && break
+    settled_as="$again"
+    settle_attempt=$((settle_attempt + 1))
+done
+
 # --- and the other direction
 if command -v xclip >/dev/null; then
     theirs="xclip wrote this $$"
@@ -124,6 +149,35 @@ if command -v xclip >/dev/null; then
     # and only the ones this script started, because the user may have an xclip of their own.
     xclip_before="$(pgrep -x xclip 2>/dev/null | sort)"
     printf '%s' "$theirs" | timeout 5 xclip -i -selection clipboard >/dev/null 2>&1
+    # **Wait for xclip to actually own the selection, which is not when the shell gets its prompt
+    # back.** `xclip -i` forks, so the command above returns as soon as the *parent* exits -- which
+    # can be before the child has called `XSetSelectionOwner`. Until it has, the owner is still
+    # whoever had it before: on a desktop with a clipboard manager that is the manager, holding
+    # what the case above put there. So the read below could be answered with ziman's own text and
+    # the test would fail saying exactly that:
+    #
+    #     expected [xclip wrote this N], got [ziman clipboard N]
+    #
+    # which is how this was found -- in a pre-push run, where the rest of the gate was loading the
+    # machine and widening the window. Eight standalone runs never reproduced it.
+    #
+    # **Waiting on the state and not on a sleep**: the precondition of this case is "another
+    # application owns the clipboard and it holds `$theirs`", so that is what is waited for. A
+    # fixed sleep would be a guess that gets slower and still races on a loaded machine.
+    handed_over=0
+    attempt=0
+    while [ "$attempt" -lt 50 ]; do
+        if [ "$(timeout 5 xclip -o -selection clipboard 2>/dev/null)" = "$theirs" ]; then
+            handed_over=1
+            break
+        fi
+        sleep 0.1
+        attempt=$((attempt + 1))
+    done
+    if [ "$handed_over" -ne 1 ]; then
+        echo "FAIL clipboard_ziman_can_read_what_another_application_wrote: xclip never took the selection"
+        fails=$((fails + 1))
+    fi
     got="$("$BIN" tests/integration/window/clip_get.zm 2>&1 | sed -n 's/^got \[\(.*\)\]$/\1/p')"
     check clipboard_ziman_can_read_what_another_application_wrote "$theirs" "$got"
     for p in $(pgrep -x xclip 2>/dev/null); do
