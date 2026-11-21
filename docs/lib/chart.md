@@ -117,20 +117,29 @@ How many points of a series are actually drawn.
 there are labels has points with nowhere to stand; one with fewer simply stops. Both happen
 while data is still arriving, and neither is worth refusing to draw the rest of the chart over.
 
+### `y_gaps`
+
+```
+pub fn y_gaps(c: Chart) -> int
+```
+
+How many gaps this chart's y axis is divided into.
+
+**It used to be the literal `4` in two places**, and that was fine until a chart of counts
+needed its labels to be whole. With a fixed four gaps a span of 5 cannot have whole labels
+without stretching the axis to 8 -- a 60% overshoot that squashes every bar. Letting the count
+move instead makes 5 exact at five gaps, 3 exact at three, and 10 exact at five, with no
+overshoot at all in any of them.
+
+**The gridlines and the labels must agree about this**, which is why it is one function rather
+than a number repeated: a grid drawn at quarters beside a range divided into fifths would put
+every label between two lines.
+
 ### `y_range`
 
 ```
 pub fn y_range(c: Chart) -> geom.Point
 ```
-
-The range the y axis covers.
-
-**The bands are part of the range, not drawn on top of it.** A band outside the data's own range
-would otherwise be clipped away, which redraws the chart's meaning in silence: a reading sitting
-inside a normal range, drawn as though the range were somewhere else entirely.
-
-A flat series -- every point the same -- would be a range of zero height and a division by it,
-so it is widened to sit in the middle.
 
 ### `plot_box`
 

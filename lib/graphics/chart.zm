@@ -9,6 +9,7 @@
 // see `docs/design/charts.md`.
 use geom
 use geom.Rect
+use math
 use paint
 use paint.Color
 use scene
@@ -97,7 +98,65 @@ pub fn points_shown(c: Chart, s: Series) -> int {
 //
 // A flat series -- every point the same -- would be a range of zero height and a division by it,
 // so it is widened to sit in the middle.
+// The gap counts the y axis will consider, best first.
+//
+// **Four or five or three, and not an arbitrary number**, because a chart this size has room for
+// four to six labels and no more. The order is the preference: four gaps unless another count
+// divides the data's own span exactly.
+fn gap_choices() -> [int] {
+    return [4, 5, 3]
+}
+
+// How many gaps this chart's y axis is divided into.
+//
+// **It used to be the literal `4` in two places**, and that was fine until a chart of counts
+// needed its labels to be whole. With a fixed four gaps a span of 5 cannot have whole labels
+// without stretching the axis to 8 -- a 60% overshoot that squashes every bar. Letting the count
+// move instead makes 5 exact at five gaps, 3 exact at three, and 10 exact at five, with no
+// overshoot at all in any of them.
+//
+// **The gridlines and the labels must agree about this**, which is why it is one function rather
+// than a number repeated: a grid drawn at quarters beside a range divided into fifths would put
+// every label between two lines.
+pub fn y_gaps(c: Chart) -> int {
+    val span = raw_span(c)
+    if !all_whole(c) || span < 0.5 {
+        return 4
+    }
+    // **The one that stretches the axis least, which is also the one that divides it exactly when
+    // any of them does** -- an exact fit is an overshoot of zero. A separate search for a divisor
+    // was written first and was dead code: taking it out changed no test, which is how it was
+    // found. `<` rather than `<=` keeps the preference order of `gap_choices`.
+    val whole = span as int
+    var best = 4
+    var waste = overshoot(whole, 4)
+    for n in gap_choices() {
+        if overshoot(whole, n) < waste {
+            best = n
+            waste = overshoot(whole, n)
+        }
+    }
+    return best
+}
+
+fn overshoot(span: int, gaps: int) -> int {
+    return ((span + gaps - 1) / gaps) * gaps - span
+}
+
+fn raw_span(c: Chart) -> float {
+    val raw = raw_range(c)
+    return raw.y - raw.x
+}
+
 pub fn y_range(c: Chart) -> geom.Point {
+    val raw = raw_range(c)
+    if raw.y - raw.x < 0.000001 {
+        return raw
+    }
+    return whole_if_counted(c, raw.x, raw.y)
+}
+
+fn raw_range(c: Chart) -> geom.Point {
     var low = 0.0
     var high = 0.0
     var seen = false
@@ -158,6 +217,53 @@ pub fn y_range(c: Chart) -> geom.Point {
         return geom.point_of(low - 0.5, high + 0.5)
     }
     return geom.point_of(low, high)
+}
+
+// **An axis of counts gets whole gridlines.** `axis_number` already refuses to print `1.0` for a
+// count, and said why: "an axis of counts reading 1.0, 2.0, 3.0 says that something was measured
+// to a tenth when it was counted". It could only do half the job. The gridlines sit at four equal
+// shares of the range, so a range of 4 to 14 put them at **11.5** and **6.5** -- and a
+// questionnaire whose score is an integer by construction had an axis reading a score that
+// cannot exist. Found by the first application to draw one of these: a PHQ-9 chart labelled 11.5.
+//
+// So when every point is whole, the span is widened to the next multiple of the gridline count,
+// which makes each step whole and therefore every label whole. The low end is kept, because that
+// is the end a reader anchors on; `recharts` spells the same idea `allowDecimals={false}`.
+//
+// **Only when the data is whole.** A chart of kilograms or percentages has every right to a
+// gridline at 71.25, and rounding its axis out to whole numbers would lose exactly the resolution
+// such a chart exists to show.
+fn whole_if_counted(c: Chart, low: float, high: float) -> geom.Point {
+    if !all_whole(c) {
+        return geom.point_of(low, high)
+    }
+    val gaps = (y_gaps(c) as float)
+    val step = math.ceil_float((high - low) / gaps)
+    return geom.point_of(low, low + step * gaps)
+}
+
+fn all_whole(c: Chart) -> bool {
+    for s in c.series {
+        var i = 0
+        val n = points_shown(c, s)
+        while i < n {
+            if !is_whole(s.points[i]) {
+                return false
+            }
+            i = i + 1
+        }
+    }
+    for b in c.bands {
+        if !is_whole(b.from) || !is_whole(b.to) {
+            return false
+        }
+    }
+    return true
+}
+
+fn is_whole(v: float) -> bool {
+    val rounded = (v as int) as float
+    return v - rounded < 0.000001 && rounded - v < 0.000001
 }
 
 fn holds_bars(c: Chart) -> bool {
@@ -242,7 +348,7 @@ fn band_op(c: Chart, b: Band, plot: Rect, style: ChartStyle) -> scene.Op {
 
 fn grid_ops(c: Chart, plot: Rect, style: ChartStyle) -> [scene.Op] {
     val ops = mutable_array_new<scene.Op>()
-    val lines = 4
+    val lines = y_gaps(c)
     var i = 0
     while i <= lines {
         val y = plot.y + plot.height * ((i as float) / (lines as float))
@@ -325,7 +431,7 @@ fn label_ops(c: Chart, plot: Rect, style: ChartStyle) -> [scene.Op] {
     // reserved the room and drew nothing in it, which looks like a margin rather than like a
     // missing axis -- so the chart read as though its numbers were self-evident.
     val range = y_range(c)
-    val lines = 4
+    val lines = y_gaps(c)
     var g = 0
     while g <= lines {
         val share = (g as float) / (lines as float)

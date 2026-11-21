@@ -208,21 +208,25 @@ port is what *finds* its gaps, never what shapes it. Its own README records what
 |---|---|---|
 | `AllergiesView.tsx` | 63 | the list: a fetch on a spawned thread, the four states, a row per record. |
 | `AllergyDialog.tsx` | 94 | the form: thirteen fields, the allergen catalogue that fills in five of them, `POST`/`PUT`/`DELETE`, and a confirmation before a delete. |
+| `AssessmentsVisualView.tsx` | 165 | the charts: one trend per screening instrument, grouped, ordered by when each was taken, with the severity band on the card and on the line. |
 
 **The first was chosen for being the smallest real one**, and it was not a toy: `Section`, `Card`,
 `Loading`, `Empty`, a criticality pill, a modal and a confirm dialog, in 63 lines. The second is
 **the first form built on this toolkit at all**, and is where six controls met their first real
 caller -- the autocomplete, the combo box, the entry, the date field, the modal and the grid.
 
-### What the first two screens found
+### What the first three screens found
 
-Two defects fixed, and both were of the same kind: **a control that documented a behaviour it did
-not have**.
+Three defects fixed, and all three were the same kind: **a control that documented a behaviour it
+did not have**.
 
 - [F335](../reviews/tasks/f335.md) -- **a quiet badge was invisible**, at 1.0005:1 against the
   window. Fixed with the hairline F323 used for the card's identical invisibility.
 - [F336](../reviews/tasks/f336.md) -- **a text area measured 0 x 0**. `Entry.rows` says "how many
   lines tall" and the viewport inside it measures as nothing, so the field vanished in any column.
+- [F337](../reviews/tasks/f337.md) -- **an axis of counts had gridlines at 11.5**. `axis_number`
+  already refused to print `1.0` for a count and said why; it could only decide how to print the
+  value it was handed, not where the lines went.
 
 **Neither could have been found in the gallery, and both for the same reason**: each demo supplies
 what the control was failing to ask for. The text area demo wraps itself in `tall_of(170.0)`; the
@@ -234,6 +238,13 @@ Four more things the form found are recorded in [F336](../reviews/tasks/f336.md)
 application's README: a dialog has no width of its own, a modal with a popup in it needs **three**
 layout passes rather than two, `DateField` cannot be empty, and `Autocomplete` suggests strings so
 a suggestion cannot carry a badge.
+
+**And the third screen made one finding a decision rather than an observation.** `Badge.loud` is a
+boolean; the allergy row wanted three colours and the assessment card wants **five**, which are a
+*scale* -- MINIMAL to SEVERE, where telling one band from the next is the whole point. Two screens
+have now asked, and the second asked for something a third colour would not answer. That is the
+evidence this document said to wait for, and a badge that carries a colour is the first `lib/ui`
+task the port has earned rather than guessed at.
 
 And one correction to this document. **§2's "`Card` | 62 files" counted two different components
 as one.** `CardShell` -- a titled box with its own loading and empty states, which is what

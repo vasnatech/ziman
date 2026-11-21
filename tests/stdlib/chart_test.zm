@@ -96,6 +96,65 @@ fn a_line_axis_is_not_dragged_down_to_zero() {
     test.assert_eq(range.y, 83.0)
 }
 
+// --- an axis of counts
+
+// **A chart of whole numbers gets whole gridlines.** `axis_number` has always refused to print
+// `1.0` for a count -- "an axis of counts reading 1.0, 2.0, 3.0 says that something was measured
+// to a tenth when it was counted" -- and could only do half the job, because the five lines sat at
+// equal shares of the range whatever the range was. A questionnaire score of 4 to 14 put them at
+// **11.5** and **6.5**: scores that cannot exist. Found by the first application to draw one.
+#[test]
+fn an_axis_of_counts_has_whole_gridlines() {
+    // **The last two are the cases the gap count alone cannot solve**: no count of 3, 4 or 5
+    // divides a span of 7 or 11, so the axis has to be widened as well.
+    for span in [[4.0, 14.0], [0.0, 5.0], [12.0, 18.0], [38.0, 47.0], [0.0, 7.0], [2.0, 13.0]] {
+        val c = chart.chart_of(["a", "b"], [chart.line_series("n", span, ink())])
+        val range = chart.y_range(c)
+        val gaps = chart.y_gaps(c)
+        val step = (range.y - range.x) / (gaps as float)
+        test.assert_near(step, ((step + 0.5) as int) as float, 0.000001)
+    }
+}
+
+// **And is not stretched when it does not have to be.** The first attempt fixed the gap count at
+// four, so a span of 5 had to reach 8 to divide evenly -- a 60% overshoot that squashes every bar
+// on the chart. Letting the gap count move instead makes 5, 3, 10, 6 and 9 all exact.
+#[test]
+fn a_whole_axis_is_not_stretched_to_fit_its_lines() {
+    for span in [[0.0, 5.0], [80.0, 83.0], [4.0, 14.0], [12.0, 18.0], [38.0, 47.0]] {
+        val c = chart.chart_of(["a", "b"], [chart.line_series("n", span, ink())])
+        test.assert_eq(chart.y_range(c).y, span[1])
+    }
+}
+
+// **And when it does, by as little as possible.** A span of 7 divides by no gap count this axis
+// offers, so one of them has to give: four gaps reach 8, five reach 10, three reach 9. The least
+// of those is the one taken.
+#[test]
+fn a_whole_axis_that_must_stretch_stretches_least() {
+    val c = chart.chart_of(["a", "b"], [chart.line_series("n", [0.0, 7.0], ink())])
+    test.assert_eq(chart.y_range(c).y, 8.0)
+    test.assert_eq(chart.y_gaps(c), 4)
+}
+
+// **A chart of measurements keeps its resolution**, which is the other half of the rule: a weight
+// chart has every right to a gridline at 81.75, and rounding it out to whole numbers would lose
+// exactly what such a chart exists to show.
+#[test]
+fn an_axis_of_measurements_is_left_alone() {
+    val weights = chart.chart_of(
+        ["a", "b"],
+        [chart.line_series("kg", [80.4, 83.1], ink())]
+    )
+    val range = chart.y_range(weights)
+    test.assert_eq(range.x, 80.4)
+    test.assert_eq(range.y, 83.1)
+}
+
+fn ink() -> paint.Color {
+    return paint.rgb8(20, 90, 200)
+}
+
 // **The shorter of the two, rather than an error.** Both happen while data is arriving, and
 // neither is worth refusing to draw the rest of the chart over.
 #[test]

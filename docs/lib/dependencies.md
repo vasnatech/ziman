@@ -122,6 +122,7 @@ flowchart LR
     batch --> time
     batch --> uuid
     chart --> geom
+    chart --> math
     chart --> paint
     chart --> scene
     chart --> shape
@@ -448,7 +449,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `batch` | `datasource`, `db`, `time`, `uuid` | - |
 | `bits` | - | `image` |
 | `charset` | - | `codec`, `csv`, `font`, `fs`, `ini`, `io`, `json`, `ndjson`, `pdf`, `properties`, `terminal`, `toml`, `truetype`, `url`, `window`, `xml`, `yaml` |
-| `chart` | `geom`, `paint`, `scene`, `shape` | `controls` |
+| `chart` | `geom`, `math`, `paint`, `scene`, `shape` | `controls` |
 | `client` | `clock`, `compress`, `encoding`, `http`, `io`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `rest`, `schedule`, `server`, `time`, `uuid` |
 | `codec` | `charset`, `csv`, `json`, `mime`, `ndjson`, `toml`, `xml`, `yaml` | `paging`, `rest`, `server` |
@@ -489,7 +490,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `locale` | - | `client`, `controls`, `encoding`, `eql`, `http`, `ini`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `svg`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
-| `math` | - | `controls`, `geom`, `icons`, `image`, `json`, `markdown`, `paint`, `properties`, `raster`, `shape`, `stroker`, `svg`, `theme` |
+| `math` | - | `chart`, `controls`, `geom`, `icons`, `image`, `json`, `markdown`, `paint`, `properties`, `raster`, `shape`, `stroker`, `svg`, `theme` |
 | `memdb` | `db`, `locale`, `sql` | - |
 | `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_repository`, `derive_routes`, `derive_row`, `derive_validate`, `derive_xml` |
 | `metrics` | `os` | `rest`, `server` |
