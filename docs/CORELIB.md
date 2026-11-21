@@ -493,6 +493,8 @@ pub fn bar_series(name: string, points: [float], ink: Color) -> Series
 
 pub fn points_shown(c: Chart, s: Series) -> int
 
+pub fn y_gaps(c: Chart) -> int
+
 pub fn y_range(c: Chart) -> geom.Point
 
 pub fn plot_box(c: Chart, box: Rect, style: ChartStyle) -> Rect
