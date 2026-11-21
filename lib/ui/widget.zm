@@ -69,8 +69,18 @@ pub fn size_of(width: float, height: float) -> Size {
     return Size { width: width, height: height }
 }
 
-// A run of text. No wrapping: a label is one line, and a paragraph that wraps is a different
-// widget with a different measurement (and `graphics/layout` already knows how to break one).
+// A run of text, on one line or wrapped to the width it is given.
+//
+// **It used to say "no wrapping: a label is one line", and that was not a simplification -- it
+// was the layout protocol.** `measured` is handed the metrics and not the width it will be laid
+// into, and the height of wrapped text is a function of the width. So nothing could report how
+// tall it would be, and every application that needed a paragraph either cut it short or let it
+// run off the edge. Found by porting a record list, where a free-text reaction measured 420
+// points on one line and pushed its row's buttons out of the window.
+//
+// What makes it possible now is `measured_in`: a column knows its own width and passes it down,
+// so a label inside one is measured against the width it will actually get. See `measured_in`
+// for why a *row* still does not, and what that costs.
 pub struct Label {
     text: string
     // The em size, in device units.
@@ -88,6 +98,17 @@ pub struct Label {
     // index**: a path changes when a sibling is inserted above it, and focus that moved because an
     // unrelated widget appeared is a bug a user notices and a test does not.
     name: string
+    // Whether this run breaks across lines when it is given less width than it wants.
+    //
+    // **Off by default, and that is the right default rather than the compatible one.** A button's
+    // label, a column heading and a table cell are all one line by intent: wrapping them turns a
+    // control two rows tall the moment a window narrows. A paragraph says so.
+    //
+    // **It only wraps where something knows the width.** Inside a column, which passes its own
+    // width down; inside a `wide_of`, which states one. In a row, where no child's share is known
+    // until every child has been measured, a wrapping label measures its one-line width exactly as
+    // it always did -- which is the honest answer to "how wide would you like to be".
+    wrap: bool
 }
 
 // A path drawn into whatever box the layout gives it.
@@ -369,16 +390,78 @@ pub fn named_drawing(path: shape.Path, colour: Color, name: string) -> Widget {
 }
 
 pub fn label_of(text: string, size: float, colour: Color) -> Widget {
-    return Widget.Text(Label { text: text, size: size, colour: colour, name: "", font: 0 })
+    return Widget.Text(Label { text: text, size: size, colour: colour, name: "", font: 0, wrap: false })
 }
 
 // A label in a named face: a heading in a bold one, a mark in an icon font.
 pub fn label_in_face(text: string, size: float, colour: Color, face: int) -> Widget {
-    return Widget.Text(Label { text: text, size: size, colour: colour, name: "", font: face })
+    return Widget.Text(Label { text: text, size: size, colour: colour, name: "", font: face, wrap: false })
+}
+
+// A paragraph: a run of text that breaks across lines to fit the width it is given.
+//
+// **The width comes from above, not from here.** A column passes its own content width to every
+// child it measures, so a paragraph inside one wraps to the column. Inside a row -- where no
+// child's share is known until all of them have been measured -- it measures its one line, which
+// is what "how wide would you like to be" honestly answers; put it in a `wide_of` if it must wrap
+// there.
+//
+// **Breaks between words and never inside one.** A word longer than the line is left overlong
+// rather than cut, because a word broken at an arbitrary point is unreadable and a word that
+// overhangs is merely untidy -- and the one case that matters, a URL in a notes field, is worse
+// hyphenated than overhanging.
+pub fn wrapping_label(text: string, size: float, colour: Color) -> Widget {
+    return Widget.Text(Label { text: text, size: size, colour: colour, name: "", font: 0, wrap: true })
+}
+
+pub fn wrapping_label_in_face(text: string, size: float, colour: Color, face: int) -> Widget {
+    return Widget.Text(Label { text: text, size: size, colour: colour, name: "", font: face, wrap: true })
+}
+
+// How `text` breaks into lines at `room`, which is the one function the measurement and the
+// painting both use.
+//
+// **One function, because two would disagree.** A label measured at three lines and painted at
+// four is a label drawn over whatever is under it -- the exact defect `multi_line_widget` has in
+// the entry, where the scroll and the draw agree only because they are the same loop. Here they
+// are the same call.
+//
+// Greedy and first-fit, which is what every UI toolkit does: Knuth-Plass makes a better paragraph
+// and needs the whole paragraph before it can place the first line, which is not a trade a label
+// in a list row should make.
+fn one_line(text: string) -> [string] {
+    val only = prelude.mutable_array_new<string>()
+    prelude.push(only, text)
+    return prelude.snapshot(only)
+}
+
+pub fn broken_into_lines(text: string, m: Metrics, font: int, size: float, room: float) -> [string] {
+    val lines = prelude.mutable_array_new<string>()
+    if room <= 0.0 {
+        prelude.push(lines, text)
+        return prelude.snapshot(lines)
+    }
+    var line = ""
+    for word in prelude.split(text, " ") {
+        if word != "" {
+            val tried = if line == "" { word } else { prelude.concat(line, " ", word) }
+            if line != "" && width_in(m, font, tried, size) > room {
+                prelude.push(lines, line)
+                line = word
+            } else {
+                line = tried
+            }
+        }
+    }
+    // **The last line is pushed outside the loop, and an empty string still gives one line.** A
+    // paragraph of no text is one empty line tall, not zero: a field that collapsed to nothing
+    // when it was cleared would move everything under it as the user typed.
+    prelude.push(lines, line)
+    return prelude.snapshot(lines)
 }
 
 pub fn named_label(text: string, size: float, colour: Color, name: string) -> Widget {
-    return Widget.Text(Label { text: text, size: size, colour: colour, name: name, font: 0 })
+    return Widget.Text(Label { text: text, size: size, colour: colour, name: name, font: 0, wrap: false })
 }
 
 // A border: a colour and a width, together.
@@ -1630,6 +1713,34 @@ pub fn measure(w: Widget, m: Metrics) -> Size {
 // second set of rules about what a column's first line is, free to disagree with this one -- and
 // the disagreement would show only in a form, where it matters most.
 pub fn measured(w: Widget, m: Metrics) -> Measured {
+    return measured_in(w, m, unconstrained())
+}
+
+// **No width is known**, which is a real answer and not a missing one: it is what a row asks its
+// children, and what the top of a tree starts from. A wrapping label answers it with its one-line
+// width, which is the widest it would ever like to be.
+// **A function and not a `pub val`**, because a module's global val cannot be reached as
+// `widget.unconstrained` from outside -- a caller would have to `use widget.unconstrained` to
+// name the one value this API's own signature asks them for.
+pub fn unconstrained() -> float {
+    return 0.0 - 1.0
+}
+
+// The same question, told how much width there will be.
+//
+// **This is the whole of what a wrapping label needed, and why there was none until now.** The
+// height of wrapped text is a function of the width, and `measured` was never given one -- so a
+// paragraph could not say how tall it would be and nothing could wrap. `within` is that width:
+// the room this widget will be laid into, or `unconstrained`.
+//
+// **A column passes its width down and a row does not**, which is a limit worth stating rather
+// than hiding. A column divides height and hands every child the same width, so it knows what to
+// say. A row divides *width*, and no child's share is known until all of them have been measured
+// -- so asking a child "how tall are you at this width" before deciding the width is the circle
+// CSS breaks with min-content and max-content passes. This layer does not have those, and
+// inventing them for one widget would be the wrong place to start. A paragraph in a row measures
+// one line; wrap it in a `wide_of` to say what it gets.
+pub fn measured_in(w: Widget, m: Metrics, within: float) -> Measured {
     return switch w {
         Nothing { just(size_of(0.0, 0.0)) }
         // **A mark has no natural size**, which is the point of it: an icon is sized by the
@@ -1641,15 +1752,7 @@ pub fn measured(w: Widget, m: Metrics) -> Measured {
         // photograph is a size before it is anywhere, and a column of them is as tall as they are.
         Picture(it) { just(size_of(it.width, it.height)) }
         Flex(_) { just(size_of(0.0, 0.0)) }
-        Text(it) {
-            Measured {
-                size: size_of(width_in(m, it.font, it.text, it.size), height_in(m, it.font, it.size)),
-                // The one widget that *is* a line of text, so the one that answers from the face
-                // rather than from a child. See `FaceMetrics.ascent`: a baseline cannot be guessed
-                // from a line height.
-                baseline: Option<float>.Some(ascent_in(m, it.font, it.size))
-            }
-        }
+        Text(it) { measured_text(it, m, within) }
         // **Measured only on the axis it does not fix**, so the common case where both are
         // stated still costs nothing: a `Fixed` is the node a caller reaches for precisely when it
         // does not want its child's opinion.
@@ -1663,7 +1766,14 @@ pub fn measured(w: Widget, m: Metrics) -> Measured {
             if it.fixes_width && it.fixes_height {
                 just(size_of(it.width, it.height))
             } else {
-                val natural = measured(it.child, m)
+                // **A box that states a width tells its child so**, which is what makes
+                // `wide_of(w, wrapping_label(..))` the spelling for a paragraph anywhere a column
+                // is not already saying it.
+                val natural = measured_in(
+                    it.child,
+                    m,
+                    if it.fixes_width { it.width } else { within }
+                )
                 Measured {
                     size: size_of(
                         if it.fixes_width { it.width } else { natural.size.width },
@@ -1673,11 +1783,11 @@ pub fn measured(w: Widget, m: Metrics) -> Measured {
                 }
             }
         }
-        Group(it) { measured_stack(it, m) }
+        Group(it) { measured_stack(it, m, within) }
         // Its child's natural size: the *cross* axis still comes from here, and only the axis its
         // parent distributes along is replaced by the share it is given.
-        Expand(it) { measured(it.child, m) }
-        Control(it) { measured(it.child, m) }
+        Expand(it) { measured_in(it.child, m, within) }
+        Control(it) { measured_in(it.child, m, within) }
         // Nothing, deliberately -- see `Viewport`. A viewport takes the size it is given.
         Scroll(_) { just(size_of(0.0, 0.0)) }
         // The largest of its layers, so a layered node in a column is as big as the biggest thing
@@ -1700,14 +1810,45 @@ pub fn measured(w: Widget, m: Metrics) -> Measured {
 // `Across.Stretch` give. A row that centres its children across is reporting a baseline its layout
 // will not honour -- stated here rather than silently wrong, because a stack that centres is
 // asking not to be aligned on text.
-fn measured_stack(s: Stack, m: Metrics) -> Measured {
+// A run of text, on one line or broken to the room it was given.
+fn measured_text(it: Label, m: Metrics, within: float) -> Measured {
+    val line = height_in(m, it.font, it.size)
+    // The one widget that *is* a line of text, so the one that answers from the face rather than
+    // from a child. See `FaceMetrics.ascent`: a baseline cannot be guessed from a line height.
+    val first = Option<float>.Some(ascent_in(m, it.font, it.size))
+    val natural = width_in(m, it.font, it.text, it.size)
+    if !it.wrap || within < 0.0 || natural <= within {
+        return Measured { size: size_of(natural, line), baseline: first }
+    }
+    val lines = broken_into_lines(it.text, m, it.font, it.size, within)
+    var widest = 0.0
+    for one in lines {
+        val wide = width_in(m, it.font, one, it.size)
+        if wide > widest {
+            widest = wide
+        }
+    }
+    return Measured {
+        size: size_of(widest, (prelude.len(lines) as float) * line),
+        // **The first line's**, which is the same rule a column follows: a paragraph beside a
+        // field shares that field's line, not its last one.
+        baseline: first
+    }
+}
+
+fn measured_stack(s: Stack, m: Metrics, within: float) -> Measured {
+    // **A column hands its width down; a row does not.** See `measured_in` for why the row cannot.
+    val inner = switch s.direction {
+        Row { unconstrained() }
+        Column { if within < 0.0 { unconstrained() } else { within - s.padding.left - s.padding.right } }
+    }
     var along = 0.0
     var across = 0.0
     var count = 0
     var best = Option<float>.None
     var running = 0.0
     for child in s.children {
-        val child_size = measured(child, m)
+        val child_size = measured_in(child, m, inner)
         if Some(line) = child_size.baseline {
             val here = switch s.direction {
                 Row { line }
@@ -2749,6 +2890,14 @@ fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, index: int, name: 
         Row { inner.width - gaps }
         Column { inner.height - gaps }
     }
+    // **The width a child is measured against, which has to be the width it will get.** A column
+    // hands every child `inner.width`, so a paragraph measured here is measured at the width it is
+    // about to be laid into -- and `measured` and `place` cannot disagree about how many lines it
+    // takes. A row cannot say, for the reason `measured_in` gives.
+    val child_within = switch s.direction {
+        Row { unconstrained() }
+        Column { inner.width }
+    }
 
     // Two passes: the fixed children take their natural size, and the flexible ones share whatever
     // is left in proportion to their weights. A negative remainder is simply not shared -- an
@@ -2759,7 +2908,7 @@ fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, index: int, name: 
     for child in s.children {
         switch flex_weight(child) {
             Some(weight) { weight_total = weight_total + weight }
-            None { fixed_total = fixed_total + along_of(measure(child, m), s.direction) }
+            None { fixed_total = fixed_total + along_of(measured_in(child, m, child_within).size, s.direction) }
         }
     }
     val spare = if room - fixed_total > 0.0 { room - fixed_total } else { 0.0 }
@@ -2787,16 +2936,16 @@ fn place_stack(s: Stack, w: Widget, within: Rect, m: Metrics, index: int, name: 
     for child in s.children {
         val extent = switch flex_weight(child) {
             Some(weight) { if weight_total > 0.0 { spare * weight / weight_total } else { 0.0 } }
-            None { along_of(measure(child, m), s.direction) }
+            None { along_of(measured_in(child, m, child_within).size, s.direction) }
         }
         // **`Stretch` measures nothing**, which is what keeps the default free: every other option
         // needs the child's natural size across the direction, and that is a `measure` this layer
         // did not use to do. A stack that does not ask pays exactly what it paid before.
         val natural = switch s.align.across {
             Stretch { room_across }
-            Start { across_of(measure(child, m), s.direction) }
-            Centre { across_of(measure(child, m), s.direction) }
-            End { across_of(measure(child, m), s.direction) }
+            Start { across_of(measured_in(child, m, child_within).size, s.direction) }
+            Centre { across_of(measured_in(child, m, child_within).size, s.direction) }
+            End { across_of(measured_in(child, m, child_within).size, s.direction) }
         }
         // Clamped, because a child wider than its room is not pushed off the far side: an
         // over-full container overflows at its end, which is where `place_stack` already leaves it.
@@ -3540,21 +3689,37 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: 
         push(ops, scene.image(it.image, picture_box(it, l.bounds)))
     }
     if Text(it) = l.widget {
-        push(
-            ops,
-            scene.text_of(
-                it.text,
-                // **One ascent below the top, not one line.** A line height is where the next
-                // line begins; a baseline is where this one sits. See `FaceMetrics.ascent`.
-                geom.point_of(l.bounds.x, l.bounds.y + ascent_in(m, it.font, it.size)),
-                it.size,
-                // **The label's own face, which was a literal 0 until 2026-11-14.** The renderer
-                // has taken an index since it existed; this layer simply never offered one, so a
-                // window with two faces loaded could draw in only the first.
-                it.font,
-                Paint.Solid(it.colour)
+        // **Broken by the same call the measurement used**, so the number of lines drawn and the
+        // number of lines measured cannot differ. A label measured at three lines and painted at
+        // four is a label drawn over whatever is beneath it.
+        val lines = if it.wrap {
+            broken_into_lines(it.text, m, it.font, it.size, l.bounds.width)
+        } else {
+            one_line(it.text)
+        }
+        val step = height_in(m, it.font, it.size)
+        var at = 0
+        for line in lines {
+            push(
+                ops,
+                scene.text_of(
+                    line,
+                    // **One ascent below the top, not one line.** A line height is where the next
+                    // line begins; a baseline is where this one sits. See `FaceMetrics.ascent`.
+                    geom.point_of(
+                        l.bounds.x,
+                        l.bounds.y + (at as float) * step + ascent_in(m, it.font, it.size)
+                    ),
+                    it.size,
+                    // **The label's own face, which was a literal 0 until 2026-11-14.** The
+                    // renderer has taken an index since it existed; this layer simply never
+                    // offered one, so a window with two faces loaded could draw in only the first.
+                    it.font,
+                    Paint.Solid(it.colour)
+                )
             )
-        )
+            at = at + 1
+        }
     }
     // **The clip, and the one place a new `Widget` case was not forced on me.** The seven switches
     // over `Widget` all failed to compile until this case was handled, which is the argument for

@@ -2539,3 +2539,139 @@ fn a_canvas_is_named_and_silent() {
         None { test.assert(false) }
     }
 }
+
+// --- a label that wraps
+
+// **The feature's whole point, and the thing the protocol used to make impossible**: a paragraph
+// in a column is as tall as the column is narrow. `measured` was never given a width, so a
+// wrapping label could not say how tall it would be and nothing in `lib/ui` could wrap.
+#[test]
+fn a_wrapping_label_is_taller_in_a_narrower_column() {
+    val said = "one two three four five six seven eight"
+    val wide = column_height(widget.wrapping_label(said, 10.0, black()), 400.0)
+    val narrow = column_height(widget.wrapping_label(said, 10.0, black()), 140.0)
+    val thin = column_height(widget.wrapping_label(said, 10.0, black()), 70.0)
+    test.assert_gt(narrow, wide)
+    test.assert_gt(thin, narrow)
+}
+
+// **An ordinary label does not**, which is the default and is deliberate: a button's label, a
+// column heading and a table cell are one line by intent, and wrapping them would make a control
+// two rows tall the moment a window narrowed.
+#[test]
+fn a_plain_label_is_the_same_height_however_narrow_the_column() {
+    val said = "one two three four five six seven eight"
+    test.assert_eq(
+        column_height(widget.label_of(said, 10.0, black()), 400.0),
+        column_height(widget.label_of(said, 10.0, black()), 70.0)
+    )
+}
+
+// **The laid height is the measured height.** The two are computed by different code paths --
+// `measured_in` for the parent's arithmetic, `place` for the box -- and a label measured at three
+// lines and laid at one is a label with two lines drawn over whatever is beneath it.
+#[test]
+fn a_wrapped_label_is_laid_out_as_tall_as_it_measured() {
+    val said = "one two three four five six seven eight nine ten"
+    val paragraph = widget.wrapping_label(said, 10.0, black())
+    val within = geom.rect_of(0.0, 0.0, 120.0, 400.0)
+    val laid = widget.layout(widget.column_of(0.0, [paragraph]), within, fake_metrics())
+    val measured = widget.measured_in(paragraph, fake_metrics(), 120.0)
+    test.assert_eq(measured.size.height, laid.children[0].bounds.height)
+}
+
+// **A row cannot say what width a child gets**, so a paragraph in one measures its single line --
+// the honest answer to "how wide would you like to be". Stated as a test because it is a limit
+// someone will otherwise rediscover as a bug.
+#[test]
+fn a_wrapping_label_in_a_row_measures_one_line() {
+    val said = "one two three four five six seven eight"
+    val paragraph = widget.wrapping_label(said, 10.0, black())
+    val row = widget.row_of(0.0, [paragraph])
+    val one = widget.measured_in(widget.label_of(said, 10.0, black()), fake_metrics(), 70.0).size.height
+    test.assert_eq(one, widget.measured_in(row, fake_metrics(), 70.0).size.height)
+}
+
+// **And a `wide_of` is how it wraps there**: a box that states a width tells its child so.
+#[test]
+fn a_sized_box_tells_its_child_the_width() {
+    val said = "one two three four five six seven eight"
+    val boxed = widget.wide_of(70.0, widget.wrapping_label(said, 10.0, black()))
+    val loose = widget.measured_in(widget.wrapping_label(said, 10.0, black()), fake_metrics(), widget.unconstrained())
+    test.assert_gt(widget.measure(boxed, fake_metrics()).height, loose.size.height)
+}
+
+// **Breaks between words, never inside one.** A word longer than the line is left overlong rather
+// than cut: an unreadable word is worse than an untidy one, and the case that matters -- a URL in
+// a notes field -- is worse hyphenated than overhanging.
+#[test]
+fn a_word_longer_than_the_line_is_not_broken() {
+    val lines = widget.broken_into_lines("short abcdefghijklmnopqrstuvwxyz short", fake_metrics(), 0, 10.0, 60.0)
+    test.assert_contains(lines, "abcdefghijklmnopqrstuvwxyz")
+}
+
+// Empty text is one empty line tall, not nothing: a field that collapsed when it was cleared
+// would move everything under it as the user typed.
+#[test]
+fn empty_text_is_still_one_line() {
+    test.assert_eq(1, len(widget.broken_into_lines("", fake_metrics(), 0, 10.0, 100.0)))
+    test.assert_eq(
+        widget.measure(widget.label_of("", 10.0, black()), fake_metrics()).height,
+        widget.measured_in(widget.wrapping_label("", 10.0, black()), fake_metrics(), 100.0).size.height
+    )
+}
+
+fn column_height(child: widget.Widget, room: float) -> float {
+    return widget.measured_in(widget.column_of(0.0, [child]), fake_metrics(), room).size.height
+}
+
+// **The painting breaks at the same width the measurement did**, which is the invariant that
+// keeps a wrapped label inside its own box. The two are different code paths -- `measured_in` for
+// the parent's arithmetic, `collect` for the ink -- and a label measured at three lines and
+// painted as one run is a run drawn straight off the end of the row it is in.
+//
+// Written after the fact: removing the break from the painting reddened nothing, because every
+// other test here asks about geometry and none of them looked at the ink.
+#[test]
+fn a_wrapped_label_is_painted_one_run_per_line() {
+    val said = "one two three four five six seven eight"
+    val room = 70.0
+    val lines = widget.broken_into_lines(said, fake_metrics(), 0, 10.0, room)
+    test.assert_gt(len(lines), 1)
+    val laid = widget.layout(
+        widget.column_of(0.0, [widget.wrapping_label(said, 10.0, black())]),
+        geom.rect_of(0.0, 0.0, room, 400.0),
+        fake_metrics()
+    )
+    val runs = text_runs(widget.paint_ops(laid, fake_metrics()))
+    test.assert_eq(len(lines), len(runs))
+    // And each run sits one line height below the one before it.
+    val step = widget.height_in(fake_metrics(), 0, 10.0)
+    var at = 1
+    while at < len(runs) {
+        test.assert_near(runs[at].at.y - runs[at - 1].at.y, step, 0.001)
+        at = at + 1
+    }
+}
+
+// **A plain label is still exactly one run**, so nothing about the default changed.
+#[test]
+fn a_plain_label_is_painted_as_one_run() {
+    val said = "one two three four five six seven eight"
+    val laid = widget.layout(
+        widget.column_of(0.0, [widget.label_of(said, 10.0, black())]),
+        geom.rect_of(0.0, 0.0, 70.0, 400.0),
+        fake_metrics()
+    )
+    test.assert_eq(1, len(text_runs(widget.paint_ops(laid, fake_metrics()))))
+}
+
+fn text_runs(ops: [scene.Op]) -> [scene.TextRun] {
+    val out = mutable_array_new<scene.TextRun>()
+    for op in ops {
+        if Text(run) = op {
+            push(out, run)
+        }
+    }
+    return snapshot(out)
+}

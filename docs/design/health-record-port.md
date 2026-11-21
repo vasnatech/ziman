@@ -227,6 +227,11 @@ did not have**.
 - [F337](../reviews/tasks/f337.md) -- **an axis of counts had gridlines at 11.5**. `axis_number`
   already refused to print `1.0` for a count and said why; it could only decide how to print the
   value it was handed, not where the lines went.
+- [F338](../reviews/tasks/f338.md) -- **nothing could wrap text, and the reason was the protocol
+  rather than any control**. `measured(w, m)` was never given the width it would be laid into, and
+  the height of wrapped text is a function of the width. `measured_in` is that width; a column
+  passes it down, a row still cannot, and `Label.wrap` is off by default because a button's label
+  is one line by intent.
 
 **Neither could have been found in the gallery, and both for the same reason**: each demo supplies
 what the control was failing to ask for. The text area demo wraps itself in `tall_of(170.0)`; the

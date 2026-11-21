@@ -194,11 +194,32 @@ pub struct Label {
     // index**: a path changes when a sibling is inserted above it, and focus that moved because an
     // unrelated widget appeared is a bug a user notices and a test does not.
     name: string
+    // Whether this run breaks across lines when it is given less width than it wants.
+    //
+    // **Off by default, and that is the right default rather than the compatible one.** A button's
+    // label, a column heading and a table cell are all one line by intent: wrapping them turns a
+    // control two rows tall the moment a window narrows. A paragraph says so.
+    //
+    // **It only wraps where something knows the width.** Inside a column, which passes its own
+    // width down; inside a `wide_of`, which states one. In a row, where no child's share is known
+    // until every child has been measured, a wrapping label measures its one-line width exactly as
+    // it always did -- which is the honest answer to "how wide would you like to be".
+    wrap: bool
 }
 ```
 
-A run of text. No wrapping: a label is one line, and a paragraph that wraps is a different
-widget with a different measurement (and `graphics/layout` already knows how to break one).
+A run of text, on one line or wrapped to the width it is given.
+
+**It used to say "no wrapping: a label is one line", and that was not a simplification -- it
+was the layout protocol.** `measured` is handed the metrics and not the width it will be laid
+into, and the height of wrapped text is a function of the width. So nothing could report how
+tall it would be, and every application that needed a paragraph either cut it short or let it
+run off the edge. Found by porting a record list, where a free-text reaction measured 420
+points on one line and pushed its row's buttons out of the window.
+
+What makes it possible now is `measured_in`: a column knows its own width and passes it down,
+so a label inside one is measured against the width it will actually get. See `measured_in`
+for why a *row* still does not, and what that costs.
 
 ### `Painted`
 
@@ -496,6 +517,37 @@ pub fn label_in_face(text: string, size: float, colour: Color, face: int) -> Wid
 ```
 
 A label in a named face: a heading in a bold one, a mark in an icon font.
+
+### `wrapping_label`
+
+```
+pub fn wrapping_label(text: string, size: float, colour: Color) -> Widget
+```
+
+A paragraph: a run of text that breaks across lines to fit the width it is given.
+
+**The width comes from above, not from here.** A column passes its own content width to every
+child it measures, so a paragraph inside one wraps to the column. Inside a row -- where no
+child's share is known until all of them have been measured -- it measures its one line, which
+is what "how wide would you like to be" honestly answers; put it in a `wide_of` if it must wrap
+there.
+
+**Breaks between words and never inside one.** A word longer than the line is left overlong
+rather than cut, because a word broken at an arbitrary point is unreadable and a word that
+overhangs is merely untidy -- and the one case that matters, a URL in a notes field, is worse
+hyphenated than overhanging.
+
+### `wrapping_label_in_face`
+
+```
+pub fn wrapping_label_in_face(text: string, size: float, colour: Color, face: int) -> Widget
+```
+
+### `broken_into_lines`
+
+```
+pub fn broken_into_lines(text: string, m: Metrics, font: int, size: float, room: float) -> [string]
+```
 
 ### `named_label`
 
@@ -1791,6 +1843,40 @@ The same question, with the baseline a grid needs to align a row on.
 **One recursion rather than two.** A separate `baseline_of` walking the tree a second time is a
 second set of rules about what a column's first line is, free to disagree with this one -- and
 the disagreement would show only in a form, where it matters most.
+
+### `unconstrained`
+
+```
+pub fn unconstrained() -> float
+```
+
+**No width is known**, which is a real answer and not a missing one: it is what a row asks its
+children, and what the top of a tree starts from. A wrapping label answers it with its one-line
+width, which is the widest it would ever like to be.
+**A function and not a `pub val`**, because a module's global val cannot be reached as
+`widget.unconstrained` from outside -- a caller would have to `use widget.unconstrained` to
+name the one value this API's own signature asks them for.
+
+### `measured_in`
+
+```
+pub fn measured_in(w: Widget, m: Metrics, within: float) -> Measured
+```
+
+The same question, told how much width there will be.
+
+**This is the whole of what a wrapping label needed, and why there was none until now.** The
+height of wrapped text is a function of the width, and `measured` was never given one -- so a
+paragraph could not say how tall it would be and nothing could wrap. `within` is that width:
+the room this widget will be laid into, or `unconstrained`.
+
+**A column passes its width down and a row does not**, which is a limit worth stating rather
+than hiding. A column divides height and hands every child the same width, so it knows what to
+say. A row divides *width*, and no child's share is known until all of them have been measured
+-- so asking a child "how tall are you at this width" before deciding the width is the circle
+CSS breaks with min-content and max-content passes. This layer does not have those, and
+inventing them for one widget would be the wrong place to start. A paragraph in a row measures
+one line; wrap it in a `wide_of` to say what it gets.
 
 ## The grid
 

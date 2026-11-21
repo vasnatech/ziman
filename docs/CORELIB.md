@@ -7469,6 +7469,17 @@ pub struct Label {
     // index**: a path changes when a sibling is inserted above it, and focus that moved because an
     // unrelated widget appeared is a bug a user notices and a test does not.
     name: string
+    // Whether this run breaks across lines when it is given less width than it wants.
+    //
+    // **Off by default, and that is the right default rather than the compatible one.** A button's
+    // label, a column heading and a table cell are all one line by intent: wrapping them turns a
+    // control two rows tall the moment a window narrows. A paragraph says so.
+    //
+    // **It only wraps where something knows the width.** Inside a column, which passes its own
+    // width down; inside a `wide_of`, which states one. In a row, where no child's share is known
+    // until every child has been measured, a wrapping label measures its one-line width exactly as
+    // it always did -- which is the honest answer to "how wide would you like to be".
+    wrap: bool
 }
 
 pub struct Painted {
@@ -7578,6 +7589,12 @@ pub fn named_drawing(path: shape.Path, colour: Color, name: string) -> Widget
 pub fn label_of(text: string, size: float, colour: Color) -> Widget
 
 pub fn label_in_face(text: string, size: float, colour: Color, face: int) -> Widget
+
+pub fn wrapping_label(text: string, size: float, colour: Color) -> Widget
+
+pub fn wrapping_label_in_face(text: string, size: float, colour: Color, face: int) -> Widget
+
+pub fn broken_into_lines(text: string, m: Metrics, font: int, size: float, room: float) -> [string]
 
 pub fn named_label(text: string, size: float, colour: Color, name: string) -> Widget
 
@@ -8083,6 +8100,10 @@ pub struct Measured {
 pub fn measure(w: Widget, m: Metrics) -> Size
 
 pub fn measured(w: Widget, m: Metrics) -> Measured
+
+pub fn unconstrained() -> float
+
+pub fn measured_in(w: Widget, m: Metrics, within: float) -> Measured
 
 pub enum Track {
     // Exactly this many points.
