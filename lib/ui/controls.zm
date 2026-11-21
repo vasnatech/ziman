@@ -3057,7 +3057,12 @@ fn held_still(l: List) -> ListStep {
 fn row_content(v: Value, locale: Locale, style: Style, ink: Color) -> widget.Widget {
     switch v {
         Marked(it) { return marked_row(it, style, ink) }
-        Mark(it) { return widget.icon_widget(it, style.text.body.size, ink, style.icon_font) }
+        // **Centred, because there is nothing else in the row to align it against.** A row whose
+        // whole content is a mark is a rail -- a menu collapsed to its icons -- and an icon at the
+        // row's leading edge reads as a list with its words cut off rather than a column of
+        // symbols. A *cell* that is only a mark keeps its column's alignment; this is the list's
+        // own rule, which is why it lives here and not in `cell_content`.
+        Mark(it) { return in_mark_slot(it, style, ink) }
         Text(_) { return plain_row(v, locale, style, ink) }
         Number(_) { return plain_row(v, locale, style, ink) }
         Whole(_) { return plain_row(v, locale, style, ink) }
@@ -3068,6 +3073,33 @@ fn row_content(v: Value, locale: Locale, style: Style, ink: Color) -> widget.Wid
         Flag(_) { return plain_row(v, locale, style, ink) }
         Blank { return widget.Widget.Nothing }
     }
+}
+
+// **How wide the column a row's mark sits in is**, whether or not the row has words beside it.
+//
+// A list of files, or a menu, wants its marks in a column: an icon placed at the leading edge of
+// each row lines up only while every icon is the same width, and the moment one is not the column
+// wobbles. A slot fixes that -- and it is what makes **collapsing a menu to its marks leave them
+// exactly where they were**, which is the behaviour this was added for. Without it an icon-only
+// row centred its mark and a worded row did not, so the icons jumped sideways as the menu closed.
+//
+// **Twice the body size**, which is the proportion the web application this was measured against
+// uses: a 28-point slot around a 15-point glyph. Derived rather than a number, so a look that
+// enlarges its type gets a wider column without saying so.
+pub fn mark_slot(style: Style) -> float {
+    return style.text.body.size * 2.0
+}
+
+fn in_mark_slot(mark: widget.Icon, style: Style, ink: Color) -> widget.Widget {
+    return widget.wide_of(mark_slot(style), widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.insets_of(0.0, 0.0, 0.0, 0.0),
+        surface: widget.no_surface(),
+        align: widget.centred(),
+        children: [widget.icon_widget(mark, style.text.body.size, quieter(ink), style.icon_font)],
+        name: ""
+    }))
 }
 
 fn plain_row(v: Value, locale: Locale, style: Style, ink: Color) -> widget.Widget {
@@ -8555,6 +8587,9 @@ fn marked_row(it: MarkedValue, style: Style, ink: Color) -> widget.Widget {
     // whatever box it is given -- so in a row with air around its line, the mark grew to the
     // row's full height and a 14-point icon was drawn at forty. Invisible until a look asked for
     // roomy rows, which is when it was found.
+    //
+    // **The same slot a mark-only row uses**, which is what keeps the two lined up: a menu
+    // collapsing to its marks leaves them where they were instead of sliding them sideways.
     return widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: style.space.s,
@@ -8562,7 +8597,7 @@ fn marked_row(it: MarkedValue, style: Style, ink: Color) -> widget.Widget {
         surface: widget.no_surface(),
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
         children: [
-            widget.icon_widget(it.mark, style.text.body.size, quieter(ink), style.icon_font),
+            in_mark_slot(it.mark, style, ink),
             widget.label_in_face(it.words, style.text.body.size, ink, style.text.body.face)
         ],
         name: ""

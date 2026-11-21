@@ -1287,6 +1287,24 @@ What an input does to a list.
 and knowing how far one page is. `m` is what a row is measured with: see `row_height`, which the
 widget lays the rows out by, so the hit test and the layout cannot disagree.
 
+### `mark_slot`
+
+```
+pub fn mark_slot(style: Style) -> float
+```
+
+**How wide the column a row's mark sits in is**, whether or not the row has words beside it.
+
+A list of files, or a menu, wants its marks in a column: an icon placed at the leading edge of
+each row lines up only while every icon is the same width, and the moment one is not the column
+wobbles. A slot fixes that -- and it is what makes **collapsing a menu to its marks leave them
+exactly where they were**, which is the behaviour this was added for. Without it an icon-only
+row centred its mark and a worded row did not, so the icons jumped sideways as the menu closed.
+
+**Twice the body size**, which is the proportion the web application this was measured against
+uses: a 28-point slot around a 15-point glyph. Derived rather than a number, so a look that
+enlarges its type gets a wider column without saying so.
+
 ### `list_widget`
 
 ```

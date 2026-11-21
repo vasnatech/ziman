@@ -1092,6 +1092,8 @@ pub fn list_at_end(l: List, bounds: Rect, f: Frame) -> bool
 
 pub fn list_input(l: List, input: Input, bounds: Rect, f: Frame) -> ListStep
 
+pub fn mark_slot(style: Style) -> float
+
 pub fn list_widget(l: List, f: Frame) -> widget.Widget
 
 pub fn row_name(l: List, index: int) -> string
