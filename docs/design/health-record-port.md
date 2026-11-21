@@ -206,16 +206,34 @@ port is what *finds* its gaps, never what shapes it. Its own README records what
 
 | screen | lines in the target | |
 |---|---|---|
-| `AllergiesView.tsx` | 63 | **the read half**: the fetch on a spawned thread, the four states, a row per record. The add, edit and delete dialogs are not ported and those buttons say so. |
+| `AllergiesView.tsx` | 63 | the list: a fetch on a spawned thread, the four states, a row per record. |
+| `AllergyDialog.tsx` | 94 | the form: thirteen fields, the allergen catalogue that fills in five of them, `POST`/`PUT`/`DELETE`, and a confirmation before a delete. |
 
-**It was chosen for being the smallest real one**, and it was not a toy: `Section`, `Card`,
-`Loading`, `Empty`, a criticality pill, a modal and a confirm dialog, in 63 lines.
+**The first was chosen for being the smallest real one**, and it was not a toy: `Section`, `Card`,
+`Loading`, `Empty`, a criticality pill, a modal and a confirm dialog, in 63 lines. The second is
+**the first form built on this toolkit at all**, and is where six controls met their first real
+caller -- the autocomplete, the combo box, the entry, the date field, the modal and the grid.
 
-### What the first screen found
+### What the first two screens found
 
-One defect fixed ([F335](../reviews/tasks/f335.md)): **a quiet badge was invisible**, at 1.0005:1
-against the window. Fixed in `lib/ui` with the hairline F323 used for the same defect, with a test
-that reddens without it.
+Two defects fixed, and both were of the same kind: **a control that documented a behaviour it did
+not have**.
+
+- [F335](../reviews/tasks/f335.md) -- **a quiet badge was invisible**, at 1.0005:1 against the
+  window. Fixed with the hairline F323 used for the card's identical invisibility.
+- [F336](../reviews/tasks/f336.md) -- **a text area measured 0 x 0**. `Entry.rows` says "how many
+  lines tall" and the viewport inside it measures as nothing, so the field vanished in any column.
+
+**Neither could have been found in the gallery, and both for the same reason**: each demo supplies
+what the control was failing to ask for. The text area demo wraps itself in `tall_of(170.0)`; the
+badge demo sits beside a button, where a missing capsule reads as "the quiet kind" rather than as
+"missing". A gallery proves a control draws. **An application proves it draws in the company it
+will keep.**
+
+Four more things the form found are recorded in [F336](../reviews/tasks/f336.md) and in the
+application's README: a dialog has no width of its own, a modal with a popup in it needs **three**
+layout passes rather than two, `DateField` cannot be empty, and `Autocomplete` suggests strings so
+a suggestion cannot carry a badge.
 
 And one correction to this document. **§2's "`Card` | 62 files" counted two different components
 as one.** `CardShell` -- a titled box with its own loading and empty states, which is what
@@ -223,9 +241,9 @@ as one.** `CardShell` -- a titled box with its own loading and empty states, whi
 edit and delete trailing, a hairline beneath, no title -- is used in **7**. The 62 came from a
 grep for the word. The row is the one this screen needed, and `lib/ui` has no control for it.
 
-Four more findings are recorded in the application's README and deliberately not acted on, because
-one screen is not evidence enough to change a toolkit. The two that look like real gaps rather
-than preferences:
+Four more findings from the list screen are recorded in the application's README and deliberately
+not acted on, because one screen is not evidence enough to change a toolkit. The two that look
+like real gaps rather than preferences:
 
 - **No scrollable container.** Everything that scrolls in `lib/ui` is a control that draws its own
   rows. A column of arbitrary widgets uses `widget.named_scroll` directly -- and then the wheel

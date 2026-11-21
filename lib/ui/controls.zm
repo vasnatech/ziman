@@ -2641,7 +2641,23 @@ fn multi_line_widget(e: Entry, style: Style, parts: Parts, m: widget.Metrics) ->
         state: with widget.no_state() { disabled: e.disabled, readonly: e.readonly, multiline: true },
         focus_part: "",
         tab_stop: true,
-        child: widget.named_scroll(concat(e.name, "-scroll"), 0.0, e.scroll, inside)
+        // **`rows` lines tall, said here, because the viewport inside cannot say it.**
+        //
+        // A `Scroll` measures as nothing deliberately -- it is a window onto something larger and
+        // takes the box it is given -- so for as long as this was the control's whole child, a
+        // text area measured **0 x 0** while a one-line field measured 29 x 32.8. In a column that
+        // stretches its children across, that is a control which is full width and no height: it
+        // vanishes, with its label still drawn above it. The gallery's text area never showed it
+        // because the demo wraps it in `tall_of(170.0)`, which is the workaround this removes.
+        //
+        // **`rows` is documented as "how many lines tall"** and now is. `tall_of` fixes the height
+        // and leaves the width alone, and a caller who wants a different height still wraps this
+        // in their own `tall_of` or `expand`: a `Fixed` fixes what it *measures*, not the box it
+        // ends up in.
+        child: widget.tall_of(
+            (e.rows as float) * line + style.padding.top + style.padding.bottom,
+            widget.named_scroll(concat(e.name, "-scroll"), 0.0, e.scroll, inside)
+        )
     })
 }
 

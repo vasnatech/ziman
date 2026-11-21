@@ -7282,6 +7282,45 @@ fn badge_surface(w: widget.Widget) -> widget.Surface {
     return widget.no_surface()
 }
 
+// --- a text area is as tall as it says it is
+
+// **`Entry.rows` is documented as "how many lines tall" and has to actually be.**
+//
+// A multi-line entry's child is a `named_scroll`, and a viewport measures as nothing on purpose,
+// so the whole control measured **0 x 0** while a one-line field measured its padding and a line.
+// In a column -- which stretches its children across but not along -- that is a field at full
+// width and no height: it disappears, with its own label still drawn above it. Found by porting a
+// form whose notes field was a caption with nothing under it.
+//
+// **The gallery could not have found it.** Its text area demo wraps the control in
+// `tall_of(170.0)`, which supplies the height the control was failing to ask for.
+#[test]
+fn a_text_area_measures_its_rows() {
+    val one = tall_of_rows(1)
+    val two = tall_of_rows(2)
+    val five = tall_of_rows(5)
+    test.assert_gt(two, one)
+    test.assert_gt(five, two)
+    // Each extra row is one line of body text, and nothing else changes.
+    test.assert_near(five - two, 3.0 * (two - one), 0.01)
+}
+
+// A caller's own height still wins, because a `Fixed` fixes what it *measures* and not the box it
+// is laid into -- which is what keeps `tall_of(170.0)` around one of these meaning 170.
+#[test]
+fn a_text_area_can_still_be_given_a_height() {
+    val boxed = widget.measure(widget.tall_of(170.0, a_text_area(3)), metrics())
+    test.assert_eq(170.0, boxed.height)
+}
+
+fn tall_of_rows(n: int) -> float {
+    return widget.measure(a_text_area(n), metrics()).height
+}
+
+fn a_text_area(n: int) -> widget.Widget {
+    return controls.entry_widget(with controls.entry_of("notes", "Notes", "") { rows: n }, frame())
+}
+
 // **A search field is exactly as tall as an ordinary field.** It stands next to ordinary fields in
 // every form the port has, so any difference reads as a mistake -- and the first version was a
 // padding taller, two ways at once: it sized its marks by adding the field's *horizontal* padding
