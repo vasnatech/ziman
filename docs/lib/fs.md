@@ -212,6 +212,12 @@ pub fn append_text(path: string, text: string) -> Result<int, FsError>
 pub fn write_text_atomic(path: string, text: string) -> Result<int, FsError>
 ```
 
+### `write_text_private`
+
+```
+pub fn write_text_private(path: string, text: string) -> Result<int, FsError>
+```
+
 ## Binary files
 
 ### `read_bytes`

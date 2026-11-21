@@ -114,6 +114,9 @@ api-check: $(BIN)
 module-path-check: $(BIN)
 	@./tests/run_module_path.sh $(BIN)
 
+private-file-check: $(BIN)
+	@./tests/run_private_file_test.sh $(BIN)
+
 # The shadow gate stood here from F176 to F180. It ran the new resolver beside the hand-written
 # dispatch arms and failed if they ever chose differently -- 1372 files, 661 calls, zero
 # disagreements, falling to 393 and then to none as the arms were deleted one group at a time. It

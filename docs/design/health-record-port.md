@@ -227,6 +227,13 @@ did not have**.
 - [F337](../reviews/tasks/f337.md) -- **an axis of counts had gridlines at 11.5**. `axis_number`
   already refused to print `1.0` for a count and said why; it could only decide how to print the
   value it was handed, not where the lines went.
+- [F341](../reviews/tasks/f341.md) -- **`fs` could write a file three ways and none of them could
+  say who may read it.** A program keeping a bearer token between launches had nowhere safe to put
+  it. `write_text_private` creates the file 0600 rather than changing its mode afterwards, because
+  the gap between the two is exactly when a secret is readable.
+- [F342](../reviews/tasks/f342.md) -- **a button could not be the important one**, so a form drew
+  four identical buttons and said nothing about which was the point of it. The mechanism was
+  already in `mood_of`; a button just had no way to ask for it.
 - [F339](../reviews/tasks/f339.md) -- **three of the pane's five cards read "request timed out"**
   against services `curl` answers in under a second. The keep-alive pool's retry fired only for
   `Network` errors, and a peer that drops a parked connection *silently* shows as a `Timeout`; the

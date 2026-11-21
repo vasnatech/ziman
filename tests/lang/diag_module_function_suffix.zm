@@ -1,6 +1,12 @@
 // F28: one pilot run brute-forced eight names before reaching `fs.write_text`. Edit distance
 // cannot find it -- `write` to `write_text` is five inserts -- so the prefix is what gets matched,
 // and several are offered, because choosing between _text and _bytes is a choice a reader can make.
+//
+// **Four of them, and the number is load-bearing.** The list is the first matches in declaration
+// order, so when `fs` gained `write_text_private` the cap of three pushed `write_bytes` off the end
+// and this diagnostic began offering three ways to write text and no way to write bytes -- losing
+// the one choice it exists to put in front of a reader. The cap went to four rather than the
+// golden being updated to the worse list.
 use fs
 
 fn main() {

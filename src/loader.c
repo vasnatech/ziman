@@ -1088,7 +1088,7 @@ static char *resolve_function_ref(CrossRefCtx *ctx, const char *dotted, int line
                         rest, u->path, u->path, rest, u->path, rest, rest);
         }
 
-        const char *prefixed[3];
+        const char *prefixed[4];
         int n_prefixed = 0;
         const char *best = NULL;
         int best_distance = 3;
@@ -1098,7 +1098,7 @@ static char *resolve_function_ref(CrossRefCtx *ctx, const char *dotted, int line
             if (!visibility_allows(cand->visibility, ctx->mod, target)) continue;
             const char *bare = strstr(cand->name, "::");
             bare = bare != NULL ? bare + 2 : cand->name;
-            if (rest_len > 1 && strncmp(bare, rest, rest_len) == 0 && n_prefixed < 3) {
+            if (rest_len > 1 && strncmp(bare, rest, rest_len) == 0 && n_prefixed < 4) {
                 prefixed[n_prefixed++] = bare;
                 continue;
             }
@@ -1115,7 +1115,17 @@ static char *resolve_function_ref(CrossRefCtx *ctx, const char *dotted, int line
             ziman_error("module", line, col, "module '%s' has no function '%s' -- did you mean '%s' or '%s'?", u->path, rest,
                         prefixed[0], prefixed[1]);
         }
-        if (n_prefixed >= 3) {
+        /* **Four and not three**, because three stopped spanning the kinds. The list is the first
+         * matches in declaration order, so adding `fs.write_text_private` pushed `write_bytes` off
+         * the end and `fs.write` began offering three ways to write text and no way to write
+         * bytes -- which is the one choice tests/lang/diag_module_function_suffix exists to put in
+         * front of a reader. Four is still a short list. */
+        if (n_prefixed >= 4) {
+            ziman_error("module", line, col,
+                        "module '%s' has no function '%s' -- did you mean '%s', '%s', '%s' or '%s'?",
+                        u->path, rest, prefixed[0], prefixed[1], prefixed[2], prefixed[3]);
+        }
+        if (n_prefixed == 3) {
             ziman_error("module", line, col, "module '%s' has no function '%s' -- did you mean '%s', '%s' or '%s'?", u->path,
                         rest, prefixed[0], prefixed[1], prefixed[2]);
         }

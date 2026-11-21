@@ -6,6 +6,7 @@
 #endif
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -326,6 +327,52 @@ static Value native_fs_write_text_atomic(Value *args, int argc, int line, int co
     return fs_ok_int((int64_t)n);
 }
 
+/* Like the atomic write above, except the file only its owner can read.
+ *
+ * **Created private rather than made private**, which is the whole point: writing the file and
+ * then changing its mode leaves it world-readable in between, and that window is exactly when
+ * something reading every new file under a home directory would find a token. `open` with the mode
+ * in the call has no such window.
+ *
+ * `O_EXCL` on the temporary name is what refuses a symlink somebody else planted there. The name
+ * carries this process's pid, so an existing one is this program's own leftover from a crash at
+ * precisely this point: removed once and retried once, and a second failure is reported.
+ *
+ * The rename carries the mode with it, so the file at `path` is 0600 whether or not it existed. */
+static Value native_fs_write_text_private(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *path = value_cstr(args[0]);
+    char tmp[4096];
+    snprintf(tmp, sizeof tmp, "%s.tmp%d", path, (int)getpid());
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+    if (fd < 0 && errno == EEXIST) {
+        remove(tmp);
+        fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+    }
+    if (fd < 0) return fs_err(type_scalar(TY_INT), "cannot write", path);
+    size_t len = args[1].as.str.len;
+    size_t done = 0;
+    int failed = 0;
+    while (done < len) {
+        ssize_t put = write(fd, args[1].as.str.ptr + done, len - done);
+        if (put < 0) {
+            if (errno == EINTR) continue;
+            failed = 1;
+            break;
+        }
+        done += (size_t)put;
+    }
+    if (!failed && fsync(fd) != 0) failed = 1;
+    if (close(fd) != 0) failed = 1;
+    if (failed || rename(tmp, path) != 0) {
+        int saved = errno;
+        remove(tmp);
+        errno = saved;
+        return fs_err(type_scalar(TY_INT), "cannot write", path);
+    }
+    return fs_ok_int((int64_t)done);
+}
+
 static Value native_fs_is_file(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     struct stat st;
@@ -634,6 +681,7 @@ void native_fs_register(void) {
     native_register("fs::write_bytes_raw", native_fs_write_bytes);
     native_register("fs::append_bytes_raw", native_fs_append_bytes);
     native_register("fs::write_text_atomic_raw", native_fs_write_text_atomic);
+    native_register("fs::write_text_private_raw", native_fs_write_text_private);
     native_register("fs::is_file", native_fs_is_file);
     native_register("fs::make_dirs_raw", native_fs_make_dirs);
     native_register("fs::copy_file_raw", native_fs_copy_file);

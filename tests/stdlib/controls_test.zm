@@ -7804,3 +7804,60 @@ fn all_ops(ops: [scene.Op]) -> int {
     }
     return n
 }
+
+// --- the button a form is expecting to be pressed
+
+// **A prominent button is painted in the accent**, which is what makes it the one a user reaches
+// for without reading the labels. Before this, a form could draw four identical buttons and say
+// nothing about which was the point of the form.
+#[test]
+fn a_prominent_button_is_painted_in_the_accent() {
+    val f = frame()
+    val plain = widget.paint_ops(laid_button(controls.button_of("go", "Save")), f.metrics)
+    val loud = widget.paint_ops(laid_button(with controls.button_of("go", "Save") { prominent: true }), f.metrics)
+    test.assert_eq(len(plain), len(loud))
+    test.assert(first_fill(loud) != first_fill(plain))
+    test.assert_eq(f.style.states.selected.face, first_fill(loud))
+}
+
+// **And it keeps that colour under the pointer**, which is the `Selected` row's own rule and the
+// right one here: a prominent button repainted in the neutral hover colour reads as turning into
+// something else. Stated as a test because it is the surprising half of reusing that row.
+#[test]
+fn a_prominent_button_does_not_change_under_the_pointer() {
+    val loud = with controls.button_of("go", "Save") { prominent: true }
+    val resting = frame()
+    val hovered = with resting { hovered: "go" }
+    test.assert_eq(
+        first_fill(widget.paint_ops(widget.layout(controls.button_widget(loud, resting), button_box(), metrics()), resting.metrics)),
+        first_fill(widget.paint_ops(widget.layout(controls.button_widget(loud, hovered), button_box(), metrics()), hovered.metrics))
+    )
+}
+
+// A plain one does, which is what says the hover is being drawn at all.
+#[test]
+fn a_plain_button_does_change_under_the_pointer() {
+    val quiet = controls.button_of("go", "Save")
+    val resting = frame()
+    val hovered = with resting { hovered: "go" }
+    val at_rest = first_fill(widget.paint_ops(widget.layout(controls.button_widget(quiet, resting), button_box(), metrics()), resting.metrics))
+    val under = first_fill(widget.paint_ops(widget.layout(controls.button_widget(quiet, hovered), button_box(), metrics()), hovered.metrics))
+    test.assert(at_rest != under)
+}
+
+fn laid_button(b: controls.Button) -> widget.Laid {
+    return widget.layout(controls.button_widget(b, frame()), button_box(), metrics())
+}
+
+fn button_box() -> geom.Rect {
+    return geom.rect_of(0.0, 0.0, 160.0, 40.0)
+}
+
+fn first_fill(ops: [scene.Op]) -> paint.Paint {
+    for op in ops {
+        if Fill(it) = op {
+            return it.fill
+        }
+    }
+    return paint.solid(paint.rgb8(0, 0, 0))
+}

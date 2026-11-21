@@ -770,6 +770,24 @@ pub struct Button {
     badge: Option<Badge>
     disabled: bool
     held: bool
+    // **The one a form is expecting to be pressed**: GTK's `suggested-action`, macOS's default
+    // button, the filled one standing beside the outlined ones. A dialog's confirm, a sign-in's
+    // "Sign in", a wizard's "Next".
+    //
+    // **At most one in a group**, which this cannot enforce and a caller must mean: two prominent
+    // buttons side by side say the same thing twice and so say nothing.
+    //
+    // **Drawn with the style's `Selected` row**, which is the accent pair every look already
+    // defines. A button is never "selected" in a list's sense, so there is no second meaning to
+    // collide with -- and it inherits that row's rule of *keeping its colour under the pointer*,
+    // which for this control is right rather than merely convenient: a prominent button is the one
+    // being offered, and a hover repainting it in the neutral hover colour would read as it
+    // turning into something else.
+    //
+    // **What a look still cannot say** is what a suggested button looks like *independently* of a
+    // selection -- the two share one row. No look has wanted to part them yet; the day one does,
+    // `States` grows a row rather than this field changing meaning.
+    prominent: bool
 }
 
 pub fn button_of(name: string, label: string) -> Button
@@ -3081,6 +3099,8 @@ pub fn write_text(path: string, text: string) -> Result<int, FsError>
 pub fn append_text(path: string, text: string) -> Result<int, FsError>
 
 pub fn write_text_atomic(path: string, text: string) -> Result<int, FsError>
+
+pub fn write_text_private(path: string, text: string) -> Result<int, FsError>
 
 pub fn read_bytes(path: string) -> Result<[byte], FsError>
 

@@ -233,6 +233,26 @@ pub fn write_text_atomic(path: string, text: string) -> Result<int, FsError> {
     return lift(write_text_atomic_raw(path, text))
 }
 
+// Replaces the file's contents the way `write_text_atomic` does, and **creates it so that only
+// its owner can read it** (0600). `Ok(bytes written)`.
+//
+// For the files a program must not leave lying about for other users: a token, a key, a session.
+//
+// **Created private rather than made private.** Writing a file and then changing its mode leaves
+// it world-readable in between, and that window is exactly when something watching for new files
+// would find the secret -- so the mode goes in the call that creates it and there is no window.
+// This is why the library offers the whole operation instead of a `set_mode` to go after a write:
+// a caller cannot assemble a safe version out of the parts.
+//
+// **On the mode itself**: 0600 and not a parameter. The only question a caller of this has is
+// "may anyone else read this", and the answer that makes the function worth having is no. A
+// program that wants to publish a file wants `write_text` or `write_text_atomic`.
+native fn write_text_private_raw(path: string, text: string) -> Result<int, string>
+
+pub fn write_text_private(path: string, text: string) -> Result<int, FsError> {
+    return lift(write_text_private_raw(path, text))
+}
+
 // ---------------------------------------------------------------- binary files
 
 // The whole file as bytes (any content, including NUL).
