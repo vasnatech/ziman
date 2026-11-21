@@ -7861,3 +7861,121 @@ fn first_fill(ops: [scene.Op]) -> paint.Paint {
     }
     return paint.solid(paint.rgb8(0, 0, 0))
 }
+
+// --- how roomy a list is
+
+// **A look can say how much air its rows have**, which it could not before: `row_height` added
+// `space.s`, and `space.s` is also the gap between two chips and between an icon and its label --
+// so a sidebar wanting comfortable rows had to make every small gap in the window bigger with it.
+#[test]
+fn a_looks_row_air_decides_how_tall_a_row_is() {
+    val tight = frame().style
+    val roomy = with tight { row_air: tight.row_air + 12.0 }
+    test.assert_near(
+        controls.row_height(metrics(), roomy) - controls.row_height(metrics(), tight),
+        12.0,
+        0.001
+    )
+}
+
+// **And nothing else moves with it.** The point of naming it was that `space.s` was doing two
+// jobs; raising one must not raise the other.
+#[test]
+fn row_air_does_not_change_the_gaps() {
+    val tight = frame().style
+    val roomy = with tight { row_air: tight.row_air + 12.0 }
+    test.assert_eq(tight.space.s, roomy.space.s)
+    test.assert_eq(tight.space.m, roomy.space.m)
+}
+
+// **A look that says nothing about it is unchanged**, which is what made this safe to add: every
+// theme in the register still gets a line plus `space.s`, exactly as before.
+#[test]
+fn a_derived_look_keeps_the_old_row_height() {
+    val derived = theme.modern()
+    test.assert_near(
+        controls.row_height(metrics(), derived),
+        controls.line_for(metrics(), derived.text.body) + derived.space.s,
+        0.001
+    )
+}
+
+// --- a row's mark
+
+// **A mark is drawn quieter than the words beside it**, which every sidebar does: an icon as
+// heavy as its label reads as a second word.
+#[test]
+fn a_rows_mark_is_quieter_than_its_words() {
+    val f = frame()
+    val marked = controls.list_of("nav", "Screens", [controls.marked(an_icon(), "Allergies")])
+    val ops = widget.paint_ops(laid_list(marked), f.metrics)
+    // The mark's fill is the row's ink with some of its alpha spent; the label keeps the full ink.
+    test.assert(mark_alpha(ops, f) < 1.0)
+    test.assert(mark_alpha(ops, f) > 0.0)
+}
+
+fn mark_alpha(ops: [scene.Op], f: controls.Frame) -> float {
+    for op in ops {
+        if Nested(g) = op {
+            val inner = mark_alpha(g.ops, f)
+            if inner > 0.0 { return inner }
+        }
+        if Fill(it) = op {
+            if Solid(c) = it.fill {
+                if c.alpha < 1.0 && c.alpha > 0.0 { return c.alpha }
+            }
+        }
+    }
+    return 0.0
+}
+
+// **A row's mark keeps its own size however tall the row is.**
+//
+// `row_of` stretches its children across the row and a `Fixed` takes whatever box it is given, so
+// a mark in a row with air around its line grew to the row's full height: a 14-point icon drawn at
+// forty. Invisible until a look asked for roomy rows, which is exactly when it appeared -- so this
+// measures the ink at two row heights and insists it is the same.
+#[test]
+fn a_rows_mark_does_not_grow_with_the_row() {
+    val f = frame()
+    val roomy = controls.frame_of(with f.style { row_air: f.style.row_air + 24.0 }, f.metrics)
+    val marked = controls.list_of("nav", "Screens", [controls.marked(an_icon(), "Allergies")])
+    test.assert_near(
+        mark_height(widget.paint_ops(laid_list_in(marked, f), f.metrics)),
+        mark_height(widget.paint_ops(laid_list_in(marked, roomy), roomy.metrics)),
+        0.5
+    )
+}
+
+// And the row itself did grow, or the test above would pass by measuring nothing.
+#[test]
+fn a_roomier_look_really_does_make_the_row_taller() {
+    val f = frame()
+    val roomy = with f.style { row_air: f.style.row_air + 24.0 }
+    test.assert_near(
+        controls.row_height(metrics(), roomy) - controls.row_height(metrics(), f.style),
+        24.0,
+        0.001
+    )
+}
+
+fn laid_list_in(l: controls.List, f: controls.Frame) -> widget.Laid {
+    return widget.layout(controls.list_widget(l, f), list_box(), metrics())
+}
+
+// How tall the mark's ink is: the smallest fill in the row, which is the glyph rather than the
+// band behind it.
+fn mark_height(ops: [scene.Op]) -> float {
+    var least = 1.0e9
+    for op in ops {
+        if Nested(g) = op {
+            val inner = mark_height(g.ops)
+            if inner < least { least = inner }
+        }
+        if Fill(it) = op {
+            val b = shape.path_bounds(it.path)
+            if b.height > 0.0 && b.height < least { least = b.height }
+        }
+    }
+    return least
+}

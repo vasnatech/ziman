@@ -335,6 +335,10 @@ pub fn derive(seeds: Seeds, s: Scheme) -> controls.Style {
             selected: row_of(Paint.Solid(a[3]), ink, edge)
         },
         space: controls.Space { none: 0.0, xs: 2.0, s: 4.0, m: 8.0, l: 12.0, xl: 16.0 },
+        // **The same number `row_height` used to add**, so a look that says nothing about its
+        // rows gets exactly what it got before this field existed. A look wanting comfortable
+        // lists raises it without touching every other small gap in the window.
+        row_air: 4.0,
         minimum: controls.Minimum { target: 24.0, thumb: 20.0 },
         stroke: controls.Stroke { hair: 1.0, line: 2.0 },
         // **Deeper on a dark look** for the reason the scrim is: depth reads as a darkening, and
@@ -478,6 +482,10 @@ pub fn at_density(s: controls.Style, d: Density) -> controls.Style {
             l: s.space.l * by,
             xl: s.space.xl * by
         },
+        // **Density moves this too.** A row's air is spacing, so a compact window gets tighter
+        // rows and a spacious one roomier -- which is what density is for. Left out, a `Spacious`
+        // look would have had every gap grow and its lists stay exactly as tight.
+        row_air: s.row_air * by,
         padding: widget.insets_of(
             s.padding.left * by,
             s.padding.top * by,

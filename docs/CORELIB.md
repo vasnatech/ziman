@@ -2066,6 +2066,19 @@ pub struct Style {
     // The spacing scale, the floors density may not cross, and the widths of lines. See each
     // struct above: they are three groups rather than one because only the first scales.
     space: Space
+    // **How much air a list's row has above and below its line of text**, which is what makes a
+    // list comfortable or dense.
+    //
+    // **A number on the look and not on a `List`**, which is the distinction the comment on
+    // `row_height` is making: a row carrying its own height is a number true by coincidence, and
+    // a look saying how roomy its lists are is the look's job. It is still added to a measured
+    // line rather than replacing one, so a theme that enlarges its type still gets rows that fit.
+    //
+    // **Defaults to `space.s`**, which is what `row_height` used to add -- so every look that does
+    // not mention it is unchanged. It needed naming because `space.s` is *also* the gap between
+    // two chips and the gap between an icon and its label: a sidebar that wanted roomier rows had
+    // to make every small gap in the window roomier with it, which is the complaint this answers.
+    row_air: float
     minimum: Minimum
     stroke: Stroke
     // What falls behind a surface that is in front of the window: a menu's popup, a combo box's

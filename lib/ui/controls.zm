@@ -8551,10 +8551,41 @@ fn cell_content(t: Table, f: Frame, v: Value, ink: Color) -> widget.Widget {
 // An icon, a gap, and the words -- the one shape shared by a table cell and a list row, so that a
 // sidebar and a column of files look like the same thing.
 fn marked_row(it: MarkedValue, style: Style, ink: Color) -> widget.Widget {
-    return widget.row_of(style.space.s, [
-        widget.icon_widget(it.mark, style.text.body.size, ink, style.icon_font),
-        widget.label_in_face(it.words, style.text.body.size, ink, style.text.body.face)
-    ])
+    // **Centred across the row, not stretched to it.** `row_of` stretches, and a `Fixed` takes
+    // whatever box it is given -- so in a row with air around its line, the mark grew to the
+    // row's full height and a 14-point icon was drawn at forty. Invisible until a look asked for
+    // roomy rows, which is when it was found.
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: style.space.s,
+        padding: widget.insets_of(0.0, 0.0, 0.0, 0.0),
+        surface: widget.no_surface(),
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+        children: [
+            widget.icon_widget(it.mark, style.text.body.size, quieter(ink), style.icon_font),
+            widget.label_in_face(it.words, style.text.body.size, ink, style.text.body.face)
+        ],
+        name: ""
+    })
+}
+
+// A row's mark, **a step quieter than its words**.
+//
+// F340 painted both in the row's one ink, on the argument that an icon left in the list's ink
+// vanishes into a selected row's accent band. That argument is about the *hue* and it still
+// holds -- this keeps the hue and spends some of the alpha, so a selected row's mark is still
+// `on_accent` and still legible.
+//
+// What it fixes is the resting row: an icon as heavy as the words beside it reads as a second
+// word. Every sidebar draws the mark lighter -- the application this was measured against uses
+// `#9ca3af` against `#374151`, which is about this much.
+//
+// **Alpha and not a mix toward the background**, because `Parts.face` is a `Paint` and may be a
+// gradient: there is no single colour to mix toward, and fading works over whatever is behind.
+val mark_strength = 0.62
+
+fn quieter(ink: Color) -> Color {
+    return paint.fade(ink, mark_strength)
 }
 
 fn cell_label(t: Table, style: Style, v: Value, ink: Color) -> widget.Widget {
@@ -9606,6 +9637,19 @@ pub struct Style {
     // The spacing scale, the floors density may not cross, and the widths of lines. See each
     // struct above: they are three groups rather than one because only the first scales.
     space: Space
+    // **How much air a list's row has above and below its line of text**, which is what makes a
+    // list comfortable or dense.
+    //
+    // **A number on the look and not on a `List`**, which is the distinction the comment on
+    // `row_height` is making: a row carrying its own height is a number true by coincidence, and
+    // a look saying how roomy its lists are is the look's job. It is still added to a measured
+    // line rather than replacing one, so a theme that enlarges its type still gets rows that fit.
+    //
+    // **Defaults to `space.s`**, which is what `row_height` used to add -- so every look that does
+    // not mention it is unchanged. It needed naming because `space.s` is *also* the gap between
+    // two chips and the gap between an icon and its label: a sidebar that wanted roomier rows had
+    // to make every small gap in the window roomier with it, which is the complaint this answers.
+    row_air: float
     minimum: Minimum
     stroke: Stroke
     // What falls behind a surface that is in front of the window: a menu's popup, a combo box's
@@ -9917,7 +9961,7 @@ pub fn line_for(m: widget.Metrics, t: Type) -> float {
 // **Not a theme token either.** A token set to 20 is the same number in a different place: it can
 // still disagree with the face the theme asks for, and nothing would say so.
 pub fn row_height(m: widget.Metrics, style: Style) -> float {
-    return line_for(m, style.text.body) + style.space.s
+    return line_for(m, style.text.body) + style.row_air
 }
 
 // How tall a table's header band is: a line of **label** text -- the role a column title is drawn

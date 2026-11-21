@@ -227,6 +227,10 @@ did not have**.
 - [F337](../reviews/tasks/f337.md) -- **an axis of counts had gridlines at 11.5**. `axis_number`
   already refused to print `1.0` for a count and said why; it could only decide how to print the
   value it was handed, not where the lines went.
+- [F343](../reviews/tasks/f343.md) -- **a list could not be comfortable, and its marks were as
+  loud as its words.** `row_height` added `space.s`, which is also the gap between two chips -- so
+  roomier rows meant a roomier everything. `Style.row_air` names it, defaulting to what it was. A
+  third defect surfaced the moment rows got taller: a mark stretched to the row's full height.
 - [F341](../reviews/tasks/f341.md) -- **`fs` could write a file three ways and none of them could
   say who may read it.** A program keeping a bearer token between launches had nowhere safe to put
   it. `write_text_private` creates the file 0600 rather than changing its mode afterwards, because
