@@ -144,5 +144,6 @@ fn typed_said(d: Demo) -> string {
         Date(_) { shown }
         Flag(_) { shown }
         Mark(_) { shown }
+        Marked(_) { shown }
     }
 }

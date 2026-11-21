@@ -68,4 +68,6 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F336 — the first form, and the text area that measured nothing](f336.md)
 - [F337 — the first charts an application drew, and the axis that read 11.5](f337.md)
 - [F338 — a label that wraps, and the width the measure protocol never had](f338.md)
+- [F339 — the retry on a reused connection, and the two things it got wrong](f339.md)
+- [F340 — a list row that is an icon *and* its words](f340.md)
 - [Open — `api-check` fails intermittently under make, never on its own](open-api-check-flake.md)

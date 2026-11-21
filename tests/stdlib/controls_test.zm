@@ -7751,3 +7751,56 @@ fn a_list_that_fits_is_already_at_its_end() {
     test.assert_false(wheeled(small, 0 - 3).reached_end)
     test.assert_false(controls.list_at_end(long_list(), short_box, frame()))
 }
+
+// --- a list row that carries an icon
+
+// **A row is an icon *and* its words**, which is the commonest row in any desktop -- a file beside
+// its kind, a screen beside its symbol in a sidebar. `Mark` is an icon alone and `Text` is words
+// alone; before `Marked` a caller who wanted both had to stop using `List` and lay out buttons by
+// hand, which is a tab strip with none of a listbox's selection or keys.
+#[test]
+fn a_marked_row_draws_its_icon_and_its_words() {
+    val marked = controls.list_of("nav", "Screens", [
+        controls.marked(an_icon(), "Allergies"),
+        controls.marked(an_icon(), "Assessments")
+    ])
+    val plain = controls.list_of("nav", "Screens", ["Allergies", "Assessments"])
+    val f = frame()
+    val with_icons = widget.paint_ops(laid_list(marked), f.metrics)
+    val without = widget.paint_ops(laid_list(plain), f.metrics)
+    // The words are still drawn -- an icon decorates a row, it does not replace its text.
+    test.assert_eq(text_count(without), text_count(with_icons))
+    // And there is more ink: two icons' worth that the plain list has not. Counted through the
+    // groups, because an icon is painted inside one.
+    test.assert_gt(all_ops(with_icons), all_ops(without))
+}
+
+// **The words are the value.** Sorting, filtering and what a reader is told all go through
+// `value_text`, so decorating a row must not change any of them -- an icon a reader would need is
+// one that should have been words.
+#[test]
+fn a_marked_row_reads_as_its_words() {
+    test.assert_eq("Allergies", controls.value_text(controls.marked(an_icon(), "Allergies"), locale.of("en-GB")))
+}
+
+fn an_icon() -> widget.Icon {
+    return widget.icon_of(shape.rect_path(geom.rect_of(0.2, 0.2, 0.6, 0.6)), "mark")
+}
+
+fn text_count(ops: [scene.Op]) -> int {
+    var n = 0
+    for op in ops {
+        if scene.Op.is_Text(op) { n = n + 1 }
+        if Nested(g) = op { n = n + text_count(g.ops) }
+    }
+    return n
+}
+
+fn all_ops(ops: [scene.Op]) -> int {
+    var n = 0
+    for op in ops {
+        n = n + 1
+        if Nested(g) = op { n = n + all_ops(g.ops) }
+    }
+    return n
+}

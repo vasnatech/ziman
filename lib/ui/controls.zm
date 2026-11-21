@@ -3028,6 +3028,33 @@ fn held_still(l: List) -> ListStep {
 // **The rows carry `selected` rather than the list carrying an index**, because that is what a
 // reader reads: it announces "list item, Ada, selected", and an index on the container would make
 // every adapter work out for itself which child the number meant.
+// What a row draws: the words, with the row's own icon before them when it has one.
+//
+// **The row's ink reaches the icon too.** A selected row whose look paints the band in the accent
+// needs `on_accent` for both, and an icon left in the list's ink vanishes into the band exactly as
+// the text would.
+// **One arm per variant, which the compiler demands**, so the next value added cannot quietly
+// fall back to its text here while a table draws it properly.
+fn row_content(v: Value, locale: Locale, style: Style, ink: Color) -> widget.Widget {
+    switch v {
+        Marked(it) { return marked_row(it, style, ink) }
+        Mark(it) { return widget.icon_widget(it, style.text.body.size, ink, style.icon_font) }
+        Text(_) { return plain_row(v, locale, style, ink) }
+        Number(_) { return plain_row(v, locale, style, ink) }
+        Whole(_) { return plain_row(v, locale, style, ink) }
+        Code(_) { return plain_row(v, locale, style, ink) }
+        Exact(_) { return plain_row(v, locale, style, ink) }
+        Big(_) { return plain_row(v, locale, style, ink) }
+        Date(_) { return plain_row(v, locale, style, ink) }
+        Flag(_) { return plain_row(v, locale, style, ink) }
+        Blank { return widget.Widget.Nothing }
+    }
+}
+
+fn plain_row(v: Value, locale: Locale, style: Style, ink: Color) -> widget.Widget {
+    return widget.label_in_face(value_text(v, locale), style.text.body.size, ink, style.text.body.face)
+}
+
 pub fn list_widget(l: List, f: Frame) -> widget.Widget {
     val style = f.style
     val m = f.metrics
@@ -3058,12 +3085,7 @@ pub fn list_widget(l: List, f: Frame) -> widget.Widget {
             // **The row's own ink, not the list's.** A face from one row and a word from another
             // is the half-implemented state the rows exist to prevent -- and a look whose
             // selection is the accent needs `on_accent` here or the text vanishes into it.
-            children: [widget.label_in_face(
-                value_text(l.items[i], l.locale),
-                style.text.body.size,
-                row_parts.ink,
-                style.text.body.face
-            )],
+            children: [row_content(l.items[i], l.locale, style, row_parts.ink)],
             name: ""
         })
         push(rows, widget.fixed_of(
@@ -7566,6 +7588,18 @@ pub fn split_pane_widget(
 // **Why a table needs this at all**: a column of numbers held as text cannot be right-aligned on
 // its digits without the caller padding them, cannot be formatted for a locale, and sorts `10`
 // before `9`. Holding the value and formatting late is what fixes all three at once.
+// An icon and the words beside it. **A struct and not two payloads on the variant**, because a
+// pattern here binds one value: `Marked(mark, words)` is a syntax error, and every multi-field
+// variant in this library is a struct for the same reason.
+pub struct MarkedValue {
+    mark: widget.Icon
+    words: string
+}
+
+pub fn marked(mark: widget.Icon, words: string) -> Value {
+    return Value.Marked(MarkedValue { mark: mark, words: words })
+}
+
 pub enum Value {
     Text(string)
     // A measured quantity: written with the locale's own separators.
@@ -7590,6 +7624,17 @@ pub enum Value {
     // anybody notices `getColumnClass` exists.
     Flag(Toggle)
     Mark(widget.Icon)
+    // **An icon and the words beside it**, which `Mark` and `Text` cannot be together.
+    //
+    // This is the commonest row in any desktop: a file beside its kind, a place beside its sign, a
+    // screen beside its symbol in a sidebar. A list row holds one value, so before this the choice
+    // was an icon *or* a name, and every caller that wanted both had to stop using `List` and lay
+    // out buttons by hand -- which is a tab strip with none of a listbox's selection or keys.
+    //
+    // **The words are the value**, and the icon is a mark on it: `value_text` answers the string,
+    // so sorting, filtering and what a reader is told are all unchanged by decorating a row. An
+    // icon a reader would need is one that should have been words.
+    Marked(MarkedValue)
     // A cell with nothing in it, which is **not** the empty string: a missing measurement and a
     // measurement of "" are different facts, and a reader should not be told they are the same.
     Blank
@@ -7617,6 +7662,8 @@ pub fn value_text(v: Value, l: Locale) -> string {
         // sounds like.
         Flag(it) { a11y.toggle_word(it, widget.Role.CheckBox) }
         Mark(it) { it.name }
+        // The words, not the icon's name: the icon is a decoration on them.
+        Marked(it) { it.words }
         Blank { "" }
     }
 }
@@ -8468,6 +8515,7 @@ fn cell_content(t: Table, f: Frame, v: Value, ink: Color) -> widget.Widget {
         // box in a form are the same thing to look at.
         Flag(it) { flag_cell(it, f, ink) }
         Mark(it) { widget.icon_widget(it, style.text.body.size, ink, style.icon_font) }
+        Marked(it) { marked_row(it, style, ink) }
         Text(_) { cell_label(t, style, v, ink) }
         Number(_) { cell_label(t, style, v, ink) }
         Whole(_) { cell_label(t, style, v, ink) }
@@ -8479,6 +8527,15 @@ fn cell_content(t: Table, f: Frame, v: Value, ink: Color) -> widget.Widget {
         // thing for the painter to walk on a table of ten thousand mostly-empty cells.
         Blank { widget.Widget.Nothing }
     }
+}
+
+// An icon, a gap, and the words -- the one shape shared by a table cell and a list row, so that a
+// sidebar and a column of files look like the same thing.
+fn marked_row(it: MarkedValue, style: Style, ink: Color) -> widget.Widget {
+    return widget.row_of(style.space.s, [
+        widget.icon_widget(it.mark, style.text.body.size, ink, style.icon_font),
+        widget.label_in_face(it.words, style.text.body.size, ink, style.text.body.face)
+    ])
 }
 
 fn cell_label(t: Table, style: Style, v: Value, ink: Color) -> widget.Widget {

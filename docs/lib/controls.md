@@ -1275,12 +1275,6 @@ widget lays the rows out by, so the hit test and the layout cannot disagree.
 pub fn list_widget(l: List, f: Frame) -> widget.Widget
 ```
 
-The list as a widget: a control holding a viewport of rows, each row a part of the list.
-
-**The rows carry `selected` rather than the list carrying an index**, because that is what a
-reader reads: it announces "list item, Ada, selected", and an index on the container would make
-every adapter work out for itself which child the number meant.
-
 ### `row_name`
 
 ```
@@ -3108,6 +3102,37 @@ them, on some window widths and not others.
 
 ## The table
 
+### `MarkedValue`
+
+```
+pub struct MarkedValue {
+    mark: widget.Icon
+    words: string
+}
+```
+
+One value in a table cell.
+
+**An enum, where Swing's `TableModel` has `Object` and `getColumnClass`.** `JTable` looks a
+renderer up by the class the model reports for a column -- reflection doing a job a type can
+do, and a `ClassCastException` at paint time where this is a compile error. Every variant here
+is one of `JTable`'s own default renderers; the difference is that the set is closed, so a new
+kind of value is a compile error in the one switch that draws them rather than a cell that
+silently falls back to `toString`.
+
+**Why a table needs this at all**: a column of numbers held as text cannot be right-aligned on
+its digits without the caller padding them, cannot be formatted for a locale, and sorts `10`
+before `9`. Holding the value and formatting late is what fixes all three at once.
+An icon and the words beside it. **A struct and not two payloads on the variant**, because a
+pattern here binds one value: `Marked(mark, words)` is a syntax error, and every multi-field
+variant in this library is a struct for the same reason.
+
+### `marked`
+
+```
+pub fn marked(mark: widget.Icon, words: string) -> Value
+```
+
 ### `Value`
 
 ```
@@ -3135,24 +3160,22 @@ pub enum Value {
     // anybody notices `getColumnClass` exists.
     Flag(Toggle)
     Mark(widget.Icon)
+    // **An icon and the words beside it**, which `Mark` and `Text` cannot be together.
+    //
+    // This is the commonest row in any desktop: a file beside its kind, a place beside its sign, a
+    // screen beside its symbol in a sidebar. A list row holds one value, so before this the choice
+    // was an icon *or* a name, and every caller that wanted both had to stop using `List` and lay
+    // out buttons by hand -- which is a tab strip with none of a listbox's selection or keys.
+    //
+    // **The words are the value**, and the icon is a mark on it: `value_text` answers the string,
+    // so sorting, filtering and what a reader is told are all unchanged by decorating a row. An
+    // icon a reader would need is one that should have been words.
+    Marked(MarkedValue)
     // A cell with nothing in it, which is **not** the empty string: a missing measurement and a
     // measurement of "" are different facts, and a reader should not be told they are the same.
     Blank
 }
 ```
-
-One value in a table cell.
-
-**An enum, where Swing's `TableModel` has `Object` and `getColumnClass`.** `JTable` looks a
-renderer up by the class the model reports for a column -- reflection doing a job a type can
-do, and a `ClassCastException` at paint time where this is a compile error. Every variant here
-is one of `JTable`'s own default renderers; the difference is that the set is closed, so a new
-kind of value is a compile error in the one switch that draws them rather than a cell that
-silently falls back to `toString`.
-
-**Why a table needs this at all**: a column of numbers held as text cannot be right-aligned on
-its digits without the caller padding them, cannot be formatted for a locale, and sorts `10`
-before `9`. Holding the value and formatting late is what fixes all three at once.
 
 ### `value_text`
 

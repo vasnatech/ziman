@@ -1641,6 +1641,13 @@ pub fn split_pane_input(s: SplitPane, input: Input, bounds: Rect, f: Frame) -> S
 
 pub fn split_pane_widget(
 
+pub struct MarkedValue {
+    mark: widget.Icon
+    words: string
+}
+
+pub fn marked(mark: widget.Icon, words: string) -> Value
+
 pub enum Value {
     Text(string)
     // A measured quantity: written with the locale's own separators.
@@ -1665,6 +1672,17 @@ pub enum Value {
     // anybody notices `getColumnClass` exists.
     Flag(Toggle)
     Mark(widget.Icon)
+    // **An icon and the words beside it**, which `Mark` and `Text` cannot be together.
+    //
+    // This is the commonest row in any desktop: a file beside its kind, a place beside its sign, a
+    // screen beside its symbol in a sidebar. A list row holds one value, so before this the choice
+    // was an icon *or* a name, and every caller that wanted both had to stop using `List` and lay
+    // out buttons by hand -- which is a tab strip with none of a listbox's selection or keys.
+    //
+    // **The words are the value**, and the icon is a mark on it: `value_text` answers the string,
+    // so sorting, filtering and what a reader is told are all unchanged by decorating a row. An
+    // icon a reader would need is one that should have been words.
+    Marked(MarkedValue)
     // A cell with nothing in it, which is **not** the empty string: a missing measurement and a
     // measurement of "" are different facts, and a reader should not be told they are the same.
     Blank

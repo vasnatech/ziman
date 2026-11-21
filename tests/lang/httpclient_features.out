@@ -7,6 +7,10 @@
 1
 200 flaky
 200 hello
+200 mute
+200 mute
+200 mute
+request timed out
 200 hello
 200 hello
 2

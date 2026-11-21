@@ -227,6 +227,13 @@ did not have**.
 - [F337](../reviews/tasks/f337.md) -- **an axis of counts had gridlines at 11.5**. `axis_number`
   already refused to print `1.0` for a count and said why; it could only decide how to print the
   value it was handed, not where the lines went.
+- [F339](../reviews/tasks/f339.md) -- **three of the pane's five cards read "request timed out"**
+  against services `curl` answers in under a second. The keep-alive pool's retry fired only for
+  `Network` errors, and a peer that drops a parked connection *silently* shows as a `Timeout`; the
+  same six lines also re-sent a `POST` that may already have been acted on.
+- [F340](../reviews/tasks/f340.md) -- **a list row could be an icon or its words, never both**, so
+  a sidebar of screens had to be laid out as buttons by hand -- a tab strip with none of a
+  listbox's selection, keys or `Role.ListItem`.
 - [F338](../reviews/tasks/f338.md) -- **nothing could wrap text, and the reason was the protocol
   rather than any control**. `measured(w, m)` was never given the width it would be laid into, and
   the height of wrapped text is a function of the width. `measured_in` is that width; a column

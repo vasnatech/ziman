@@ -180,6 +180,32 @@ fn write_request(
 }
 
 // Writes the request on `s` and reads the response.
+// How far an exchange got before it failed, which is what decides whether sending it again is a
+// retry or a second request.
+enum Stage {
+    // **The request never left.** A write that fails has not delivered a whole request, and no
+    // server acts on a truncated one -- so there is nothing to duplicate and any method may be
+    // sent again. This is the ordinary keep-alive race: the peer closed a parked connection while
+    // it was idle, and the first write finds out.
+    Sending
+    // **The request went out and nothing came back.** Whether the server received it, acted on it
+    // and failed to answer, or never got it at all, is not knowable from here -- so this is the
+    // stage where the method matters.
+    Awaiting
+    // **The server is answering.** Whatever went wrong now is the server's business, not the
+    // connection's, and re-sending is a second request by any reading.
+    Replied
+}
+
+struct Failed {
+    why: ClientError
+    stage: Stage
+}
+
+fn failed_at(stage: Stage, e: ClientError) -> Failed {
+    return Failed { why: e, stage: stage }
+}
+
 fn exchange(
     s: Socket,
     method: HttpMethod,
@@ -189,11 +215,23 @@ fn exchange(
     body: Option<[byte]>,
     want_compression: bool,
     keep_alive: bool
-) -> Result<Reply, ClientError> {
-    try write_request(s, method, u, proxy, headers, body, want_compression, keep_alive)
-    val head = try read_head(s)
-    val payload = try read_body(s, head, method == HttpMethod.Head)
-    val decoded = try decode_body(head.status, head.headers, payload.bytes)
+) -> Result<Reply, Failed> {
+    if Err(e) = write_request(s, method, u, proxy, headers, body, want_compression, keep_alive) {
+        return err(failed_at(Stage.Sending, e))
+    }
+    val head = switch read_head(s) {
+        Ok(h) { h }
+        Err(e) { return err(failed_at(Stage.Awaiting, e)) }
+    }
+    // Past here the server has answered, so nothing below is retryable.
+    val payload = switch read_body(s, head, method == HttpMethod.Head) {
+        Ok(p) { p }
+        Err(e) { return err(failed_at(Stage.Replied, e)) }
+    }
+    val decoded = switch decode_body(head.status, head.headers, payload.bytes) {
+        Ok(d) { d }
+        Err(e) { return err(failed_at(Stage.Replied, e)) }
+    }
     val connection = header_value(head.headers, "Connection")
     val server_closes = switch connection {
         Some(c) { contains(to_lower(c, invariant), "close") }
@@ -250,16 +288,79 @@ fn send_once(
                 }
                 return ok(reply.response)
             }
-            Err(why) {
+            Err(failed) {
                 net.close(s)
-                if !(reused && ClientError.is_Network(why)) {
-                    return err(why)
+                if !worth_retrying(failed, reused, method) {
+                    return err(failed.why)
                 }
             }
         }
         attempt = attempt + 1
     }
     return err(ClientError.Network("the connection was closed"))
+}
+
+// Whether this failure is the pool's fault rather than the server's, and so worth one more go on
+// a connection we opened ourselves.
+//
+// **Three conditions, and each of them has been wrong here.**
+//
+// `reused` -- a connection this call opened and that then failed will fail again. Only a parked
+// one carries the pool's gamble, which is the thing being compensated for.
+//
+// **The stage, which is where the method does and does not matter.** A request that never got out
+// may be sent again whatever it is: no server acts on a truncated request, so there is nothing to
+// duplicate. A request that went out and got no answer is the ambiguous one -- the server may have
+// received it, acted on it, and failed to answer -- and that is where a `POST` must stop and a
+// `GET` may go on.
+//
+// **The method check was missing entirely** and the rule was `reused && is_Network(why)`, so a
+// `POST` that went out and then timed out was quietly sent a second time: a duplicate order, a
+// duplicate payment, a duplicate record. Writing it as "no retries for a `POST`" is the other
+// error, and the lang suite caught it within the minute -- `httpclient_basic` posts on a parked
+// connection the server has closed, which is the safe case and the common one.
+//
+// **And `Timeout` belongs beside `Network`**, which is the other thing that was wrong. The pool's
+// own comment in `native_net.c` says the caller "retries on a fresh connection when that shows" --
+// but a peer that drops a parked connection *silently*, with no FIN, shows as nothing at all until
+// the budget runs out. Measured against four concurrent feeds: 3 failures in 32 with reuse on, 0
+// in 32 with it off, every one a `Timeout` and none a `Network`, while `curl` -- four separate
+// processes, so no pool at all -- failed none of 32 in the same minutes.
+//
+// **The cost is that such a call can take up to twice `timeout_ms`.** That is the deliberate
+// trade: the first attempt spends the budget finding out the pool handed it a dead socket, and the
+// second needs a budget of its own. Splitting the budget in half instead would make every
+// slow-but-alive endpoint fail on a reused connection, which is a worse bargain -- and bounding it
+// properly wants a monotonic clock, which `clock.now_raw` explicitly is not. Noted as the next
+// thing to want here.
+fn worth_retrying(f: Failed, reused: bool, method: HttpMethod) -> bool {
+    if !reused {
+        return false
+    }
+    val allowed = switch f.stage {
+        Sending { true }
+        Awaiting { idempotent(method) }
+        Replied { false }
+    }
+    if !allowed {
+        return false
+    }
+    return ClientError.is_Network(f.why) || ClientError.is_Timeout(f.why)
+}
+
+// RFC 9110 section 9.2.2. `Other` is an extension method whose semantics this library does not
+// know, so it is not repeated.
+fn idempotent(m: HttpMethod) -> bool {
+    switch m {
+        Get { return true }
+        Head { return true }
+        Put { return true }
+        Delete { return true }
+        Options { return true }
+        Post { return false }
+        Patch { return false }
+        Other(_) { return false }
+    }
 }
 
 // Closes every parked keep-alive connection.

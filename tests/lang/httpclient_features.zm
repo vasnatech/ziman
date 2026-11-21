@@ -1,3 +1,4 @@
+use clock
 use compress
 use http
 use http.Header
@@ -45,6 +46,9 @@ fn text(s: string) -> [byte] {
 fn handle(s: net.Socket, port: int) {
     unwrap(net.set_timeout(s, 3000))
     var open = true
+    // How many requests this connection has already answered, so `/mute` can behave differently
+    // the second time round -- which is the whole point of it.
+    var served = 0
     while open {
         val h = read_head(s)
         if !is_ok(h) {
@@ -83,9 +87,21 @@ fn handle(s: net.Socket, port: int) {
             } else if path == "/flaky" {
                 respond(s, "200 OK", "", text("flaky"))
                 open = false
+            } else if path == "/mute" {
+                // **Answers once, then goes silent on the same connection** -- no reply, and no
+                // FIN either. This is the load balancer that has forgotten an idle flow, and it is
+                // the case a parked connection cannot be told from a live one until the client's
+                // budget runs out. A server that closed politely is `/flaky` above.
+                if served == 0 {
+                    respond(s, "200 OK", "", text("mute"))
+                } else {
+                    clock.sleep_millis(1500)
+                    open = false
+                }
             } else {
                 respond(s, "404 Not Found", "", text("nope"))
             }
+            served = served + 1
         }
     }
     net.close(s)
@@ -158,6 +174,22 @@ fn main() {
     // a parked connection the server has since closed is detected and the request is sent again
     print(body_of(client.get(concat(base, "/flaky"))))
     print(body_of(client.get(concat(base, "/plain"))))
+
+    // **A parked connection the server has silently stopped answering on.** The one above closes
+    // politely and the read sees EOF; this one says nothing at all, so the only evidence is the
+    // budget running out. A `GET` is idempotent, so it is sent again on a fresh connection and
+    // succeeds -- which costs the first attempt's whole timeout, and is why the number is small
+    // here. Before this was handled, the same call answered "request timed out".
+    client.close_idle()
+    print(body_of(client.request(method: HttpMethod.Get, url: concat(base, "/mute"), timeout_ms: 400)))
+    print(body_of(client.request(method: HttpMethod.Get, url: concat(base, "/mute"), timeout_ms: 400)))
+
+    // **A `POST` is not**, and this is the one that matters. The server may have received and
+    // acted on the first attempt -- a timeout is no evidence either way -- so sending it again
+    // would be a duplicate record, not a retry. It reports the timeout instead.
+    client.close_idle()
+    print(body_of(client.request(method: HttpMethod.Get, url: concat(base, "/mute"), timeout_ms: 400)))
+    print(body_of(client.request(method: HttpMethod.Post, url: concat(base, "/mute"), timeout_ms: 400, body: text("x"))))
     // reuse can be turned off
     client.close_idle()
     count(opened)
