@@ -5,11 +5,12 @@
 // the one under the pointer -- all three draw identically to the correct thing, every frame, and
 // are only visible in what the state becomes.
 use a11y
+use chart
 use controls
 use focus
 use geom
 use locale
-use chart
+use math
 use paint
 use scene
 use shape
@@ -2504,7 +2505,7 @@ fn a_dialog_traps_the_window_behind_it() {
     val l = widget.layout(
         widget.layered_of([
             widget.base_layer(behind),
-            controls.dialog_layer("confirm", "Discard changes?", inside_it, frame_in(style))
+            controls.dialog_layer("confirm", "Discard changes?", inside_it, widget.Widget.Nothing, frame_in(style))
         ]),
         geom.rect_of(0.0, 0.0, 200.0, 120.0),
         metrics()
@@ -2670,17 +2671,26 @@ fn a_release_off_the_popup_chooses_nothing() {
 fn a_text_area_scrolls_to_follow_its_caret() {
     val view_box = geom.rect_of(0.0, 0.0, 200.0, 40.0)
     val many = concat("a\nb\nc\nd\ne\nf\ng\nh\ni\nj")
-    val tall = with area(many) { editor: edit.place_caret(edit.editor_of(many), 0, false) }
-    test.assert_eq(0.0, tall.scroll)
-    // End of the text: the last line is far below a 40 point box, so the view has to move.
-    val toEnd = controls.entry_input(tall, press(controls.Key.End), view_box, frame())
-    val down = controls.entry_input(
-        with toEnd.entry { editor: edit.place_caret(toEnd.entry.editor, len(many), false) },
-        press(controls.Key.Right),
-        box,
-        frame()
-    )
-    test.assert(down.entry.scroll > 0.0)
+    var e = with area(many) { editor: edit.place_caret(edit.editor_of(many), 0, false) }
+    test.assert_eq(0.0, e.scroll)
+    // **Walked down with the key, not placed by hand.** This used to put the caret at the end
+    // itself and then press Right -- which cannot move a caret that is already at the end -- and
+    // relied on the view snapping to it anyway. That snap was the defect behind "a text area
+    // scrolls down and will not come back up": every input followed the caret, including the ones
+    // that had not moved it, so a wheel pinned the view wherever the caret sat.
+    var n = 0
+    while n < 9 {
+        e = controls.entry_input(e, press(controls.Key.Down), view_box, frame()).entry
+        n = n + 1
+    }
+    test.assert(e.scroll > 0.0)
+    // And back up again, which is the half that was broken.
+    n = 0
+    while n < 9 {
+        e = controls.entry_input(e, press(controls.Key.Up), view_box, frame()).entry
+        n = n + 1
+    }
+    test.assert_eq(0.0, e.scroll)
 }
 
 #[test]
@@ -2771,6 +2781,7 @@ fn a_dialog_covers_what_it_blocks() {
         "ask",
         "Are you sure?",
         widget.label_of("yes or no", 12.0, paint.black()),
+        widget.Widget.Nothing,
         frame_in(style)
     )
     val laid = widget.layout(widget.layered_of([
@@ -4301,7 +4312,7 @@ fn a_chosen_row_takes_its_own_radius_and_never_a_border() {
 // the display -- and both would look like a bug rather than a theme.
 #[test]
 fn the_scrim_ignores_the_look_and_feel() {
-    val layer = controls.dialog_layer("d", "Delete?", widget.flex(), frame_in(edged_style()))
+    val layer = controls.dialog_layer("d", "Delete?", widget.flex(), widget.Widget.Nothing, frame_in(edged_style()))
     val ops = widget.paint_ops(
         widget.layout(layer.content, geom.rect_of(0.0, 0.0, 200.0, 120.0), metrics()),
         metrics()
@@ -4754,6 +4765,9 @@ fn a_dialogs_panel_is_not_the_colour_of_a_control_on_it() {
     val layer = controls.dialog_layer(
         "ask",
         "Delete this?",
+        widget.Widget.Nothing,
+        // **In the footer**, which is where a dialog's buttons live now -- and this test is about
+        // the panel behind them, so it has to put them where a real dialog would.
         controls.button_widget(controls.button_of("yes", "Delete it"), frame_in(style)),
         frame_in(style)
     )
@@ -7829,8 +7843,14 @@ fn a_prominent_button_does_not_change_under_the_pointer() {
     val resting = frame()
     val hovered = with resting { hovered: "go" }
     test.assert_eq(
-        first_fill(widget.paint_ops(widget.layout(controls.button_widget(loud, resting), button_box(), metrics()), resting.metrics)),
-        first_fill(widget.paint_ops(widget.layout(controls.button_widget(loud, hovered), button_box(), metrics()), hovered.metrics))
+        first_fill(widget.paint_ops(
+            widget.layout(controls.button_widget(loud, resting), button_box(), metrics()),
+            resting.metrics
+        )),
+        first_fill(widget.paint_ops(
+            widget.layout(controls.button_widget(loud, hovered), button_box(), metrics()),
+            hovered.metrics
+        ))
     )
 }
 
@@ -7840,8 +7860,14 @@ fn a_plain_button_does_change_under_the_pointer() {
     val quiet = controls.button_of("go", "Save")
     val resting = frame()
     val hovered = with resting { hovered: "go" }
-    val at_rest = first_fill(widget.paint_ops(widget.layout(controls.button_widget(quiet, resting), button_box(), metrics()), resting.metrics))
-    val under = first_fill(widget.paint_ops(widget.layout(controls.button_widget(quiet, hovered), button_box(), metrics()), hovered.metrics))
+    val at_rest = first_fill(widget.paint_ops(
+        widget.layout(controls.button_widget(quiet, resting), button_box(), metrics()),
+        resting.metrics
+    ))
+    val under = first_fill(widget.paint_ops(
+        widget.layout(controls.button_widget(quiet, hovered), button_box(), metrics()),
+        hovered.metrics
+    ))
     test.assert(at_rest != under)
 }
 
@@ -7978,4 +8004,522 @@ fn mark_height(ops: [scene.Op]) -> float {
         }
     }
     return least
+}
+
+// **A list ignores a press beside it, not only one above or below it.**
+//
+// The `Press` arm read `p.y` alone, so a list selected a row from a press anywhere at the same
+// height -- including the far side of the window. Every other control here hit-tests against the
+// `bounds` it is given; this one hit-tested one axis of them.
+//
+// Invisible wherever a list fills its column, which is most of them. It surfaces where one does
+// not: a sidebar menu beside a wide screen took presses meant for that screen, so pressing a
+// button seven hundred points to the menu's right changed which screen was showing.
+#[test]
+fn a_list_ignores_a_press_beside_it() {
+    val l = five()
+    // Inside: the second row, which is the control working.
+    val inside = to_list(l, controls.Input.Press(geom.point_of(60.0, 30.0)))
+    test.assert_eq(true, inside.moved)
+    test.assert_eq(1, inside.list.selected)
+
+    // The same height, past the right edge: nothing moves.
+    val right = to_list(l, controls.Input.Press(geom.point_of(600.0, 30.0)))
+    test.assert_eq(false, right.moved)
+    test.assert_eq(l.selected, right.list.selected)
+
+    // And past the left edge, for a list that does not start at zero.
+    val shifted = controls.list_input(
+        l,
+        controls.Input.Press(geom.point_of(10.0, 30.0)),
+        geom.rect_of(200.0, 0.0, 120.0, 60.0),
+        frame()
+    )
+    test.assert_eq(false, shifted.moved)
+}
+
+// ------------------------------------------------------- the toggle button
+
+fn a_toggle() -> controls.ToggleButton {
+    return controls.toggle_button_of("bold", "Bold", widget.Toggle.Off)
+}
+
+val toggle_box = geom.rect_of(0.0, 0.0, 80.0, 30.0)
+
+fn pressed(b: controls.ToggleButton) -> controls.ToggleButtonStep {
+    val at = geom.point_of(40.0, 15.0)
+    val down = controls.toggle_button_input(b, controls.Input.Press(at), toggle_box)
+    return controls.toggle_button_input(down.button, controls.Input.Release(at), toggle_box)
+}
+
+// **A press leaves it on, which is the whole difference from a button.** `Button.held` is the
+// pointer being down this instant; `on` is what survives the finger leaving.
+#[test]
+fn a_toggle_button_stays_pressed() {
+    val first = pressed(a_toggle())
+    test.assert_eq(true, first.toggled)
+    test.assert_eq(widget.Toggle.On, first.button.on)
+    // And `held` has gone, because the pointer has.
+    test.assert_eq(false, first.button.held)
+    // Pressing it again takes it off.
+    val second = pressed(first.button)
+    test.assert_eq(true, second.toggled)
+    test.assert_eq(widget.Toggle.Off, second.button.on)
+}
+
+// **`Mixed` goes to `On`**, as a check box's third state does: a bold button over a partly-bold
+// selection is pressed to make the whole selection bold, never to make it plain.
+#[test]
+fn a_mixed_toggle_goes_on_rather_than_off() {
+    val mixed = with a_toggle() { on: widget.Toggle.Mixed }
+    test.assert_eq(widget.Toggle.On, pressed(mixed).button.on)
+}
+
+#[test]
+fn a_disabled_toggle_does_not_move() {
+    val off = with a_toggle() { disabled: true }
+    val step = pressed(off)
+    test.assert_eq(false, step.toggled)
+    test.assert_eq(widget.Toggle.Off, step.button.on)
+}
+
+// **A reader is told "pressed", not "selected".** `checked` is what carries that, and `Mixed`
+// reaches it as "partly checked" -- the answer `Toggle` exists to be able to give.
+#[test]
+fn a_toggle_button_declares_its_state_to_a_reader() {
+    val laid = widget.layout(
+        controls.toggle_button_widget(with a_toggle() { on: widget.Toggle.Mixed }, frame()),
+        geom.rect_of(0.0, 0.0, 200.0, 60.0),
+        metrics()
+    )
+    switch a11y.node_of(a11y.tree_of(laid, "x", ""), "bold") {
+        Some(n) {
+            test.assert_eq(widget.Role.ToggleButton, n.role)
+            test.assert_eq(Option<widget.Toggle>.Some(widget.Toggle.Mixed), n.state.checked)
+            test.assert_eq(false, n.state.selected)
+        }
+        None { test.fail("the toggle is not in the accessibility tree") }
+    }
+}
+
+// -------------------------------------------------------- the toggle group
+
+fn three_toggles() -> [controls.ToggleButton] {
+    return [
+        controls.toggle_button_of("b", "Bold", widget.Toggle.Off),
+        controls.toggle_button_of("i", "Italic", widget.Toggle.Off),
+        controls.toggle_button_of("u", "Underline", widget.Toggle.Off)
+    ]
+}
+
+val group_window = geom.rect_of(0.0, 0.0, 400.0, 60.0)
+
+fn group_laid(g: controls.ToggleGroup) -> widget.Laid {
+    return widget.layout(controls.toggle_group_widget(g, frame()), group_window, metrics())
+}
+
+// Press one item of a group, by its index, where the layout actually put it.
+fn group_pressed(g: controls.ToggleGroup, index: int) -> controls.ToggleGroupStep {
+    val laid = group_laid(g)
+    val at = switch widget.node_named(laid, controls.group_item_name(g, index)) {
+        Some(n) { geom.point_of(n.bounds.x + n.bounds.width / 2.0, n.bounds.y + n.bounds.height / 2.0) }
+        None {
+            test.fail(concat("item ", str(index), " is not laid out"))
+            geom.point_of(0.0, 0.0)
+        }
+    }
+    val down = controls.toggle_group_input(g, controls.Input.Press(at), laid, frame())
+    return controls.toggle_group_input(down.group, controls.Input.Release(at), group_laid(down.group), frame())
+}
+
+// **A plain group toggles each item on its own**: bold and italic are both on, because text can be
+// both.
+#[test]
+fn a_toggle_group_toggles_its_items_independently() {
+    val g = controls.toggle_group_of("style", "Style", three_toggles())
+    val bold = group_pressed(g, 0)
+    test.assert_eq(0, bold.changed)
+    val both = group_pressed(bold.group, 1)
+    test.assert_eq(1, both.changed)
+    test.assert_eq(widget.Toggle.On, both.group.items[0].on)
+    test.assert_eq(widget.Toggle.On, both.group.items[1].on)
+    test.assert_eq(widget.Toggle.Off, both.group.items[2].on)
+}
+
+// **An exclusive group turns the others off**, which is what makes it a view switch rather than
+// three buttons that happen to be adjacent.
+#[test]
+fn an_exclusive_group_keeps_one_item_on() {
+    val g = controls.exclusive_group_of("view", "View", three_toggles(), 0)
+    test.assert_eq(Option<int>.Some(0), controls.chosen_in(g))
+    val moved = group_pressed(g, 2)
+    test.assert_eq(2, moved.changed)
+    test.assert_eq(Option<int>.Some(2), controls.chosen_in(moved.group))
+    test.assert_eq(widget.Toggle.Off, moved.group.items[0].on)
+}
+
+// **And it refuses to empty itself.** Pressing the segment that is already on leaves it on: a view
+// switch showing nothing is not a state the application has anything to draw for.
+#[test]
+fn an_exclusive_group_will_not_turn_its_last_item_off() {
+    val g = controls.exclusive_group_of("view", "View", three_toggles(), 1)
+    val again = group_pressed(g, 1)
+    test.assert_eq(Option<int>.Some(1), controls.chosen_in(again.group))
+    test.assert_eq(widget.Toggle.On, again.group.items[1].on)
+}
+
+// **One tab stop, and the arrows move inside it** -- a group of five buttons that took five tab
+// stops would be five buttons, which is the control this is not.
+#[test]
+fn a_group_is_one_tab_stop_with_arrows_inside_it() {
+    val g = controls.exclusive_group_of("view", "View", three_toggles(), 0)
+    val right = controls.toggle_group_input(g, key_down(controls.Key.Right), group_laid(g), frame())
+    test.assert_eq(1, right.group.at)
+    // Moving the focus does not choose: Space does that, and the selection has not moved.
+    test.assert_eq(Option<int>.Some(0), controls.chosen_in(right.group))
+    val home = controls.toggle_group_input(right.group, key_down(controls.Key.Home), group_laid(right.group), frame())
+    test.assert_eq(0, home.group.at)
+    // And it stops at the ends rather than wrapping.
+    val stuck = controls.toggle_group_input(home.group, key_down(controls.Key.Left), group_laid(home.group), frame())
+    test.assert_eq(0, stuck.group.at)
+}
+
+fn key_down(k: controls.Key) -> controls.Input {
+    return controls.Input.KeyDown(controls.Keystroke {
+        key: k,
+        shift: false,
+        control: false,
+        alt: false,
+        meta: false
+    })
+}
+
+// **`rounded` says it once, where saying it by hand is five edits.**
+//
+// `Parts.corner` is resolved per mood, so a caller rounding a control themselves has to set rest,
+// hovered, pressed, disabled and selected -- and a forgotten one shows only when a pointer happens
+// to be over it. The test names all five for that reason.
+#[test]
+fn rounded_makes_every_mood_round() {
+    val plain = style()
+    val round = controls.rounded(plain)
+    val full = Option<widget.Radius>.Some(plain.shape.full)
+    test.assert_eq(full, round.states.rest.corner)
+    test.assert_eq(full, round.states.hovered.corner)
+    test.assert_eq(full, round.states.pressed.corner)
+    test.assert_eq(full, round.states.disabled.corner)
+    test.assert_eq(full, round.states.selected.corner)
+    // Nothing else moved: it is a shape override and not a second look.
+    test.assert_eq(plain.accent, round.accent)
+    test.assert_eq(plain.states.rest.ink, round.states.rest.ink)
+}
+
+// ------------------------------------------------- the text area and the wheel
+
+fn wheel_at(by: int) -> controls.Input {
+    return controls.Input.Wheel(controls.Wheel {
+        at: geom.point_of(10.0, 10.0),
+        vertical: by,
+        horizontal: 0
+    })
+}
+
+fn forty_lines() -> string {
+    val many = mutable_array_new<string>()
+    var i = 0
+    while i < 40 {
+        push(many, concat("line ", str(i)))
+        i = i + 1
+    }
+    return join(separator: "\n", pieces: snapshot(many))
+}
+
+// **An input that does not move the caret does not move the view.**
+//
+// This is the defect behind "a text area scrolls down but will not come back up". `entry_input`
+// followed the caret on *every* step, so the first wheel event -- which moves no caret at all --
+// snapped the view to wherever the caret was sitting. In a read-only pane showing a source file
+// the caret sits at the end, so one notch of the wheel threw the view to the bottom of the file
+// and every notch after it pinned the view there, in both directions.
+#[test]
+fn a_wheel_scrolls_a_text_area_instead_of_snapping_to_its_caret() {
+    val text = forty_lines()
+    val area_box = geom.rect_of(0.0, 0.0, 300.0, 120.0)
+    // The caret at the end, as a read-only pane's is, and the view at the top.
+    val e = with controls.text_area_of("a", "A", text, 8) {
+        editor: edit.place_caret(edit.editor_of(text), len(text), false)
+    }
+    test.assert_eq(0.0, e.scroll)
+
+    val down = controls.entry_input(e, wheel_at(-1), area_box, frame()).entry
+    // **A notch, not a leap to the caret.** Bounded in lines rather than points, because the notch
+    // is three lines and a theme that enlarges its type should not fail this: what the test is
+    // about is that a wheel moves a little way and the caret-snap moved the whole file.
+    val line = widget.height_in(metrics(), 0, style().text.body.size)
+    test.assert(down.scroll > 0.0)
+    test.assert(down.scroll <= line * 4.0)
+    // The caret did not move, which is what makes the point: the view moved and it did not.
+    test.assert_eq(e.editor.caret, down.editor.caret)
+
+    // **And it comes back up**, which is the half the report named.
+    val up = controls.entry_input(down, wheel_at(1), area_box, frame()).entry
+    test.assert_eq(0.0, up.scroll)
+}
+
+// **A wheel at the top of the text stays at the top**, rather than scrolling to a negative offset
+// and drawing the first line somewhere below the box.
+#[test]
+fn a_wheel_will_not_scroll_a_text_area_past_either_end() {
+    val text = forty_lines()
+    val area_box = geom.rect_of(0.0, 0.0, 300.0, 120.0)
+    val e = controls.text_area_of("a", "A", text, 8)
+    test.assert_eq(0.0, controls.entry_input(e, wheel_at(1), area_box, frame()).entry.scroll)
+
+    // And a long way down stops at the last line rather than scrolling into blank space.
+    var far = e
+    var n = 0
+    while n < 80 {
+        far = controls.entry_input(far, wheel_at(-1), area_box, frame()).entry
+        n = n + 1
+    }
+    val view = 120.0 - frame().style.padding.top - frame().style.padding.bottom
+    val content = 40.0 * controls.row_height(metrics(), style())
+    test.assert(far.scroll <= content)
+    test.assert(far.scroll > view)
+}
+
+// **A one-line field leaves the wheel alone**, because the page behind it almost certainly wants
+// it: a search box that swallowed the wheel would pin the page as the pointer crossed it.
+#[test]
+fn a_one_line_field_ignores_the_wheel() {
+    val field = controls.entry_of("name", "Name", "a value")
+    val area_box = geom.rect_of(0.0, 0.0, 200.0, 20.0)
+    test.assert_eq(0.0, controls.entry_input(field, wheel_at(-1), area_box, frame()).entry.scroll)
+}
+
+// **The spinner is a figure of eight, not a ring.**
+//
+// The question that tells them apart is whether the band ever passes through the middle. A ring
+// has a hole there by construction -- its inner radius was 0.32 of the box -- and a lemniscate
+// crosses itself at exactly that point, which is what makes it an eight rather than a bent arc.
+//
+// **Measured at the path's own points, not its bounding box.** A box was the first attempt and it
+// proved nothing: a four-radian arc of a circle is most of the way round, so its box contains the
+// centre too, and the test passed happily when the curve was put back to a ring.
+#[test]
+fn the_spinner_traces_a_figure_of_eight() {
+    val side = 100.0
+    val middle = geom.point_of(side / 2.0, side / 2.0)
+    var closest = side
+    for n in [0, 1, 2, 3, 4, 5, 6, 7] {
+        val laid = widget.layout(
+            controls.spinner_widget((n as float) / 8.0, style().ink, side),
+            geom.rect_of(0.0, 0.0, side, side),
+            metrics()
+        )
+        for op in widget.paint_ops(laid, metrics()) {
+            if Fill(f) = op {
+                for at in path_points(f.path) {
+                    val gap = distance(at, middle)
+                    if gap < closest {
+                        closest = gap
+                    }
+                }
+            }
+        }
+    }
+    // The crossing is at the centre, so some frame's band runs within a line width of it. A ring
+    // of inner radius 0.32 could never come closer than 32 points.
+    test.assert(closest < side * 0.10)
+}
+
+fn path_points(p: shape.Path) -> [geom.Point] {
+    val out = mutable_array_new<geom.Point>()
+    for segment in p.segments {
+        switch segment {
+            MoveTo(at) { push(out, at) }
+            LineTo(at) { push(out, at) }
+            QuadTo(q) { push(out, q.end) }
+            CubicTo(c) { push(out, c.end) }
+            Close { unit }
+        }
+    }
+    return snapshot(out)
+}
+
+fn distance(a: geom.Point, b: geom.Point) -> float {
+    val dx = a.x - b.x
+    val dy = a.y - b.y
+    return math.sqrt(dx * dx + dy * dy)
+}
+
+// **A button that drops a menu wears a caret, and one that acts does not.**
+//
+// The difference between "add one" and "choose which one to add", which a bare plus cannot say.
+// Measured by the ink each draws: the caret is the toolkit's own chevron, so a dropping button
+// paints strictly more than the same button without it.
+#[test]
+fn a_dropping_button_wears_a_caret() {
+    val plain = controls.button_of("add", "Add")
+    val drops = with plain { drops: true }
+    test.assert(painted_ops(plain) < painted_ops(drops))
+    // And the caret is the one the combo box uses, not a glyph from a font the app supplied:
+    // the button carries no icon at all here.
+    test.assert_eq(Option<widget.Icon>.None, drops.icon)
+}
+
+fn painted_ops(b: controls.Button) -> int {
+    val laid = widget.layout(
+        controls.button_widget(b, frame()),
+        geom.rect_of(0.0, 0.0, 200.0, 60.0),
+        metrics()
+    )
+    return len(widget.paint_ops(laid, metrics()))
+}
+
+// **A dialog is a header, a body and a footer**, in that order down the box.
+//
+// The title and the buttons used to be two of the caller's own children in one padded column, so
+// every dialog decided for itself how far its title sat from its fields and whether its buttons
+// had any air above them -- and two dialogs in one application answered differently.
+#[test]
+fn a_dialog_puts_its_title_above_and_its_buttons_below() {
+    val style = theme.plain()
+    val layer = controls.dialog_layer(
+        "ask",
+        "Delete this?",
+        controls.entry_widget(controls.entry_of("why", "Why", ""), frame_in(style)),
+        controls.button_widget(controls.button_of("yes", "Delete"), frame_in(style)),
+        frame_in(style)
+    )
+    val laid = widget.layout(layer.content, geom.rect_of(0.0, 0.0, 500.0, 400.0), metrics())
+    val field = node_box(laid, "why")
+    val button = node_box(laid, "yes")
+    // The field is between them, which is the whole arrangement.
+    test.assert(field.y > 0.0)
+    test.assert(button.y > field.y + field.height)
+    // And they share a left edge: one padding for all three bands, or a dialog looks assembled.
+    test.assert(abs_of(button.x - field.x) < 1.0)
+}
+
+// **No actions, no footer** -- and no rule promising a row that never comes.
+#[test]
+fn a_dialog_with_nothing_to_press_draws_no_footer() {
+    val style = theme.plain()
+    val with_buttons = controls.dialog_layer(
+        "a",
+        "Title",
+        widget.label_of("body", 12.0, paint.black()),
+        controls.button_widget(controls.button_of("ok", "OK"), frame_in(style)),
+        frame_in(style)
+    )
+    val without = controls.dialog_layer(
+        "a",
+        "Title",
+        widget.label_of("body", 12.0, paint.black()),
+        widget.Widget.Nothing,
+        frame_in(style)
+    )
+    test.assert(dialog_height(with_buttons) > dialog_height(without))
+}
+
+fn dialog_height(layer: widget.Layer) -> float {
+    val laid = widget.layout(layer.content, geom.rect_of(0.0, 0.0, 500.0, 400.0), metrics())
+    switch widget.node_named(laid, "a") {
+        Some(n) { return n.bounds.height }
+        None { return 0.0 }
+    }
+}
+
+fn node_box(laid: widget.Laid, name: string) -> geom.Rect {
+    switch widget.node_named(laid, name) {
+        Some(n) { return n.bounds }
+        None {
+            test.fail(concat(name, " is not laid out"))
+            return geom.rect_of(0.0, 0.0, 0.0, 0.0)
+        }
+    }
+}
+
+fn abs_of(v: float) -> float {
+    if v < 0.0 {
+        return 0.0 - v
+    }
+    return v
+}
+
+// **A text area's scroll bar can be dragged**, not merely looked at.
+//
+// `paint_scroll_bars` walks a laid tree and draws a bar over every `Scroll` it finds, which made a
+// text area look scrollable and left the pointer nothing to take hold of: a thumb you could see,
+// aim at and press, and that did not move. `List` has carried a real `ScrollBar` all along; this
+// is the same arrangement.
+#[test]
+fn a_text_areas_scroll_bar_drags() {
+    val text = forty_lines()
+    val at = geom.rect_of(0.0, 0.0, 300.0, 120.0)
+    val e = controls.text_area_of("a", "A", text, 8)
+    test.assert_eq(0.0, e.scroll)
+
+    // Press on the bar: the trailing edge of the box, which is where `on_the_bar` looks.
+    val on_bar = geom.point_of(at.x + at.width - 2.0, at.y + 10.0)
+    val held = controls.entry_input(e, controls.Input.Press(on_bar), at, frame()).entry
+    test.assert(Option.is_Some(held.bar.grabbed))
+
+    // Drag down the track and the view follows.
+    val moved = controls.entry_input(
+        held,
+        controls.Input.Move(geom.point_of(on_bar.x, at.y + at.height - 10.0)),
+        at,
+        frame()
+    ).entry
+    test.assert(moved.scroll > 0.0)
+
+    // Releasing lets go, or the next move anywhere would still be scrolling.
+    val freed = controls.entry_input(moved, controls.Input.Release(on_bar), at, frame()).entry
+    test.assert_eq(Option<float>.None, freed.bar.grabbed)
+}
+
+// **A press in the text is not a press on the bar.** The bar lives in the trailing gutter; a click
+// in the body places the caret, which is what it has always done.
+#[test]
+fn a_press_in_the_text_still_places_the_caret() {
+    val text = forty_lines()
+    val at = geom.rect_of(0.0, 0.0, 300.0, 120.0)
+    val e = controls.text_area_of("a", "A", text, 8)
+    val inside = controls.entry_input(e, controls.Input.Press(geom.point_of(20.0, 40.0)), at, frame()).entry
+    test.assert_eq(Option<float>.None, inside.bar.grabbed)
+    test.assert(inside.editor.caret > 0)
+}
+
+// **A text area's frame is its viewport's, not its content's.**
+//
+// The face and the padding used to sit on the stack that scrolls, which put the control's border
+// around the *content*: a box a thousand points tall clipped to a view a third of that. What you
+// could see was therefore not what the scroll bar was drawn beside, and the bar ran on past where
+// the text area appeared to end -- reported as "the vertical scroll is longer than the text area".
+#[test]
+fn a_text_areas_frame_belongs_to_its_viewport() {
+    val text = forty_lines()
+    val laid = widget.layout(
+        controls.entry_widget(controls.text_area_of("a", "A", text, 8), frame()),
+        geom.rect_of(0.0, 0.0, 300.0, 200.0),
+        metrics()
+    )
+    val whole = node_box(laid, "a")
+    val view = node_box(laid, "a-scroll")
+    // The viewport is inside the control, by the padding -- which is what makes the border a frame
+    // around it rather than a box drawn somewhere down the text.
+    test.assert(view.y > whole.y)
+    test.assert(view.y + view.height <= whole.y + whole.height)
+    test.assert(view.height < whole.height)
+    // And the content is taller than the viewport, which is the case that used to break it.
+    test.assert(len(laid_children_of(laid, "a-scroll")) > 0)
+}
+
+fn laid_children_of(laid: widget.Laid, name: string) -> [widget.Laid] {
+    switch widget.node_named(laid, name) {
+        Some(n) { return n.children }
+        None { return [] }
+    }
 }

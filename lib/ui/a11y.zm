@@ -511,6 +511,7 @@ fn role_word(r: Role) -> string {
         Button { "button" }
         CheckBox { "check box" }
         Switch { "switch" }
+        ToggleButton { "toggle button" }
         ProgressBar { "progress bar" }
         SpinButton { "spin button" }
         ToolBar { "toolbar" }

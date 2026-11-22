@@ -4,6 +4,12 @@ use widget
 
 val gap = 10.0
 val chart_height = 190.0
+// **A definite height, because `demo_box` gives a demo its natural one.** The pane's spare room
+// goes to a flex below the demo -- a button demo should not stretch to fill a window -- so an
+// `expand` here claimed nothing and the table drew its header and none of its seven rows: the
+// one part of this demo that is the argument for the whole control. Every other scrolling demo
+// in the gallery already says `tall_of`.
+val rows_height = 200.0
 
 pub struct Screen {
     chart: widget.Widget
@@ -15,6 +21,6 @@ pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     return widget.column_of(gap, [
         widget.tall_of(chart_height, it.chart),
         widget.label_of(it.said, f.style.text.caption.size, f.style.ink),
-        widget.expand(it.rows)
+        widget.tall_of(rows_height, it.rows)
     ])
 }

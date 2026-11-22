@@ -5907,6 +5907,25 @@ static void check_defer(Module *module, Env *env, Stmt *s) {
     s->as.defer_stmt.hidden_count = n;
 }
 
+/* An expression statement that cannot do anything: it computes a value and throws it away, and
+ * computing it has no effect of its own. */
+static int stmt_has_no_effect(const Expr *e) {
+    if (e == NULL) return 0;
+    switch (e->kind) {
+        case EXPR_INT: case EXPR_FLOAT: case EXPR_STRING: case EXPR_BOOL:
+        case EXPR_BIGINT: case EXPR_DECIMAL: case EXPR_BYTE:
+        case EXPR_IDENT:
+            /* `unit` is the language's own "do nothing", and the idiom for an arm that has no
+             * work -- `None { unit }`. Fifteen in lib/ alone. */
+            return e->as.ident_name == NULL || strcmp(e->as.ident_name, "unit") != 0;
+        case EXPR_UNARY: case EXPR_BINARY:
+        case EXPR_FIELD_ACCESS: case EXPR_INDEX:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop);
 
 /* Type-checks `e` (always exactly an EXPR_TRY_UNWRAP node -- `inner?`)
@@ -7196,6 +7215,26 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
              * value discarded rather than bound to a name. */
             if (s->as.expr_stmt.expr->kind == EXPR_TRY_UNWRAP) {
                 check_try_unwrap(module, env, s->as.expr_stmt.expr, fn_return_type);
+            } else if (stmt_has_no_effect(s->as.expr_stmt.expr)) {
+                /* Checked first, so a type error inside it is still reported rather than hidden
+                 * behind this one. */
+                (void)check_expr(module, env, s->as.expr_stmt.expr);
+                /* A string is the case worth naming, because the mistake behind it is a specific
+                 * belief about the language rather than a slip: C and Python join adjacent string
+                 * literals and Ziman does not, so `"a" "b"` is two statements and the second is
+                 * thrown away. The value is silently half of what was written, which is the worst
+                 * shape a wrong answer can take. */
+                if (s->as.expr_stmt.expr->kind == EXPR_STRING) {
+                    ziman_error("type", s->as.expr_stmt.expr->line, s->as.expr_stmt.expr->col,
+                                "this string is a statement on its own and is discarded -- Ziman does not join "
+                                "adjacent string literals, so '\"a\" \"b\"' is two statements and keeps only "
+                                "the first; end the previous line with '\\' to continue the string onto this "
+                                "one, or join them with 'concat(..)'");
+                } else {
+                    ziman_error("type", s->as.expr_stmt.expr->line, s->as.expr_stmt.expr->col,
+                                "this statement computes a value, discards it, and has no other effect -- "
+                                "remove it, or bind it ('val _ = ...' discards on purpose)");
+                }
             } else {
                 Type t = check_expr(module, env, s->as.expr_stmt.expr);
                 /* A Result discarded as a bare statement throws away a real Err along with an Ok, silently --

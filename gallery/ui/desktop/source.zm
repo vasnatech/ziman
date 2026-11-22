@@ -45,3 +45,32 @@ pub fn read_demo(stem: string, file: string) -> string {
         ")"
     )
 }
+
+// The first paragraph of a demo's own doc comment, as one line.
+//
+// **Read out of the file rather than written again in `all.zm`.** Every demo opens with a sentence
+// saying what it shows -- "A tab strip: one stop for the keyboard, and the arrows move along it" --
+// and that sentence is the description the header wants. A second copy in the register would be a
+// second thing to keep true, and the one that drifted would be the one on screen.
+//
+// **The first paragraph, not the first line.** Two of them run to two lines before the blank
+// comment that ends the paragraph, and half a sentence in a header reads as a bug.
+pub fn summary_of(text: string) -> string {
+    val said = mutable_array_new<string>()
+    for line in split(text, "\n") {
+        val bare = trim(line)
+        if !starts_with(bare, "//") {
+            return joined(said)
+        }
+        val words = trim(substring(bare, 2, len(bare)))
+        if words == "" {
+            return joined(said)
+        }
+        push(said, words)
+    }
+    return joined(said)
+}
+
+fn joined(said: MutableArray<string>) -> string {
+    return join(separator: " ", pieces: snapshot(said))
+}

@@ -110,7 +110,7 @@ fn selecting_a_demo_loads_its_own_two_files() {
     val row = row_of(s, last)
     val after = state.showing_row(s, row, frame())
     test.assert_eq(after.at, last)
-    test.assert_eq(after.files.items, all.files_of(s.demos[last]))
+    test.assert_eq(labels_of(after.files), all.files_of(s.demos[last]))
     test.assert_eq(after.status, all.title_of(s.demos[last]))
 }
 
@@ -132,8 +132,8 @@ fn row_of(s: state.State, demo: int) -> int {
 fn the_code_tab_shows_the_demo_being_looked_at() {
     val s = opened()
     test.assert_len(2, s.files.items)
-    test.assert_eq(s.files.items[0], concat(all.stem_of(s.demos[0]), ".zm"))
-    test.assert_eq(s.files.items[1], concat(all.stem_of(s.demos[0]), "_ui.zm"))
+    test.assert_eq(s.files.items[0].label, concat(all.stem_of(s.demos[0]), ".zm"))
+    test.assert_eq(s.files.items[1].label, concat(all.stem_of(s.demos[0]), "_ui.zm"))
     // The source pane holds something: either the file or the message saying where it looked.
     test.assert(len(s.source.editor.text) > 0)
 }
@@ -461,6 +461,133 @@ fn no_popup_paints_into_no_space() {
                 }
             }
             None { unit }
+        }
+    }
+}
+
+// The file strip's segments, as the names they show. **The strip is a `ToggleGroup` now**, so its
+// items are whole toggle buttons rather than labels -- which is what lets a segment carry its own
+// name and state, and what these assertions have to read through.
+fn labels_of(g: controls.ToggleGroup) -> [string] {
+    val out = mutable_array_new<string>()
+    for item in g.items {
+        push(out, item.label)
+    }
+    return snapshot(out)
+}
+
+// **The catalogue is in alphabetical order**, which is the order someone looking for a control
+// reads in -- `all.zm` declares demos in the order they were written, and nobody hunting for
+// "Tabs" knows what that order is.
+#[test]
+fn the_catalogue_is_alphabetical_within_each_group() {
+    val s = opened()
+    var previous = ""
+    var seen = 0
+    var i = 0
+    while i < len(s.tree.rows) {
+        val row = s.tree.rows[i]
+        if row.depth == 0 {
+            // A new group starts the comparison again: the groups have their own order.
+            previous = ""
+        } else {
+            test.assert(previous == "" || previous <= row.label)
+            previous = row.label
+            seen = seen + 1
+        }
+        i = i + 1
+    }
+    test.assert(seen > 10)
+}
+
+// **The row that opens highlighted is the demo that opens drawn.**
+//
+// They were paired by a hard-coded `selected: 1` -- the row after the one branch, which was the
+// first demo until the catalogue was sorted and row 1 became a different demo from `at`. The
+// window then opened with one control named and another one shown, which nothing failed on.
+#[test]
+fn the_window_opens_with_its_selected_row_showing() {
+    val s = opened()
+    test.assert_eq(s.at, s.row_demo[s.tree.selected])
+    test.assert_eq(all.title_of(s.demos[s.at]), s.tree.rows[s.tree.selected].label)
+}
+
+// **Every view has a header saying what the example is**, in the demo's own words.
+//
+// Read out of the file rather than written again in the register: each demo opens with a sentence
+// saying what it shows, and a second copy would be a second thing to keep true.
+#[test]
+fn every_demo_has_a_description_from_its_own_file() {
+    var s = opened()
+    var i = 0
+    while i < len(s.demos) {
+        s = state.showing_row(s, row_of(s, i), frame())
+        test.assert(len(s.summary) > 0)
+        // A whole first sentence, not a line cut where the comment wrapped.
+        test.assert(ends_well(s.summary))
+        i = i + 1
+    }
+}
+
+// **The description belongs to the demo, not to the file being read.**
+//
+// `loaded` swaps the source pane for whichever file the strip picked, so a description taken from
+// `source` would change to the design file's opening line the moment you clicked `*_ui.zm` -- the
+// header would then describe a layout file while the demo beside it was unchanged.
+#[test]
+fn the_description_does_not_follow_the_file_strip() {
+    val s = state.showing_row(opened(), row_of(opened(), 0), frame())
+    val first = s.summary
+    test.assert(len(first) > 0)
+    // Move to the second file, which is the design one.
+    val moved = state.chose_file(s, 1, frame())
+    test.assert_eq(first, moved.summary)
+    // And the strip really did move, or this passes by measuring nothing.
+    test.assert_eq(Option<int>.Some(1), controls.chosen_in(moved.files))
+}
+
+// A sentence that was not cut off mid-paragraph: it ends in a full stop or an ellipsis.
+fn ends_well(said: string) -> bool {
+    if len(said) == 0 {
+        return false
+    }
+    val last = char_at(said, len(said) - 1)
+    return last == "." || last == "…" || last == "?"
+}
+
+// **The code view fills the pane it is given.**
+//
+// `text_area_of` measures `rows` lines tall, and a pane taller than that leaves the rest empty --
+// which is what it did: twenty-four rows of source in a pane half as tall again, with a dead band
+// under it. The cause was a `padded_of` added between the pane and the body: it is a column whose
+// child takes its natural height, so an `expand` outside it stops at the padding. Both halves need
+// expanding, the outer to claim the room and the inner to spend it.
+#[test]
+fn the_code_view_fills_its_pane() {
+    val s = state.chose_tab(opened(), 1, frame())
+    // **A window taller than the text area measures**, or the test cannot tell filling from not:
+    // `text_area_of` asks for 24 rows, which in the default window is most of the height anyway.
+    val tall_window = geom.rect_of(0.0, 0.0, window.width, window.height * 2.0)
+    val laid = widget.layout(state.view(s, frame()), tall_window, metrics())
+    val source = box_named(laid, "source")
+    // **Measured against the pane rather than a row count.** It should reach most of the way down
+    // what it was given; twenty-four rows in a window twice that is the defect.
+    test.assert(source.height > tall_window.height * 0.75)
+    test.assert(source.y + source.height < tall_window.height)
+    // **And it keeps air on its trailing edge**, measured against the pane's own edge rather than
+    // the window's: the view tabs sit flush with that edge, so they are what says where it is.
+    // Compared to the window, a source running right to the pane's edge still looks inset -- the
+    // catalogue is to its left -- and the assertion passes while the defect stands.
+    val tabs = box_named(laid, "tabs")
+    test.assert(source.x + source.width < tabs.x + tabs.width)
+}
+
+fn box_named(laid: widget.Laid, name: string) -> geom.Rect {
+    switch widget.node_named(laid, name) {
+        Some(n) { return n.bounds }
+        None {
+            test.fail(concat(name, " is not laid out"))
+            return geom.rect_of(0.0, 0.0, 0.0, 0.0)
         }
     }
 }

@@ -44,8 +44,11 @@ fn code_of(r: Role) -> int {
     return switch r {
         Button { 1 }
         CheckBox { 2 }
-        // ATK has no switch of its own; a toggle button is what GTK's own switch reports.
+        // ATK has no switch of its own; a toggle button is what GTK's own switch reports --
+        // which is also why the two roles below answer the same number. ARIA tells them apart
+        // and ATK does not, so this is where the distinction is spent.
         Switch { 28 }
+        ToggleButton { 28 }
         ProgressBar { 29 }
         SpinButton { 30 }
         ToolBar { 31 }

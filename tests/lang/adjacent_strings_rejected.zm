@@ -1,0 +1,7 @@
+// C and Python join adjacent string literals; Ziman does not. `"one " "two"` is two statements,
+// and the second is thrown away -- so the value is silently half of what was written, which is the
+// worst shape a wrong answer can take. The fix is a backslash at the end of the first line.
+fn main() {
+    val greeting = "one " "two"
+    print(greeting)
+}

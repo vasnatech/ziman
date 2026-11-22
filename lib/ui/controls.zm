@@ -336,6 +336,7 @@ fn cursor_for(node: Laid) -> widget.Cursor {
         Button { widget.Cursor.Arrow }
         CheckBox { widget.Cursor.Arrow }
         Switch { widget.Cursor.Arrow }
+        ToggleButton { widget.Cursor.Arrow }
         ProgressBar { widget.Cursor.Arrow }
         SpinButton { widget.Cursor.Text }
         ToolBar { widget.Cursor.Arrow }
@@ -369,6 +370,10 @@ fn cursor_for(node: Laid) -> widget.Cursor {
 }
 
 // ------------------------------------------------------------------ the button
+
+// How big a menu button's caret is beside its words: about five sevenths, which is the ratio the
+// segmented add button this was measured against uses -- a 14-point plus and a 10-point chevron.
+val caret_share = 0.71
 
 // A button, and whether it is being held down.
 //
@@ -411,6 +416,15 @@ pub struct Button {
     // selection -- the two share one row. No look has wanted to part them yet; the day one does,
     // `States` grows a row rather than this field changing meaning.
     prominent: bool
+    // **This button opens something rather than doing something**, and wears the disclosure
+    // chevron to say so: the difference between "add one" and "choose which one to add".
+    //
+    // **A flag, not a second icon.** The caret is the toolkit's own mark -- `ComboBox` and a
+    // sorted column header already draw this exact chevron -- and a button that let an application
+    // supply its own would be the one place in a window where a menu announces itself differently.
+    // It is also why this is not `icon` with `Trailing`: a menu button usually has a mark of its
+    // own as well, and the segmented add button this was measured against is a plus *and* a caret.
+    drops: bool
 }
 
 pub fn button_of(name: string, label: string) -> Button {
@@ -421,7 +435,8 @@ pub fn button_of(name: string, label: string) -> Button {
         badge: Option<Badge>.None,
         disabled: false,
         held: false,
-        prominent: false
+        prominent: false,
+        drops: false
     }
 }
 
@@ -579,6 +594,13 @@ fn button_inside(b: Button, parts: Parts, style: Style) -> widget.Widget {
     // space between children, and it is zero when there is only one of them.
     if Some(badge) = b.badge {
         push(content, badge_inside(badge, style))
+    }
+    // **Last, after the badge**, because it is about the button and not about its content: a count
+    // belongs to the words it follows, and the caret belongs to the button as a whole. Smaller
+    // than the text, so it reads as an annotation rather than a second mark competing with the
+    // first.
+    if b.drops {
+        push(content, chevron_widget(true, ink, style.text.label.size * caret_share))
     }
     val gap = if prelude.len(content) > 1 { style.icon_gap } else { 0.0 }
     val inside = widget.Widget.Group(widget.Stack {
@@ -1008,6 +1030,428 @@ fn header_label(t: Table, column: int) -> string {
 // A radio's dot: a circle, because a radio is a circle and the thing inside it is too.
 fn dot() -> shape.Path {
     return shape.ellipse_path(geom.rect_of(0.3, 0.3, 0.4, 0.4))
+}
+
+// ------------------------------------------------------- the toggle button
+
+// A button that stays pressed.
+//
+// **`Button.held` is not this.** `held` is the pointer being down this instant -- the distinction
+// the button's own comment draws, between what the next frame has to draw and what happened once.
+// A toggle keeps its answer after the finger leaves: the bold in a toolbar, or one segment of a
+// view switch.
+//
+// **`Toggle` rather than `bool`**, as `CheckBox` and `Switch` both carry, and for the same reason
+// they do: `Mixed` is a real answer here. A bold button over a selection that is partly bold is
+// neither on nor off, and a `bool` would make the application pick one and lie.
+//
+// Field for field a `CheckBox` wearing a button's face, which is what lets the two share their
+// input rules below rather than growing a second copy of them.
+pub struct ToggleButton {
+    name: string
+    label: string
+    icon: Option<widget.Icon>
+    disabled: bool
+    // The pointer is down now.
+    held: bool
+    // And this is what survives it.
+    on: Toggle
+}
+
+pub struct ToggleButtonStep {
+    button: ToggleButton
+    toggled: bool
+}
+
+pub fn toggle_button_of(name: string, label: string, on: Toggle) -> ToggleButton {
+    return ToggleButton {
+        name: name,
+        label: label,
+        icon: Option<widget.Icon>.None,
+        disabled: false,
+        held: false,
+        on: on
+    }
+}
+
+pub fn icon_toggle_button_of(
+    name: string,
+    label: string,
+    icon: widget.Icon,
+    on: Toggle
+) -> ToggleButton {
+    return with toggle_button_of(name, label, on) { icon: Option<widget.Icon>.Some(icon) }
+}
+
+// **Through `button_input`, like the check box**, so that press, drag-off, Space and Enter are the
+// button's rules and not three copies of them. `next` is the check box's own cycle.
+pub fn toggle_button_input(b: ToggleButton, input: Input, bounds: Rect) -> ToggleButtonStep {
+    val step = button_input(as_press_button(b), input, bounds)
+    val moved = with b { held: step.button.held }
+    if !step.activated {
+        return ToggleButtonStep { button: moved, toggled: false }
+    }
+    return ToggleButtonStep { button: with moved { on: next(moved.on) }, toggled: true }
+}
+
+// A toggle as a plain button, for the input rules the two share.
+//
+// **`with` over the constructor rather than a field-by-field literal**, which is the lesson
+// `as_button` records: a literal names every field and so breaks on every addition to `Button`.
+fn as_press_button(b: ToggleButton) -> Button {
+    return with button_of(b.name, b.label) {
+        icon: b.icon,
+        disabled: b.disabled,
+        held: b.held
+    }
+}
+
+// The toggle as a widget: a button's face, and `on` in the `selected` row of the look.
+//
+// **`mood_of`'s `selected` slot is the whole drawing.** A pressed toggle wears whatever the look
+// says a selected control wears, so a theme restyles toggles by restyling selection and never
+// learns this control exists.
+pub fn toggle_button_widget(b: ToggleButton, f: Frame) -> widget.Widget {
+    return widget.Widget.Control(widget.Focusable {
+        name: b.name,
+        role: widget.Role.ToggleButton,
+        label: announced_name(as_press_button(b)),
+        description: "",
+        value: "",
+        // **`checked`, not `selected`.** A reader says "pressed" for a toggle button and
+        // "selected" for a thing chosen out of several; `Mixed` reaches it as "partly checked",
+        // which is the answer `Toggle` exists to be able to give.
+        state: with widget.no_state() {
+            disabled: b.disabled,
+            checked: Option<Toggle>.Some(b.on)
+        },
+        focus_part: "",
+        tab_stop: true,
+        child: toggle_inside(b, f)
+    })
+}
+
+// Drawn by the button's own code, which is why `button_inside` is split out of `button_widget`.
+fn toggle_inside(b: ToggleButton, f: Frame) -> widget.Widget {
+    val parts = parts_for(
+        f.style,
+        mood_of(b.disabled, b.held, Toggle.is_On(b.on) || Toggle.is_Mixed(b.on), hovered_in(f, b.name))
+    )
+    return button_inside(as_press_button(b), parts, f.style)
+}
+
+// -------------------------------------------------------- the toggle group
+
+// A row of toggle buttons that belong together: a segmented view switch, or a toolbar's bold,
+// italic and underline.
+//
+// **Not `Tabs`, deliberately.** `tabs_widget` says why it cannot be: the chosen tab wears the
+// body's colour and is rounded along its top only, *"which is what makes a strip read as index
+// cards instead of as a segmented button"*. A segmented button is what this is, and the library
+// had ruled the look out without offering it anywhere else.
+//
+// **Not `Radios` either.** Those are a form field -- a column of dots and words, with no room for
+// an icon. A toolbar's toggles are an icon each and nothing else.
+//
+// **Its items are whole `ToggleButton`s**, where `Tabs` and `Radios` hold `[string]` and an index.
+// That is a departure and it is the point: every item needs its own name, its own icon and its own
+// state, and a caller should be able to gather buttons they already have. An index into labels
+// could say none of that.
+pub struct ToggleGroup {
+    name: string
+    label: string
+    items: [ToggleButton]
+    // **One at a time, or any number.** The only thing this changes is the input rule -- the
+    // drawing is the same either way, because a segmented switch and a toolbar of toggles differ
+    // in what they mean and not in what they look like.
+    exclusive: bool
+    // Which item the arrow keys are on. A group is one tab stop, as a toolbar and a list are.
+    at: int
+    disabled: bool
+}
+
+pub struct ToggleGroupStep {
+    group: ToggleGroup
+    // Which item moved, or -1. **Not a bool**: a caller with one handler per item needs to know
+    // which, and in the exclusive case the one that went *off* is not news -- the one that came on
+    // is.
+    changed: int
+}
+
+pub fn toggle_group_of(name: string, label: string, items: [ToggleButton]) -> ToggleGroup {
+    return ToggleGroup {
+        name: name,
+        label: label,
+        items: items,
+        exclusive: false,
+        at: 0,
+        disabled: false
+    }
+}
+
+// The segmented case: one on at a time, and never none.
+pub fn exclusive_group_of(
+    name: string,
+    label: string,
+    items: [ToggleButton],
+    chosen: int
+) -> ToggleGroup {
+    return with toggle_group_of(name, label, settled(items, chosen)) {
+        exclusive: true,
+        at: if chosen < 0 { 0 } else { chosen }
+    }
+}
+
+fn settled(items: [ToggleButton], chosen: int) -> [ToggleButton] {
+    val out = mutable_array_new<ToggleButton>()
+    var i = 0
+    for item in items {
+        push(out, with item { on: if i == chosen { Toggle.On } else { Toggle.Off } })
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
+// Which item is on, for the exclusive case. **An `Option`, because a group built by hand may have
+// none on** -- `exclusive_group_of` cannot be given a bad index, but `toggle_group_of` takes the
+// items as they come.
+pub fn chosen_in(g: ToggleGroup) -> Option<int> {
+    var i = 0
+    for item in g.items {
+        if Toggle.is_On(item.on) {
+            return Option<int>.Some(i)
+        }
+        i = i + 1
+    }
+    return Option<int>.None
+}
+
+// The same group with `at` chosen and the rest off.
+//
+// **The setter `chosen_in` is the reader of.** An application that restores which view it was on,
+// or that moves the choice because something else happened, has to be able to say so -- and
+// without this it would reach into `items` and set the toggles itself, which is the one place the
+// exclusivity rule could be got wrong.
+//
+// An index outside the group leaves it alone, rather than turning everything off: `exclusive_group_of`
+// promises exactly one is lit, and a setter that could break that promise is not a setter for it.
+pub fn choosing(g: ToggleGroup, at: int) -> ToggleGroup {
+    if at < 0 || at >= len(g.items) {
+        return g
+    }
+    return with g { items: settled(g.items, at), at: at }
+}
+
+pub fn group_item_name(g: ToggleGroup, index: int) -> string {
+    return concat(g.name, "/", str(index))
+}
+
+// What a press or a key does to a group.
+//
+// **Takes the laid tree rather than a box**, for the toolbar's reason: the items are an icon, a
+// word or both, every one a different width, and their laid boxes are the only thing that knows
+// where they ended up. Dividing a box into equal shares is a tab strip's arithmetic, not this.
+pub fn toggle_group_input(g: ToggleGroup, input: Input, laid: Laid, f: Frame) -> ToggleGroupStep {
+    if g.disabled {
+        return group_still(g)
+    }
+    if KeyDown(k) = input {
+        return group_still(stepped_within(g, k))
+    }
+    var i = 0
+    val after = mutable_array_new<ToggleButton>()
+    var fired = -1
+    for item in g.items {
+        val step = toggle_button_input(item, input, part_box(laid, group_item_name(g, i), f))
+        push(after, step.button)
+        if step.toggled {
+            fired = i
+        }
+        i = i + 1
+    }
+    if fired < 0 {
+        return ToggleGroupStep { group: with g { items: snapshot(after) }, changed: -1 }
+    }
+    val moved = with g { items: snapshot(after), at: fired }
+    if !g.exclusive {
+        return ToggleGroupStep { group: moved, changed: fired }
+    }
+    // **Exclusive refuses to empty itself.** Pressing the segment that is already on leaves it on:
+    // a view switch with nothing chosen shows nothing, and there is no third thing for it to mean.
+    // So the press is answered by settling on `fired` whichever way the toggle went.
+    return ToggleGroupStep {
+        group: with moved { items: settled(moved.items, fired) },
+        changed: fired
+    }
+}
+
+// Arrow keys walk the group, which is what makes it one tab stop. Home and End for the ends, as
+// the toolbar and the list both offer.
+fn stepped_within(g: ToggleGroup, k: Keystroke) -> ToggleGroup {
+    if len(g.items) == 0 {
+        return g
+    }
+    val last = len(g.items) - 1
+    if Key.is_Right(k.key) || Key.is_Down(k.key) {
+        return with g { at: if g.at >= last { last } else { g.at + 1 } }
+    }
+    if Key.is_Left(k.key) || Key.is_Up(k.key) {
+        return with g { at: if g.at <= 0 { 0 } else { g.at - 1 } }
+    }
+    if Key.is_Home(k.key) { return with g { at: 0 } }
+    if Key.is_End(k.key) { return with g { at: last } }
+    return g
+}
+
+fn group_still(g: ToggleGroup) -> ToggleGroupStep {
+    return ToggleGroupStep { group: g, changed: -1 }
+}
+
+fn part_box(laid: Laid, name: string, f: Frame) -> Rect {
+    switch widget.node_named(laid, name) {
+        Some(n) { return n.bounds }
+        None { return geom.rect_of(0.0, 0.0, 0.0, 0.0) }
+    }
+}
+
+// The group as a widget: **one tab stop holding a part per item, on a shared track**.
+//
+// One tab stop is what ARIA says for both shapes this covers -- a `radiogroup` for the exclusive
+// one and a `toolbar` for the other -- and what `Toolbar` and `List` already do here. Each item
+// declares its own `checked`, as a tab's part declares its own `selected`, *"because that is what
+// a reader reads"*.
+//
+// **The track is what makes it one control instead of three.** The first version drew the items
+// edge to edge and they still read as three buttons that happened to touch: every one carried its
+// own face and its own border, so the eye counted three objects. The answer is not to take the
+// corners off -- `widget.Corners` offers `Top` and `Bottom` and no sides -- but to put something
+// behind them: a chosen segment wears the look's selected face, an unchosen one is **transparent**
+// and lets the track through, and the group reads as one object with a lit part. That is the
+// relationship the segmented controls this was measured against use, and it needs no new geometry.
+pub fn toggle_group_widget(g: ToggleGroup, f: Frame) -> widget.Widget {
+    val style = f.style
+    val cells = mutable_array_new<widget.Widget>()
+    var i = 0
+    for item in g.items {
+        val shown = with item { name: group_item_name(g, i), disabled: item.disabled || g.disabled }
+        push(cells, widget.part_of(
+            shown.name,
+            widget.Role.ToggleButton,
+            announced_name(as_press_button(shown)),
+            with widget.no_state() {
+                disabled: shown.disabled,
+                checked: Option<Toggle>.Some(shown.on)
+            },
+            segment_inside(shown, f)
+        ))
+        i = i + 1
+    }
+    return widget.Widget.Control(widget.Focusable {
+        name: g.name,
+        role: widget.Role.ToolBar,
+        label: g.label,
+        description: "",
+        value: "",
+        state: with widget.no_state() { disabled: g.disabled },
+        // **The focus ring goes on the item the arrows are on**, not around the whole strip: one
+        // tab stop is about where Tab lands, and a ring around five buttons says nothing about
+        // which one Space would press.
+        focus_part: group_item_name(g, g.at),
+        tab_stop: true,
+        child: widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            // **A hair of padding and a hair of gap**, which is what keeps the lit segment off
+            // the track's own edge. `space.xs` for both: the scale's smallest real step is the
+            // right size for this, and halving it by hand would be a number this file invented.
+            spacing: style.space.xs,
+            padding: widget.insets_of(
+                style.space.xs,
+                style.space.xs,
+                style.space.xs,
+                style.space.xs
+            ),
+            surface: widget.Surface {
+                inset: 0.0,
+                // **The track is the resting control face**, which is the look's own word for a
+                // surface a control sits in. A tint of the accent is what the application this was
+                // measured against uses, and naming its colour here would be that application's
+                // palette in a toolkit: a look that wants an accent-tinted well says so in its
+                // `states.rest.face` and gets one.
+                fill: Option<Paint>.Some(style.states.rest.face),
+                border: style.states.rest.border,
+                corner: style.shape.medium,
+                corners: widget.Corners.All,
+                shadow: Option<widget.Shadow>.None
+            },
+            align: widget.stretched(),
+            children: snapshot(cells),
+            name: ""
+        })
+    })
+}
+
+// `by` taken off `room`, never past zero: a look whose padding is already smaller than its spacing
+// step would otherwise ask for a negative inset.
+fn trimmed(room: float, by: float) -> float {
+    if room <= by {
+        return 0.0
+    }
+    return room - by
+}
+
+// A segment: a toggle button whose resting face is the track behind it.
+//
+// **Only the face and the border go**, not the ink: an unchosen segment still has to be read, and
+// a look that dims its resting ink keeps doing so here.
+fn segment_inside(b: ToggleButton, f: Frame) -> widget.Widget {
+    // **Shallower than a button, by the spacing step.** `tabs_widget` takes the same step off for
+    // the same reason it records: a strip of button-sized things is a toolbar, and a segmented
+    // switch is one control that happens to be cut into pieces. The segmented controls this was
+    // measured against are `px-3 py-1` where their buttons are `px-4 py-2`.
+    val style = with f.style {
+        padding: widget.insets_of(
+            f.style.padding.left,
+            trimmed(f.style.padding.top, f.style.space.s),
+            f.style.padding.right,
+            trimmed(f.style.padding.bottom, f.style.space.s)
+        )
+    }
+    val lit = Toggle.is_On(b.on) || Toggle.is_Mixed(b.on)
+    val parts = parts_for(style, mood_of(b.disabled, b.held, lit, hovered_in(f, b.name)))
+    // **A lit segment is the panel over the track, inked in the accent.** That is the relationship
+    // every segmented control uses and the one the application this was measured against writes
+    // out in hexes: a white chip on a tinted well, with the accent for its word. Both halves have
+    // a name in the look already -- `panel` and `accent` -- so the toolkit states the relationship
+    // and the look states the colour.
+    //
+    // **No shadow under the chip**, though the target has a one-point one and `Style.raised` is
+    // exactly it: `Parts` carries no shadow, and the surface is built from the parts by
+    // `surface_of`. Adding one there is a change to every control's vocabulary for an effect the
+    // panel-against-track contrast already delivers -- worth doing if a look ever needs it to
+    // read, and not before.
+    val shown = if lit {
+        with parts {
+            face: Paint.Solid(style.panel),
+            ink: style.accent,
+            border: Option<widget.Border>.None,
+            // Rounded a step tighter than the track, or the chip's corners fight the well's.
+            corner: Option<widget.Radius>.Some(style.shape.small)
+        }
+    } else {
+        if b.held {
+            with parts { border: Option<widget.Border>.None, corner: Option<widget.Radius>.Some(style.shape.small) }
+        } else {
+            // **Transparent, and quieter, not disabled.** An unchosen segment is still a thing you
+            // may press; `quieter` is the fade F343 added for a mark that must not shout, and the
+            // disabled ink would say something untrue about it.
+            with parts {
+                face: Paint.Solid(paint.transparent()),
+                ink: quieter(parts.ink),
+                border: Option<widget.Border>.None
+            }
+        }
+    }
+    return button_inside(as_press_button(b), shown, style)
 }
 
 // --------------------------------------------------------------- the expander
@@ -1861,6 +2305,16 @@ pub struct Entry {
     // recompute the caret's line to follow it, which is the control's own arithmetic done twice.
     // Zero and unused for a one-line field.
     scroll: float
+    // The bar down the trailing edge of a text area, and whether it is being dragged.
+    //
+    // **A control, where this used to be an ornament.** `paint_scroll_bars` walks a laid tree and
+    // draws a bar over every `Scroll` it finds, which made a text area *look* scrollable and leave
+    // the pointer with nothing to take hold of -- a thumb that could be seen, aimed at and pressed,
+    // and that did not move. `List` has carried a real `ScrollBar` for exactly this reason; this is
+    // the same arrangement, and the two now answer a drag the same way.
+    //
+    // Unused by a one-line field, which scrolls along its own axis and not down.
+    bar: ScrollBar
     // Text being composed through an input method, which is **not** in `editor.text` until it is
     // committed -- see `edit.Preedit`. `None` is the ordinary state and the only one most fields
     // are ever in.
@@ -1894,6 +2348,10 @@ pub fn entry_of(name: string, label: string, text: string) -> Entry {
         typing: false,
         rows: 1,
         scroll: 0.0,
+        // **Named after the entry**, as a list's rows are, so a laid tree and a reader can tell
+        // one text area's bar from another's. The step is a line, which is what an arrow on a bar
+        // moves -- the wheel's three-line notch is the wheel's own business.
+        bar: scroll_bar_of(concat(name, "-bar"), 1.0),
         masked: false,
         preedit: Option<edit.Preedit>.None,
         inks: []
@@ -2032,7 +2490,138 @@ pub fn entry_input(e: Entry, input: Input, bounds: Rect, f: Frame) -> EntryStep 
     if e.disabled {
         return kept(with e { dragging: false })
     }
-    return following_caret(entry_step(e, input, bounds, style, m), bounds, style, m)
+    // **The bar first, and while it is held.** A drag leaves the thumb as soon as the pointer
+    // does, so the grab has to outrank the hit test -- which is `List`'s rule, recorded there as
+    // "a bar can be grabbed and not dragged".
+    if Some(after) = bar_dragged(e, input, bounds, style, m) {
+        return after
+    }
+    val step = wheeled_entry(entry_step(e, input, bounds, style, m), input, bounds, style, m)
+    // **Only when the caret actually moved.** `following_caret` used to run on every input, which
+    // is right for everything that moves a caret and wrong for everything that does not -- and the
+    // wheel does not. The result was a text area that could not be scrolled: the first wheel event
+    // snapped the view to wherever the caret was sitting, usually the end of the text, and every
+    // one after it pinned the view there. It read as "scrolls down, will not come back up".
+    //
+    // The comment on `following_caret` is still right about *which* inputs scroll -- typing runs
+    // off the bottom as surely as Down does, and naming the movement keys is how a text area ends
+    // up with one that does not follow. What it missed is that an input which leaves the caret
+    // exactly where it was has nothing to follow.
+    if moved_caret(e, step.entry) {
+        return following_caret(step, bounds, style, m)
+    }
+    return step
+}
+
+fn moved_caret(before: Entry, after: Entry) -> bool {
+    return before.editor.caret != after.editor.caret || before.editor.text != after.editor.text
+}
+
+// How far one notch of the wheel moves a text area, in lines. Three is what X11, Windows and the
+// Mac all settle on, and the number a reader's hand expects.
+val lines_a_notch = 3.0
+
+// The scroll bar's share of a press, or nothing when the press is not its business.
+//
+// **A one-line field has no bar**, and a text area with nothing to scroll has a track and no
+// thumb: `on_the_bar` answers false when the content fits, so a press there falls through to the
+// text and places the caret, which is what a user who clicked past the last line means.
+fn bar_dragged(
+    e: Entry,
+    input: Input,
+    bounds: Rect,
+    style: Style,
+    m: widget.Metrics
+) -> Option<EntryStep> {
+    if e.rows <= 1 {
+        return Option<EntryStep>.None
+    }
+    val line = line_for(m, style.text.body)
+    val view = bounds.height - style.padding.top - style.padding.bottom
+    val content = (entry_line_count(e.editor.text) as float) * line
+    val holding = Option.is_Some(e.bar.grabbed)
+    if !holding {
+        if Press(p) = input {
+            if !on_the_bar(style, bounds, p, content, view) {
+                return Option<EntryStep>.None
+            }
+        } else {
+            return Option<EntryStep>.None
+        }
+    }
+    val taken = scroll_bar_input(e.bar, input, bar_box(style, bounds), content, view, e.scroll, f_of(style, m))
+    return Option<EntryStep>.Some(EntryStep {
+        entry: with e { bar: taken.bar, scroll: taken.offset },
+        copied: "",
+        changed: false
+    })
+}
+
+// A resting frame from the two things this function was given. **`scroll_bar_input` wants a frame
+// and the entry's own input is handed a style and metrics**, which is the seam every control here
+// has: the frame is the window's three names plus these two, and a bar reads none of the names.
+fn f_of(style: Style, m: widget.Metrics) -> Frame {
+    return frame_of(style, m)
+}
+
+// The wheel over a text area, which until now did nothing at all.
+//
+// **A one-line field is left alone**, because it does not scroll vertically and a page behind it
+// very likely does: an entry that swallowed the wheel would pin the page while the pointer crossed
+// a search box.
+//
+// **Three lines a notch, not one.** A line was the first answer and it was wrong in use: a notch
+// that moves a single line makes a long file feel stuck, and every platform's own default is
+// three. The content is measured in lines, so the notch is too -- `lines_a_notch` rather than a
+// number of points, which keeps the feel the same under a theme that enlarges its type.
+fn wheeled_entry(
+    step: EntryStep,
+    input: Input,
+    bounds: Rect,
+    style: Style,
+    m: widget.Metrics
+) -> EntryStep {
+    val e = step.entry
+    if e.rows <= 1 {
+        return step
+    }
+    var by = 0
+    if Wheel(w) = input {
+        by = w.vertical
+    }
+    if by == 0 {
+        return step
+    }
+    val line = line_for(m, style.text.body)
+    val view = bounds.height - style.padding.top - style.padding.bottom
+    val content = (entry_line_count(e.editor.text) as float) * line
+    return EntryStep {
+        entry: with e {
+            scroll: widget.clamp_offset(
+                e.scroll - (by as float) * line * lines_a_notch,
+                view,
+                content
+            )
+        },
+        copied: step.copied,
+        changed: step.changed
+    }
+}
+
+// How many lines the text has, counted the way `multi_line_widget` draws them -- by walking to each
+// line's end rather than splitting, so the two cannot disagree about what a line is.
+fn entry_line_count(text: string) -> int {
+    var at = 0
+    var lines = 1
+    while true {
+        val stop = edit.line_end(text, at)
+        if stop >= len(text) {
+            return lines
+        }
+        at = stop + 1
+        lines = lines + 1
+    }
+    return lines
 }
 
 fn entry_step(e: Entry, input: Input, bounds: Rect, style: Style, m: widget.Metrics) -> EntryStep {
@@ -2645,8 +3234,13 @@ fn multi_line_widget(e: Entry, style: Style, parts: Parts, m: widget.Metrics) ->
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Column,
         spacing: 0.0,
-        padding: padded_for(style),
-        surface: surface_of(style, parts),
+        // **No padding and no face here, because this is what scrolls.** Both used to be on this
+        // stack, which put the control's frame around the *content*: a border a thousand points
+        // tall clipped to a view a third of that, so the box you could see was not the box the
+        // scroll bar was drawn beside -- and the bar ran on past where the text area appeared to
+        // end. They belong to the viewport, which is the part that stays still.
+        padding: widget.no_insets(),
+        surface: widget.no_surface(),
         align: widget.stretched(),
         children: snapshot(lines),
         name: ""
@@ -2673,9 +3267,26 @@ fn multi_line_widget(e: Entry, style: Style, parts: Parts, m: widget.Metrics) ->
         // and leaves the width alone, and a caller who wants a different height still wraps this
         // in their own `tall_of` or `expand`: a `Fixed` fixes what it *measures*, not the box it
         // ends up in.
+        // **The face and the padding go around the viewport**, so the frame stays where the
+        // control is and the scroll bar's track matches it.
         child: widget.tall_of(
             (e.rows as float) * line + style.padding.top + style.padding.bottom,
-            widget.named_scroll(concat(e.name, "-scroll"), 0.0, e.scroll, inside)
+            widget.Widget.Group(widget.Stack {
+                direction: widget.Direction.Column,
+                spacing: 0.0,
+                padding: padded_for(style),
+                surface: surface_of(style, parts),
+                align: widget.stretched(),
+                children: [
+                    widget.expand(widget.named_scroll(
+                        concat(e.name, "-scroll"),
+                        0.0,
+                        e.scroll,
+                        inside
+                    ))
+                ],
+                name: ""
+            })
         )
     })
 }
@@ -2919,7 +3530,21 @@ pub fn list_input(l: List, input: Input, bounds: Rect, f: Frame) -> ListStep {
         // selection under them would lose the row they were about to act on.
         Wheel(w) { scrolled(l, l.offset - (w.vertical as float) * tall, bounds, tall) }
         Press(p) {
-            val row = floor((p.y - bounds.y + l.offset) / tall)
+            // **Both axes, not just the one the rows run along.**
+            //
+            // This read `p.y` alone, so a list selected a row from a press anywhere at the same
+            // height -- the far side of the window included. Every other control here hit-tests
+            // against the `bounds` it is given and this one hit-tested half of them.
+            //
+            // It hides wherever a list fills its column, which is most of them, and surfaces where
+            // one does not: a sidebar menu beside a wide screen took presses meant for that
+            // screen, so a button seven hundred points to its right changed which screen was
+            // showing. Found by pressing that button.
+            val row = if p.x < bounds.x || p.x > bounds.x + bounds.width {
+                -1
+            } else {
+                floor((p.y - bounds.y + l.offset) / tall)
+            }
             if row < 0 || row > last {
                 held_still(l)
             } else {
@@ -6571,35 +7196,75 @@ pub fn waiting_is_urgent(p: Panel) -> bool {
     return Waiting.is_Failed(p.state)
 }
 
-// A spinner: an arc that goes round.
+// A spinner: a band travelling round a figure of eight.
 //
-// **A ring segment built as one polygon**, because `shape` has no arc and a spinner drawn as
-// several dots would be several paths where `drawn_of` takes one. The sector is the outer arc and
-// the inner arc walked back, which closes into a crescent.
+// **A lemniscate rather than a circle**, which is the shape a reader already reads as "going on":
+// a ring segment says "turning" and a figure of eight says "still going", and the second is what a
+// panel that is waiting means. The curve is Gerono's -- `x = cos t`, `y = sin t cos t` -- because
+// it is the figure of eight with the simplest derivative, and the derivative is what the band is
+// built from.
+//
+// **One polygon, because `shape` has no arc and `drawn_of` takes one path.** The band is the curve
+// walked forward offset along its normal, then walked back offset the other way, which closes.
+// A circle could take the shortcut of two radii; a lemniscate has no centre to measure from, so
+// the normal is computed from the tangent at each step -- the same construction a stroker uses,
+// done here for one curve rather than in general.
 //
 // **It is a function of a phase the application owns**, exactly as `Progress.Busy` is: `lib/ui`
 // has no clock and is not going to grow one, so the thing that knows how much time has passed is
 // the thing that says so.
 fn spinner_path(phase: float) -> shape.Path {
-    val steps = 10
-    val sweep = 1.6
+    // **More steps than the arc needed.** A circle's segment is one curvature throughout; a
+    // lemniscate's crossing is where it turns hardest, and ten steps across the whole figure drew
+    // the middle as a visible corner.
+    val steps = 16
+    // **Most of the figure, not a short arc.** A circle looks like a circle however little of it
+    // you draw; a figure of eight does not, and at the size a panel draws this -- one line of body
+    // text, about twenty points -- a short segment reads as a worm. Four radians out of six shows
+    // a lobe and the crossing in most frames, which is what makes it an infinity symbol rather
+    // than a curve that happens to wander.
+    val sweep = 4.0
     val from = held_to_unit(phase) * 6.2831853
-    val outer = 0.46
-    val inner = 0.32
+    val half = 0.07
     val points = mutable_array_new<Point>()
     var i = 0
     while i <= steps {
-        val at = from + sweep * ((i as float) / (steps as float))
-        push(points, geom.point_of(0.5 + outer * math.cos(at), 0.5 + outer * math.sin(at)))
+        push(points, band_edge(from + sweep * ((i as float) / (steps as float)), half))
         i = i + 1
     }
     var j = steps
     while j >= 0 {
-        val at = from + sweep * ((j as float) / (steps as float))
-        push(points, geom.point_of(0.5 + inner * math.cos(at), 0.5 + inner * math.sin(at)))
+        push(points, band_edge(from + sweep * ((j as float) / (steps as float)), 0.0 - half))
         j = j - 1
     }
     return shape.polygon_path(snapshot(points), true)
+}
+
+// How wide the figure is, and how tall. **Wider than it is tall**, or it reads as a knot rather
+// than an eight: `sin t cos t` only reaches a half, so the vertical scale is doubled and then
+// taken back down to roughly four sevenths of the width, which is about an `8` laid over.
+val eight_wide = 0.45
+val eight_tall = 0.52
+
+// One edge of the band at `t`, offset along the curve's own normal.
+//
+// The normal is the tangent turned a quarter: `(-dy, dx)` normalised. At the crossing the tangent
+// is defined and non-zero for Gerono's curve, which is the other reason to prefer it -- Bernoulli's
+// lemniscate has a cusp in its usual parameterisation and the band would pinch to nothing there.
+fn band_edge(t: float, by: float) -> Point {
+    val x = eight_wide * math.cos(t)
+    val y = eight_tall * math.sin(t) * math.cos(t)
+    val dx = 0.0 - eight_wide * math.sin(t)
+    // `d/dt (sin t cos t)` is `cos 2t`, which is what keeps this exact rather than differenced.
+    val dy = eight_tall * math.cos(2.0 * t)
+    val length = math.sqrt(dx * dx + dy * dy)
+    if length == 0.0 {
+        return geom.point_of(0.5 + x, 0.5 + y)
+    }
+    return geom.point_of(
+        0.5 + x + by * (0.0 - dy) / length,
+        0.5 + y + by * dx / length
+    )
 }
 
 pub fn spinner_widget(phase: float, ink: Color, side: float) -> widget.Widget {
@@ -7186,27 +7851,122 @@ pub fn dialog_keys(input: Input) -> DialogAnswer {
     return DialogAnswer.Nothing
 }
 
-// A modal layer holding `content` under a title.
+// The title band: the look's accent wash, rounded along its top where the dialog is.
+//
+// **Tinted rather than left on the panel**, which is what a title bar is for -- it says where the
+// dialog begins, so a stack of fields reads as the middle of something. Every look already names
+// this colour: `states.selected.face` is its accent against its own panel, with
+// `states.selected.ink` the ink that stays readable on it, in the light look and the dark one
+// alike. A `Style` field of its own would be a second name for a colour the look has already
+// chosen.
+//
+// **No rule beneath it**, unlike the footer: the tint already separates the header from the body,
+// and a line between two different colours is a line drawn for its own sake.
+//
+// `Corners.Top` with the dialog's own radius, or the band's square corners sit outside the
+// rounded panel behind it -- which is visible as two dark nicks at the top of the dialog.
+fn dialog_header(title: string, style: Style) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: padded_for(style),
+        surface: widget.Surface {
+            inset: 0.0,
+            fill: Option<Paint>.Some(style.states.selected.face),
+            border: Option<widget.Border>.None,
+            corner: style.shape.large,
+            corners: widget.Corners.Top,
+            shadow: Option<widget.Shadow>.None
+        },
+        align: widget.stretched(),
+        children: [widget.label_in_face(
+            title,
+            style.text.label.size,
+            style.states.selected.ink,
+            style.text.label.face
+        )],
+        name: ""
+    })
+}
+
+// One of a dialog's three bands, with the padding they share.
+//
+// **The same inset for all three**, so the title, the fields and the buttons line up down the left
+// edge. A header that was padded differently from its body is the thing that makes a dialog look
+// assembled rather than designed.
+fn dialog_region(child: widget.Widget, style: Style) -> widget.Widget {
+    return widget.padded_of(padded_for(style), child)
+}
+
+// The line between them: the look's own divider, full width and a hair thick.
+//
+// **A filled band rather than a drawn line**, because a stroke is centred on its path and would
+// spend half its width outside the box it was given -- which at one physical pixel is the
+// difference between a rule and nothing at all.
+fn dialog_rule(style: Style) -> widget.Widget {
+    return widget.tall_of(style.stroke.hair, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.filled(style.grid),
+        align: widget.stretched(),
+        children: [],
+        name: ""
+    }))
+}
+
+// A modal layer: a title in a header, `content`, and `actions` in a footer.
 //
 // **Modal, so the geometry shuts the pointer out and `takes_keys` shuts Tab out** -- a click beside
 // the dialog lands on the layer, finds no control, and goes nowhere, and the tab order holds only
 // what is inside. `widget.modal_layer` is where both of those are explained.
 //
-// The content is the caller's: a dialog is a frame and a pair of keys, not a thing that knows what
-// it is asking.
-pub fn dialog_layer(name: string, title: string, content: widget.Widget, f: Frame) -> widget.Layer {
+// **Three regions rather than a title stacked on a blob.** The title and the buttons used to be
+// two of the caller's own children in one padded column, so every dialog decided for itself how
+// far its title sat from its fields and whether its buttons had any air above them -- and two
+// dialogs in one application answered differently. A header and a footer are separated by a rule
+// and keep their own padding, which is what makes a stack of fields read as the middle of
+// something rather than as the whole of it.
+//
+// **`Nothing` for `actions` draws no footer**, rule and all: a dialog that only says something has
+// nothing to put down there, and a rule under its last line would promise a row that never comes.
+//
+// The content between them is still the caller's: a dialog is a frame and a pair of keys, not a
+// thing that knows what it is asking.
+pub fn dialog_layer(
+    name: string,
+    title: string,
+    content: widget.Widget,
+    actions: widget.Widget,
+    f: Frame
+) -> widget.Layer {
     val style = f.style
+    val rows = mutable_array_new<widget.Widget>()
+    push(rows, dialog_header(title, style))
+    // **An empty body is no band at all**, not an empty one. A confirmation whose title *is* the
+    // question has nothing to put under the header, and a band of padding there drew a gap that
+    // read as a region which had failed to load.
+    if !widget.is_nothing_widget(content) {
+        push(rows, dialog_region(content, style))
+    }
+    if !widget.is_nothing_widget(actions) {
+        push(rows, dialog_rule(style))
+        push(rows, dialog_region(actions, style))
+    }
     val framed = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Column,
-        spacing: style.text.body.size * 0.5,
-        padding: padded_for(style),
+        spacing: 0.0,
+        // **No padding here, because each region carries its own.** A padded column around padded
+        // regions would inset the rules as well, and a rule that stops short of the edges reads as
+        // a line somebody drew rather than as the join between two parts.
+        padding: widget.no_insets(),
         // **The panel, not a face.** See `Style.panel`: a dialog whose panel is the colour of a
         // button is a dialog whose buttons cannot be seen. Raised, because a modal dialog is the
         // thing in front of everything -- the scrim says the window is blocked and the shadow says
         // which of the two layers you are looking at.
         surface: raised_of(style, style.panel),
         align: widget.stretched(),
-        children: [widget.label_in_face(title, style.text.body.size, style.ink, style.text.body.face), content],
+        children: snapshot(rows),
         name: ""
     })
     val titled = widget.Widget.Control(widget.Focusable {
@@ -9769,6 +10529,34 @@ pub struct Frame {
     hovered: string
     pressed: string
     focused: string
+}
+
+// The same look with every control's corner made full: a round button, a pill-shaped entry.
+//
+// **`Parts.corner` is per mood, so saying "round" by hand is five edits** -- rest, hovered,
+// pressed, disabled and selected -- and five chances to leave one square, which shows only when a
+// pointer happens to be over it. This says it once.
+//
+// `shape.full` rather than a number, because the look already names this: it is what a radio's
+// circle is drawn with, and a theme that redefines `full` gets its own idea of round here too.
+//
+// **A style, not a control flag.** Roundness is a property of a look, and a `Button.round` would
+// be a control arguing with its theme -- which is the argument `Style` exists to settle. A caller
+// draws through a frame built from this: `controls.frame_of(controls.rounded(f.style), f.metrics)`.
+pub fn rounded(style: Style) -> Style {
+    return with style {
+        states: with style.states {
+            rest: full_corner(style.states.rest, style),
+            hovered: full_corner(style.states.hovered, style),
+            pressed: full_corner(style.states.pressed, style),
+            disabled: full_corner(style.states.disabled, style),
+            selected: full_corner(style.states.selected, style)
+        }
+    }
+}
+
+fn full_corner(p: Parts, style: Style) -> Parts {
+    return with p { corner: Option<widget.Radius>.Some(style.shape.full) }
 }
 
 // A frame with nothing hovered, pressed or focused: what a control looks like at rest.

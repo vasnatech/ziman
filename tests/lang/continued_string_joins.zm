@@ -1,0 +1,8 @@
+// The form that does work, and the reason the error above names it: a backslash at the end of the
+// line continues the string onto the next, whatever that next line is indented by.
+fn main() {
+    val greeting = "one " \
+        "two " \
+        "three"
+    print(greeting)
+}

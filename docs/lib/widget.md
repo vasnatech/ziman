@@ -1368,6 +1368,14 @@ pub enum Role {
     // the moment it moves. Readers say "on" and "off" for one and "checked" for the other, which
     // is the whole reason this is its own role rather than a check box that looks different.
     Switch
+    // A button that stays pressed: the bold in a toolbar, or one segment of a view switch.
+    //
+    // **Its own role although ATK cannot tell it from a `Switch`** -- both answer 28, which is
+    // ATK's toggle button, and `desktop/atspi.zm` says why a switch borrows that number. ARIA does
+    // distinguish them (`button[aria-pressed]` against `switch`), so the vocabulary here is the
+    // wider of the two and the adapter narrows it. Narrowing in the adapter is recoverable; losing
+    // the distinction in the tree is not.
+    ToggleButton
     // **A bar a user cannot operate**, which is the thing that makes it unlike every other role
     // here: there is nothing to press, so it is not a tab stop -- and it still has to be in the
     // tree, because "is it still going?" is exactly what a reader has to be able to answer.
@@ -1754,6 +1762,27 @@ pub fn width_in(m: Metrics, which: int, text: string, size: float) -> float
 ```
 
 How wide `text` is in the face a label names, at its own size.
+
+### `elided`
+
+```
+pub fn elided(text: string, room: float, which: int, size: float, m: Metrics) -> string
+```
+
+`text`, cut to fit `room` with an ellipsis, or whole when it already fits.
+
+**Measured with the function the layout will use**, so the answer is the renderer's and not an
+estimate of it: `width_in` against the same metrics the widget tree is laid out with.
+
+**Here because a label cannot wrap in a row.** `wrapping_label` takes its width from above, and
+a row cannot give one until every child is measured -- so a long caption beside a control has to
+be shortened rather than folded. Two applications wrote this loop before it was moved here, and
+the second one writing it is what moved it.
+
+**Cut by characters, not by words.** A word boundary would read better and cannot be found
+without knowing the script: `len` here is characters and `substring` respects them, but "where
+may a line break" is a Unicode question this module has no answer for. A caller with a title
+that must break well should wrap it instead.
 
 ### `height_in`
 

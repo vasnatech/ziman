@@ -22,15 +22,21 @@ pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     ])
 }
 
-// What the dialog holds. **Every width is given and none is `expand`**: a dialog is centred by
-// its own natural size, so a child asking to fill its parent is asking the box how big it is
-// while the box is asking the child.
-pub fn body(message: string, confirm: widget.Widget, cancel: widget.Widget, f: controls.Frame) -> widget.Widget {
-    return widget.fixed_of(dialog_width, dialog_height, widget.column_of(gap, [
-        widget.label_of(message, f.style.text.caption.size, f.style.ink),
-        widget.row_of(gap, [
-            widget.wide_of(button_width, confirm),
-            widget.wide_of(button_width, cancel)
-        ])
-    ]))
+// What the dialog says. **Every width is given and none is `expand`**: a dialog is centred by its
+// own natural size, so a child asking to fill its parent is asking the box how big it is while
+// the box is asking the child.
+//
+// **The buttons are no longer in here.** They go to `dialog_layer`'s footer, which is what puts a
+// rule above them and the same padding around them as the message gets -- see `actions` below.
+pub fn body(message: string, f: controls.Frame) -> widget.Widget {
+    return widget.wide_of(dialog_width, widget.label_of(message, f.style.text.caption.size, f.style.ink))
+}
+
+// The footer's row: confirm first, as every dialog here puts the thing it is offering first.
+pub fn actions(confirm: widget.Widget, cancel: widget.Widget) -> widget.Widget {
+    return widget.row_of(gap, [
+        widget.wide_of(button_width, confirm),
+        widget.wide_of(button_width, cancel),
+        widget.expand(widget.flex())
+    ])
 }

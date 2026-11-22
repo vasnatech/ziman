@@ -14,6 +14,8 @@ use widget
 val gap = 8.0
 val heading_height = 18.0
 val row_height = 30.0
+// The gap between the header's contents and the rule beneath them.
+val header_air = 8.0
 val status_height = 18.0
 // **The catalogue opens at this width and is not fixed to it**: the divider is draggable, so this
 // is the first frame and nothing after it.
@@ -49,10 +51,15 @@ pub fn catalogue(tree: controls.Tree, f: controls.Frame) -> widget.Widget {
     ])
 }
 
-// A tab strip that takes its own width and leaves the rest of the line alone.
-pub fn strip(tabs: controls.Tabs, width: float, f: controls.Frame) -> widget.Widget {
+// A segmented strip that takes its own width and leaves the rest of the line alone.
+//
+// **No width is given to it any more.** A tab strip divides a width it is handed into equal tabs;
+// a toggle group is as wide as what is in it, so the two constants that used to size these -- one
+// for "Demo"/"Code" and a wider one for file names -- were saying what the control now measures
+// for itself. The flexible gap after it is what keeps the line's remainder empty.
+pub fn strip(segments: controls.ToggleGroup, f: controls.Frame) -> widget.Widget {
     return widget.tall_of(row_height, widget.row_of(gap, [
-        widget.wide_of(width, controls.tabs_widget(tabs, f)),
+        controls.toggle_group_widget(segments, f),
         widget.expand(widget.flex())
     ]))
 }
@@ -70,10 +77,13 @@ pub struct Screen {
     split_extent: float
     tree: controls.Tree
     // Demo or Code.
-    tabs: controls.Tabs
+    tabs: controls.ToggleGroup
     // **The body is a slot**: which of the two tabs is showing, and which demo it is showing,
     // are both conditionals, and a conditional is not design. The logic file picks; this places.
     body: widget.Widget
+    // What this example is, in the demo's own words. **Already cut to fit** -- see
+    // `state.header_summary`: a design file measures nothing.
+    summary: string
     status: string
 }
 
@@ -91,15 +101,69 @@ pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
     ])
 }
 
-// The trailing pane: the two tabs, whatever they chose, and a line saying what is selected.
+// The trailing pane: a header, whatever the header chose, and a line saying what is selected.
+//
+// **The header is a band, not a strip floating above the content.** The tabs used to sit on their
+// own with the demo beginning underneath them, and nothing said where the chrome stopped and the
+// example started -- so a demo whose first control was near the top read as part of the toolbar.
+// A description on the leading edge, the view's two tabs on the trailing one, and a rule under
+// both.
 pub fn demo_pane(it: Screen, f: controls.Frame) -> widget.Widget {
-    return widget.column_of(gap, [
+    return widget.column_of(0.0, [
         widget.tall_of(gap, widget.flex()),
-        strip(it.tabs, demo_strip_width, f),
-        widget.expand(it.body),
+        header(it, f),
+        rule(f),
+        // **The body is expanded twice, and the inner one is not redundant.** `padded_of` is a
+        // column whose child takes its natural height, so a pane expanded from outside stops at
+        // the padding and the child inside keeps whatever it measured -- which is how the code
+        // view came to be twenty-four rows tall in a pane twice that. The outer `expand` claims
+        // the room; the inner one spends it.
+        widget.expand(widget.padded_of(
+            widget.insets_of(0.0, gap, 0.0, 0.0),
+            widget.expand(it.body)
+        )),
         widget.tall_of(status_height, label(it.status, f.style.text.caption.size, f)),
         widget.tall_of(gap, widget.flex())
     ])
+}
+
+// The description and the view's tabs, on one line.
+//
+// **Centred across, where a row stretches by default.** `row_of` gives every child the row's full
+// height, and a label drawn into a thirty-point box puts its text at the top of it -- so the
+// description sat high against tabs that filled the band, and the two did not look like one line.
+//
+// **Air under the tabs, not only around the words.** The band was exactly as tall as the control
+// in it, which put the tabs' bottom edge on the rule; a header whose contents touch the line under
+// it reads as a header that overflowed.
+fn header(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: gap,
+        padding: widget.insets_of(0.0, 0.0, 0.0, header_air),
+        surface: widget.no_surface(),
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+        children: [
+            widget.expand(label(it.summary, f.style.text.caption.size, f)),
+            controls.toggle_group_widget(it.tabs, f)
+        ],
+        name: ""
+    })
+}
+
+// The line under it. **A filled band rather than a stroke**, which is centred on its path and
+// would spend half its width outside the box it was given -- at one physical pixel, the
+// difference between a rule and nothing.
+fn rule(f: controls.Frame) -> widget.Widget {
+    return widget.tall_of(f.style.stroke.hair, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.filled(f.style.grid),
+        align: widget.stretched(),
+        children: [],
+        name: ""
+    }))
 }
 
 // The Code tab: a strip of file names over the file the strip chose.
@@ -107,13 +171,19 @@ pub fn demo_pane(it: Screen, f: controls.Frame) -> widget.Widget {
 // **A sub-strip rather than one pane with a picker**, because a demo is more than one file and
 // which file you are reading is a navigation, not a setting. Each tab is a file name.
 pub fn code_pane(
-    files: controls.Tabs,
+    files: controls.ToggleGroup,
     source: controls.Entry,
     f: controls.Frame
 ) -> widget.Widget {
     return widget.column_of(gap, [
-        strip(files, file_strip_width, f),
-        widget.expand(controls.entry_widget(source, controls.frame_of(f.style, f.metrics)))
+        strip(files, f),
+        // **The source fills what is left, with the same air on all four sides.** It had a margin
+        // on the leading edge only -- the column's -- and ran to the pane's trailing edge, which
+        // reads as a panel that overflowed rather than one that was placed.
+        widget.expand(widget.padded_of(
+            widget.insets_of(0.0, 0.0, gap, gap),
+            widget.expand(controls.entry_widget(source, controls.frame_of(f.style, f.metrics)))
+        ))
     ])
 }
 

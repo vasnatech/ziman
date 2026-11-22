@@ -1,0 +1,120 @@
+// A toggle button: one on its own, one group that keeps a single item, and one that keeps any.
+//
+// **A toggle is not a button, and the difference is the state that outlives the press.**
+// `Button.held` is the pointer being down this instant -- what the next frame has to draw.
+// `ToggleButton.on` is what the control still says once the finger has gone, which is why a
+// toolbar's bold and a view switch could not be built out of buttons.
+//
+// **And a group is not a tab strip.** `controls.Tabs` is drawn as index cards on purpose; this is
+// the segmented look that comment rules out, and the two mean different things: a tab strip
+// chooses what is shown beneath it, a segmented group carries a value.
+use boxes
+use controls
+use demos/toggle_ui
+use widget
+
+pub struct Demo {
+    alone: controls.ToggleButton
+    segmented: controls.ToggleGroup
+    styles: controls.ToggleGroup
+}
+
+pub fn demo() -> Demo {
+    return Demo {
+        // **Opens `Mixed`**, which a `bool` could not say: the selection this stands for is partly
+        // bold, and neither "on" nor "off" would be true of it.
+        alone: controls.toggle_button_of("toggle-alone", "Bold", widget.Toggle.Mixed),
+        segmented: controls.exclusive_group_of(
+            "toggle-view",
+            "View",
+            [
+                controls.toggle_button_of("records", "Records", widget.Toggle.Off),
+                controls.toggle_button_of("charts", "Charts", widget.Toggle.Off),
+                controls.toggle_button_of("calendar", "Calendar", widget.Toggle.Off)
+            ],
+            0
+        ),
+        // Icons rather than words, which is why a group holds whole buttons: an index into a list
+        // of labels could not carry one.
+        styles: controls.toggle_group_of(
+            "toggle-styles",
+            "Style",
+            [
+                controls.icon_toggle_button_of("bold", "Bold", widget.glyph_icon("B", "Bold"), widget.Toggle.On),
+                controls.icon_toggle_button_of("italic", "Italic", widget.glyph_icon("I", "Italic"), widget.Toggle.Off),
+                controls.icon_toggle_button_of(
+                    "under",
+                    "Underline",
+                    widget.glyph_icon("U", "Underline"),
+                    widget.Toggle.Off
+                )
+            ]
+        )
+    }
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return toggle_ui.screen(
+        toggle_ui.Screen {
+            alone: controls.toggle_button_widget(d.alone, f),
+            alone_said: said_of(d.alone.on),
+            segmented: controls.toggle_group_widget(d.segmented, f),
+            segmented_said: chosen_said(d.segmented),
+            styles: controls.toggle_group_widget(d.styles, f),
+            styles_said: on_said(d.styles)
+        },
+        f
+    )
+}
+
+fn said_of(t: widget.Toggle) -> string {
+    return switch t {
+        On { "On." }
+        Off { "Off." }
+        Mixed { "Partly on -- press to make it all bold." }
+    }
+}
+
+fn chosen_said(g: controls.ToggleGroup) -> string {
+    return switch controls.chosen_in(g) {
+        Some(at) { concat("Showing ", g.items[at].label, ".") }
+        None { "Nothing chosen, which this group does not allow." }
+    }
+}
+
+fn on_said(g: controls.ToggleGroup) -> string {
+    val on = mutable_array_new<string>()
+    for item in g.items {
+        if widget.Toggle.is_On(item.on) {
+            push(on, item.label)
+        }
+    }
+    if len(on) == 0 {
+        return "Nothing."
+    }
+    return concat(join(separator: " and ", pieces: snapshot(on)), ".")
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    if name == d.alone.name {
+        return with d {
+            alone: controls.toggle_button_input(d.alone, input, boxes.bounds_of(laid, name)).button
+        }
+    }
+    // **A group is addressed by its own name, not its items'.** It is one tab stop, so the name
+    // the input is routed to is the group's, and the group works out which item was pressed from
+    // the laid tree -- which is also what lets the arrow keys move inside it.
+    if name == d.segmented.name {
+        return with d { segmented: controls.toggle_group_input(d.segmented, input, laid, f).group }
+    }
+    if name == d.styles.name {
+        return with d { styles: controls.toggle_group_input(d.styles, input, laid, f).group }
+    }
+    return d
+}

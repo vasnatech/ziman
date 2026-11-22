@@ -50,6 +50,17 @@ Part of the [v0 syntax reference](README.md).
   two string literals on separate lines are one string, so a forgotten comma in a vertical list of
   strings silently joins two of them; here that is a syntax error and stays one. A `\` that follows
   anything but a string literal, or that is not followed by one, is refused where it is written.
+
+  **Two adjacent literals in statement position are rejected too**, and were not until 2026-11-21.
+  The paragraph above was written about a list, where a missing comma has nowhere to go and the
+  parser says so. In a statement it had somewhere to go: `val a = "one " "two"` parsed as a `val`
+  followed by a second statement that computed `"two"` and discarded it, so `a` was `"one "` and
+  nothing said otherwise -- the silent half-answer this rule exists to prevent, arriving by the
+  other door. The check is general rather than about strings: a statement that computes a value,
+  discards it and has no other effect is refused, which also catches an operator written at the
+  start of a continuation line (`- total` is a negation thrown away, not a continuation of the line
+  above). `val _ = ...` still discards on purpose, and `unit` is still the way to write an arm that
+  does nothing.
 - Text blocks: `"""` at the end of a line opens a multi-line string, and the next `"""` closes it.
 
   ```

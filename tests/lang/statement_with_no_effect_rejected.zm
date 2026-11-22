@@ -1,0 +1,8 @@
+// An operator at the start of a line is a statement, not a continuation of the line above -- so
+// this computes a negation and throws it away. The same check catches it as catches the stray
+// string: a statement that computes a value, discards it, and does nothing else.
+fn main() {
+    val total = 1 + 2
+    - total
+    print(str(total))
+}

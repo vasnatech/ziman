@@ -56,11 +56,10 @@ pub fn layer(d: Demo, f: controls.Frame) -> widget.Layer {
     return controls.dialog_layer(
         "dialog-demo",
         "Delete this request?",
-        dialog_ui.body(
-            "This cannot be undone.",
+        dialog_ui.body("This cannot be undone.", f),
+        dialog_ui.actions(
             controls.button_widget(d.confirm, controls.frame_of(style, m)),
-            controls.button_widget(d.cancel, controls.frame_of(style, m)),
-            f
+            controls.button_widget(d.cancel, controls.frame_of(style, m))
         ),
         controls.frame_of(style, m)
     )

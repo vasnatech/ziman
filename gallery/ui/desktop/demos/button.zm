@@ -13,6 +13,7 @@ pub struct Demo {
     press: controls.Button
     stamped: controls.Button
     off: controls.Button
+    round: controls.Button
     count: int
 }
 
@@ -22,6 +23,12 @@ pub fn demo() -> Demo {
         // An icon is a field on a button, not a widget beside it.
         stamped: controls.icon_button_of("button-stamped", "With an icon", widget.glyph_icon("*", "star")),
         off: with controls.button_of("button-off", "Disabled") { disabled: true },
+        // **Label-less, which is what makes it a circle rather than a capsule.** `shape.full` is
+        // half the shorter side, so it rounds whatever box it is given: an icon-only button is
+        // square and comes out round, and the same one line over a button with words gives a
+        // pill. The icon carries the name a reader is told -- see `announced_name`, which is why
+        // an empty label here is not an unnamed control.
+        round: controls.icon_button_of("button-round", "", widget.glyph_icon("+", "Add")),
         count: 0
     }
 }
@@ -32,6 +39,7 @@ pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
             press: d.press,
             stamped: d.stamped,
             off: d.off,
+            round: d.round,
             said: said(d)
         },
         f
@@ -71,6 +79,13 @@ pub fn input(
     }
     if name == "button-off" {
         return with d { off: controls.button_input(d.off, input, boxes.bounds_of(laid, name)).button }
+    }
+    if name == "button-round" {
+        val taken = controls.button_input(d.round, input, boxes.bounds_of(laid, name))
+        return with d {
+            round: taken.button,
+            count: if taken.activated { d.count + 1 } else { d.count }
+        }
     }
     return d
 }

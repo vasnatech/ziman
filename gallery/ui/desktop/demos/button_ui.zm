@@ -1,4 +1,9 @@
 // The Button demo, as design.
+//
+// **The round one is the same `button_widget` in a different frame.** Roundness belongs to the
+// look rather than to the control -- `controls.rounded` sets every mood's corner to the look's
+// own `shape.full` -- so a theme that has its own idea of round gets it here without this file
+// saying anything, and a `Button.round` field would be a control arguing with its theme.
 use controls
 use widget
 
@@ -9,6 +14,7 @@ pub struct Screen {
     press: controls.Button
     stamped: controls.Button
     off: controls.Button
+    round: controls.Button
     said: string
 }
 
@@ -18,6 +24,7 @@ pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
             widget.wide_of(button_width, controls.button_widget(it.press, controls.frame_of(f.style, f.metrics))),
             widget.wide_of(button_width, controls.button_widget(it.stamped, controls.frame_of(f.style, f.metrics))),
             widget.wide_of(button_width, controls.button_widget(it.off, controls.frame_of(f.style, f.metrics))),
+            controls.button_widget(it.round, controls.frame_of(controls.rounded(f.style), f.metrics)),
             widget.expand(widget.flex())
         ]),
         widget.label_of(it.said, f.style.text.caption.size, f.style.ink)

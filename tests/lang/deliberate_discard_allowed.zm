@@ -1,0 +1,9 @@
+// The escape hatch, and the idiom that must keep working: `val _ = ...` discards on purpose, and
+// `unit` is the language's own "do nothing" for an arm with no work.
+fn main() {
+    val _ = "deliberately thrown away"
+    switch Option<int>.Some(7) {
+        Some(n) { print(str(n)) }
+        None { unit }
+    }
+}

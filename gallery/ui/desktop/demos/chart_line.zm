@@ -1,0 +1,70 @@
+// Lines: a run of readings joined, and two of them to compare.
+//
+// **A line says "which way", and it earns that by joining neighbours.** Which is also why the
+// categorical axis here is a row of slots rather than a measured scale: the points are evenly
+// spaced because the labels are, and a line drawn across them claims an order and nothing more.
+//
+// **Two series, because lines can share a plot and bars cannot.** `chart_scene` draws every line
+// after every bar for the same reason it can draw two of them at once -- a stroke leaves what is
+// underneath it visible, and a filled block does not.
+// **The two series cross on purpose.** A line chart whose lines never meet is a pair of separate
+// readings drawn in one box, and a reader learns as much from two charts side by side. The
+// crossing is the thing only this shape can show: the month the one overtook the other, which is
+// a fact about the pair and not about either.
+use boxes
+use chart
+use controls
+use demos/chart_line_ui
+use locale
+use paint
+use widget
+
+pub struct Demo {
+    view: controls.ChartView
+}
+
+fn data() -> chart.Chart {
+    return chart.chart_of(
+        ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+        [
+            chart.line_series("Cycling", [12.0, 18.0, 24.0, 31.0, 38.0, 44.0], paint.rgb8(28, 110, 214)),
+            chart.line_series("Driving", [46.0, 41.0, 35.0, 29.0, 24.0, 20.0], paint.rgb8(214, 110, 28))
+        ]
+    )
+}
+
+pub fn demo() -> Demo {
+    return Demo { view: controls.chart_view_of("chart-line", "Month", data()) }
+}
+
+pub fn view(d: Demo, f: controls.Frame) -> widget.Widget {
+    return chart_line_ui.screen(
+        chart_line_ui.Screen {
+            chart: controls.chart_widget(d.view, f),
+            said: said(d)
+        },
+        f
+    )
+}
+
+fn said(d: Demo) -> string {
+    val words = controls.chart_said(d.view, locale.default())
+    if words == "" {
+        return "Nothing selected. Tab to the chart, then press Left or Right."
+    }
+    return concat("Reading: ", words)
+}
+
+pub fn input(
+    d: Demo,
+    name: string,
+    input: controls.Input,
+    laid: widget.Laid,
+    f: controls.Frame
+) -> Demo {
+    val step = controls.chart_input(d.view, input, boxes.bounds_of(laid, "chart-line"), f)
+    if !step.moved {
+        return d
+    }
+    return with d { view: step.view }
+}

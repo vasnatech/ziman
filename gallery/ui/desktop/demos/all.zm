@@ -16,6 +16,8 @@ use demos/badge
 use demos/button
 use demos/card
 use demos/chart
+use demos/chart_bars
+use demos/chart_line
 use demos/check_box
 use demos/combo_box
 use demos/composing
@@ -45,6 +47,7 @@ use demos/table
 use demos/tabs
 use demos/text_area
 use demos/text_field
+use demos/toggle
 use demos/toolbar
 use demos/tooltip
 use demos/tree
@@ -55,6 +58,7 @@ pub enum Demo {
     Button(button.Demo)
     CheckBox(check_box.Demo)
     Switch(switches.Demo)
+    Toggle(toggle.Demo)
     Progress(progress.Demo)
     NumberField(number_field.Demo)
     Tooltip(tooltip.Demo)
@@ -71,6 +75,8 @@ pub enum Demo {
     Card(card.Demo)
     Navigate(navigate.Demo)
     Chart(chart.Demo)
+    ChartBars(chart_bars.Demo)
+    ChartLine(chart_line.Demo)
     Radios(radios.Demo)
     TextField(text_field.Demo)
     TextArea(text_area.Demo)
@@ -99,6 +105,7 @@ pub fn all() -> [Demo] {
         Demo.Button(button.demo()),
         Demo.CheckBox(check_box.demo()),
         Demo.Switch(switches.demo()),
+        Demo.Toggle(toggle.demo()),
         Demo.Progress(progress.demo()),
         Demo.NumberField(number_field.demo()),
         Demo.Tooltip(tooltip.demo()),
@@ -115,6 +122,8 @@ pub fn all() -> [Demo] {
         Demo.Card(card.demo()),
         Demo.Navigate(navigate.demo()),
         Demo.Chart(chart.demo()),
+        Demo.ChartBars(chart_bars.demo()),
+        Demo.ChartLine(chart_line.demo()),
         Demo.Radios(radios.demo()),
         Demo.TextField(text_field.demo()),
         Demo.TextArea(text_area.demo()),
@@ -142,6 +151,7 @@ pub fn title_of(d: Demo) -> string {
         Button(_) { "Button" }
         CheckBox(_) { "Check box" }
         Switch(_) { "Switch" }
+        Toggle(_) { "Toggle button" }
         Progress(_) { "Progress bar" }
         NumberField(_) { "Number field" }
         Tooltip(_) { "Tooltip" }
@@ -157,7 +167,9 @@ pub fn title_of(d: Demo) -> string {
         Badge(_) { "Badge" }
         Card(_) { "Card" }
         Navigate(_) { "Navigate" }
-        Chart(_) { "Chart" }
+        Chart(_) { "Line and bars" }
+        ChartBars(_) { "Bars" }
+        ChartLine(_) { "Line" }
         Radios(_) { "Radio group" }
         TextField(_) { "Text field" }
         TextArea(_) { "Text area" }
@@ -186,6 +198,7 @@ pub fn stem_of(d: Demo) -> string {
         Button(_) { "button" }
         CheckBox(_) { "check_box" }
         Switch(_) { "switches" }
+        Toggle(_) { "toggle" }
         Progress(_) { "progress" }
         NumberField(_) { "number_field" }
         Tooltip(_) { "tooltip" }
@@ -202,6 +215,8 @@ pub fn stem_of(d: Demo) -> string {
         Card(_) { "card" }
         Navigate(_) { "navigate" }
         Chart(_) { "chart" }
+        ChartBars(_) { "chart_bars" }
+        ChartLine(_) { "chart_line" }
         Radios(_) { "radios" }
         TextField(_) { "text_field" }
         TextArea(_) { "text_area" }
@@ -245,6 +260,7 @@ pub fn tick_of(d: Demo, f: controls.Frame) -> Option<Demo> {
         Button(_) { Option<Demo>.None }
         CheckBox(_) { Option<Demo>.None }
         Switch(_) { Option<Demo>.None }
+        Toggle(_) { Option<Demo>.None }
         Radios(_) { Option<Demo>.None }
         TextField(_) { Option<Demo>.None }
         TextArea(_) { Option<Demo>.None }
@@ -290,6 +306,8 @@ pub fn tick_of(d: Demo, f: controls.Frame) -> Option<Demo> {
         }
         Navigate(_) { Option<Demo>.None }
         Chart(_) { Option<Demo>.None }
+        ChartBars(_) { Option<Demo>.None }
+        ChartLine(_) { Option<Demo>.None }
     }
 }
 
@@ -298,6 +316,7 @@ pub fn view_of(d: Demo, f: controls.Frame) -> widget.Widget {
         Button(it) { button.view(it, f) }
         CheckBox(it) { check_box.view(it, f) }
         Switch(it) { switches.view(it, f) }
+        Toggle(it) { toggle.view(it, f) }
         Progress(it) { progress.view(it, f) }
         NumberField(it) { number_field.view(it, f) }
         Tooltip(it) { tooltip.view(it, f) }
@@ -314,6 +333,8 @@ pub fn view_of(d: Demo, f: controls.Frame) -> widget.Widget {
         Card(it) { card.view(it, f) }
         Navigate(it) { navigate.view(it, f) }
         Chart(it) { chart.view(it, f) }
+        ChartBars(it) { chart_bars.view(it, f) }
+        ChartLine(it) { chart_line.view(it, f) }
         Radios(it) { radios.view(it, f) }
         TextField(it) { text_field.view(it, f) }
         TextArea(it) { text_area.view(it, f) }
@@ -347,6 +368,7 @@ pub fn input_to(
         Button(it) { Demo.Button(button.input(it, name, input, laid, f)) }
         CheckBox(it) { Demo.CheckBox(check_box.input(it, name, input, laid, f)) }
         Switch(it) { Demo.Switch(switches.input(it, name, input, laid, f)) }
+        Toggle(it) { Demo.Toggle(toggle.input(it, name, input, laid, f)) }
         Progress(it) { Demo.Progress(progress.input(it, name, input, laid, f)) }
         NumberField(it) { Demo.NumberField(number_field.input(it, name, input, laid, f)) }
         Tooltip(it) { Demo.Tooltip(tooltip.input(it, name, input, laid, f)) }
@@ -363,6 +385,8 @@ pub fn input_to(
         Card(it) { Demo.Card(card.input(it, name, input, laid, f)) }
         Navigate(it) { Demo.Navigate(navigate.input(it, name, input, laid, f)) }
         Chart(it) { Demo.Chart(chart.input(it, name, input, laid, f)) }
+        ChartBars(it) { Demo.ChartBars(chart_bars.input(it, name, input, laid, f)) }
+        ChartLine(it) { Demo.ChartLine(chart_line.input(it, name, input, laid, f)) }
         Radios(it) { Demo.Radios(radios.input(it, name, input, laid, f)) }
         TextField(it) { Demo.TextField(text_field.input(it, name, input, laid, f)) }
         TextArea(it) { Demo.TextArea(text_area.input(it, name, input, laid, f)) }
@@ -403,6 +427,7 @@ pub fn anchor_of(d: Demo) -> string {
         Button(_) { "" }
         CheckBox(_) { "" }
         Switch(_) { "" }
+        Toggle(_) { "" }
         Progress(_) { "" }
         NumberField(_) { "" }
         Tooltip(it) { tooltip.anchor(it) }
@@ -419,6 +444,8 @@ pub fn anchor_of(d: Demo) -> string {
         Card(_) { "" }
         Navigate(_) { "" }
         Chart(_) { "" }
+        ChartBars(_) { "" }
+        ChartLine(_) { "" }
         Radios(_) { "" }
         Slider(_) { "" }
         Link(_) { "" }
@@ -487,6 +514,7 @@ pub fn layer_of(d: Demo, at: geom.Rect, laid: widget.Laid, f: controls.Frame) ->
         Button(_) { Option<widget.Layer>.None }
         CheckBox(_) { Option<widget.Layer>.None }
         Switch(_) { Option<widget.Layer>.None }
+        Toggle(_) { Option<widget.Layer>.None }
         Progress(_) { Option<widget.Layer>.None }
         NumberField(_) { Option<widget.Layer>.None }
         Tooltip(it) { tooltip.layer(it, at, laid, f) }
@@ -503,6 +531,8 @@ pub fn layer_of(d: Demo, at: geom.Rect, laid: widget.Laid, f: controls.Frame) ->
         Card(_) { Option<widget.Layer>.None }
         Navigate(_) { Option<widget.Layer>.None }
         Chart(_) { Option<widget.Layer>.None }
+        ChartBars(_) { Option<widget.Layer>.None }
+        ChartLine(_) { Option<widget.Layer>.None }
         Radios(_) { Option<widget.Layer>.None }
         Slider(_) { Option<widget.Layer>.None }
         Link(_) { Option<widget.Layer>.None }
@@ -535,6 +565,7 @@ pub fn group_of(d: Demo) -> string {
         Button(_) { "Controls" }
         CheckBox(_) { "Controls" }
         Switch(_) { "Controls" }
+        Toggle(_) { "Controls" }
         Progress(_) { "Controls" }
         NumberField(_) { "Controls" }
         Tooltip(_) { "Controls" }
@@ -550,7 +581,9 @@ pub fn group_of(d: Demo) -> string {
         Badge(_) { "Controls" }
         Card(_) { "Controls" }
         Navigate(_) { "Controls" }
-        Chart(_) { "Controls" }
+        Chart(_) { "Chart" }
+        ChartBars(_) { "Chart" }
+        ChartLine(_) { "Chart" }
         Radios(_) { "Controls" }
         Slider(_) { "Controls" }
         Link(_) { "Controls" }
@@ -570,7 +603,7 @@ pub fn group_of(d: Demo) -> string {
 
 // The branches, in the order the tree shows them.
 pub fn groups() -> [string] {
-    return ["Controls", "Layout", "Drawing", "Look and feel", "Accessibility"]
+    return ["Controls", "Chart", "Layout", "Drawing", "Look and feel", "Accessibility"]
 }
 
 // The shape the pointer should take over this demo, at a point in the demo's own box.
@@ -590,6 +623,7 @@ pub fn cursor_of(
         Button(_) { widget.Cursor.Arrow }
         CheckBox(_) { widget.Cursor.Arrow }
         Switch(_) { widget.Cursor.Arrow }
+        Toggle(_) { widget.Cursor.Arrow }
         Progress(_) { widget.Cursor.Arrow }
         NumberField(_) { widget.Cursor.Text }
         Tooltip(_) { widget.Cursor.Arrow }
@@ -606,6 +640,8 @@ pub fn cursor_of(
         Card(_) { widget.Cursor.Arrow }
         Navigate(_) { widget.Cursor.Arrow }
         Chart(_) { widget.Cursor.Arrow }
+        ChartBars(_) { widget.Cursor.Arrow }
+        ChartLine(_) { widget.Cursor.Arrow }
         Radios(_) { widget.Cursor.Arrow }
         Slider(_) { widget.Cursor.Arrow }
         Link(_) { widget.Cursor.Arrow }

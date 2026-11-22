@@ -41,9 +41,9 @@ pub struct State {
     tree: controls.Tree
     // Which demo each tree row shows. See `row_demos`.
     row_demo: [int]
-    tabs: controls.Tabs
+    tabs: controls.ToggleGroup
     // One tab per file of the chosen demo, named after the file.
-    files: controls.Tabs
+    files: controls.ToggleGroup
     // The file the strip chose, as a read-only text area.
     //
     // **A field rather than a column of labels**, which is the lesson curly's response pane
@@ -57,6 +57,12 @@ pub struct State {
     demos: [all.Demo]
     at: int
     status: string
+    // The sentence the demo's own file opens with, shown in the view's header.
+    //
+    // **Captured when the demo changes, not when a file is chosen.** `loaded` swaps `source` for
+    // whichever file the strip picked, so reading the description out of `source` would make it
+    // change to the design file's first line the moment you clicked `*_ui.zm`.
+    summary: string
     focused: string
     // The control the pointer is on, or "" for none.
     //
@@ -118,21 +124,104 @@ pub fn opening_state(f: controls.Frame) -> State {
             second_min: demo_min
         },
         window_width: 1100.0,
-        tree: with controls.tree_of("catalogue", "Controls", tree_rows(demos)) { selected: 1 },
-        row_demo: row_demos(demos),
-        tabs: with controls.tabs_of("tabs", "Views", ["Demo", "Code"]) {
-            tab_width: tab_width
+        // **The row of the demo that is about to open, found rather than assumed.** This said
+        // `selected: 1` -- the row after the one branch, which was the first demo until the
+        // catalogue was sorted and row 1 became a different demo from the one `opening_at` picks.
+        // The window then opened with one control highlighted and another one drawn, and nothing
+        // failed on it. `ZIMAN_GALLERY_DEMO` had the same hole: it moved the demo and not the row.
+        tree: with controls.tree_of("catalogue", "Controls", tree_rows(demos)) {
+            selected: row_for(demos, opening_at(demos))
         },
-        files: with controls.tabs_of("files", "Files", []) { tab_width: file_tab_width },
+        row_demo: row_demos(demos),
+        // **Toggle groups, not tab strips.** A tab chooses what is shown *beneath* it and is
+        // drawn as an index card; these two choose between two renderings of the same thing, which
+        // is a value and reads as a segmented control. `controls.Tabs` is deliberately drawn as
+        // cards -- see `tabs_widget` -- so the look had to come from somewhere else.
+        tabs: controls.exclusive_group_of("tabs", "Views", views(), demo_tab),
+        files: controls.exclusive_group_of("files", "Files", no_segments(), 0),
         source: code_entry("", style),
         demos: demos,
-        at: 0,
+        at: opening_at(demos),
         status: "",
+        summary: "",
         focused: "catalogue",
         hovered: "",
         pressed: ""
     }
     return showing(begin, opening_at(demos), f)
+}
+
+// The description, cut to the room the header leaves it.
+//
+// **Measured here and not in the design file**, which computes nothing: the width is the demo
+// pane's, less the tabs beside it and the gaps around them, and that is arithmetic over the
+// window's own extent. `widget.elided` does the cutting with the metrics the layout will use.
+//
+// A long sentence folded instead of cut would be better reading, and a wrapping label in a row
+// measures one line -- see `widget.wrapping_label`, whose own comment says why. So it is cut.
+// The gaps the header spends beside its two children: one between them and one at each end.
+val header_gaps = 24.0
+
+fn header_summary(s: State, f: controls.Frame) -> string {
+    val pane = s.window_width - frame_width - catalogue_width
+    val room = pane - tabs_room(s, f) - header_gaps
+    return widget.elided(s.summary, room, f.style.text.caption.face, f.style.text.caption.size, f.metrics)
+}
+
+// How wide the view's two tabs come out, which only a measurement can say: a toggle group is as
+// wide as the words in it.
+fn tabs_room(s: State, f: controls.Frame) -> float {
+    return widget.measure(controls.toggle_group_widget(s.tabs, f), f.metrics).width
+}
+
+// Which catalogue row shows a given demo.
+//
+// **Read out of `row_demo` rather than worked out**, which is the rule that array exists for: it
+// is the one place that knows a row's index is not its demo's, and anything that computes the
+// pairing a second time is the thing that disagrees with it.
+fn row_for(demos: [all.Demo], at: int) -> int {
+    val rows = row_demos(demos)
+    var i = 0
+    while i < len(rows) {
+        if rows[i] == at {
+            return i
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Which segment of a group is lit. **An index, because the callers ask "which of the two",** and
+// an exclusive group always has exactly one -- see `exclusive_group_of`, which will not let it
+// empty itself.
+//
+// Named apart from `showing(State, int, Frame)` below, which is a different question with the same
+// English word: Ziman would overload the two happily and a reader would not.
+fn lit_segment(g: controls.ToggleGroup) -> int {
+    switch controls.chosen_in(g) {
+        Some(at) { return at }
+        None { return 0 }
+    }
+}
+
+fn views() -> [controls.ToggleButton] {
+    return segments_of("tabs", ["Demo", "Code"])
+}
+
+// A segment per name, each named after the group and its position so the group can address it.
+fn segments_of(group: string, names: [string]) -> [controls.ToggleButton] {
+    val out = mutable_array_new<controls.ToggleButton>()
+    var i = 0
+    for name in names {
+        push(out, controls.toggle_button_of(concat(group, "-", str(i)), name, widget.Toggle.Off))
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
+fn no_segments() -> [controls.ToggleButton] {
+    val none = mutable_array_new<controls.ToggleButton>()
+    return snapshot(none)
 }
 
 // A branch per group, with its demos under it.
@@ -145,14 +234,33 @@ fn tree_rows(demos: [all.Demo]) -> [controls.TreeRow] {
     for group in all.groups() {
         if any_in(demos, group) {
             push(rows, controls.tree_branch(group, 0, true))
-            for d in demos {
-                if all.group_of(d) == group {
-                    push(rows, controls.tree_row(all.title_of(d), 1))
-                }
+            for at in in_group(demos, group) {
+                push(rows, controls.tree_row(all.title_of(demos[at]), 1))
             }
         }
     }
     return snapshot(rows)
+}
+
+// The demos in one group, by index into `demos`, **in the order the catalogue shows them**.
+//
+// Alphabetical by title, which is the order someone looking for a control reads in: `all.zm`'s
+// declaration order is the order demos were written, and nobody hunting for "Tabs" knows that.
+//
+// **One function, because `tree_rows` and `row_demos` must agree.** They are a tree and the
+// parallel array that says which demo each of its rows is, and `row_demos`'s own comment is about
+// exactly this: two walks that could disagree is how a catalogue selects the wrong thing. Sorting
+// in one and not the other would have done it on the first click.
+fn in_group(demos: [all.Demo], group: string) -> [int] {
+    val found = mutable_array_new<int>()
+    var i = 0
+    while i < len(demos) {
+        if all.group_of(demos[i]) == group {
+            push(found, i)
+        }
+        i = i + 1
+    }
+    return sort_by(snapshot(found), fn(at: int) -> string { return all.title_of(demos[at]) })
 }
 
 // Which demo each tree row shows, by row index, or -1 for a branch.
@@ -166,12 +274,8 @@ fn row_demos(demos: [all.Demo]) -> [int] {
     for group in all.groups() {
         if any_in(demos, group) {
             push(out, 0 - 1)
-            var i = 0
-            while i < len(demos) {
-                if all.group_of(demos[i]) == group {
-                    push(out, i)
-                }
-                i = i + 1
+            for at in in_group(demos, group) {
+                push(out, at)
             }
         }
     }
@@ -213,17 +317,29 @@ fn showing(s: State, at: int, f: controls.Frame) -> State {
     return loaded(
         with s {
             at: at,
-            files: with controls.tabs_of("files", "Files", names) {
-                tab_width: file_tab_width
-            },
-            status: all.title_of(d)
+            files: controls.exclusive_group_of("files", "Files", segments_of("files", names), 0),
+            status: all.title_of(d),
+            summary: source.summary_of(source.read_demo(all.stem_of(d), names[0]))
         },
         0,
         f
     )
 }
 
+// The Demo/Code choice, moved the way a press moves it. **Public for the same reason
+// `chose_file` is**: a test and a probe need to reach the other tab without synthesising a click.
+pub fn chose_tab(s: State, tab: int, f: controls.Frame) -> State {
+    return with s { tabs: controls.choosing(s.tabs, tab) }
+}
+
 // Loads one of the chosen demo's files into the code pane.
+//
+// **Public, so a test can move the file strip the way a press does.** The description in the
+// header must not follow it -- see `summary` -- and a test that could not move it could not say so.
+pub fn chose_file(s: State, file: int, f: controls.Frame) -> State {
+    return loaded(s, file, f)
+}
+
 fn loaded(s: State, file: int, f: controls.Frame) -> State {
     val style = f.style
     val d = s.demos[s.at]
@@ -232,7 +348,7 @@ fn loaded(s: State, file: int, f: controls.Frame) -> State {
         return s
     }
     return with s {
-        files: with s.files { selected: file },
+        files: controls.exclusive_group_of("files", "Files", segments_of("files", names), file),
         source: code_entry(source.read_demo(all.stem_of(d), names[file]), style)
     }
 }
@@ -248,7 +364,7 @@ pub fn view(s: State, f: controls.Frame) -> widget.Widget {
     val style = f.style
     // **Which tab is showing is a conditional, and a conditional is not design.** The design file
     // takes a slot; this is what fills it.
-    val body = if s.tabs.selected == code_tab {
+    val body = if lit_segment(s.tabs) == code_tab {
         // **The code pane asks for the `code` role by name**, which is what a type scale is for:
         // an `Entry` reads `style.text.body`, so an application that wants a monospaced one hands
         // it a style whose body *is* the code role. Before F293 this said
@@ -268,6 +384,7 @@ pub fn view(s: State, f: controls.Frame) -> widget.Widget {
             tree: s.tree,
             tabs: s.tabs,
             body: body,
+            summary: header_summary(s, f),
             status: s.status
         },
         f
@@ -282,7 +399,7 @@ pub fn view(s: State, f: controls.Frame) -> widget.Widget {
 // Code tab would hang under a control that is not drawn, which is a box of zero at the corner of
 // the window.
 pub fn layer_of(s: State, laid: widget.Laid, f: controls.Frame) -> Option<widget.Layer> {
-    if s.tabs.selected != demo_tab {
+    if lit_segment(s.tabs) != demo_tab {
         return Option<widget.Layer>.None
     }
     val d = s.demos[s.at]
@@ -348,21 +465,29 @@ pub fn step(s: State, input: controls.Input, laid: widget.Laid, f: controls.Fram
         return moved
     }
     if name == "tabs" {
-        return with here { tabs: controls.tabs_input(here.tabs, input, boxes.bounds_of(laid, "tabs")).tabs }
+        return with here { tabs: controls.toggle_group_input(here.tabs, input, laid, f).group }
     }
     if name == "files" {
-        val taken = controls.tabs_input(here.files, input, boxes.bounds_of(laid, "files"))
-        if taken.moved {
-            return loaded(with here { files: taken.tabs }, taken.tabs.selected, f)
+        val taken = controls.toggle_group_input(here.files, input, laid, f)
+        if taken.changed >= 0 {
+            return loaded(with here { files: taken.group }, taken.changed, f)
         }
-        return with here { files: taken.tabs }
+        return with here { files: taken.group }
     }
     if name == "source" {
+        // **Driven with the frame it is drawn with**, which is the code style and not this
+        // window's. `view` hands the code pane `as_code(style)` -- a style whose body *is* the
+        // monospaced `code` role, a different size in a different face -- and this passed the
+        // plain one, so every measurement the entry made about itself was a quarter out: it
+        // scrolled a notch that was too short, and it worked out the file's height from the wrong
+        // line, which put the end of the text several hundred points past where it would agree to
+        // go. A control measured by one style and painted by another is the divider you can see in
+        // one place and take hold of in another.
         return with here { source: controls.entry_input(
             here.source,
             input,
             boxes.bounds_of(laid, "source"),
-            controls.frame_of(style, m)
+            controls.frame_of(as_code(style), m)
         ).entry }
     }
     // Anything else belongs to the demo on show, which routes it by name itself.

@@ -1,0 +1,38 @@
+// The Toggle demo, as design.
+//
+// Three rows, because there are three things to tell apart: one toggle on its own, a group that
+// keeps exactly one item, and a group that keeps any number.
+use controls
+use widget
+
+val gap = 12.0
+val heading_gap = 4.0
+
+pub struct Screen {
+    alone: widget.Widget
+    alone_said: string
+    segmented: widget.Widget
+    segmented_said: string
+    styles: widget.Widget
+    styles_said: string
+}
+
+pub fn screen(it: Screen, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(gap, [
+        titled("A toggle on its own", it.alone, it.alone_said, f),
+        titled("One at a time", it.segmented, it.segmented_said, f),
+        titled("Any number", it.styles, it.styles_said, f)
+    ])
+}
+
+// **The control takes its own width, not the column's.** A column stretches what it holds, which
+// made a single toggle button as wide as the panel -- a button that fills the window reads as a
+// banner. The flexible gap after it is what a row uses everywhere here to say "and the rest is
+// space".
+fn titled(title: string, control: widget.Widget, said: string, f: controls.Frame) -> widget.Widget {
+    return widget.column_of(heading_gap, [
+        widget.label_of(title, f.style.text.label.size, f.style.ink),
+        widget.row_of(0.0, [control, widget.expand(widget.flex())]),
+        widget.label_of(said, f.style.text.caption.size, f.style.ink)
+    ])
+}

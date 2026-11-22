@@ -449,6 +449,15 @@ pub struct Button {
     // selection -- the two share one row. No look has wanted to part them yet; the day one does,
     // `States` grows a row rather than this field changing meaning.
     prominent: bool
+    // **This button opens something rather than doing something**, and wears the disclosure
+    // chevron to say so: the difference between "add one" and "choose which one to add".
+    //
+    // **A flag, not a second icon.** The caret is the toolkit's own mark -- `ComboBox` and a
+    // sorted column header already draw this exact chevron -- and a button that let an application
+    // supply its own would be the one place in a window where a menu announces itself differently.
+    // It is also why this is not `icon` with `Trailing`: a menu button usually has a mark of its
+    // own as well, and the segmented add button this was measured against is a plus *and* a caret.
+    drops: bool
 }
 ```
 
@@ -621,6 +630,215 @@ one colour a look is recognised by, and what reads on it. The five state rows st
 off track and the ink, so a hovered or disabled switch is the look's hovered or disabled face --
 but an *on* switch is not a state of the control, it is its value, and a value that said
 `states.selected.face` would be a pale tint of the accent where every platform draws a solid one.
+
+## The toggle button
+
+### `ToggleButton`
+
+```
+pub struct ToggleButton {
+    name: string
+    label: string
+    icon: Option<widget.Icon>
+    disabled: bool
+    // The pointer is down now.
+    held: bool
+    // And this is what survives it.
+    on: Toggle
+}
+```
+
+A button that stays pressed.
+
+**`Button.held` is not this.** `held` is the pointer being down this instant -- the distinction
+the button's own comment draws, between what the next frame has to draw and what happened once.
+A toggle keeps its answer after the finger leaves: the bold in a toolbar, or one segment of a
+view switch.
+
+**`Toggle` rather than `bool`**, as `CheckBox` and `Switch` both carry, and for the same reason
+they do: `Mixed` is a real answer here. A bold button over a selection that is partly bold is
+neither on nor off, and a `bool` would make the application pick one and lie.
+
+Field for field a `CheckBox` wearing a button's face, which is what lets the two share their
+input rules below rather than growing a second copy of them.
+
+### `ToggleButtonStep`
+
+```
+pub struct ToggleButtonStep {
+    button: ToggleButton
+    toggled: bool
+}
+```
+
+### `toggle_button_of`
+
+```
+pub fn toggle_button_of(name: string, label: string, on: Toggle) -> ToggleButton
+```
+
+### `icon_toggle_button_of`
+
+```
+pub fn icon_toggle_button_of(
+    name: string,
+    label: string,
+    icon: widget.Icon,
+    on: Toggle
+) -> ToggleButton
+```
+
+### `toggle_button_input`
+
+```
+pub fn toggle_button_input(b: ToggleButton, input: Input, bounds: Rect) -> ToggleButtonStep
+```
+
+**Through `button_input`, like the check box**, so that press, drag-off, Space and Enter are the
+button's rules and not three copies of them. `next` is the check box's own cycle.
+
+### `toggle_button_widget`
+
+```
+pub fn toggle_button_widget(b: ToggleButton, f: Frame) -> widget.Widget
+```
+
+The toggle as a widget: a button's face, and `on` in the `selected` row of the look.
+
+**`mood_of`'s `selected` slot is the whole drawing.** A pressed toggle wears whatever the look
+says a selected control wears, so a theme restyles toggles by restyling selection and never
+learns this control exists.
+
+## The toggle group
+
+### `ToggleGroup`
+
+```
+pub struct ToggleGroup {
+    name: string
+    label: string
+    items: [ToggleButton]
+    // **One at a time, or any number.** The only thing this changes is the input rule -- the
+    // drawing is the same either way, because a segmented switch and a toolbar of toggles differ
+    // in what they mean and not in what they look like.
+    exclusive: bool
+    // Which item the arrow keys are on. A group is one tab stop, as a toolbar and a list are.
+    at: int
+    disabled: bool
+}
+```
+
+A row of toggle buttons that belong together: a segmented view switch, or a toolbar's bold,
+italic and underline.
+
+**Not `Tabs`, deliberately.** `tabs_widget` says why it cannot be: the chosen tab wears the
+body's colour and is rounded along its top only, *"which is what makes a strip read as index
+cards instead of as a segmented button"*. A segmented button is what this is, and the library
+had ruled the look out without offering it anywhere else.
+
+**Not `Radios` either.** Those are a form field -- a column of dots and words, with no room for
+an icon. A toolbar's toggles are an icon each and nothing else.
+
+**Its items are whole `ToggleButton`s**, where `Tabs` and `Radios` hold `[string]` and an index.
+That is a departure and it is the point: every item needs its own name, its own icon and its own
+state, and a caller should be able to gather buttons they already have. An index into labels
+could say none of that.
+
+### `ToggleGroupStep`
+
+```
+pub struct ToggleGroupStep {
+    group: ToggleGroup
+    // Which item moved, or -1. **Not a bool**: a caller with one handler per item needs to know
+    // which, and in the exclusive case the one that went *off* is not news -- the one that came on
+    // is.
+    changed: int
+}
+```
+
+### `toggle_group_of`
+
+```
+pub fn toggle_group_of(name: string, label: string, items: [ToggleButton]) -> ToggleGroup
+```
+
+### `exclusive_group_of`
+
+```
+pub fn exclusive_group_of(
+    name: string,
+    label: string,
+    items: [ToggleButton],
+    chosen: int
+) -> ToggleGroup
+```
+
+The segmented case: one on at a time, and never none.
+
+### `chosen_in`
+
+```
+pub fn chosen_in(g: ToggleGroup) -> Option<int>
+```
+
+Which item is on, for the exclusive case. **An `Option`, because a group built by hand may have
+none on** -- `exclusive_group_of` cannot be given a bad index, but `toggle_group_of` takes the
+items as they come.
+
+### `choosing`
+
+```
+pub fn choosing(g: ToggleGroup, at: int) -> ToggleGroup
+```
+
+The same group with `at` chosen and the rest off.
+
+**The setter `chosen_in` is the reader of.** An application that restores which view it was on,
+or that moves the choice because something else happened, has to be able to say so -- and
+without this it would reach into `items` and set the toggles itself, which is the one place the
+exclusivity rule could be got wrong.
+
+An index outside the group leaves it alone, rather than turning everything off: `exclusive_group_of`
+promises exactly one is lit, and a setter that could break that promise is not a setter for it.
+
+### `group_item_name`
+
+```
+pub fn group_item_name(g: ToggleGroup, index: int) -> string
+```
+
+### `toggle_group_input`
+
+```
+pub fn toggle_group_input(g: ToggleGroup, input: Input, laid: Laid, f: Frame) -> ToggleGroupStep
+```
+
+What a press or a key does to a group.
+
+**Takes the laid tree rather than a box**, for the toolbar's reason: the items are an icon, a
+word or both, every one a different width, and their laid boxes are the only thing that knows
+where they ended up. Dividing a box into equal shares is a tab strip's arithmetic, not this.
+
+### `toggle_group_widget`
+
+```
+pub fn toggle_group_widget(g: ToggleGroup, f: Frame) -> widget.Widget
+```
+
+The group as a widget: **one tab stop holding a part per item, on a shared track**.
+
+One tab stop is what ARIA says for both shapes this covers -- a `radiogroup` for the exclusive
+one and a `toolbar` for the other -- and what `Toolbar` and `List` already do here. Each item
+declares its own `checked`, as a tab's part declares its own `selected`, *"because that is what
+a reader reads"*.
+
+**The track is what makes it one control instead of three.** The first version drew the items
+edge to edge and they still read as three buttons that happened to touch: every one carried its
+own face and its own border, so the eye counted three objects. The answer is not to take the
+corners off -- `widget.Corners` offers `Top` and `Bottom` and no sides -- but to put something
+behind them: a chosen segment wears the look's selected face, an unchosen one is **transparent**
+and lets the track through, and the group reads as one object with a lit part. That is the
+relationship the segmented controls this was measured against use, and it needs no new geometry.
 
 ## The expander
 
@@ -992,6 +1210,16 @@ pub struct Entry {
     // recompute the caret's line to follow it, which is the control's own arithmetic done twice.
     // Zero and unused for a one-line field.
     scroll: float
+    // The bar down the trailing edge of a text area, and whether it is being dragged.
+    //
+    // **A control, where this used to be an ornament.** `paint_scroll_bars` walks a laid tree and
+    // draws a bar over every `Scroll` it finds, which made a text area *look* scrollable and leave
+    // the pointer with nothing to take hold of -- a thumb that could be seen, aimed at and pressed,
+    // and that did not move. `List` has carried a real `ScrollBar` for exactly this reason; this is
+    // the same arrangement, and the two now answer a drag the same way.
+    //
+    // Unused by a one-line field, which scrolls along its own axis and not down.
+    bar: ScrollBar
     // Text being composed through an input method, which is **not** in `editor.text` until it is
     // committed -- see `edit.Preedit`. `None` is the ordinary state and the only one most fields
     // are ever in.
@@ -2964,17 +3192,33 @@ focus's, or tabbing to Cancel and pressing Enter would confirm.
 ### `dialog_layer`
 
 ```
-pub fn dialog_layer(name: string, title: string, content: widget.Widget, f: Frame) -> widget.Layer
+pub fn dialog_layer(
+    name: string,
+    title: string,
+    content: widget.Widget,
+    actions: widget.Widget,
+    f: Frame
+) -> widget.Layer
 ```
 
-A modal layer holding `content` under a title.
+A modal layer: a title in a header, `content`, and `actions` in a footer.
 
 **Modal, so the geometry shuts the pointer out and `takes_keys` shuts Tab out** -- a click beside
 the dialog lands on the layer, finds no control, and goes nowhere, and the tab order holds only
 what is inside. `widget.modal_layer` is where both of those are explained.
 
-The content is the caller's: a dialog is a frame and a pair of keys, not a thing that knows what
-it is asking.
+**Three regions rather than a title stacked on a blob.** The title and the buttons used to be
+two of the caller's own children in one padded column, so every dialog decided for itself how
+far its title sat from its fields and whether its buttons had any air above them -- and two
+dialogs in one application answered differently. A header and a footer are separated by a rule
+and keep their own padding, which is what makes a stack of fields read as the middle of
+something rather than as the whole of it.
+
+**`Nothing` for `actions` draws no footer**, rule and all: a dialog that only says something has
+nothing to put down there, and a rule under its last line would promise a row that never comes.
+
+The content between them is still the caller's: a dialog is a frame and a pair of keys, not a
+thing that knows what it is asking.
 
 ## The split pane
 
@@ -4228,6 +4472,25 @@ link carry `held`, and a scroll bar, a split pane, a table's column edge and a s
 `grabbed` that holds the grab's offset and not merely a bool -- those read their own field. A
 menu's item, a list's row and a tab have no such field and read this one. One source each, never
 both: `mood_of` is handed a bool either way.
+
+### `rounded`
+
+```
+pub fn rounded(style: Style) -> Style
+```
+
+The same look with every control's corner made full: a round button, a pill-shaped entry.
+
+**`Parts.corner` is per mood, so saying "round" by hand is five edits** -- rest, hovered,
+pressed, disabled and selected -- and five chances to leave one square, which shows only when a
+pointer happens to be over it. This says it once.
+
+`shape.full` rather than a number, because the look already names this: it is what a radio's
+circle is drawn with, and a theme that redefines `full` gets its own idea of round here too.
+
+**A style, not a control flag.** Roundness is a property of a look, and a `Button.round` would
+be a control arguing with its theme -- which is the argument `Style` exists to settle. A caller
+draws through a frame built from this: `controls.frame_of(controls.rounded(f.style), f.metrics)`.
 
 ### `frame_of`
 
