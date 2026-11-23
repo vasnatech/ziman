@@ -788,6 +788,15 @@ pub struct Button {
     // selection -- the two share one row. No look has wanted to part them yet; the day one does,
     // `States` grows a row rather than this field changing meaning.
     prominent: bool
+    // **This button opens something rather than doing something**, and wears the disclosure
+    // chevron to say so: the difference between "add one" and "choose which one to add".
+    //
+    // **A flag, not a second icon.** The caret is the toolkit's own mark -- `ComboBox` and a
+    // sorted column header already draw this exact chevron -- and a button that let an application
+    // supply its own would be the one place in a window where a menu announces itself differently.
+    // It is also why this is not `icon` with `Trailing`: a menu button usually has a mark of its
+    // own as well, and the segmented add button this was measured against is a plus *and* a caret.
+    drops: bool
 }
 
 pub fn button_of(name: string, label: string) -> Button
@@ -840,6 +849,65 @@ pub fn switch_of(name: string, label: string, on: Toggle) -> Switch
 pub fn switch_input(s: Switch, input: Input, bounds: Rect) -> SwitchStep
 
 pub fn switch_widget(s: Switch, f: Frame) -> widget.Widget
+
+pub struct ToggleButton {
+    name: string
+    label: string
+    icon: Option<widget.Icon>
+    disabled: bool
+    // The pointer is down now.
+    held: bool
+    // And this is what survives it.
+    on: Toggle
+}
+
+pub struct ToggleButtonStep {
+    button: ToggleButton
+    toggled: bool
+}
+
+pub fn toggle_button_of(name: string, label: string, on: Toggle) -> ToggleButton
+
+pub fn icon_toggle_button_of(
+
+pub fn toggle_button_input(b: ToggleButton, input: Input, bounds: Rect) -> ToggleButtonStep
+
+pub fn toggle_button_widget(b: ToggleButton, f: Frame) -> widget.Widget
+
+pub struct ToggleGroup {
+    name: string
+    label: string
+    items: [ToggleButton]
+    // **One at a time, or any number.** The only thing this changes is the input rule -- the
+    // drawing is the same either way, because a segmented switch and a toolbar of toggles differ
+    // in what they mean and not in what they look like.
+    exclusive: bool
+    // Which item the arrow keys are on. A group is one tab stop, as a toolbar and a list are.
+    at: int
+    disabled: bool
+}
+
+pub struct ToggleGroupStep {
+    group: ToggleGroup
+    // Which item moved, or -1. **Not a bool**: a caller with one handler per item needs to know
+    // which, and in the exclusive case the one that went *off* is not news -- the one that came on
+    // is.
+    changed: int
+}
+
+pub fn toggle_group_of(name: string, label: string, items: [ToggleButton]) -> ToggleGroup
+
+pub fn exclusive_group_of(
+
+pub fn chosen_in(g: ToggleGroup) -> Option<int>
+
+pub fn choosing(g: ToggleGroup, at: int) -> ToggleGroup
+
+pub fn group_item_name(g: ToggleGroup, index: int) -> string
+
+pub fn toggle_group_input(g: ToggleGroup, input: Input, laid: Laid, f: Frame) -> ToggleGroupStep
+
+pub fn toggle_group_widget(g: ToggleGroup, f: Frame) -> widget.Widget
 
 pub struct Expander {
     name: string
@@ -966,6 +1034,16 @@ pub struct Entry {
     // recompute the caret's line to follow it, which is the control's own arithmetic done twice.
     // Zero and unused for a one-line field.
     scroll: float
+    // The bar down the trailing edge of a text area, and whether it is being dragged.
+    //
+    // **A control, where this used to be an ornament.** `paint_scroll_bars` walks a laid tree and
+    // draws a bar over every `Scroll` it finds, which made a text area *look* scrollable and leave
+    // the pointer with nothing to take hold of -- a thumb that could be seen, aimed at and pressed,
+    // and that did not move. `List` has carried a real `ScrollBar` for exactly this reason; this is
+    // the same arrangement, and the two now answer a drag the same way.
+    //
+    // Unused by a one-line field, which scrolls along its own axis and not down.
+    bar: ScrollBar
     // Text being composed through an input method, which is **not** in `editor.text` until it is
     // committed -- see `edit.Preedit`. `None` is the ordinary state and the only one most fields
     // are ever in.
@@ -1613,7 +1691,7 @@ pub enum DialogAnswer {
 
 pub fn dialog_keys(input: Input) -> DialogAnswer
 
-pub fn dialog_layer(name: string, title: string, content: widget.Widget, f: Frame) -> widget.Layer
+pub fn dialog_layer(
 
 pub val divider_step = 10.0
 
@@ -2136,6 +2214,8 @@ pub struct Frame {
     pressed: string
     focused: string
 }
+
+pub fn rounded(style: Style) -> Style
 
 pub fn frame_of(style: Style, m: widget.Metrics) -> Frame
 
@@ -7940,6 +8020,14 @@ pub enum Role {
     // the moment it moves. Readers say "on" and "off" for one and "checked" for the other, which
     // is the whole reason this is its own role rather than a check box that looks different.
     Switch
+    // A button that stays pressed: the bold in a toolbar, or one segment of a view switch.
+    //
+    // **Its own role although ATK cannot tell it from a `Switch`** -- both answer 28, which is
+    // ATK's toggle button, and `desktop/atspi.zm` says why a switch borrows that number. ARIA does
+    // distinguish them (`button[aria-pressed]` against `switch`), so the vocabulary here is the
+    // wider of the two and the adapter narrows it. Narrowing in the adapter is recoverable; losing
+    // the distinction in the tree is not.
+    ToggleButton
     // **A bar a user cannot operate**, which is the thing that makes it unlike every other role
     // here: there is nothing to press, so it is not a tab stop -- and it still has to be in the
     // tree, because "is it still going?" is exactly what a reader has to be able to answer.
@@ -8133,6 +8221,8 @@ pub fn face_metrics_of(
 pub fn face_at(m: Metrics, which: int) -> FaceMetrics
 
 pub fn width_in(m: Metrics, which: int, text: string, size: float) -> float
+
+pub fn elided(text: string, room: float, which: int, size: float, m: Metrics) -> string
 
 pub fn height_in(m: Metrics, which: int, size: float) -> float
 
