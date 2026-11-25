@@ -91,6 +91,18 @@ pub struct Face {
     cmap_subtable: int
     // Its format, 4 or 12, so the lookup does not re-read the two bytes per character either.
     cmap_format: int
+    // **The advance of every code point below 256, in font units, worked out once here.** The
+    // same bargain `cmap_subtable` above strikes, for the step after it: `code_point_advance`
+    // walked the cmap segments and then read `hmtx` for every character of every string, and a
+    // window measures the same words on every frame -- 218 ms of a 247 ms layout pass over 121
+    // labels, measured 2026-11-25, which a table of 256 integers removes.
+    //
+    // **Latin only, and empty when the face cannot be read this way.** 256 entries cost a
+    // millisecond to fill and cover every string a Latin interface measures; above that the walk
+    // is still there, because a table over the whole of Unicode is 1.1 million lookups nobody
+    // asked for. Empty for a face with no `cmap` subtable or no `hmtx`, so that the walk reports
+    // the absence in the words it always did rather than this answering a zero.
+    latin_advance: [int]
     name: int
     os2: int
     loca: int
@@ -138,6 +150,38 @@ Only `cmap` subtable formats **4** and **12** are read: format 4 is the basic-pl
 mapping every font has, and 12 is the full-Unicode one any font with astral characters has.
 Formats 0, 2, 6 and 13 belong to fonts old enough not to matter here, and an unrecognised format
 is reported rather than silently answering "no glyph for anything".
+
+### `text_advance`
+
+```
+pub fn text_advance(f: Face, text: string) -> Result<int, string>
+```
+
+How wide `text` is, in font units, with `.notdef` substituted for any code point the face does
+not cover.
+
+**A door per string and not per character**, and the difference is a third of the win. Calling
+`code_point_advance` from `font.advance` once per character took a 120-label layout probe from
+219 ms to 71; moving the loop here, where the table is read once rather than per character,
+took it to 54. A cross-module call returning a `Result` is not free at one per character.
+
+Any code point outside the table falls to `walked_advance`, so a face with no table at all --
+no `cmap` subtable, no `hmtx` -- still reports the absence in the words it always did.
+
+### `code_point_advance`
+
+```
+pub fn code_point_advance(f: Face, cp: int) -> Result<int, string>
+```
+
+How wide the glyph for `cp` is, in font units, with `.notdef` substituted for a code point the
+face does not cover.
+
+**The measurement half of `glyph_for` and `advance_of`, as one call**, because the two are
+never wanted apart and because this is where a table can answer: a Latin code point is an
+index, and anything above comes from the walk. The substitution is `.notdef` and must stay
+`.notdef` -- `font.glyphs_of` draws the same glyph for the same character, and a string that
+measures as one width and draws as another is worse than either answer.
 
 ### `advance_of`
 

@@ -155,16 +155,11 @@ pub fn advance(f: FontRef, text: string, size: float) -> Result<float, string> {
             ))
         }
         Embedded(face) {
-            var total = 0
-            for ch in chars(text) {
-                val cp = charset.code_point_of(ch)
-                // `.notdef` as in `glyphs_of`, and for the same reason -- and it has to be the
-                // same substitution, or a string measures as one width and draws as another.
-                switch try truetype.glyph_for(face, cp) {
-                    Some(g) { total = total + (try truetype.advance_of(face, g)) }
-                    None { total = total + (try truetype.advance_of(face, notdef)) }
-                }
-            }
+            // **One call for the whole string**, because that is where the face's own advance
+            // table can be read once instead of per character: see `truetype.text_advance`. The
+            // `.notdef` substitution is still the one `glyphs_of` draws -- it moved rather than
+            // changed, so a string measures as wide as it is drawn.
+            val total = try truetype.text_advance(face, text)
             return ok((total as float) * size / (face.units_per_em as float))
         }
     }

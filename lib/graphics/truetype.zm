@@ -34,6 +34,18 @@ pub struct Face {
     cmap_subtable: int
     // Its format, 4 or 12, so the lookup does not re-read the two bytes per character either.
     cmap_format: int
+    // **The advance of every code point below 256, in font units, worked out once here.** The
+    // same bargain `cmap_subtable` above strikes, for the step after it: `code_point_advance`
+    // walked the cmap segments and then read `hmtx` for every character of every string, and a
+    // window measures the same words on every frame -- 218 ms of a 247 ms layout pass over 121
+    // labels, measured 2026-11-25, which a table of 256 integers removes.
+    //
+    // **Latin only, and empty when the face cannot be read this way.** 256 entries cost a
+    // millisecond to fill and cover every string a Latin interface measures; above that the walk
+    // is still there, because a table over the whole of Unicode is 1.1 million lookups nobody
+    // asked for. Empty for a face with no `cmap` subtable or no `hmtx`, so that the walk reports
+    // the absence in the words it always did rather than this answering a zero.
+    latin_advance: [int]
     name: int
     os2: int
     loca: int
@@ -136,7 +148,7 @@ pub fn parse(data: [byte]) -> Result<Face, string> {
     // those rather than the `Face` it is about to be part of.
     val chosen = if cmap < 0 { 0 - 1 } else { try subtable_in(data, cmap) }
     val chosen_format = if chosen < 0 { 0 - 1 } else { try u16_at(data, chosen) }
-    return ok(Face {
+    val bare = Face {
         data: data,
         units_per_em: upem,
         glyph_count: try u16_at(data, maxp + 4),
@@ -159,9 +171,31 @@ pub fn parse(data: [byte]) -> Result<Face, string> {
         x_min: try i16_at(data, head + 36),
         y_min: try i16_at(data, head + 38),
         x_max: try i16_at(data, head + 40),
-        y_max: try i16_at(data, head + 42)
-    })
+        y_max: try i16_at(data, head + 42),
+        latin_advance: []
+    }
+    return ok(with bare { latin_advance: try latin_table(bare) })
 }
+
+// The 256 advances `latin_advance` holds, or an empty array for a face the walk must answer for.
+//
+// **Built from the face itself**, through the same two calls `code_point_advance` makes, so the
+// table cannot say something the walk would not: it is a cache of that function and not a second
+// implementation of it.
+fn latin_table(f: Face) -> Result<[int], string> {
+    if f.cmap_subtable < 0 || f.hmtx < 0 || f.num_h_metrics == 0 {
+        return ok([])
+    }
+    val out = mutable_array_new<int>()
+    var cp = 0
+    while cp < latin_reach {
+        push(out, try walked_advance(f, cp))
+        cp = cp + 1
+    }
+    return ok(snapshot(out))
+}
+
+val latin_reach = 256
 
 // The font's bounding box, in font units.
 pub fn bbox(f: Face) -> Rect {
@@ -291,6 +325,57 @@ fn wrap16(n: int) -> int {
     }
     return v
 }
+
+// How wide `text` is, in font units, with `.notdef` substituted for any code point the face does
+// not cover.
+//
+// **A door per string and not per character**, and the difference is a third of the win. Calling
+// `code_point_advance` from `font.advance` once per character took a 120-label layout probe from
+// 219 ms to 71; moving the loop here, where the table is read once rather than per character,
+// took it to 54. A cross-module call returning a `Result` is not free at one per character.
+//
+// Any code point outside the table falls to `walked_advance`, so a face with no table at all --
+// no `cmap` subtable, no `hmtx` -- still reports the absence in the words it always did.
+pub fn text_advance(f: Face, text: string) -> Result<int, string> {
+    val table = f.latin_advance
+    val tabled = len(table) == latin_reach
+    var total = 0
+    for cp in charset.code_points_of(text) {
+        if tabled && cp >= 0 && cp < latin_reach {
+            total = total + table[cp]
+        } else {
+            total = total + (try walked_advance(f, cp))
+        }
+    }
+    return ok(total)
+}
+
+// How wide the glyph for `cp` is, in font units, with `.notdef` substituted for a code point the
+// face does not cover.
+//
+// **The measurement half of `glyph_for` and `advance_of`, as one call**, because the two are
+// never wanted apart and because this is where a table can answer: a Latin code point is an
+// index, and anything above comes from the walk. The substitution is `.notdef` and must stay
+// `.notdef` -- `font.glyphs_of` draws the same glyph for the same character, and a string that
+// measures as one width and draws as another is worse than either answer.
+pub fn code_point_advance(f: Face, cp: int) -> Result<int, string> {
+    if cp >= 0 && cp < latin_reach && len(f.latin_advance) == latin_reach {
+        return ok(f.latin_advance[cp])
+    }
+    return walked_advance(f, cp)
+}
+
+// `code_point_advance` without the table, which is what fills the table.
+fn walked_advance(f: Face, cp: int) -> Result<int, string> {
+    switch try glyph_for(f, cp) {
+        Some(g) { return advance_of(f, g) }
+        None { return advance_of(f, notdef_glyph) }
+    }
+}
+
+// Glyph 0, which TrueType requires to exist and to be `.notdef`. `font.zm` names the same number
+// for the same reason; it is spelt here too so that this module's own door does not depend on it.
+val notdef_glyph = 0
 
 // The glyph's advance width, in font units.
 //

@@ -74,4 +74,5 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F342 — the button a form is expecting to be pressed](f342.md)
 - [F343 — how roomy a list is, and how loud its marks are](f343.md)
 - [F344 — a scroll bar painted over the dialog in front of it](f344.md)
+- [F345 — measuring a word cost more than drawing it](f345.md)
 - [Open — `api-check` fails intermittently under make, never on its own](open-api-check-flake.md)

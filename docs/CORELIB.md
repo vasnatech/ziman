@@ -7393,6 +7393,18 @@ pub struct Face {
     cmap_subtable: int
     // Its format, 4 or 12, so the lookup does not re-read the two bytes per character either.
     cmap_format: int
+    // **The advance of every code point below 256, in font units, worked out once here.** The
+    // same bargain `cmap_subtable` above strikes, for the step after it: `code_point_advance`
+    // walked the cmap segments and then read `hmtx` for every character of every string, and a
+    // window measures the same words on every frame -- 218 ms of a 247 ms layout pass over 121
+    // labels, measured 2026-11-25, which a table of 256 integers removes.
+    //
+    // **Latin only, and empty when the face cannot be read this way.** 256 entries cost a
+    // millisecond to fill and cover every string a Latin interface measures; above that the walk
+    // is still there, because a table over the whole of Unicode is 1.1 million lookups nobody
+    // asked for. Empty for a face with no `cmap` subtable or no `hmtx`, so that the walk reports
+    // the absence in the words it always did rather than this answering a zero.
+    latin_advance: [int]
     name: int
     os2: int
     loca: int
@@ -7412,6 +7424,10 @@ pub fn parse(data: [byte]) -> Result<Face, string>
 pub fn bbox(f: Face) -> Rect
 
 pub fn glyph_for(f: Face, codepoint: int) -> Result<Option<int>, string>
+
+pub fn text_advance(f: Face, text: string) -> Result<int, string>
+
+pub fn code_point_advance(f: Face, cp: int) -> Result<int, string>
 
 pub fn advance_of(f: Face, glyph: int) -> Result<int, string>
 

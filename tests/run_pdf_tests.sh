@@ -561,6 +561,74 @@ else
     fi
 fi
 
+# ---- measuring text: the face's own advance table against the walk it caches
+#
+# `truetype.latin_advance` holds the advance of every code point below 256, worked out once at
+# parse time, because `font.advance` walked the cmap segments and read `hmtx` for every character
+# of every string -- and a window measures the same words on every frame. Two things have to hold
+# and only one of them is obvious:
+#
+#   * the table must say what the walk says, for every code point it claims and a stretch above it;
+#   * the table must BE THERE. A run with it deleted would agree with the walk perfectly, which is
+#     why its length is asserted too: without that, breaking the fix leaves this green.
+cat > "$WORK/advances.zm" <<'ZM'
+use charset
+use fs
+use os
+use truetype
+fn main() {
+    val face = unwrap(truetype.parse(unwrap(fs.read_bytes(os.args()[0]))))
+    print(concat("table ", str(len(face.latin_advance))))
+    // The reference: `glyph_for` and `advance_of` by hand, which is the pair the table caches.
+    var wrong = 0
+    var cp = 0
+    while cp < 400 {
+        val walked = switch unwrap(truetype.glyph_for(face, cp)) {
+            Some(g) { unwrap(truetype.advance_of(face, g)) }
+            None { unwrap(truetype.advance_of(face, 0)) }
+        }
+        switch charset.utf8_text(cp) {
+            Ok(ch) {
+                if unwrap(truetype.text_advance(face, ch)) != walked {
+                    wrong = wrong + 1
+                }
+            }
+            Err(_) { unit }
+        }
+        cp = cp + 1
+    }
+    print(concat("disagreements ", str(wrong)))
+    // A string that crosses the table's edge, whole against the sum of its characters: the one
+    // assertion that an off-by-one in the indexing cannot survive.
+    val mixed = "Blood pressure 142/91 — Привет şeker"
+    var summed = 0
+    for ch in chars(mixed) {
+        summed = summed + unwrap(truetype.text_advance(face, ch))
+    }
+    print(concat("whole minus parts ", str(unwrap(truetype.text_advance(face, mixed)) - summed)))
+}
+ZM
+
+if ! out=$("$BIN" "$WORK/advances.zm" -- "$FONT" 2>&1); then
+    fail "the advance table is read" "$(head -3 <<<"$out")"
+else
+    if grep -q '^table 256$' <<<"$out"; then
+        pass "the face carries an advance table for the Latin range"
+    else
+        fail "the face carries an advance table for the Latin range" "$(grep '^table' <<<"$out")"
+    fi
+    if grep -q '^disagreements 0$' <<<"$out"; then
+        pass "the table agrees with the cmap-and-hmtx walk"
+    else
+        fail "the table agrees with the cmap-and-hmtx walk" "$(grep '^disagreements' <<<"$out")"
+    fi
+    if grep -q '^whole minus parts 0$' <<<"$out"; then
+        pass "a string measures as the sum of its characters across the table's edge"
+    else
+        fail "a string measures as the sum of its characters" "$(grep '^whole minus' <<<"$out")"
+    fi
+fi
+
 # ---- layout (phase 6): the property the module exists for
 #
 # `tests/lang/graphics_layout.zm` checks the arithmetic with Courier, which needs no font file.
