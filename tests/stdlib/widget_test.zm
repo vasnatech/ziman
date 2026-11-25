@@ -23,6 +23,28 @@ fn fake_metrics() -> widget.Metrics {
     )
 }
 
+// A face whose characters are **not** all the same width, so that a search over prefix lengths is
+// tested against the thing that makes it valid: a wide letter costs 20 and a narrow one 2, and a
+// prefix is still never narrower than a shorter prefix.
+fn proportional_metrics() -> widget.Metrics {
+    return widget.metrics_of(
+        fn(text: string, size: float) -> float {
+            var total = 0.0
+            for ch in chars(text) {
+                if ch == "W" {
+                    total = total + 20.0
+                } else if ch == "i" {
+                    total = total + 2.0
+                } else {
+                    total = total + 10.0
+                }
+            }
+            return total
+        },
+        fn(size: float) -> float { return size * 2.0 }
+    )
+}
+
 fn black() -> paint.Color {
     return paint.black()
 }
@@ -2674,4 +2696,55 @@ fn text_runs(ops: [scene.Op]) -> [scene.TextRun] {
         }
     }
     return snapshot(out)
+}
+
+// ------------------------------------------------------------------ eliding
+
+// `elided` answers the **longest prefix that fits**, and since 2026-11-25 it finds it by
+// bisection rather than by taking one character off at a time.
+//
+// **The answers are pinned at the boundaries**, because what a search over lengths gets wrong is
+// an off-by-one: a room of exactly 90 holds eight characters and the mark at ten points each, and
+// a predicate written `<` rather than `<=` would answer seven.
+#[test]
+fn elided_cuts_at_the_longest_prefix_that_fits() {
+    val m = fake_metrics()
+    val text = "abcdefghij"
+    test.assert_eq(text, widget.elided(text, 100.0, 0, 10.0, m))
+    test.assert_eq(text, widget.elided(text, 1000.0, 0, 10.0, m))
+    test.assert_eq("abcdefgh…", widget.elided(text, 90.0, 0, 10.0, m))
+    test.assert_eq("a…", widget.elided(text, 20.0, 0, 10.0, m))
+    test.assert_eq("…", widget.elided(text, 10.0, 0, 10.0, m))
+}
+
+// And the same property at **every** room from one point to past the whole string, against a face
+// whose letters differ in width.
+//
+// **It checks the definition rather than a second implementation**: whatever comes back fits, and
+// one more character would not. That is what a bisection can get wrong and a single room cannot
+// show.
+#[test]
+fn elided_fits_and_one_more_character_would_not() {
+    val m = proportional_metrics()
+    val text = "Wiliwili iWi Walu"
+    val whole = widget.width_in(m, 0, text, 10.0)
+    var room = 1.0
+    while room <= whole + 20.0 {
+        val got = widget.elided(text, room, 0, 10.0, m)
+        if got != text {
+            val kept = len(got) - 1
+            // **The bare mark is exempt from fitting**, which this sweep is what found: at a room
+            // of one point the ellipsis itself is ten wide and still comes back, because a label
+            // narrower than its own ellipsis has nothing honest to show and an empty box says
+            // less than a mark does.
+            if kept > 0 {
+                test.assert_le(widget.width_in(m, 0, got, 10.0), room)
+            }
+            if kept < len(text) {
+                val longer = concat(substring(text, 0, kept + 1), "…")
+                test.assert_gt(widget.width_in(m, 0, longer, 10.0), room)
+            }
+        }
+        room = room + 1.0
+    }
 }

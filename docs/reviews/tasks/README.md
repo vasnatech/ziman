@@ -75,4 +75,6 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F343 — how roomy a list is, and how loud its marks are](f343.md)
 - [F344 — a scroll bar painted over the dialog in front of it](f344.md)
 - [F345 — measuring a word cost more than drawing it](f345.md)
+- [F346 — eliding a title cost more than laying out the screen it was on](f346.md)
+- [F347 — a press is hit-tested and a wheel is not](f347.md)
 - [Open — `api-check` fails intermittently under make, never on its own](open-api-check-flake.md)
