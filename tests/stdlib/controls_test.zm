@@ -828,10 +828,12 @@ fn the_grid_starts_on_the_locales_own_first_day() {
     // And the two really do differ on this machine, or the assertions above prove nothing.
     test.assert(first_cell_weekday(american) != first_cell_weekday(british))
 
+    // **Asserted on where the press lands, not on what it writes.** A press on a day highlights
+    // it now and `Select` is what writes -- see `chosen_cell`.
     val grid = controls.calendar_box(british, date_laid(british), date_window, frame())
     val first = date_step(british, controls.Input.Press(cell_centre(grid, 0))).field
     val second = date_step(british, controls.Input.Press(cell_centre(grid, 1))).field
-    test.assert_eq(time.diff_days(controls.date_in(second), controls.date_in(first)), 1)
+    test.assert_eq(time.diff_days(second.at, first.at), 1)
 }
 
 fn opened_in(l: Locale) -> controls.DateField {
@@ -843,7 +845,7 @@ fn opened_in(l: Locale) -> controls.DateField {
 // by pressing that cell.
 fn first_cell_weekday(d: controls.DateField) -> int {
     val grid = controls.calendar_box(d, date_laid(d), date_window, frame())
-    return weekday_number(controls.date_in(date_step(d, controls.Input.Press(cell_centre(grid, 0))).field))
+    return weekday_number(date_step(d, controls.Input.Press(cell_centre(grid, 0))).field.at)
 }
 
 // 1970-01-01 was a Thursday, so epoch day 4 is a Sunday-based 0... epoch day 0 is weekday 4.
@@ -888,24 +890,35 @@ fn the_title_zooms_out_through_months_to_years() {
     val days = opened_calendar()
     test.assert(controls.CalendarView.is_Days(days.view))
 
-    val months = date_step(days, controls.Input.Press(title_middle(days))).field
+    // **Each mark reaches its own list**, where one heading used to cycle Days to Months to
+    // Years: the year was four presses away through the month, and which view a press gave you
+    // depended on which one you were already in.
+    val months = pressed_part(days, "/month")
     test.assert(controls.CalendarView.is_Months(months.view))
-    val years = date_step(months, controls.Input.Press(title_middle(months))).field
+    // Pressing it again puts the days back -- one mark, one question.
+    test.assert(controls.CalendarView.is_Days(pressed_part(months, "/month").view))
+    // And the year is one press from anywhere, including from the months.
+    val years = pressed_part(months, "/year")
     test.assert(controls.CalendarView.is_Years(years.view))
-    // There is nowhere further out to go.
-    val further = date_step(years, controls.Input.Press(title_middle(years))).field
-    test.assert(controls.CalendarView.is_Years(further.view))
+    test.assert(controls.CalendarView.is_Years(pressed_part(days, "/year").view))
+    val further = pressed_part(years, "/year")
+    test.assert(controls.CalendarView.is_Days(further.view))
 
     // Twenty years to a block on fixed boundaries, so 2026 sits in 2020 to 2039 and the tenth
     // cell is 2029.
+    //
+    // **Choosing a year puts the days back, not the months.** The two lists are reached
+    // independently from the header now, so finishing with one is finishing -- where a year used
+    // to be the halfway point of a drill-down and had to hand you on.
     val picked_year = date_step(years, controls.Input.Press(centre_of_cell(years, 9)))
     test.assert_false(picked_year.changed)
-    test.assert(controls.CalendarView.is_Months(picked_year.field.view))
+    test.assert(controls.CalendarView.is_Days(picked_year.field.view))
     test.assert_eq(picked_year.field.at.year, 2029)
     test.assert_eq(day_written(picked_year.field), "2026-11-19")
 
     // The third cell of the months grid is March.
-    val picked_month = date_step(picked_year.field, controls.Input.Press(centre_of_cell(picked_year.field, 2)))
+    val in_months = pressed_part(picked_year.field, "/month")
+    val picked_month = date_step(in_months, controls.Input.Press(centre_of_cell(in_months, 2)))
     test.assert_false(picked_month.changed)
     test.assert(controls.CalendarView.is_Days(picked_month.field.view))
     test.assert_eq(picked_month.field.at.month, 3)
@@ -918,8 +931,7 @@ fn the_title_zooms_out_through_months_to_years() {
 #[test]
 fn the_years_grid_is_a_block_of_twenty() {
     val days = opened_calendar()
-    val months = date_step(days, controls.Input.Press(title_middle(days))).field
-    val years = date_step(months, controls.Input.Press(title_middle(months))).field
+    val years = pressed_part(days, "/year")
 
     // Four columns: cell 0 and cell 4 are in the same column, one row apart.
     test.assert_eq(drawn_cell(years, 0).x, drawn_cell(years, 4).x)
@@ -940,10 +952,10 @@ fn the_arrows_page_by_what_is_on_screen() {
     val days = opened_calendar()
     test.assert_eq(date_step(days, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.month, 12)
 
-    val months = date_step(days, controls.Input.Press(title_middle(days))).field
+    val months = pressed_part(days, "/month")
     test.assert_eq(date_step(months, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.year, 2027)
 
-    val years = date_step(months, controls.Input.Press(title_middle(months))).field
+    val years = pressed_part(days, "/year")
     test.assert_eq(date_step(years, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.year, 2046)
     test.assert_eq(date_step(years, controls.Input.KeyDown(key(controls.Key.PageUp))).field.at.year, 2006)
 }
@@ -959,11 +971,46 @@ fn centre_of_cell(d: controls.DateField, index: int) -> geom.Point {
 #[test]
 fn escape_zooms_in_before_it_shuts() {
     val days = opened_calendar()
-    val months = date_step(days, controls.Input.Press(title_middle(days))).field
+    val months = pressed_part(days, "/month")
     val back = date_step(months, controls.Input.KeyDown(key(controls.Key.Escape))).field
     test.assert(controls.CalendarView.is_Days(back.view))
     test.assert(back.open)
     test.assert_false(date_step(back, controls.Input.KeyDown(key(controls.Key.Escape))).field.open)
+    // **From the years too**, which used to take two Escapes because the years were reached
+    // through the months.
+    val years = pressed_part(days, "/year")
+    test.assert(controls.CalendarView.is_Days(date_step(years, controls.Input.KeyDown(key(controls.Key.Escape))).field.view))
+}
+
+// **A day is highlighted; `Select` is what writes it.**
+//
+// The calendar used to write the date and shut on the press that chose a day, so there was
+// nothing to confirm and nothing to take back. The design this follows puts `Cancel` and
+// `Select` under the grid, and `at` was already documented as "not the value" for exactly this
+// reason -- a user paging through months has chosen nothing yet.
+#[test]
+fn a_day_is_chosen_by_select_and_taken_back_by_cancel() {
+    val opened = opened_calendar()
+    val was = controls.date_in(opened)
+
+    val moved = date_step(opened, controls.Input.Press(centre_of_cell(opened, 8)))
+    test.assert_false(moved.changed)
+    test.assert(moved.field.open)
+    // The highlight moved and the field did not.
+    test.assert_eq(controls.date_in(moved.field), was)
+    test.assert(time.localdate_compare(moved.field.at, was) != 0)
+
+    val taken = date_step(moved.field, controls.Input.Press(centre_in(calendar_laid(moved.field), "due/cancel")))
+    test.assert_false(taken.changed)
+    test.assert_false(taken.field.open)
+    // **And the walk is forgotten too**, or re-opening would show the month they backed out of.
+    test.assert_eq(controls.date_in(taken.field), was)
+    test.assert_eq(time.localdate_compare(taken.field.at, was), 0)
+
+    val chosen = date_step(moved.field, controls.Input.Press(centre_in(calendar_laid(moved.field), "due/select")))
+    test.assert(chosen.changed)
+    test.assert_false(chosen.field.open)
+    test.assert_eq(time.localdate_compare(controls.date_in(chosen.field), moved.field.at), 0)
 }
 
 // **A press must land on the cell it is drawn in, at its corner and not only at its centre.**
@@ -1033,20 +1080,19 @@ fn a_press_on_a_weekday_name_does_nothing() {
 #[test]
 fn the_calendars_header_names_its_three_buttons() {
     val days = opened_calendar()
-    val months = date_step(days, controls.Input.Press(title_middle(days))).field
-    val years = date_step(months, controls.Input.Press(title_middle(months))).field
+    val months = pressed_part(days, "/month")
+    val years = pressed_part(days, "/year")
 
     test.assert_eq(part_says(days, "/back"), "Previous month")
     test.assert_eq(part_says(days, "/forward"), "Next month")
-    test.assert_eq(part_says(days, "/zoom"), "Choose a month")
-
     test.assert_eq(part_says(months, "/back"), "Previous year")
-    test.assert_eq(part_says(months, "/zoom"), "Choose a year")
-
     test.assert_eq(part_says(years, "/forward"), "Next 20 years")
-    // The years view has nowhere further out to go, so its heading says what it shows rather than
-    // inviting a press that would do nothing.
-    test.assert_eq(part_says(years, "/zoom"), "2020 to 2039")
+
+    // **A mark says what pressing it will do**, which changes when its own list is already up.
+    test.assert_eq(part_says(days, "/month"), "Choose month")
+    test.assert_eq(part_says(days, "/year"), "Choose year")
+    test.assert_eq(part_says(months, "/month"), "Hide month")
+    test.assert_eq(part_says(years, "/year"), "Hide year")
 }
 
 fn part_says(d: controls.DateField, suffix: string) -> string {
@@ -1063,6 +1109,13 @@ fn part_says(d: controls.DateField, suffix: string) -> string {
 fn title_middle(d: controls.DateField) -> geom.Point {
     val grid = controls.calendar_box(d, date_laid(d), date_window, frame())
     return geom.point_of(grid.x + grid.width * 0.5, grid.y + 2.0)
+}
+
+// A header mark pressed **where it was drawn**, which is the lesson this file keeps relearning:
+// a test that works out its own geometry goes on passing while the drawing and the hit test
+// drift apart.
+fn pressed_part(d: controls.DateField, suffix: string) -> controls.DateField {
+    return date_step(d, controls.Input.Press(centre_in(calendar_laid(d), concat("due", suffix)))).field
 }
 
 // A cell of the months or years grid, three across.

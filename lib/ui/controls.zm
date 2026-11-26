@@ -1006,6 +1006,24 @@ fn chevron_widget(down: bool, ink: Color, side: float) -> widget.Widget {
     return widget.fixed_of(side, side, widget.drawn_of(chevron(down), ink))
 }
 
+// The downward chevron turned over: what a mark wears **while the thing it opens is open**.
+//
+// **A third shape and not `chevron(false)`**, which is the *rightward* one a tree's closed row
+// uses -- a mark that turned from pointing down to pointing right would be saying "this opens
+// sideways", which nothing in this library does.
+fn chevron_up() -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(0.25, 0.6))
+    shape.line_to(b, geom.point_of(0.75, 0.6))
+    shape.line_to(b, geom.point_of(0.5, 0.32))
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+fn mark_chevron(up: bool, ink: Color, side: float) -> widget.Widget {
+    return widget.fixed_of(side, side, widget.drawn_of(if up { chevron_up() } else { chevron(true) }, ink))
+}
+
 // The mark on a sorted column's title: the disclosure chevron, and the same triangle turned over
 // for the other direction. **Not a second shape**, so a theme that changed one changes both.
 fn sort_mark(ascending: bool) -> shape.Path {
@@ -5673,9 +5691,49 @@ fn calendar_size(f: Frame) -> widget.Size {
     val pad = calendar_pad(f) * 2.0
     return widget.size_of(
         calendar_cell(f) * (calendar_columns as float) + pad,
-        head_in(f, CalendarView.Days) + calendar_cell(f) * (calendar_rows as float) + pad
+        head_in(f, CalendarView.Days) + calendar_cell(f) * (calendar_rows as float) + pad + foot_in(f)
     )
 }
+
+// How much of the popup's box the footer takes, under the grid.
+//
+// **A footer, because a press on a day is no longer a decision.** It was: the calendar wrote the
+// date and shut, so there was nothing to confirm and nothing to take back. That is right for a
+// desktop menu and wrong for a picker a user walks around in -- paging to a month, trying a day,
+// changing their mind -- and it is the one thing the design this follows has that a drawn grid
+// alone does not. `Cancel` leaves the field as it was; `Select` writes what is highlighted.
+fn foot_in(f: Frame) -> float {
+    return row_height(f.metrics, f.style) + f.style.padding.top + f.style.padding.bottom + calendar_pad(f)
+}
+
+// The footer's two boxes, asked once by the drawing and once by the press -- `head_boxes`' rule.
+struct CalendarFoot {
+    cancel: Rect
+    select: Rect
+}
+
+fn foot_boxes(at: Rect, f: Frame) -> CalendarFoot {
+    val pad = calendar_pad(f)
+    val tall = foot_in(f) - pad
+    val y = at.y + at.height - pad - tall
+    val right = at.x + at.width - pad
+    val select_wide = button_wide(select_says, f)
+    val cancel_wide = button_wide(cancel_says, f)
+    return CalendarFoot {
+        cancel: geom.rect_of(right - select_wide - f.style.space.s - cancel_wide, y, cancel_wide, tall),
+        select: geom.rect_of(right - select_wide, y, select_wide, tall)
+    }
+}
+
+// How wide a footer button is: its word and the look's own padding either side.
+fn button_wide(says: string, f: Frame) -> float {
+    val style = f.style
+    // One expression on one line: a `+` leading the next line ends the expression and discards it.
+    return widget.width_in(f.metrics, style.text.label.face, says, style.text.label.size) + style.padding.left + style.padding.right
+}
+
+val cancel_says = "Cancel"
+val select_says = "Select"
 
 // How big one cell of a view is. **Derived from the popup's own size**, so the grid always fills
 // it however many rows the view has -- and so that the drawing and the hit test cannot disagree,
@@ -5685,7 +5743,10 @@ fn cell_wide(f: Frame, v: CalendarView) -> float {
 }
 
 fn cell_tall(f: Frame, v: CalendarView) -> float {
-    val inner = calendar_size(f).height - calendar_pad(f) * 2.0 - head_in(f, v)
+    // **The footer is not the grid's to divide**, which is the whole of what `head_in`'s own note
+    // warns about pointing the other way: a band the cells do not get must come off before they
+    // are shared out, or the drawing and the hit test disagree by a row.
+    val inner = calendar_size(f).height - calendar_pad(f) * 2.0 - head_in(f, v) - foot_in(f)
     return inner / (rows_in(v) as float)
 }
 
@@ -5807,6 +5868,15 @@ fn calendar_pressed(d: DateField, p: Point, laid: Laid, within: Rect, f: Frame) 
         // A click away from an open popup shuts it, which is what makes it dismissable.
         return date_still(with d { open: false })
     }
+    val foot = foot_boxes(at, f)
+    if widget.contains(foot.select, p) {
+        return written(d, d.at)
+    }
+    if widget.contains(foot.cancel, p) {
+        // **The field keeps what it had**, which is the whole point of there being a Cancel: `at`
+        // is where the user walked to and `on` is what they chose, and this throws away the first.
+        return date_still(with d { open: false, at: d.on })
+    }
     val cell = calendar_cell_at(at, p, f, d.view)
     if cell < 0 {
         return date_still(header_pressed(d, at, p, f))
@@ -5826,22 +5896,29 @@ fn header_pressed(d: DateField, at: Rect, p: Point, f: Frame) -> DateField {
     if p.y > at.y + calendar_pad(f) + title_height(f) {
         return d
     }
-    val third = at.width / 3.0
-    if p.x < at.x + third {
+    // **The boxes the header drew itself with**, not a share of the width: see `head_boxes`.
+    val boxes = head_boxes(d, at, f)
+    if widget.contains(boxes.back, p) {
         return paged(d, 0 - 1)
     }
-    if p.x > at.x + at.width - third {
+    if widget.contains(boxes.forward, p) {
         return paged(d, 1)
     }
-    return with d { view: zoomed_out(d.view) }
+    if widget.contains(boxes.month, p) {
+        return with d { view: toggled_view(d.view, CalendarView.Months) }
+    }
+    if widget.contains(boxes.year, p) {
+        return with d { view: toggled_view(d.view, CalendarView.Years) }
+    }
+    return d
 }
 
-fn zoomed_out(v: CalendarView) -> CalendarView {
-    return switch v {
-        Days { CalendarView.Months }
-        Months { CalendarView.Years }
-        Years { CalendarView.Years }
+// A mark shows its own list, or puts the days back when that list is already showing.
+fn toggled_view(now: CalendarView, which: CalendarView) -> CalendarView {
+    if calendar_view_is(now, which) {
+        return CalendarView.Days
     }
+    return which
 }
 
 // **A page means a different span in each view**, which is what a user expects of the same two
@@ -5858,12 +5935,18 @@ fn paged(d: DateField, by: int) -> DateField {
 // a user who picked March has said nothing yet about which March day they mean.
 fn chosen_cell(d: DateField, cell: int) -> DateStep {
     return switch d.view {
-        Days { written(d, cell_date(d, cell)) }
+        // **A day is highlighted, not written.** The popup has a `Select` under it now, so a press
+        // on a day says where the user is rather than what they have decided -- which is what lets
+        // them try the 3rd, look at the week around it and take it back. `at` was already "not the
+        // value" for exactly this reason; this is the press catching up with it.
+        Days { date_still(with d { at: cell_date(d, cell) }) }
         Months { date_still(with d { at: on_month(d.at, cell + 1), view: CalendarView.Days }) }
+        // **A year puts the days back, not the months.** The two lists are reached independently
+        // from the header, so finishing with one is finishing.
         Years {
             date_still(with d {
                 at: on_year(d.at, year_block(d) + cell),
-                view: CalendarView.Months
+                view: CalendarView.Days
             })
         }
     }
@@ -5903,11 +5986,15 @@ fn calendar_keyed(d: DateField, k: Keystroke) -> DateStep {
     return date_still(d)
 }
 
+// **Back to the days from either list**, because the two lists are independent now: a year was
+// reached through a month when the header was one heading that cycled, and Escape had to undo
+// that one step at a time. A mark opens its own list and anything that closes it puts the days
+// back.
 fn zoomed_in(v: CalendarView) -> CalendarView {
     return switch v {
         Days { CalendarView.Days }
         Months { CalendarView.Days }
-        Years { CalendarView.Months }
+        Years { CalendarView.Days }
     }
 }
 
@@ -5991,6 +6078,8 @@ fn calendar_widget(d: DateField, f: Frame) -> widget.Widget {
         push(rows, widget.row_of(0.0, snapshot(cells)))
         r = r + 1
     }
+    push(rows, widget.expand(widget.flex()))
+    push(rows, calendar_footer(d, f))
     return widget.Widget.Control(widget.Focusable {
         name: concat(d.name, "/calendar"),
         role: widget.Role.Calendar,
@@ -6040,9 +6129,18 @@ fn calendar_heading(d: DateField) -> string {
 // stop in the tab order, so each lights under the pointer and each has a name a reader can find.
 // The gestures are still decided by geometry in `header_pressed`; this changes what is *said* and
 // what is *drawn*, not what happens.
+// **The month and the year are two marks, and the arrows are together at the trailing edge.**
+//
+// This was `[back] [one heading] [forward]`, a heading that cycled Days to Months to Years when
+// pressed. Three things were wrong with it rather than one: the heading said what it *was* rather
+// than what pressing it would do, which view you reached depended on which view you were already
+// in, and the only way to the year was through the month. Two marks say both, each reaches its
+// own view, and each carries the chevron that says it opens -- up while its own list is showing,
+// as every other thing in this library that opens downward does.
 fn calendar_title(d: DateField, f: Frame) -> widget.Widget {
     val style = f.style
     val side = line_for(f.metrics, style.text.label)
+    val boxes = head_boxes(d, geom.rect_of(0.0, 0.0, calendar_size(f).width, 0.0), f)
     return widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
@@ -6050,12 +6148,62 @@ fn calendar_title(d: DateField, f: Frame) -> widget.Widget {
         surface: widget.no_surface(),
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
         children: [
+            widget.fixed_of(boxes.month.width, title_height(f), zoom_part(d, CalendarView.Months, f)),
+            widget.fixed_of(boxes.year.width, title_height(f), zoom_part(d, CalendarView.Years, f)),
+            widget.expand(widget.flex()),
             pager_part(d, true, side, f),
-            widget.expand(zoom_part(d, f)),
             pager_part(d, false, side, f)
         ],
         name: ""
     })
+}
+
+// Where the header's four parts are, **asked once by the drawing and once by the press**. The old
+// header divided itself into thirds, which is a rule a drawing cannot follow and a press cannot
+// check: see `head_in`'s own note about a grid drawn from one origin and hit-tested from another.
+struct CalendarHead {
+    month: Rect
+    year: Rect
+    back: Rect
+    forward: Rect
+}
+
+fn head_boxes(d: DateField, at: Rect, f: Frame) -> CalendarHead {
+    val style = f.style
+    val side = line_for(f.metrics, style.text.label)
+    val pad = calendar_pad(f)
+    val tall = title_height(f)
+    val x = at.x + pad
+    val month_wide = mark_wide(head_says(d, CalendarView.Months), f)
+    val year_wide = mark_wide(head_says(d, CalendarView.Years), f)
+    val pager = side * 2.0
+    val right = at.x + at.width - pad
+    return CalendarHead {
+        month: geom.rect_of(x, at.y + pad, month_wide, tall),
+        year: geom.rect_of(x + month_wide, at.y + pad, year_wide, tall),
+        back: geom.rect_of(right - pager * 2.0, at.y + pad, pager, tall),
+        forward: geom.rect_of(right - pager, at.y + pad, pager, tall)
+    }
+}
+
+// How wide a header mark is: its words, its chevron, and a step of air either side.
+fn mark_wide(says: string, f: Frame) -> float {
+    val style = f.style
+    val words = widget.width_in(f.metrics, style.text.label.face, says, style.text.label.size)
+    return words + line_for(f.metrics, style.text.label) + style.space.s * 2.0
+}
+
+// What each mark says: the month `at` is in, and the year it is in. **Not the view's heading** --
+// a mark says the value it would change, in every view, so the header does not rearrange itself
+// under the pointer when a list opens.
+fn head_says(d: DateField, which: CalendarView) -> string {
+    return switch which {
+        // **The month's full name**, which is what a header has room for and what the grid of
+        // twelve under it does not -- `month_label` abbreviates for the cells and this does not.
+        Months { locale.month_name(d.locale, d.at.month, true) }
+        Years { str(d.at.year) }
+        Days { "" }
+    }
 }
 
 // What the two arrows step, which is not the same thing in each view -- so a reader is told which.
@@ -6091,37 +6239,81 @@ fn pager_part(d: DateField, back: bool, side: float, f: Frame) -> widget.Widget 
     ))
 }
 
-// The heading, which zooms out when pressed -- and says so, because "November 2026" alone does
-// not tell anyone that it is a button.
-fn zoom_part(d: DateField, f: Frame) -> widget.Widget {
-    val name = concat(d.name, "/zoom")
-    val parts = parts_for(f.style, mood_of(false, false, false, hovered_in(f, name)))
-    val says = switch d.view {
-        Days { "Choose a month" }
-        Months { "Choose a year" }
-        Years { "" }
-    }
+// One header mark: the month, or the year. Pressing it shows that list, and pressing it again
+// puts the days back -- so one mark is one question and the answer is on screen beside it.
+//
+// **Lit in the accent while its own list is showing**, which is the only thing on the header that
+// says which of the two you are looking at.
+fn zoom_part(d: DateField, which: CalendarView, f: Frame) -> widget.Widget {
+    val style = f.style
+    val name = concat(d.name, if CalendarView.is_Months(which) { "/month" } else { "/year" })
+    val showing = calendar_view_is(d.view, which)
+    val parts = parts_for(style, mood_of(false, false, false, hovered_in(f, name)))
+    val ink = if showing { style.accent } else { parts.ink }
     return widget.part_of(
         name,
         widget.Role.Button,
-        if says == "" { calendar_heading(d) } else { says },
-        widget.no_state(),
+        concat(if showing { "Hide " } else { "Choose " }, if CalendarView.is_Months(which) { "month" } else { "year" }),
+        with widget.no_state() { expanded: Option<bool>.Some(showing) },
         widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: 0.0,
-            padding: widget.no_insets(),
-            // **Only when it does something.** The years view has nowhere further out to go, so
-            // its heading does not light up and does not invite a press that would do nothing.
-            surface: if says == "" { widget.no_surface() } else { surface_of(f.style, parts) },
-            align: widget.centred(),
-            children: [widget.label_in_face(
-                calendar_heading(d),
-                f.style.text.label.size,
-                parts.ink,
-                f.style.text.label.face
-            )],
+            padding: widget.insets_of(style.space.s, 0.0, style.space.s, 0.0),
+            surface: surface_of(style, parts),
+            align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+            children: [
+                widget.label_in_face(head_says(d, which), style.text.label.size, ink, style.text.label.face),
+                widget.flex(),
+                mark_chevron(showing, ink, line_for(f.metrics, style.text.label))
+            ],
             name: ""
         })
+    )
+}
+
+fn calendar_view_is(v: CalendarView, which: CalendarView) -> bool {
+    return switch which {
+        Months { CalendarView.is_Months(v) }
+        Years { CalendarView.is_Years(v) }
+        Days { CalendarView.is_Days(v) }
+    }
+}
+
+// `Cancel` and `Select`, at the foot of the popup.
+//
+// **Drawn by `button_inside`**, the same function an ordinary button is drawn by, so a look
+// cannot reach one and not the other -- the toolbar's rule, for the toolbar's reason. They are
+// parts rather than controls because the calendar is one tab stop: Enter selects and Escape
+// cancels, which is what the two buttons say out loud for a pointer.
+fn calendar_footer(d: DateField, f: Frame) -> widget.Widget {
+    val boxes = foot_boxes(geom.rect_of(0.0, 0.0, calendar_size(f).width, calendar_size(f).height), f)
+    return widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: f.style.space.s,
+        padding: widget.insets_of(0.0, calendar_pad(f), 0.0, 0.0),
+        surface: widget.no_surface(),
+        align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+        children: [
+            widget.expand(widget.flex()),
+            widget.fixed_of(boxes.cancel.width, boxes.cancel.height, foot_part(d, false, f)),
+            widget.fixed_of(boxes.select.width, boxes.select.height, foot_part(d, true, f))
+        ],
+        name: ""
+    })
+}
+
+fn foot_part(d: DateField, commits: bool, f: Frame) -> widget.Widget {
+    val style = f.style
+    val name = concat(d.name, if commits { "/select" } else { "/cancel" })
+    val says = if commits { select_says } else { cancel_says }
+    val b = with button_of(name, says) { prominent: commits }
+    val parts = parts_for(style, mood_of(false, false, commits, hovered_in(f, name)))
+    return widget.part_of(
+        name,
+        widget.Role.Button,
+        says,
+        widget.no_state(),
+        button_inside(b, parts, style)
     )
 }
 
@@ -6129,6 +6321,21 @@ fn zoom_part(d: DateField, f: Frame) -> widget.Widget {
 // here and there does not need to be: the seven cells at the top of the grid *are* the week in the
 // locale's own order, starting on the day `locale.first_weekday` named -- so asking `time` to name
 // them is both shorter and right in every language it knows, and right about the order too.
+// A column heading: the weekday's name cut to two letters.
+//
+// **Cut here rather than asked of `time`.** A format of `EE` is not a width every locale's
+// formatter answers the same way -- some give two letters, some give the same three `EEE` does,
+// and one gives a single initial that makes Tuesday and Thursday the same column. Taking the
+// first two characters of the abbreviated name is one rule in every language, and `len` here is
+// characters rather than bytes, so it is still two letters in Greek.
+fn shortest_weekday(on: time.LocalDate, l: Locale) -> string {
+    val says = time.format(on, time.datetime_format_of("EEE"), l)
+    if len(says) <= 2 {
+        return says
+    }
+    return substring(says, 0, 2)
+}
+
 fn calendar_weekdays(d: DateField, f: Frame) -> widget.Widget {
     val style = f.style
     val cells = mutable_array_new<widget.Widget>()
@@ -6137,10 +6344,13 @@ fn calendar_weekdays(d: DateField, f: Frame) -> widget.Widget {
         push(cells, widget.fixed_of(
             cell_wide(f, CalendarView.Days),
             calendar_cell(f) * 0.7,
+            // **Two letters, and in the window's own ink.** Three were "Sun Mon Tue" against a
+            // grid of two figures, which reads as a second row of data; the heading of a column
+            // is a heading and the days under it are the content.
             widget.label_in_face(
-                time.format(cell_date(d, c), time.datetime_format_of("EEE"), d.locale),
+                shortest_weekday(cell_date(d, c), d.locale),
                 style.text.caption.size,
-                style.states.disabled.ink,
+                style.ink,
                 style.text.caption.face
             )
         ))
@@ -6215,13 +6425,55 @@ fn calendar_day(d: DateField, index: int, f: Frame) -> widget.Widget {
                 direction: widget.Direction.Row,
                 spacing: 0.0,
                 padding: widget.no_insets(),
-                surface: if chosen { surface_of(style, parts) } else { widget.no_surface() },
+                surface: widget.no_surface(),
                 align: widget.centred(),
-                children: [widget.label_in_face(str(on.day), style.text.body.size, ink, style.text.body.face)],
+                children: [day_mark(str(on.day), chosen, ink, f)],
                 name: ""
             })
         )
     )
+}
+
+// A day in the grid: a number, and a **disc behind it when it is the chosen one**.
+//
+// **A disc and not the cell**, which is what the cell's own surface gave: a cell is wider than it
+// is tall, so a rounded face on it is a pill the width of the column, and seven of them in a row
+// read as a bar rather than as one date. The disc is the smaller of the cell's two sides, which
+// is the shape every calendar draws and the only one that does not change with the column width.
+fn day_mark(says: string, chosen: bool, ink: Color, f: Frame) -> widget.Widget {
+    val style = f.style
+    val side = disc_side(f)
+    val words = widget.label_in_face(says, style.text.body.size, ink, style.text.body.face)
+    if !chosen {
+        return words
+    }
+    return widget.fixed_of(side, side, widget.Widget.Group(widget.Stack {
+        direction: widget.Direction.Row,
+        spacing: 0.0,
+        padding: widget.no_insets(),
+        surface: widget.Surface {
+            inset: 0.0,
+            fill: Option<Paint>.Some(Paint.Solid(style.accent)),
+            border: Option<widget.Border>.None,
+            // **A fraction and not a number**, so the disc is a disc at any type scale: a radius
+            // in points is a circle at one size and a rounded square at another.
+            corner: widget.Radius.Fraction(0.5),
+            corners: widget.Corners.All,
+            shadow: Option<widget.Shadow>.None
+        },
+        align: widget.centred(),
+        children: [widget.label_in_face(says, style.text.body.size, style.on_accent, style.text.body.face)],
+        name: ""
+    }))
+}
+
+// How wide the chosen day's disc is: the shorter side of a cell, less a hair, so two discs in
+// neighbouring rows do not touch.
+fn disc_side(f: Frame) -> float {
+    val wide = cell_wide(f, CalendarView.Days)
+    val tall = cell_tall(f, CalendarView.Days)
+    val least = if wide < tall { wide } else { tall }
+    return least - f.style.space.xs * 2.0
 }
 
 // ---------------------------------------------------------------- the toolbar
