@@ -8382,6 +8382,39 @@ fn group_pressed(g: controls.ToggleGroup, index: int) -> controls.ToggleGroupSte
     return controls.toggle_group_input(down.group, controls.Input.Release(at), group_laid(down.group), frame())
 }
 
+// **A segmented group is exactly a button tall**, because a switch sits in a row beside buttons
+// and a switch that failed to line up with them is what everybody sees first. Each segment gives
+// up what the track takes, so the arithmetic cancels in any look.
+//
+// It did not: a segment gave up `space.s` and `trimmed` floors at zero, so in a look whose control
+// padding *is* `space.s` -- the health-record port's is 6 against 6 -- the segments lost all their
+// vertical padding and an 18-point filter strip stood beside 26-point buttons. Reported 2026-11-26
+// as "filter buttons group height should be same as all button".
+#[test]
+fn a_toggle_group_is_exactly_a_button_tall() {
+    val g = controls.toggle_group_of("style", "Style", three_toggles())
+    val b = controls.button_of("go", "Bold")
+    val group_tall = widget.measure(controls.toggle_group_widget(g, frame()), metrics()).height
+    val button_tall = widget.measure(controls.button_widget(b, frame()), metrics()).height
+    test.assert_near(group_tall, button_tall, 0.001)
+}
+
+// **And in a look whose padding is nothing like the default's.** The cancellation is arithmetic,
+// not a coincidence of the register's numbers -- which is exactly what the defect was.
+#[test]
+fn a_toggle_group_is_a_button_tall_in_a_roomier_look() {
+    val roomy = with frame().style {
+        padding: widget.insets_of(16.0, 9.0, 16.0, 9.0),
+        space: with frame().style.space { xs: 3.0 }
+    }
+    val f = frame_in(roomy)
+    val g = controls.toggle_group_of("style", "Style", three_toggles())
+    val b = controls.button_of("go", "Bold")
+    val group_tall = widget.measure(controls.toggle_group_widget(g, f), metrics()).height
+    val button_tall = widget.measure(controls.button_widget(b, f), metrics()).height
+    test.assert_near(group_tall, button_tall, 0.001)
+}
+
 // **A plain group toggles each item on its own**: bold and italic are both on, because text can be
 // both.
 #[test]

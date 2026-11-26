@@ -1367,14 +1367,14 @@ pub fn toggle_group_widget(g: ToggleGroup, f: Frame) -> widget.Widget {
         child: widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             // **A hair of padding and a hair of gap**, which is what keeps the lit segment off
-            // the track's own edge. `space.xs` for both: the scale's smallest real step is the
-            // right size for this, and halving it by hand would be a number this file invented.
-            spacing: style.space.xs,
+            // the track's own edge -- and what each segment gave up to pay for it, so the strip
+            // comes out exactly a button tall. See `segment_air`.
+            spacing: segment_air(style),
             padding: widget.insets_of(
-                style.space.xs,
-                style.space.xs,
-                style.space.xs,
-                style.space.xs
+                segment_air(style),
+                segment_air(style),
+                segment_air(style),
+                segment_air(style)
             ),
             surface: widget.Surface {
                 inset: 0.0,
@@ -1409,17 +1409,32 @@ fn trimmed(room: float, by: float) -> float {
 //
 // **Only the face and the border go**, not the ink: an unchosen segment still has to be read, and
 // a look that dims its resting ink keeps doing so here.
+// What the track of a segmented group takes in padding, and therefore **exactly what each segment
+// gives up**: the scale's smallest real step.
+//
+// **One number, so a group comes out a button tall.** A segment is shallower than a button and the
+// track puts that back, so `(line + padding) - air - air + air + air` is a button's height in any
+// look -- by construction rather than by a coincidence of numbers. A segmented switch sits in a
+// row beside buttons, and a switch that failed to line up with them is what this is for.
+fn segment_air(style: Style) -> float {
+    return style.space.xs
+}
+
 fn segment_inside(b: ToggleButton, f: Frame) -> widget.Widget {
-    // **Shallower than a button, by the spacing step.** `tabs_widget` takes the same step off for
-    // the same reason it records: a strip of button-sized things is a toolbar, and a segmented
-    // switch is one control that happens to be cut into pieces. The segmented controls this was
-    // measured against are `px-3 py-1` where their buttons are `px-4 py-2`.
+    // **Shallower than a button, by `segment_air`.** A strip of button-sized things is a toolbar,
+    // and a segmented switch is one control that happens to be cut into pieces, so the lit chip is
+    // smaller than a button even though the strip around it is not.
+    //
+    // **It used to give up `space.s`, and `trimmed` floors at zero.** In a look whose control
+    // padding *is* `space.s` -- the health-record port's is 6 and 6 -- "a step shallower" came out
+    // as no vertical padding at all, and a filter strip stood 18 points tall beside 26-point
+    // buttons. Reported 2026-11-26 as "filter buttons group height should be same as all button".
     val style = with f.style {
         padding: widget.insets_of(
             f.style.padding.left,
-            trimmed(f.style.padding.top, f.style.space.s),
+            trimmed(f.style.padding.top, segment_air(f.style)),
             f.style.padding.right,
-            trimmed(f.style.padding.bottom, f.style.space.s)
+            trimmed(f.style.padding.bottom, segment_air(f.style))
         )
     }
     val lit = Toggle.is_On(b.on) || Toggle.is_Mixed(b.on)
