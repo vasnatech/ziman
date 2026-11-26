@@ -962,6 +962,12 @@ fn dash() -> shape.Path {
 //
 // A path needs no font, so there is nothing to know and nothing to replace. Two fields that could
 // be set wrong left `Style` with them.
+// How much of a mark's own box is empty on each side of it: `chevron` spans the middle half of
+// the square it is drawn in, so a quarter of the side is air. **Named, because `padded_for_mark`
+// has to subtract exactly what this path leaves** -- two numbers here would be a mark that moved
+// when somebody redrew the arrow.
+val mark_air = 0.25
+
 fn chevron(down: bool) -> shape.Path {
     val b = shape.path_builder()
     if down {
@@ -1548,7 +1554,7 @@ pub fn expander_widget(e: Expander, content: widget.Widget, f: Frame) -> widget.
         child: widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: style.text.label.size * 0.5,
-            padding: padded_for(style),
+            padding: padded_for_mark(style, side),
             surface: surface_of(style, parts),
             align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
             children: [
@@ -4996,7 +5002,7 @@ pub fn combo_box_widget(c: ComboBox, f: Frame) -> widget.Widget {
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
-        padding: padded_for(style),
+        padding: padded_for_mark(style, line_for(f.metrics, style.text.label)),
         surface: surface_of(style, parts),
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
         children: [
@@ -5911,7 +5917,7 @@ pub fn date_field_widget(d: DateField, f: Frame) -> widget.Widget {
     val inside = widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Row,
         spacing: 0.0,
-        padding: padded_for(style),
+        padding: padded_for_mark(style, line_for(f.metrics, style.text.label)),
         surface: surface_of(style, parts),
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
         children: [
@@ -6380,7 +6386,7 @@ fn more_part(t: Toolbar, f: Frame) -> widget.Widget {
         widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: 0.0,
-            padding: padded_for(f.style),
+            padding: padded_for_mark(f.style, line_for(f.metrics, f.style.text.label)),
             surface: surface_of(f.style, parts),
             align: widget.centred(),
             children: [chevron_widget(true, parts.ink, line_for(f.metrics, f.style.text.label))],
@@ -7381,7 +7387,19 @@ pub fn panel_widget(p: Panel, content: widget.Widget, f: Frame) -> widget.Widget
     }
     return widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Column,
-        spacing: style.space.s,
+        // **No spacing, because there is nothing for it to separate.** This column has exactly
+        // two children and the first of them draws nothing, so every gap it could ever place is
+        // between an invisible node and the content -- which is what it was: a bare `space.s`
+        // band of window colour between a screen's header and the first row of its list, on every
+        // panel in the application. Reported 2026-11-26 by the health-record port as "on listview
+        // there is an unnecessary small gap at the top".
+        //
+        // **A `Stack` charges for a child that takes no room**, which is the general shape of it:
+        // spacing is counted per child rather than per child that is there, so a zero-sized node
+        // earns a gap like any other. Left alone, because a stack cannot tell a node that happens
+        // to measure nothing from one that is deliberately empty -- and this panel never wanted a
+        // gap in the first place.
+        spacing: 0.0,
         padding: widget.no_insets(),
         surface: widget.no_surface(),
         align: widget.stretched(),
@@ -10787,6 +10805,28 @@ pub fn reserve_of(style: Style) -> float {
 // control, and a state that expands spends it outwards from the resting inset -- so layout and the
 // hit test read one geometry whatever the pointer is doing. A look whose rows expand by nothing
 // reserves nothing, which is why no pixel in either shipped look moves.
+// `padded_for`, with the trailing edge tightened by the air a mark carries inside its own box.
+//
+// **A mark sits closer to the edge than words do.** That is what a combo box, a date field and a
+// disclosure all draw, and what a native `<select>` does. A chevron is drawn in a square the
+// height of a line and spans the middle half of it, so a quarter of that side is already empty on
+// the trailing side; added to the control's own padding it made the arrow sit a half again
+// further in than the text beside it. Reported 2026-11-26 by the health-record port as "combobox
+// arrow can be moved a little bit to trailing side".
+//
+// **It moves the mark and nothing else**, because the mark is the last child of a row that has a
+// `flex` before it: the label is at the leading edge and keeps the padding it had.
+fn padded_for_mark(style: Style, side: float) -> Insets {
+    val padded = padded_for(style)
+    val air = side * mark_air
+    return widget.insets_of(
+        padded.left,
+        padded.top,
+        if padded.right > air { padded.right - air } else { 0.0 },
+        padded.bottom
+    )
+}
+
 fn padded_for(style: Style) -> Insets {
     val ring = reserve_of(style)
     if ring == 0.0 {

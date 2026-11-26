@@ -4228,6 +4228,63 @@ fn combo() -> controls.ComboBox {
     return controls.combo_box_of("method", "Method", ["GET", "POST", "PUT", "PATCH", "DELETE"], 0)
 }
 
+// **The mark is inset like the words, not like its own box.** A chevron is drawn in a square the
+// height of a line and spans the middle half of it, so a quarter of that side is already empty on
+// the trailing side; added to the control's padding, the arrow sat half again further in than the
+// text beside it. Reported 2026-11-26 by the health-record port as "combobox arrow can be moved a
+// little bit to trailing side".
+#[test]
+fn a_combo_boxs_mark_is_inset_like_its_words() {
+    val at = geom.rect_of(0.0, 0.0, 200.0, 40.0)
+    val l = widget.layout(controls.combo_box_widget(combo(), frame()), at, metrics())
+    val ops = widget.paint_ops(l, metrics())
+    val mark = narrowest_fill(ops, at.width)
+    val lead = first_text_x(ops) - at.x
+    val trail = (at.x + at.width) - (mark.x + mark.width)
+    test.assert(mark.width > 0.0)
+    test.assert_near(trail, lead, 0.001)
+}
+
+// The smallest fill in a scene, which in a combo box is the chevron: its surface is the width of
+// the control and its mark is half a line.
+fn narrowest_fill(ops: [scene.Op], widest: float) -> geom.Rect {
+    var best = geom.rect_of(0.0, 0.0, 0.0, 0.0)
+    var width = widest + 1.0
+    for op in ops {
+        if Nested(g) = op {
+            val inner = narrowest_fill(g.ops, widest)
+            if inner.width > 0.0 && inner.width < width {
+                width = inner.width
+                best = inner
+            }
+        }
+        if Fill(it) = op {
+            val b = shape.path_bounds(it.path)
+            if b.width > 0.0 && b.width < width {
+                width = b.width
+                best = b
+            }
+        }
+    }
+    return best
+}
+
+// Where the first run of text in a scene is drawn.
+fn first_text_x(ops: [scene.Op]) -> float {
+    for op in ops {
+        if Nested(g) = op {
+            val inner = first_text_x(g.ops)
+            if inner >= 0.0 {
+                return inner
+            }
+        }
+        if Text(it) = op {
+            return it.at.x
+        }
+    }
+    return 0.0 - 1.0
+}
+
 val combo_box_at = geom.rect_of(0.0, 0.0, 80.0, 24.0)
 val combo_popup_at = geom.rect_of(0.0, 24.0, 80.0, 100.0)
 
@@ -7185,6 +7242,20 @@ fn a_waiting_panel_holds_nothing_a_tab_can_reach() {
         len(focus.controls(panel_laid(controls.panel_failed(panel(), "Could not load"), records()))),
         0
     )
+}
+
+// **A panel's content starts at the panel's own top.** Its first child is a region that draws
+// nothing -- it exists to be spoken -- and the column around it carried `space.s` of spacing, so
+// every panel in an application wore a bare band of window colour between a screen's header and
+// the first row of its list. Reported 2026-11-26 by the health-record port as "on listview there
+// is an unnecessary small gap at the top". A column of two children, one of them invisible, has
+// nothing for spacing to separate.
+#[test]
+fn a_panel_puts_its_content_at_its_own_top() {
+    val l = panel_laid(controls.panel_ready(panel()), records())
+    test.assert_len(2, l.children)
+    // [0] is the region that draws nothing; [1] is what was given to it.
+    test.assert_eq(l.bounds.y, l.children[1].bounds.y)
 }
 
 // **A loading flag is not enough**, which is why this is an enum: a panel that is empty and one
