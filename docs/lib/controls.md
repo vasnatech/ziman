@@ -1969,6 +1969,33 @@ Drawn **inside** the viewport's right edge, which is where an overlay bar goes a
 translucent: a few points of the content are behind it, and over a list of text that is the
 trailing end of a line nobody reads.
 
+**Prefer `paint_scrolled`.** This appends every bar in the tree to a finished scene, and a scene
+is a flat list in paint order, so the bars land over *everything* that was painted -- including a
+dialog and its scrim. A window with no layers cannot tell the difference; one with a dialog draws
+the scrolled list behind it a bright, undimmed bar straight down the front of the dialog. Kept
+because a caller that composes its own scene a piece at a time still wants it, one piece at a
+time.
+
+### `paint_scrolled`
+
+```
+pub fn paint_scrolled(
+    l: Laid,
+    m: widget.Metrics,
+    focused: string,
+    ring: Color,
+    width: float,
+    f: Frame
+) -> scene.Scene
+```
+
+`widget.paint_focused`, with every viewport's scroll bar drawn **over that viewport and under
+whatever is painted after it**: the one call an application's loop needs.
+
+The two-call form above cannot do this and no caller of it can either, because the order is
+already gone by the time there is a scene to append to. `widget.paint_adorned` draws an
+ornament where its node sits in the walk, which is what a bar is.
+
 ## Menus and dialogs
 
 ### `Menu`

@@ -1302,6 +1302,8 @@ pub val thumb_name = "thumb"
 
 pub fn paint_scroll_bars(l: Laid, over: scene.Scene, f: Frame) -> scene.Scene
 
+pub fn paint_scrolled(
+
 pub struct Menu {
     name: string
     // What the collapsed control shows: the menu's name, "File".
@@ -8421,6 +8423,8 @@ pub val caret_name = "caret"
 pub fn paint(l: Laid, m: Metrics) -> scene.Scene
 
 pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: float) -> scene.Scene
+
+pub fn paint_adorned(
 
 pub fn paint_ops(l: Laid, m: Metrics) -> [Op]
 

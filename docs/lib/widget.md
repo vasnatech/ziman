@@ -2444,6 +2444,38 @@ one frame with the focus on a tree.
 pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: float) -> scene.Scene
 ```
 
+### `paint_adorned`
+
+```
+pub fn paint_adorned(
+    l: Laid,
+    m: Metrics,
+    focused: string,
+    ring: Color,
+    width: float,
+    over: fn(Laid) -> [Op]
+) -> scene.Scene
+```
+
+`paint_focused`, plus **an ornament of the caller's own drawn over each node once that node's
+subtree has been painted**.
+
+This is the seam for anything a widget cannot draw for itself because only a laid-out tree knows
+where it goes -- the focus ring is the one this module already draws, and a viewport's scroll bar
+is the one `controls.paint_scrolled` draws through here.
+
+**Drawn in the order, not appended to it.** The obvious shape for such a pass is a second walk
+that adds its ops to a finished scene, and that shape has one failure it cannot avoid: a scene is
+a flat list in paint order, so everything the second walk adds lands over *everything*, including
+the layers painted after the node it belongs to. A scroll bar in the window behind a dialog drew
+over the dialog for exactly that reason, undimmed by the scrim -- reported 2026-11-26 against the
+health-record port, and not a thing the application could have fixed, because by the time it held
+a scene the order was already lost. An ornament has a node, the node has a place in the walk, and
+this draws it there.
+
+`over` is called for **every** node and not only the ones a given caller cares about, so it
+answers `[]` for most of them; the cost of that call is the price of the hook staying general.
+
 ### `paint_ops`
 
 ```

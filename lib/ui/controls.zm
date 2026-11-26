@@ -4706,6 +4706,13 @@ pub val thumb_name = "thumb"
 // Drawn **inside** the viewport's right edge, which is where an overlay bar goes and why it is
 // translucent: a few points of the content are behind it, and over a list of text that is the
 // trailing end of a line nobody reads.
+//
+// **Prefer `paint_scrolled`.** This appends every bar in the tree to a finished scene, and a scene
+// is a flat list in paint order, so the bars land over *everything* that was painted -- including a
+// dialog and its scrim. A window with no layers cannot tell the difference; one with a dialog draws
+// the scrolled list behind it a bright, undimmed bar straight down the front of the dialog. Kept
+// because a caller that composes its own scene a piece at a time still wants it, one piece at a
+// time.
 pub fn paint_scroll_bars(l: Laid, over: scene.Scene, f: Frame) -> scene.Scene {
     val style = f.style
     val ops = mutable_array_new<scene.Op>()
@@ -4716,7 +4723,38 @@ pub fn paint_scroll_bars(l: Laid, over: scene.Scene, f: Frame) -> scene.Scene {
     return scene.with_ops(over, snapshot(ops))
 }
 
+// `widget.paint_focused`, with every viewport's scroll bar drawn **over that viewport and under
+// whatever is painted after it**: the one call an application's loop needs.
+//
+// The two-call form above cannot do this and no caller of it can either, because the order is
+// already gone by the time there is a scene to append to. `widget.paint_adorned` draws an
+// ornament where its node sits in the walk, which is what a bar is.
+pub fn paint_scrolled(
+    l: Laid,
+    m: widget.Metrics,
+    focused: string,
+    ring: Color,
+    width: float,
+    f: Frame
+) -> scene.Scene {
+    val style = f.style
+    return widget.paint_adorned(l, m, focused, ring, width, fn(node: Laid) -> [scene.Op] {
+        return bar_ops(node, style)
+    })
+}
+
 fn collect_bars(l: Laid, style: Style, ops: MutableArray<scene.Op>) {
+    for op in bar_ops(l, style) {
+        push(ops, op)
+    }
+    for child in l.children {
+        collect_bars(child, style, ops)
+    }
+}
+
+// The track and the thumb of one node's bar, or nothing at all for a node that is not a viewport
+// or whose content fits.
+fn bar_ops(l: Laid, style: Style) -> [scene.Op] {
     if Scroll(it) = l.widget {
         if len(l.children) > 0 {
             val view = l.bounds.height
@@ -4724,25 +4762,25 @@ fn collect_bars(l: Laid, style: Style, ops: MutableArray<scene.Op>) {
             if scrolls(content, view) {
                 val thumb = thumb_of(style, view, content, view, it.offset_y)
                 val x = l.bounds.x + l.bounds.width - style.space.m
-                push(ops, scene.fill(
-                    shape.rect_path(geom.rect_of(x, l.bounds.y, style.space.m, view)),
-                    paint.Paint.Solid(style.face)
-                ))
-                push(ops, scene.fill(
-                    shape.rect_path(geom.rect_of(
-                        x + 1.0,
-                        l.bounds.y + thumb.start,
-                        style.space.m - style.space.xs,
-                        thumb.length
-                    )),
-                    paint.Paint.Solid(style.states.disabled.ink)
-                ))
+                return [
+                    scene.fill(
+                        shape.rect_path(geom.rect_of(x, l.bounds.y, style.space.m, view)),
+                        paint.Paint.Solid(style.face)
+                    ),
+                    scene.fill(
+                        shape.rect_path(geom.rect_of(
+                            x + 1.0,
+                            l.bounds.y + thumb.start,
+                            style.space.m - style.space.xs,
+                            thumb.length
+                        )),
+                        paint.Paint.Solid(style.states.disabled.ink)
+                    )
+                ]
             }
         }
     }
-    for child in l.children {
-        collect_bars(child, style, ops)
-    }
+    return []
 }
 
 // -------------------------------------------------------- menus and dialogs

@@ -3419,7 +3419,7 @@ pub val caret_name = "caret"
 // one frame with the focus on a tree.
 pub fn paint(l: Laid, m: Metrics) -> scene.Scene {
     val ops = mutable_array_new<Op>()
-    collect(l, m, ops, "", false, no_ring())
+    collect(l, m, ops, "", false, no_ring(), no_ornament)
     return scene.with_ops(
         scene.scene_of(l.bounds.x + l.bounds.width, l.bounds.y + l.bounds.height),
         snapshot(ops)
@@ -3427,16 +3427,50 @@ pub fn paint(l: Laid, m: Metrics) -> scene.Scene {
 }
 
 pub fn paint_focused(l: Laid, m: Metrics, focused: string, ring: Color, width: float) -> scene.Scene {
+    return paint_adorned(l, m, focused, ring, width, no_ornament)
+}
+
+// `paint_focused`, plus **an ornament of the caller's own drawn over each node once that node's
+// subtree has been painted**.
+//
+// This is the seam for anything a widget cannot draw for itself because only a laid-out tree knows
+// where it goes -- the focus ring is the one this module already draws, and a viewport's scroll bar
+// is the one `controls.paint_scrolled` draws through here.
+//
+// **Drawn in the order, not appended to it.** The obvious shape for such a pass is a second walk
+// that adds its ops to a finished scene, and that shape has one failure it cannot avoid: a scene is
+// a flat list in paint order, so everything the second walk adds lands over *everything*, including
+// the layers painted after the node it belongs to. A scroll bar in the window behind a dialog drew
+// over the dialog for exactly that reason, undimmed by the scrim -- reported 2026-11-26 against the
+// health-record port, and not a thing the application could have fixed, because by the time it held
+// a scene the order was already lost. An ornament has a node, the node has a place in the walk, and
+// this draws it there.
+//
+// `over` is called for **every** node and not only the ones a given caller cares about, so it
+// answers `[]` for most of them; the cost of that call is the price of the hook staying general.
+pub fn paint_adorned(
+    l: Laid,
+    m: Metrics,
+    focused: string,
+    ring: Color,
+    width: float,
+    over: fn(Laid) -> [Op]
+) -> scene.Scene {
     val ops = mutable_array_new<Op>()
     collect(l, m, ops, focused, false, Ringing {
         name: ringed_name(l, focused),
         colour: ring,
         width: width
-    })
+    }, over)
     return scene.with_ops(
         scene.scene_of(l.bounds.x + l.bounds.width, l.bounds.y + l.bounds.height),
         snapshot(ops)
     )
+}
+
+// The ornament of a caller that wants none.
+fn no_ornament(l: Laid) -> [Op] {
+    return []
 }
 
 // The corner radius the focused control actually drew itself with, in points, or zero.
@@ -3543,7 +3577,7 @@ fn focus_node(l: Laid, name: string) -> Option<Laid> {
 // The ops alone, for a caller composing a scene of its own. **No focus, so no caret**, as `paint`.
 pub fn paint_ops(l: Laid, m: Metrics) -> [Op] {
     val ops = mutable_array_new<Op>()
-    collect(l, m, ops, "", false, no_ring())
+    collect(l, m, ops, "", false, no_ring(), no_ornament)
     return snapshot(ops)
 }
 
@@ -3708,7 +3742,15 @@ fn no_ring() -> Ringing {
     return Ringing { name: "", colour: paint.rgb(0.0, 0.0, 0.0), width: 0.0 }
 }
 
-fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: bool, ring: Ringing) {
+fn collect(
+    l: Laid,
+    m: Metrics,
+    ops: MutableArray<Op>,
+    caret_for: string,
+    mine: bool,
+    ring: Ringing,
+    over: fn(Laid) -> [Op]
+) {
     if l.name == caret_name && !mine {
         return
     }
@@ -3786,9 +3828,12 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: 
     if Scroll(_) = l.widget {
         val inner = mutable_array_new<Op>()
         for child in l.children {
-            collect(child, m, inner, caret_for, inside, ring)
+            collect(child, m, inner, caret_for, inside, ring, over)
         }
         push(ops, scene.clipped(shape.rect_path(l.bounds), snapshot(inner)))
+        // **Outside the clip**, because a bar is drawn over its viewport rather than scrolled with
+        // what is in it.
+        push_over(l, ops, over)
         return
     }
     // **A fixed size is a promise about where the thing ends, so it clips.**
@@ -3807,7 +3852,7 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: 
         val inner = mutable_array_new<Op>()
         var out = false
         for child in l.children {
-            collect(child, m, inner, caret_for, inside, ring)
+            collect(child, m, inner, caret_for, inside, ring, over)
             if escapes(child, l.bounds) {
                 out = true
             }
@@ -3822,10 +3867,11 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: 
                 push(ops, op)
             }
         }
+        push_over(l, ops, over)
         return
     }
     for child in l.children {
-        collect(child, m, ops, caret_for, inside, ring)
+        collect(child, m, ops, caret_for, inside, ring, over)
     }
     // **After this control's own subtree and before anything painted later**, which is what puts
     // a popup over the ring of the control it was opened from. A `Control` is never a `Scroll` or
@@ -3834,6 +3880,17 @@ fn collect(l: Laid, m: Metrics, ops: MutableArray<Op>, caret_for: string, mine: 
         if ring.name != "" && it.name == ring.name {
             push_ring(l, ops, ring)
         }
+    }
+    push_over(l, ops, over)
+}
+
+// **Every door `collect` paints its way out of draws it**: a viewport, a fixed box and the plain
+// walk. An ornament drawn on two of the three is one that works until somebody puts the node
+// inside a `Fixed`. The fourth exit is the caret guard at the top, which leaves without painting
+// the node at all -- and a node that is not drawn gets no ornament either.
+fn push_over(l: Laid, ops: MutableArray<Op>, over: fn(Laid) -> [Op]) {
+    for op in over(l) {
+        push(ops, op)
     }
 }
 

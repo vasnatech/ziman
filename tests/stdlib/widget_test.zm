@@ -1357,6 +1357,64 @@ fn hole_has_curve(p: shape.Path) -> bool {
     return false
 }
 
+// ---- the ornament seam
+
+// What an ornament draws: a text op naming the node it was called for, so a list of ops reads back
+// as the order the walk visited things in.
+fn marked(l: widget.Laid) -> [scene.Op] {
+    return [scene.text_of("<", geom.point_of(l.bounds.x, l.bounds.y), 1.0, 0, paint.Paint.Solid(black()))]
+}
+
+fn op_names(ops: [scene.Op]) -> string {
+    val out = mutable_array_new<string>()
+    for op in ops {
+        push(out, switch op {
+            Text(it) { it.text }
+            Fill(_) { "fill" }
+            StrokePath(_) { "stroke" }
+            DrawImage(_) { "image" }
+            Nested(_) { "nested" }
+        })
+    }
+    return join(separator: " ", pieces: snapshot(out))
+}
+
+// **An ornament is drawn after its own node's subtree and before whatever comes next**, which is
+// the whole difference between this and a second pass that appends to a finished scene: an append
+// can only land over everything. See `controls.paint_scrolled`, which is what this exists for.
+#[test]
+fn an_ornament_follows_its_own_node() {
+    val l = laid(widget.column_of(0.0, [a_label("a"), a_label("b")]), 100.0, 50.0)
+    val ops = widget.paint_adorned(l, fake_metrics(), "", black(), 2.0, marked).ops
+    // Each label, then its own mark; then the column's, last of all.
+    test.assert_eq("a < b < <", op_names(ops))
+}
+
+// **Every door out of the walk draws it.** The painter leaves by three -- a viewport, a fixed box
+// and the plain walk -- and an ornament drawn on two of them is one that works until somebody puts
+// the node inside a `Fixed`.
+#[test]
+fn an_ornament_is_drawn_for_a_fixed_box_and_a_viewport_too() {
+    val inner = widget.fixed_of(0.0, 20.0, a_label("a"))
+    val l = laid(widget.named_scroll("s", 0.0, 0.0, inner), 100.0, 50.0)
+    val ops = widget.paint_adorned(l, fake_metrics(), "", black(), 2.0, marked).ops
+    // The label and its mark are inside the viewport's clip; the fixed box's mark follows them in
+    // there, and the viewport's own is outside it.
+    test.assert_eq("nested <", op_names(ops))
+    test.assert_eq("a < <", op_names(nested_ops(ops[0])))
+}
+
+fn nested_ops(op: scene.Op) -> [scene.Op] {
+    switch op {
+        Nested(it) { return it.ops }
+        Fill(_) { test.fail("expected a group") }
+        StrokePath(_) { test.fail("expected a group") }
+        Text(_) { test.fail("expected a group") }
+        DrawImage(_) { test.fail("expected a group") }
+    }
+    return []
+}
+
 fn fill_path(op: scene.Op) -> shape.Path {
     switch op {
         Fill(it) { return it.path }

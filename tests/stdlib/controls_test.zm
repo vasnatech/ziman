@@ -3678,6 +3678,83 @@ fn every_viewport_in_the_tree_gets_one() {
     test.assert_len(4, bars_over(l))
 }
 
+// **A bar belongs to the layer its viewport is in, not to the top of the window.**
+//
+// `paint_scroll_bars` appends to a finished scene, and a scene is a flat list in paint order, so
+// the sidebar's bar landed over the dialog in front of it: a bright, undimmed strip straight down
+// the front of the card, while everything beside it was greyed by the scrim. Reported 2026-11-26
+// against the health-record port, and nothing the application could fix -- by the time it held a
+// scene the order was gone. `paint_scrolled` draws each bar where its viewport sits in the walk.
+#[test]
+fn a_bar_is_covered_by_the_layer_painted_over_it() {
+    val rows = mutable_array_new<widget.Widget>()
+    var i = 0
+    while i < 25 {
+        push(rows, widget.fixed_of(0.0, 10.0, widget.label_of(concat("row ", str(i)), 8.0, paint.black())))
+        i = i + 1
+    }
+    val base = widget.named_scroll("list", 0.0, 60.0, widget.column_of(0.0, snapshot(rows)))
+    val over = widget.canvas_of("dialog", fn(box: geom.Rect) -> [scene.Op] {
+        return [scene.fill(shape.rect_path(box), paint.Paint.Solid(paint.black()))]
+    })
+    val tree = widget.layered_of([widget.base_layer(base), widget.modal_layer(over)])
+    val l = widget.layout(tree, geom.rect_of(0.0, 0.0, 80.0, 100.0), metrics())
+
+    val ops = controls.paint_scrolled(l, metrics(), "", paint.black(), 2.0, frame()).ops
+    val bar = first_bar_at(ops)
+    val dialog = first_covering_at(ops)
+    test.assert(bar >= 0)
+    test.assert(dialog >= 0)
+    test.assert(bar < dialog)
+}
+
+// **The same tree through the appending pass puts the bar last**, which is the defect written down
+// rather than left as a story: the two differ, and this is the difference.
+#[test]
+fn the_appending_pass_puts_the_bar_over_the_layer() {
+    val rows = mutable_array_new<widget.Widget>()
+    var i = 0
+    while i < 25 {
+        push(rows, widget.fixed_of(0.0, 10.0, widget.label_of(concat("row ", str(i)), 8.0, paint.black())))
+        i = i + 1
+    }
+    val base = widget.named_scroll("list", 0.0, 60.0, widget.column_of(0.0, snapshot(rows)))
+    val over = widget.canvas_of("dialog", fn(box: geom.Rect) -> [scene.Op] {
+        return [scene.fill(shape.rect_path(box), paint.Paint.Solid(paint.black()))]
+    })
+    val tree = widget.layered_of([widget.base_layer(base), widget.modal_layer(over)])
+    val l = widget.layout(tree, geom.rect_of(0.0, 0.0, 80.0, 100.0), metrics())
+
+    val painted = widget.paint_focused(l, metrics(), "", paint.black(), 2.0)
+    val ops = controls.paint_scroll_bars(l, painted, frame()).ops
+    test.assert(first_bar_at(ops) > first_covering_at(ops))
+}
+
+// Where the track of a bar is in a list of ops, or -1: the one fill as narrow as a bar.
+fn first_bar_at(ops: [scene.Op]) -> int {
+    var i = 0
+    for op in ops {
+        if fill_box(op).width == bar_thickness {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// Where the fill that covers the whole 80x100 window is, or -1.
+fn first_covering_at(ops: [scene.Op]) -> int {
+    var i = 0
+    for op in ops {
+        val covered = fill_box(op)
+        if covered.width == 80.0 && covered.height == 100.0 {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
 // The rectangle a `Fill` covers, which is the only thing these tests look at.
 fn fill_box(op: scene.Op) -> geom.Rect {
     return switch op {
