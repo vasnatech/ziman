@@ -1411,6 +1411,20 @@ pub struct List {
     locale: Locale
     // The drag state of the bar down its right edge, as a tree has.
     bar: ScrollBar
+    // **How roomy this list's rows are, when the look's answer is not the right one.** `None`
+    // takes `Style.row_air`, which is what every list did and most should.
+    //
+    // **A window has more than one kind of list.** F343 moved row air onto the look and argued
+    // that "a look saying how roomy its lists are is the look's job" -- which is right, and is
+    // not the whole of it. The health-record port set `row_air: 24` to give its navigation rail
+    // the forty-point rows of the web application it copies, and every combo box in the window
+    // dropped a list of forty-point rows out of a twenty-eight-point box with it. One number was
+    // being asked to describe a rail somebody scans and a dropdown somebody points at once.
+    //
+    // **Still air, and still added to a measured line**, so this is not `row_height` returning to
+    // the control: the line is measured as before and only the air around it is the caller's. A
+    // list that stored its height would be wrong the moment a look changed its type.
+    air: Option<float>
 }
 ```
 
@@ -4721,6 +4735,19 @@ text in it cannot read different numbers. See Q8 in docs/design/look-and-feel.md
 
 **Not a theme token either.** A token set to 20 is the same number in a different place: it can
 still disagree with the face the theme asks for, and nothing would say so.
+
+### `list_row_height`
+
+```
+pub fn list_row_height(l: List, m: widget.Metrics, style: Style) -> float
+```
+
+How tall one row of **this** list is: `row_height`, unless the list asked for its own air.
+
+**One function, so the widget and the hit test cannot read different numbers** -- which is the
+whole of why a row's height is derived rather than stored. `list_input` divides a pointer's y by
+this and `list_widget` lays its rows out by it; a list whose air the two disagreed about would
+select the row above the one you clicked, and more of them the further down you went.
 
 ### `header_height`
 

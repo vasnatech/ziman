@@ -3404,6 +3404,20 @@ pub struct List {
     locale: Locale
     // The drag state of the bar down its right edge, as a tree has.
     bar: ScrollBar
+    // **How roomy this list's rows are, when the look's answer is not the right one.** `None`
+    // takes `Style.row_air`, which is what every list did and most should.
+    //
+    // **A window has more than one kind of list.** F343 moved row air onto the look and argued
+    // that "a look saying how roomy its lists are is the look's job" -- which is right, and is
+    // not the whole of it. The health-record port set `row_air: 24` to give its navigation rail
+    // the forty-point rows of the web application it copies, and every combo box in the window
+    // dropped a list of forty-point rows out of a twenty-eight-point box with it. One number was
+    // being asked to describe a rail somebody scans and a dropdown somebody points at once.
+    //
+    // **Still air, and still added to a measured line**, so this is not `row_height` returning to
+    // the control: the line is measured as before and only the air around it is the caller's. A
+    // list that stored its height would be wrong the moment a look changed its type.
+    air: Option<float>
 }
 
 pub fn list_of(name: string, label: string, items: [Value]) -> List {
@@ -3421,7 +3435,8 @@ pub fn list_of(name: string, label: string, items: [Value], l: Locale) -> List {
         disabled: false,
         role: widget.Role.List,
         item_role: widget.Role.ListItem,
-        bar: scroll_bar_of(concat(name, "/bar"), 20.0)
+        bar: scroll_bar_of(concat(name, "/bar"), 20.0),
+        air: Option<float>.None
     }
 }
 
@@ -3496,7 +3511,7 @@ pub struct ListStep {
 // screen whose first page does not fill the viewport has already reached the end before the user
 // has touched anything, and no scroll will ever tell it so.
 pub fn list_at_end(l: List, bounds: Rect, f: Frame) -> bool {
-    return at_end_of(l, bounds, row_height(f.metrics, f.style))
+    return at_end_of(l, bounds, list_row_height(l, f.metrics, f.style))
 }
 
 fn at_end_of(l: List, bounds: Rect, tall: float) -> bool {
@@ -3525,7 +3540,7 @@ pub fn list_input(l: List, input: Input, bounds: Rect, f: Frame) -> ListStep {
     if l.disabled {
         return held_still(l)
     }
-    val tall = row_height(m, style)
+    val tall = list_row_height(l, m, style)
     // The bar first, and a drag in progress before anything else -- see `tree_input`, which has
     // the same three lines for the same reasons.
     if Option.is_Some(l.bar.grabbed) || list_for_the_bar(l, input, style, bounds, tall) {
@@ -3743,7 +3758,7 @@ fn plain_row(v: Value, locale: Locale, style: Style, ink: Color) -> widget.Widge
 pub fn list_widget(l: List, f: Frame) -> widget.Widget {
     val style = f.style
     val m = f.metrics
-    val tall = row_height(m, style)
+    val tall = list_row_height(l, m, style)
     val rows = mutable_array_new<widget.Widget>()
     var i = 0
     while i < len(l.items) {
@@ -7720,7 +7735,7 @@ pub fn autocomplete_popup_height(a: Autocomplete, f: Frame) -> float {
     val rows = len(autocomplete_matches(a))
     val showing = if rows > most_suggestions { most_suggestions } else { rows }
     val least = if showing < 1 { 1 } else { showing }
-    return (least as float) * row_height(f.metrics, f.style)
+    return (least as float) * list_row_height(a.suggestions, f.metrics, f.style)
 }
 
 // ------------------------------------------------------------ the context menu
@@ -7787,7 +7802,7 @@ fn context_menu_width(c: ContextMenu, f: Frame) -> float {
 // click on one of its own rows.
 pub fn context_menu_box(c: ContextMenu, within: Rect, f: Frame) -> Rect {
     val wide = context_menu_width(c, f)
-    val tall = (len(c.menu.items.items) as float) * row_height(f.metrics, f.style)
+    val tall = (len(c.menu.items.items) as float) * list_row_height(c.menu.items, f.metrics, f.style)
     val x = held_within(c.at.x, wide, within.x, within.width)
     val below = c.at.y
     val y = if below + tall <= within.y + within.height {
@@ -10832,6 +10847,19 @@ pub fn line_for(m: widget.Metrics, t: Type) -> float {
 // still disagree with the face the theme asks for, and nothing would say so.
 pub fn row_height(m: widget.Metrics, style: Style) -> float {
     return line_for(m, style.text.body) + style.row_air
+}
+
+// How tall one row of **this** list is: `row_height`, unless the list asked for its own air.
+//
+// **One function, so the widget and the hit test cannot read different numbers** -- which is the
+// whole of why a row's height is derived rather than stored. `list_input` divides a pointer's y by
+// this and `list_widget` lays its rows out by it; a list whose air the two disagreed about would
+// select the row above the one you clicked, and more of them the further down you went.
+pub fn list_row_height(l: List, m: widget.Metrics, style: Style) -> float {
+    return switch l.air {
+        Some(air) { line_for(m, style.text.body) + air }
+        None { row_height(m, style) }
+    }
 }
 
 // How tall a table's header band is: a line of **label** text -- the role a column title is drawn

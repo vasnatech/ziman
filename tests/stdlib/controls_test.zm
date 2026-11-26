@@ -8032,6 +8032,61 @@ fn a_derived_look_keeps_the_old_row_height() {
     )
 }
 
+// **And a list may differ from its look**, because a window has more than one kind of list. F343
+// put the air on the look and argued that is the look's job, which is right and is not the whole
+// of it: the health-record port set `row_air: 24` to give its navigation rail the forty-point rows
+// of the web application it copies, and every combo box in the window then dropped forty-point
+// rows out of a twenty-eight-point box. Reported 2026-11-26 as "combobox item heights are taller
+// than needed" (F349).
+#[test]
+fn a_list_can_ask_for_its_own_row_air() {
+    val style = frame().style
+    val plain = controls.list_of("l", "Rows", ["a", "b", "c"])
+    val roomy = with plain { air: Option<float>.Some(style.row_air + 12.0) }
+    val tall_roomy = controls.list_row_height(roomy, metrics(), style)
+    val tall_plain = controls.list_row_height(plain, metrics(), style)
+    test.assert_near(tall_roomy - tall_plain, 12.0, 0.001)
+    // A list that does not ask takes the look's answer, which is what every list did.
+    test.assert_eq(controls.row_height(metrics(), style), controls.list_row_height(plain, metrics(), style))
+}
+
+// **Its own air, and still a measured line.** This is not `row_height` going back onto the
+// control: a list that stored its height would be wrong the moment a look changed its type.
+#[test]
+fn a_lists_own_air_still_sits_round_a_measured_line() {
+    val style = frame().style
+    val big = with style { text: with style.text { body: with style.text.body { size: style.text.body.size * 2.0 } } }
+    val l = with controls.list_of("l", "Rows", ["a"]) { air: Option<float>.Some(10.0) }
+    val grew = controls.list_row_height(l, metrics(), big) - controls.list_row_height(l, metrics(), style)
+    val line_grew = controls.line_for(metrics(), big.text.body) - controls.line_for(metrics(), style.text.body)
+    test.assert_near(grew, line_grew, 0.001)
+}
+
+// **The widget and the hit test read the one number**, which is the whole of why a row's height is
+// derived. A press lands on the row that was drawn under it -- and the further down the list, the
+// worse a disagreement would be.
+#[test]
+fn a_lists_own_air_moves_its_rows_and_its_presses_together() {
+    val style = frame().style
+    val l = with controls.list_of("l", "Rows", ["a", "b", "c", "d"]) { air: Option<float>.Some(style.row_air + 20.0) }
+    val tall = controls.list_row_height(l, metrics(), style)
+    val laid = widget.layout(controls.list_widget(l, frame()), geom.rect_of(0.0, 0.0, 120.0, tall * 4.0), metrics())
+    // The third row is drawn where its own height says it is.
+    val third = widget.node_named(laid, controls.row_name(l, 2))
+    switch third {
+        Some(node) { test.assert_near(node.bounds.y, tall * 2.0, 0.001) }
+        None { test.fail("the third row is not in the tree") }
+    }
+    // And a press in the middle of that row selects it.
+    val hit = controls.list_input(
+        l,
+        controls.Input.Press(geom.point_of(10.0, tall * 2.5)),
+        geom.rect_of(0.0, 0.0, 120.0, tall * 4.0),
+        frame()
+    )
+    test.assert_eq(2, hit.list.selected)
+}
+
 // --- a row's mark
 
 // **A mark is drawn quieter than the words beside it**, which every sidebar does: an icon as

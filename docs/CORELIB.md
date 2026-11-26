@@ -1130,6 +1130,20 @@ pub struct List {
     locale: Locale
     // The drag state of the bar down its right edge, as a tree has.
     bar: ScrollBar
+    // **How roomy this list's rows are, when the look's answer is not the right one.** `None`
+    // takes `Style.row_air`, which is what every list did and most should.
+    //
+    // **A window has more than one kind of list.** F343 moved row air onto the look and argued
+    // that "a look saying how roomy its lists are is the look's job" -- which is right, and is
+    // not the whole of it. The health-record port set `row_air: 24` to give its navigation rail
+    // the forty-point rows of the web application it copies, and every combo box in the window
+    // dropped a list of forty-point rows out of a twenty-eight-point box with it. One number was
+    // being asked to describe a rail somebody scans and a dropdown somebody points at once.
+    //
+    // **Still air, and still added to a measured line**, so this is not `row_height` returning to
+    // the control: the line is measured as before and only the air around it is the caller's. A
+    // list that stored its height would be wrong the moment a look changed its type.
+    air: Option<float>
 }
 
 pub fn list_of(name: string, label: string, items: [Value]) -> List
@@ -2269,6 +2283,8 @@ pub fn face_for(m: widget.Metrics, want: int) -> int
 pub fn line_for(m: widget.Metrics, t: Type) -> float
 
 pub fn row_height(m: widget.Metrics, style: Style) -> float
+
+pub fn list_row_height(l: List, m: widget.Metrics, style: Style) -> float
 
 pub fn header_height(m: widget.Metrics, style: Style) -> float
 
