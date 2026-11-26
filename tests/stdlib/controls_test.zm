@@ -1461,6 +1461,35 @@ fn a_tip_names_an_icon_button_and_stays_quiet_over_a_labelled_one() {
     test.assert_eq(controls.tip_words(controls.hovering(controls.no_hover(), "gone", 1000), laid), "")
 }
 
+// **A tip must reach a PART, which is the control that most needs one.** A list's row, a tab and a
+// tree's item are `widget.part_of` -- controls a click and a reader can reach, that Tab cannot --
+// and a row drawn as `Value.Mark` is an icon with its words declared and nothing on screen showing
+// them, which is the exact case `tip_words` exists for. It answered "" for all of them until this
+// test existed, because it looked the name up with `focus.node_of`, which gathers tab stops only.
+//
+// Found by the health-record port's sidebar, which collapses to a rail of seventeen icon-only rows.
+#[test]
+fn a_tip_names_an_icon_only_list_row() {
+    val rail = controls.list_of("rail", "Views", [
+        controls.Value.Mark(widget.icon_of(dot_icon(), "Allergies")),
+        controls.Value.Mark(widget.icon_of(dot_icon(), "Conditions")),
+        // An icon *and* words: the words are on screen, so there is nothing for a tip to add.
+        controls.marked(widget.icon_of(dot_icon(), "Vitals"), "Vitals")
+    ])
+    val laid = widget.layout(
+        controls.list_widget(rail, frame()),
+        geom.rect_of(0.0, 0.0, 60.0, 200.0),
+        metrics()
+    )
+    val resting = controls.no_hover()
+    test.assert_eq(controls.tip_words(controls.hovering(resting, controls.row_name(rail, 0), 1000), laid), "Allergies")
+    test.assert_eq(controls.tip_words(controls.hovering(resting, controls.row_name(rail, 1), 1000), laid), "Conditions")
+    test.assert_eq(controls.tip_words(controls.hovering(resting, controls.row_name(rail, 2), 1000), laid), "")
+    // The list itself is a tab stop and draws no words of its own, but its label names the whole
+    // column rather than anything under the pointer, and a tip over a row must be the row's.
+    test.assert_eq(controls.tip_words(controls.hovering(resting, "rail", 1000), laid), "Views")
+}
+
 // **A description beats a label**, which is what makes the number field's range appear over it: the
 // field already draws its value, and the words it does not draw are the bounds a user cannot see.
 #[test]

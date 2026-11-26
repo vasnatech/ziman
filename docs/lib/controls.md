@@ -1123,6 +1123,15 @@ a tip repeating a label a user is already reading is noise with a delay on it. S
 for a control whose words are not already on screen -- an icon button, a field with a range --
 and for nothing else, without anything having to be switched off per control.
 
+**`widget.node_named` and not `focus.node_of`, because a hover is not a focus.** `node_of`
+answers "the laid node of the focused control" and finds **tab stops only** -- which is right
+for a focus and wrong for a pointer, because a pointer lands on *parts*: a list's row, a tab, a
+tree's item, none of which Tab can reach. So this answered "" for every part, and a part drawn
+without words is exactly the control a tip exists for. Found by the health-record port, whose
+sidebar collapses to a rail of icon-only list rows: 17 rows, 17 names the hover reported and 17
+empty answers, with no tip ever shown and nothing to say why. The tests here had only ever asked
+it about buttons, which are tab stops.
+
 ### `tip_layer`
 
 ```
