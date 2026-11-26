@@ -3678,6 +3678,24 @@ fn every_viewport_in_the_tree_gets_one() {
     test.assert_len(4, bars_over(l))
 }
 
+// **The content stops exactly where the bar starts.** One number does three jobs -- the room the
+// viewport keeps, the strip the painter draws in and the strip a press is routed to -- and
+// `bar_gutter` is it. Two of them would be a bar you can see in one place and grab in another;
+// three would be a card whose right-hand border is under its own scroll bar, which is what the
+// health-record port reported on 2026-11-26.
+#[test]
+fn a_viewport_stops_its_content_where_the_bar_starts() {
+    val child = widget.fixed_of(0.0, 400.0, widget.flex())
+    val v = controls.viewport_of("s", 0.0, 0.0, child, frame())
+    val l = widget.layout(v, geom.rect_of(0.0, 0.0, 80.0, 100.0), metrics())
+    val ops = bars_over(l)
+    test.assert_len(2, ops)
+    val track = fill_box(ops[0])
+    val content = l.children[0].bounds
+    test.assert_eq(content.x + content.width, track.x)
+    test.assert_eq(l.bounds.x + l.bounds.width, track.x + track.width)
+}
+
 // **A bar belongs to the layer its viewport is in, not to the top of the window.**
 //
 // `paint_scroll_bars` appends to a finished scene, and a scene is a flat list in paint order, so

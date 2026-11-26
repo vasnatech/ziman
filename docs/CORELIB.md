@@ -1318,6 +1318,10 @@ pub fn paint_scroll_bars(l: Laid, over: scene.Scene, f: Frame) -> scene.Scene
 
 pub fn paint_scrolled(
 
+pub fn bar_gutter(style: Style) -> float
+
+pub fn viewport_of(name: string, offset_x: float, offset_y: float, child: widget.Widget, f: Frame) -> widget.Widget
+
 pub struct Menu {
     name: string
     // What the collapsed control shows: the menu's name, "File".
@@ -7987,11 +7991,29 @@ pub struct Viewport {
     offset_y: float
     child: Widget
     name: string
+    // **How much of the trailing edge is kept clear for a scroll bar**, in points, when there is
+    // one. Zero is a viewport nobody draws a bar over.
+    //
+    // **Because a bar that is always drawn has to be laid out for.** An overlay bar -- drawn over
+    // the last few points of the content -- is honest only while it is transient, which is what
+    // makes it bearable on a platform that fades one in on a gesture and out again. The bar
+    // `controls` draws is always there, and what it costs is not always "the empty end of a line
+    // nobody reads": on the health-record port's emergency screen the content is a bordered card
+    // stretched to the viewport, and the thing under the bar was **its right-hand border**, which
+    // simply never appeared. Reported 2026-11-26.
+    //
+    // **Only while it scrolls**, so a viewport whose content fits uses its whole width, and a
+    // window with nothing to scroll looks exactly as it did. That is decidable in one pass and
+    // cannot oscillate: narrowing content never makes it shorter, so content that overflowed the
+    // full width overflows the narrowed width too.
+    gutter: float
 }
 
 pub fn scroll_of(offset_y: float, child: Widget) -> Widget
 
 pub fn named_scroll(name: string, offset_x: float, offset_y: float, child: Widget) -> Widget
+
+pub fn scroll_with_gutter(name: string, offset_x: float, offset_y: float, gutter: float, child: Widget) -> Widget
 
 pub fn scroll_to_reveal(view_extent: float, offset: float, target_start: float, target_extent: float) -> float
 

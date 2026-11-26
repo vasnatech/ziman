@@ -1357,6 +1357,40 @@ fn hole_has_curve(p: shape.Path) -> bool {
     return false
 }
 
+// ---- the room a scroll bar needs
+
+// **A viewport that scrolls lays its content out narrower by its gutter**, because the bar drawn
+// over its trailing edge is always drawn. What used to be under it was "the empty end of a line
+// nobody reads" in the case the library had in mind, and the right-hand border of a card in the
+// case the health-record port reported on 2026-11-26.
+#[test]
+fn a_viewport_that_scrolls_keeps_its_gutter_clear() {
+    val child = widget.fixed_of(0.0, 400.0, widget.flex())
+    val l = laid(widget.scroll_with_gutter("s", 0.0, 0.0, 10.0, child), 80.0, 100.0)
+    // The viewport itself is still the box it was given; only its content moved.
+    test.assert_eq(80.0, l.bounds.width)
+    test.assert_eq(70.0, l.children[0].bounds.width)
+}
+
+// **And one whose content fits uses all of it**, so a window with nothing to scroll looks exactly
+// as it did. The decision cannot oscillate: narrowing content never makes it shorter, so content
+// that overflowed the full width overflows the narrowed width too.
+#[test]
+fn a_viewport_that_fits_uses_its_whole_width() {
+    val child = widget.fixed_of(0.0, 20.0, widget.flex())
+    val l = laid(widget.scroll_with_gutter("s", 0.0, 0.0, 10.0, child), 80.0, 100.0)
+    test.assert_eq(80.0, l.children[0].bounds.width)
+}
+
+// **A viewport nobody draws a bar over asks for no room**, which is what `named_scroll` makes and
+// what every caller written before this had.
+#[test]
+fn a_viewport_with_no_gutter_is_unchanged() {
+    val child = widget.fixed_of(0.0, 400.0, widget.flex())
+    val l = laid(widget.named_scroll("s", 0.0, 0.0, child), 80.0, 100.0)
+    test.assert_eq(80.0, l.children[0].bounds.width)
+}
+
 // ---- the ornament seam
 
 // What an ornament draws: a text op naming the node it was called for, so a list of ops reads back

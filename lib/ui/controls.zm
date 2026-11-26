@@ -3287,10 +3287,11 @@ fn multi_line_widget(e: Entry, style: Style, parts: Parts, m: widget.Metrics) ->
                 surface: surface_of(style, parts),
                 align: widget.stretched(),
                 children: [
-                    widget.expand(widget.named_scroll(
+                    widget.expand(widget.scroll_with_gutter(
                         concat(e.name, "-scroll"),
                         0.0,
                         e.scroll,
+                        bar_gutter(style),
                         inside
                     ))
                 ],
@@ -3810,7 +3811,7 @@ pub fn list_widget(l: List, f: Frame) -> widget.Widget {
         state: with widget.no_state() { disabled: l.disabled },
         focus_part: "",
         tab_stop: true,
-        child: widget.named_scroll("", 0.0, l.offset, widget.column_of(0.0, snapshot(rows)))
+        child: widget.scroll_with_gutter("", 0.0, l.offset, bar_gutter(style), widget.column_of(0.0, snapshot(rows)))
     })
 }
 
@@ -4180,9 +4181,9 @@ fn bar_step(t: Tree, input: Input, bounds: Rect, tall: float, f: Frame) -> TreeS
 // The strip the bar lives in, which is where `paint_scroll_bars` draws it.
 fn bar_box(style: Style, bounds: Rect) -> Rect {
     return geom.rect_of(
-        bounds.x + bounds.width - style.space.m,
+        bounds.x + bounds.width - bar_gutter(style),
         bounds.y,
-        style.space.m,
+        bar_gutter(style),
         bounds.height
     )
 }
@@ -4370,7 +4371,7 @@ pub fn tree_widget(t: Tree, f: Frame) -> widget.Widget {
         state: with widget.no_state() { disabled: t.disabled },
         focus_part: "",
         tab_stop: true,
-        child: widget.named_scroll("", 0.0, t.offset, widget.column_of(0.0, built.rows))
+        child: widget.scroll_with_gutter("", 0.0, t.offset, bar_gutter(f.style), widget.column_of(0.0, built.rows))
     })
 }
 
@@ -4551,7 +4552,7 @@ pub fn on_the_bar(style: Style, bounds: Rect, p: Point, content: float, view: fl
     if !scrolls(content, view) {
         return false
     }
-    return p.x >= bounds.x + bounds.width - style.space.m
+    return p.x >= bounds.x + bounds.width - bar_gutter(style)
 }
 
 // Whether there is anything to scroll. An application asks before placing a bar at all; a bar with
@@ -4767,6 +4768,29 @@ fn collect_bars(l: Laid, style: Style, ops: MutableArray<scene.Op>) {
     }
 }
 
+// How wide a scroll bar is, **as one number shared by everything that draws one, hit-tests one or
+// makes room for one**. Three numbers here would be a bar you can see in one place, grab in
+// another and whose gutter is a third width.
+pub fn bar_gutter(style: Style) -> float {
+    return style.space.m
+}
+
+// A viewport with the room this module's bar needs kept clear at its trailing edge.
+//
+// **Named `viewport_of` and not `scrolled`**, because `scrolled` is already a private step
+// function in this module and ziman reads one name as one overload set: a public member beside a
+// private one is a set nothing outside can call, and the error says the *public* function is
+// private.
+//
+// **The call an application's screen makes**, in place of `widget.named_scroll`. A bar is drawn
+// over the last `bar_gutter` points of a viewport's content, and `widget` cannot reserve them
+// because it neither draws the bar nor has a look to ask how wide it is. Written out at the call
+// site instead, the number would be in as many places as there are screens, and the one that was
+// not updated would be a viewport whose content ran under its own bar.
+pub fn viewport_of(name: string, offset_x: float, offset_y: float, child: widget.Widget, f: Frame) -> widget.Widget {
+    return widget.scroll_with_gutter(name, offset_x, offset_y, bar_gutter(f.style), child)
+}
+
 // The track and the thumb of one node's bar, or nothing at all for a node that is not a viewport
 // or whose content fits.
 fn bar_ops(l: Laid, style: Style) -> [scene.Op] {
@@ -4776,17 +4800,18 @@ fn bar_ops(l: Laid, style: Style) -> [scene.Op] {
             val content = l.children[0].bounds.height
             if scrolls(content, view) {
                 val thumb = thumb_of(style, view, content, view, it.offset_y)
-                val x = l.bounds.x + l.bounds.width - style.space.m
+                val wide = bar_gutter(style)
+                val x = l.bounds.x + l.bounds.width - wide
                 return [
                     scene.fill(
-                        shape.rect_path(geom.rect_of(x, l.bounds.y, style.space.m, view)),
+                        shape.rect_path(geom.rect_of(x, l.bounds.y, wide, view)),
                         paint.Paint.Solid(style.face)
                     ),
                     scene.fill(
                         shape.rect_path(geom.rect_of(
                             x + 1.0,
                             l.bounds.y + thumb.start,
-                            style.space.m - style.space.xs,
+                            wide - style.space.xs,
                             thumb.length
                         )),
                         paint.Paint.Solid(style.states.disabled.ink)
@@ -9590,10 +9615,11 @@ pub fn table_widget(t: Table, f: Frame) -> widget.Widget {
         })))
         at = at + 1
     }
-    val body = widget.expand(widget.named_scroll(
+    val body = widget.expand(widget.scroll_with_gutter(
         concat(t.name, "/body"),
         t.offset_x,
         t.offset,
+        bar_gutter(style),
         widget.column_of(0.0, snapshot(rows))
     ))
     val parts = if t.headers {

@@ -2010,6 +2010,35 @@ The two-call form above cannot do this and no caller of it can either, because t
 already gone by the time there is a scene to append to. `widget.paint_adorned` draws an
 ornament where its node sits in the walk, which is what a bar is.
 
+### `bar_gutter`
+
+```
+pub fn bar_gutter(style: Style) -> float
+```
+
+How wide a scroll bar is, **as one number shared by everything that draws one, hit-tests one or
+makes room for one**. Three numbers here would be a bar you can see in one place, grab in
+another and whose gutter is a third width.
+
+### `viewport_of`
+
+```
+pub fn viewport_of(name: string, offset_x: float, offset_y: float, child: widget.Widget, f: Frame) -> widget.Widget
+```
+
+A viewport with the room this module's bar needs kept clear at its trailing edge.
+
+**Named `viewport_of` and not `scrolled`**, because `scrolled` is already a private step
+function in this module and ziman reads one name as one overload set: a public member beside a
+private one is a set nothing outside can call, and the error says the *public* function is
+private.
+
+**The call an application's screen makes**, in place of `widget.named_scroll`. A bar is drawn
+over the last `bar_gutter` points of a viewport's content, and `widget` cannot reserve them
+because it neither draws the bar nor has a look to ask how wide it is. Written out at the call
+site instead, the number would be in as many places as there are screens, and the one that was
+not updated would be a viewport whose content ran under its own bar.
+
 ## Menus and dialogs
 
 ### `Menu`

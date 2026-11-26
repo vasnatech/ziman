@@ -79,4 +79,5 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F347 — a press is hit-tested and a wheel is not](f347.md)
 - [F348 — a tooltip could not name the one control that needs one](f348.md)
 - [F349 — one look, one row air, and a window full of different lists](f349.md)
+- [F350 — an overlay scroll bar, over a border](f350.md)
 - [Open — `api-check` fails intermittently under make, never on its own](open-api-check-flake.md)
