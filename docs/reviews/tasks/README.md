@@ -89,4 +89,5 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F357 — the plan is a filter in front of a filter](f357.md)
 - [F358 — a window with a back buffer](f358.md)
 - [F359 — a layer should not cost a second layout of the window](f359.md)
+- [F360 — flattening the curves in C, and why it was reverted](f360.md)
 - [Open — `api-check` fails intermittently under make, never on its own](open-api-check-flake.md)

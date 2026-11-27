@@ -1,0 +1,209 @@
+// `lib/graphics/shape`: flattening a path into polylines.
+//
+// **`tests/lang/graphics_stroke.zm` is the oracle for the curves** -- it prints the polylines a
+// rectangle and a circle flatten to -- and what these add is the part a fixture of two shapes
+// cannot reach: the rules about where a run starts, when it is kept and when it is thrown away.
+//
+// Those rules are fiddly and asymmetric, and until now nothing tested them. They were written
+// while moving this subdivider to C, an attempt that was **reverted because it did not pay** (see
+// `docs/reviews/tasks/f360.md`); the tests outlived it, and the last two outlived a break that
+// nothing else noticed.
+use geom
+use shape
+use test
+
+fn p(x: float, y: float) -> geom.Point {
+    return geom.point_of(x, y)
+}
+
+fn built(b: shape.PathBuilder) -> shape.Path {
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+// A flattened path written out: one line per run, its closed flag and then its points. Lines only,
+// so the numbers are the ones that went in and the run rules are all that is being read.
+fn runs_of(path: shape.Path) -> string {
+    val out = mutable_string_new()
+    for line in shape.flattened(path, 0.25) {
+        append(out, if line.closed { "closed:" } else { "open:" })
+        for pt in line.points {
+            append(out, prelude.format(" {},{}", str(pt.x), str(pt.y)))
+        }
+        append(out, "\n")
+    }
+    return snapshot(out)
+}
+
+#[test]
+fn a_line_path_flattens_to_the_points_it_was_given() {
+    val b = shape.path_builder()
+    shape.move_to(b, p(1.0, 2.0))
+    shape.line_to(b, p(3.0, 4.0))
+    shape.line_to(b, p(5.0, 6.0))
+    test.assert_eq(runs_of(built(b)), "open: 1.0,2.0 3.0,4.0 5.0,6.0\n")
+}
+
+#[test]
+fn closing_a_run_marks_it_closed_and_starts_the_next_at_the_move() {
+    val b = shape.path_builder()
+    shape.move_to(b, p(0.0, 0.0))
+    shape.line_to(b, p(4.0, 0.0))
+    shape.line_to(b, p(4.0, 3.0))
+    shape.close_path(b)
+    test.assert_eq(runs_of(built(b)), "closed: 0.0,0.0 4.0,0.0 4.0,3.0\n")
+}
+
+#[test]
+fn a_second_move_ends_the_run_before_it() {
+    val b = shape.path_builder()
+    shape.move_to(b, p(0.0, 0.0))
+    shape.line_to(b, p(4.0, 0.0))
+    shape.move_to(b, p(10.0, 10.0))
+    shape.line_to(b, p(14.0, 10.0))
+    test.assert_eq(runs_of(built(b)), "open: 0.0,0.0 4.0,0.0\nopen: 10.0,10.0 14.0,10.0\n")
+}
+
+#[test]
+fn a_run_of_one_point_is_thrown_away() {
+    // A `MoveTo` with nothing after it draws nothing, and must not leave a one-point run behind
+    // for a fill to close against itself.
+    val b = shape.path_builder()
+    shape.move_to(b, p(0.0, 0.0))
+    shape.line_to(b, p(4.0, 0.0))
+    shape.move_to(b, p(9.0, 9.0))
+    test.assert_eq(runs_of(built(b)), "open: 0.0,0.0 4.0,0.0\n")
+}
+
+#[test]
+fn a_path_with_nothing_in_it_flattens_to_nothing() {
+    test.assert_eq(runs_of(built(shape.path_builder())), "")
+}
+
+#[test]
+fn two_closed_runs_in_one_path_each_keep_their_own_start() {
+    val b = shape.path_builder()
+    shape.move_to(b, p(0.0, 0.0))
+    shape.line_to(b, p(2.0, 0.0))
+    shape.line_to(b, p(2.0, 2.0))
+    shape.close_path(b)
+    shape.move_to(b, p(10.0, 10.0))
+    shape.line_to(b, p(12.0, 10.0))
+    shape.line_to(b, p(12.0, 12.0))
+    shape.close_path(b)
+    test.assert_eq(
+        runs_of(built(b)),
+        "closed: 0.0,0.0 2.0,0.0 2.0,2.0\nclosed: 10.0,10.0 12.0,10.0 12.0,12.0\n"
+    )
+}
+
+// ---- the curves
+
+fn first_point(path: shape.Path) -> string {
+    val lines = shape.flattened(path, 0.25)
+    val pts = lines[0].points
+    return prelude.format("{},{}", str(pts[0].x), str(pts[0].y))
+}
+
+fn last_point(path: shape.Path) -> string {
+    val lines = shape.flattened(path, 0.25)
+    val pts = lines[prelude.len(lines) - 1].points
+    return prelude.format("{},{}", str(pts[prelude.len(pts) - 1].x), str(pts[prelude.len(pts) - 1].y))
+}
+
+fn vertices(path: shape.Path, tol: float) -> int {
+    var n = 0
+    for line in shape.flattened(path, tol) {
+        n = n + prelude.len(line.points)
+    }
+    return n
+}
+
+fn a_cubic() -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, p(0.0, 0.0))
+    shape.cubic_to(b, p(0.0, 40.0), p(40.0, 40.0), p(40.0, 0.0))
+    return built(b)
+}
+
+fn a_quad() -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, p(0.0, 0.0))
+    shape.quad_to(b, p(20.0, 40.0), p(40.0, 0.0))
+    return built(b)
+}
+
+#[test]
+fn a_curve_keeps_the_endpoints_it_was_given() {
+    // Subdivision may put as many vertices between them as it likes, but a curve that did not
+    // start or end where it was told would move every shape built from one.
+    test.assert_eq(first_point(a_cubic()), "0.0,0.0")
+    test.assert_eq(last_point(a_cubic()), "40.0,0.0")
+    test.assert_eq(first_point(a_quad()), "0.0,0.0")
+    test.assert_eq(last_point(a_quad()), "40.0,0.0")
+}
+
+#[test]
+fn a_curve_becomes_more_than_the_two_points_it_was_given() {
+    test.assert(vertices(a_cubic(), 0.25) > 2)
+    test.assert(vertices(a_quad(), 0.25) > 2)
+}
+
+#[test]
+fn a_tighter_tolerance_never_asks_for_fewer_vertices() {
+    // The whole of what the tolerance means. Not an equality, because adaptive subdivision halves:
+    // what it promises is monotonicity, not a count.
+    test.assert(vertices(a_cubic(), 0.05) >= vertices(a_cubic(), 0.25))
+    test.assert(vertices(a_cubic(), 0.25) >= vertices(a_cubic(), 2.0))
+}
+
+#[test]
+fn a_tolerance_of_zero_or_less_means_the_default() {
+    // `flat_outline` substitutes 0.25, so these are the same path flattened the same way rather
+    // than a subdivision that never terminates.
+    test.assert_eq(vertices(a_cubic(), 0.0), vertices(a_cubic(), 0.25))
+    test.assert_eq(vertices(a_cubic(), 0.0 - 1.0), vertices(a_cubic(), 0.25))
+}
+
+#[test]
+fn a_cusp_is_bounded_rather_than_subdivided_for_ever() {
+    // Both control points on top of the start, so the chord is a point and the flatness test takes
+    // its other branch. The depth cap is what stops this, and 2^16 vertices would not return.
+    val b = shape.path_builder()
+    shape.move_to(b, p(0.0, 0.0))
+    shape.cubic_to(b, p(0.0, 0.0), p(0.0, 0.0), p(0.0, 0.0))
+    test.assert(vertices(built(b), 0.0001) < 200000)
+}
+
+// ---- the two asymmetries, which only a break found
+
+// These two cases are not reachable from any shape this library draws, and neither the graphics
+// fixtures nor the tests above notice when they are wrong: both were written **because breaking
+// the subdivider in those two places left everything else green**. A rule that only a malformed
+// path can see is still a rule the renderer follows.
+
+#[test]
+fn a_run_begun_without_a_move_is_not_kept() {
+    // `flattened` emits the run before a `MoveTo` only when a `MoveTo` has already been seen, so
+    // segments before the first one contribute nothing. It reads like an oversight and it is the
+    // behaviour every fixture was recorded against.
+    val b = shape.path_builder()
+    shape.line_to(b, p(1.0, 1.0))
+    shape.line_to(b, p(2.0, 2.0))
+    shape.move_to(b, p(5.0, 5.0))
+    shape.line_to(b, p(6.0, 6.0))
+    test.assert_eq(runs_of(built(b)), "open: 5.0,5.0 6.0,6.0\n")
+}
+
+#[test]
+fn a_close_after_a_single_point_leaves_no_stray_vertex() {
+    // A `Close` always begins the next run at the last `MoveTo`, whether or not the run it ended
+    // was long enough to keep. If the discarded run's point were left behind, the run that follows
+    // would hold one vertex more than its own count says -- which is not a wrong picture but a
+    // desynchronised one, and every later run in the path would be read from the wrong offset.
+    val b = shape.path_builder()
+    shape.move_to(b, p(0.0, 0.0))
+    shape.close_path(b)
+    shape.line_to(b, p(4.0, 0.0))
+    shape.line_to(b, p(4.0, 3.0))
+    test.assert_eq(runs_of(built(b)), "open: 0.0,0.0 4.0,0.0 4.0,3.0\n")
+}
