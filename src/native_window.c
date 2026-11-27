@@ -413,8 +413,14 @@ static void finish_frame(Slot *s);
  * round trip and saves copying 4 MB. One shared helper so the two `present` natives cannot disagree
  * about that. */
 static void put_image(Slot *s, int x, int y, int width, int height) {
-    put_into(s, s->back != None ? s->back : s->win, x, y, width, height);
-    if (s->back != None) {
+    /* The back buffer only when it is the size of the frame being presented. It always is, because
+     * `ensure_image` makes them together -- and this costs two comparisons to make a door that
+     * forgot to say so draw straight to the window, which is merely the old behaviour, rather than
+     * into a pixmap of the wrong shape. */
+    const int buffered = s->back != None && s->back_width == s->image_width &&
+                         s->back_height == s->image_height;
+    put_into(s, buffered ? s->back : s->win, x, y, width, height);
+    if (buffered) {
         XCopyArea(g_display, s->back, s->win, s->gc, x, y, (unsigned)width, (unsigned)height, x, y);
     }
     finish_frame(s);
@@ -468,6 +474,14 @@ static const char *ensure_back(Slot *s, int width, int height) {
 }
 
 static const char *ensure_image(Slot *s, int width, int height) {
+    /* **The back buffer is made here and nowhere else**, because it is the same size as the image
+     * and is wanted whenever the image is. It was `present_premul_raw`'s job for an afternoon, and
+     * `present_raw` -- the bytes door, which calls this and did not call that -- would then have
+     * drawn a resized frame into a pixmap still the old size: a window that presented floats,
+     * resized, and then presented bytes would have shown the wrong pixels with nothing to say so.
+     * A rule kept in two places is kept in neither. */
+    const char *failed = ensure_back(s, width, height);
+    if (failed != NULL) return failed;
     if (s->image != NULL && s->image_width == width && s->image_height == height) return NULL;
     free_image(s);
     int screen = DefaultScreen(g_display);
@@ -1509,8 +1523,6 @@ static Value native_window_present_premul_raw(Value *args, int argc, int line, i
 
     const char *failed = ensure_image(s, (int)width, (int)height);
     if (failed != NULL) return window_err(ok, failed);
-    failed = ensure_back(s, (int)width, (int)height);
-    if (failed != NULL) return window_err(ok, failed);
 
     if (!pack_region(s, px, width, height, &rx, &ry, &rw, &rh)) {
         return window_ok(ok, value_unit());
@@ -1581,8 +1593,6 @@ static Value native_window_present_premul_regions_raw(Value *args, int argc, int
     if (count == 0) return window_ok(ok, value_unit());
 
     const char *failed = ensure_image(s, (int)width, (int)height);
-    if (failed != NULL) return window_err(ok, failed);
-    failed = ensure_back(s, (int)width, (int)height);
     if (failed != NULL) return window_err(ok, failed);
 
     /* Clipped bounds are kept so the copy below moves exactly what was packed; a rectangle that
