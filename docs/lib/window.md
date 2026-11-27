@@ -394,6 +394,36 @@ damage in its own coordinates and may well report some that has nothing left to 
 entirely outside presents nothing and says so by returning normally. An empty one is a caller
 mistake and is refused.
 
+### `present_regions`
+
+```
+pub fn present_regions(
+    w: Window,
+    pixels: MutableArray<float>,
+    width: int,
+    height: int,
+    regions: [Region]
+) -> Result<unit, string>
+```
+
+Puts **a whole frame's changed rectangles** on the window as one update.
+
+This is `present_region` for every region of a frame at once, and the difference is not only the
+number of calls. The pixels are composed into a **back buffer** -- a pixmap the server holds,
+the size of the window -- and only then copied to the window, one rectangle after another with
+nothing waiting in between. A frame that changed four distant places used to appear four
+rectangles at a time and cost four round trips to the display; it now appears once and costs
+one.
+
+**The back buffer keeps its contents between frames**, which is what makes it usable by a
+renderer that paints damage: the rectangles not in this frame are still the ones the window is
+showing. It is created at the window's size, so a resize makes a new one whose contents are
+undefined -- callers must repaint the whole window after a resize, which `desktop.repaint` does
+because `painter_fitting` drops the scene it remembered.
+
+A region reaching outside the frame is clipped and one entirely outside is skipped, as in
+`present_region`. An empty list presents nothing and says so by returning normally.
+
 ### `present_bytes`
 
 ```

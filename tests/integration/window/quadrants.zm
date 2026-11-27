@@ -271,6 +271,13 @@ fn use_repaint() -> bool {
     }
 }
 
+fn use_regions() -> bool {
+    return switch os.get_env("WINDOW_PRESENT_MODE") {
+        Some(mode) { mode == "regions" }
+        None { false }
+    }
+}
+
 // Drives `desktop.repaint` through the three cases a loop actually meets, reporting each so the
 // harness can read them: a first frame that must draw everything, a second with the same scene that
 // must draw **nothing at all**, and a changed scene whose damage must be the one quadrant that
@@ -357,6 +364,31 @@ fn paint_region(w: window.Window) -> Result<unit, string> {
     return magenta_region(w)
 }
 
+// **Two distant rectangles in one update, and the gap between them left alone.** This is what
+// `present_regions` is for: a frame composes its damage in the window's back buffer and the
+// rectangles are copied over together, so the window never shows one of them without the other.
+//
+// Asserted the same way as the single region above, and for the same reason: the buffer is flooded
+// magenta first, so a door that pushed the box *containing* the two rectangles -- which is most of
+// the window, and is exactly what a careless implementation does -- turns the gap magenta and every
+// quadrant with it.
+val second_x = 40
+val second_y = 180
+
+fn magenta_regions(w: window.Window) -> Result<unit, string> {
+    val buffer = quadrant_floats()
+    flood(buffer, 1.0, 0.0, 1.0)
+    return window.present_regions(w, buffer, width, height, [
+        window.Region { x: region_x, y: region_y, width: region_size, height: region_size },
+        window.Region { x: second_x, y: second_y, width: region_size, height: region_size }
+    ])
+}
+
+fn paint_regions(w: window.Window) -> Result<unit, string> {
+    try window.present(w, quadrant_floats(), width, height)
+    return magenta_regions(w)
+}
+
 // A **2 wide by 3 high** icon in straight RGBA: opaque red, green and blue, white at half alpha,
 // opaque black, and a fully transparent pixel.
 //
@@ -401,6 +433,7 @@ fn main() {
             // which is after the first event arrives.
             val floats = use_floats()
             val regional = use_region()
+            val several = use_regions()
             val driven = use_repaint()
             var painter = Option<desktop.Painter>.None
             if driven {
@@ -408,6 +441,8 @@ fn main() {
             } else {
                 if regional {
                     try paint_region(w)
+                } else if several {
+                    try paint_regions(w)
                 } else {
                     try paint_window(w, floats)
                 }
@@ -417,7 +452,11 @@ fn main() {
                 if driven {
                     "repaint"
                 } else {
-                    if regional { "region" } else { if floats { "floats" } else { "bytes" } }
+                    if regional {
+                        "region"
+                    } else {
+                        if several { "regions" } else { if floats { "floats" } else { "bytes" } }
+                    }
                 }
             )
             // **Re-presented every pass, not once.** A compositor can show the window before its
@@ -470,7 +509,12 @@ fn main() {
                     // `drive_repaint` left on it.
                     unit
                 } else {
-                    if regional {
+                    if several {
+                        // The same reasoning as the single region below: only the rectangles are
+                        // re-presented, so the harness cannot screenshot the wrong half of a cycle
+                        // between the quadrants and the squares.
+                        try magenta_regions(w)
+                    } else if regional {
                         // **Only the region, not the whole frame.** Re-presenting everything each
                         // pass as the other modes do left the window alternating between the
                         // quadrants and the magenta square, and the harness screenshotted the wrong

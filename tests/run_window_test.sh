@@ -33,7 +33,7 @@ command -v xprop >/dev/null || skip "no xprop"
 command -v import >/dev/null || skip "no ImageMagick import"
 
 work="$(mktemp -d)"
-trap 'rm -rf "$work"; for p in ${pid:-} ${bytes_pid:-} ${region_pid:-} ${repaint_pid:-}; do kill "$p" 2>/dev/null; done' EXIT
+trap 'rm -rf "$work"; for p in ${pid:-} ${bytes_pid:-} ${region_pid:-} ${regions_pid:-} ${repaint_pid:-}; do kill "$p" 2>/dev/null; done' EXIT
 
 "$BIN" "$PROGRAM" > "$work/out.txt" 2>&1 &
 pid=$!
@@ -283,6 +283,53 @@ else
     id="$whole_id"
 fi
 kill "$region_pid" 2>/dev/null
+
+# --- several regions in one update, which is what the back buffer is for
+#
+# `present_regions` composes a frame's damage into the window's back buffer and copies the
+# rectangles over together, so a frame that changed two distant places appears at once instead of a
+# rectangle at a time. The pixels can only check the second half of that -- that both rectangles
+# land and nothing between them does -- but that is the half an implementation gets wrong: the
+# buffer behind them is *entirely* magenta, so a door that pushed the box **containing** the two
+# rectangles, which is most of the window, turns the gap and every quadrant magenta.
+#
+# The squares are x 140..179 y 100..139 and x 40..79 y 180..219, which sit in different quadrants
+# and share neither a row nor a column.
+WINDOW_PRESENT_MODE=regions "$BIN" "$PROGRAM" > "$work/regions.txt" 2>&1 &
+regions_pid=$!
+regions_id=""
+for _ in $(seq 1 60); do
+    regions_id="$(grep -o 'window-id [0-9]*' "$work/regions.txt" 2>/dev/null | awk '{print $2}')"
+    [ -n "$regions_id" ] && break
+    sleep 0.1
+done
+regions_drawn=0
+for _ in $(seq 1 100); do
+    if grep -q '^presented regions' "$work/regions.txt" 2>/dev/null; then regions_drawn=1; break; fi
+    sleep 0.1
+done
+if [ -z "$regions_id" ] || [ "$regions_drawn" -eq 0 ]; then
+    echo "FAIL window_present_regions (no window or never presented: $(head -3 "$work/regions.txt" | tr '\n' ' '))"
+    fail=1
+else
+    whole_id="$id"
+    id="$regions_id"
+    check_pixel 160 120 "srgb(255,0,255)" regions_first_magenta
+    check_pixel 60 200 "srgb(255,0,255)" regions_second_magenta
+    # Between the two, in neither of them: the gap a careless union would have swallowed.
+    check_pixel 110 160 "srgb(0,0,255)" regions_gap_untouched
+    check_pixel 80 60 "srgb(255,0,0)" regions_outside_still_red
+    check_pixel 240 60 "srgb(0,255,0)" regions_outside_still_green
+    check_pixel 240 180 "srgb(255,255,255)" regions_outside_still_white
+    # The second rectangle's own edges, so that a batch which drew the first and skipped the second,
+    # or drew it at the first one's offset, cannot pass.
+    check_pixel 39 200 "srgb(0,0,255)" regions_second_edge_outside
+    check_pixel 40 200 "srgb(255,0,255)" regions_second_edge_inside
+    check_pixel 79 200 "srgb(255,0,255)" regions_second_edge_far_inside
+    check_pixel 80 200 "srgb(0,0,255)" regions_second_edge_far_outside
+    id="$whole_id"
+fi
+kill "$regions_pid" 2>/dev/null
 region_pid=""
 
 # --- the damage-driven repaint, which is the whole chain joined up

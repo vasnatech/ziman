@@ -277,16 +277,16 @@ pub fn repaint(
     }
     val painted = try raster.draw_into_regions(current.surface, s, o, damage)
     val pixels = raster.premultiplied_of(current.surface)
-    // One blit per region, for the same reason there is one draw per region: the display is asked
-    // for the pixels that changed and not for the box containing them.
+    // **One update for the frame, not one per region.** The display is still asked for the pixels
+    // that changed and not for the box containing them -- but all of them go into the window's
+    // back buffer first and are copied over in one batch, so a frame that changed four distant
+    // places appears at once instead of a rectangle at a time, and costs the display one round
+    // trip instead of four. See `window.present_regions`.
+    val shown = mutable_array_new<window.Region>()
     for one in painted {
-        try window.present_region(w, pixels.data, pixels.width, pixels.height, window.Region {
-            x: one.x,
-            y: one.y,
-            width: one.width,
-            height: one.height
-        })
+        push(shown, window.Region { x: one.x, y: one.y, width: one.width, height: one.height })
     }
+    try window.present_regions(w, pixels.data, pixels.width, pixels.height, snapshot(shown))
     return ok(Repaint { next: remembered, regions: painted })
 }
 

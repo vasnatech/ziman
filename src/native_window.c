@@ -126,6 +126,22 @@ typedef struct {
     int shm_active;     /* `pixels` is a shared-memory segment, not a malloc'd buffer */
     int image_width;
     int image_height;
+    /* The back buffer: a server-side pixmap the size of the window, composed into and then copied
+     * to the window in one batch per frame.
+     *
+     * **Why a pixmap and not the Double Buffer extension.** DBE's swap is defined over the whole
+     * drawable, and this renderer paints *damage* -- a caret, a hovered row -- so it needs a back
+     * buffer whose contents survive a frame. `XdbeCopied` promises that and is the swap action
+     * servers implement least well; a pixmap promises it by being one. It also costs nothing on a
+     * frame that changes nothing, because nothing is copied.
+     *
+     * Contents are undefined when it is created, which is correct here only because every path
+     * that makes a new one also forces a full repaint: `desktop.painter_fitting` drops the
+     * remembered scene on a resize, and the first frame of a window has no remembered scene at
+     * all. A partial first frame would show whatever the server had in that memory. */
+    Pixmap back;
+    int back_width;
+    int back_height;
     int width;
     int height;
     /* The cursor shape this window is currently showing, so that setting it again on every
@@ -134,6 +150,11 @@ typedef struct {
      * the user is dragging something. */
     int cursor_kind;
 } Slot;
+
+/* As many damage rectangles as one frame may present. `raster.damage_regions` suggests four
+ * and `desktop.repaint` asks for four; the cap is here so the clipped bounds can live on the
+ * stack, and anything past it is simply not drawn, which a caller would see at once. */
+#define WINDOW_MAX_REGIONS 16
 
 static Display *g_display = NULL;
 static Atom g_wm_delete = None;
@@ -378,6 +399,9 @@ static int try_shm_image(Slot *s, int width, int height, Visual *visual, int dep
     return 1;
 }
 
+static void put_into(Slot *s, Drawable into, int x, int y, int width, int height);
+static void finish_frame(Slot *s);
+
 /* The frame on screen, by whichever route this slot has.
  *
  * **The shared-memory route needs the sync and the copying route does not**, which is the one thing
@@ -389,14 +413,58 @@ static int try_shm_image(Slot *s, int width, int height, Visual *visual, int dep
  * round trip and saves copying 4 MB. One shared helper so the two `present` natives cannot disagree
  * about that. */
 static void put_image(Slot *s, int x, int y, int width, int height) {
+    put_into(s, s->back != None ? s->back : s->win, x, y, width, height);
+    if (s->back != None) {
+        XCopyArea(g_display, s->back, s->win, s->gc, x, y, (unsigned)width, (unsigned)height, x, y);
+    }
+    finish_frame(s);
+}
+
+/* One rectangle of `s->image` onto a drawable -- the back buffer when there is one, the window
+ * itself otherwise. */
+static void put_into(Slot *s, Drawable into, int x, int y, int width, int height) {
     if (s->shm_active) {
-        XShmPutImage(g_display, s->win, s->gc, s->image, x, y, x, y, (unsigned)width,
+        XShmPutImage(g_display, into, s->gc, s->image, x, y, x, y, (unsigned)width,
                      (unsigned)height, False);
+        return;
+    }
+    XPutImage(g_display, into, s->gc, s->image, x, y, x, y, (unsigned)width, (unsigned)height);
+}
+
+/* **The one round trip a frame, and why it cannot be dropped.** With a shared segment the server
+ * reads the buffer this process is still holding, so packing the next frame into it before the
+ * server has finished tears -- and `send_event False` asks for no completion event to wait on.
+ * `XSync` is the wait. Without the segment `XPutImage` has already copied the pixels into the
+ * request, so a flush is enough.
+ *
+ * It is once per *frame* rather than once per rectangle, which is what composing into a back
+ * buffer makes possible: a frame that changed four distant places used to cost four round trips
+ * and showed its four rectangles one at a time. */
+static void finish_frame(Slot *s) {
+    if (s->shm_active) {
         XSync(g_display, False);
         return;
     }
-    XPutImage(g_display, s->win, s->gc, s->image, x, y, x, y, (unsigned)width, (unsigned)height);
     XFlush(g_display);
+}
+
+/* The back buffer at this size, made again when the window changes shape. */
+static const char *ensure_back(Slot *s, int width, int height) {
+    if (s->back != None && s->back_width == width && s->back_height == height) return NULL;
+    if (s->back != None) {
+        XFreePixmap(g_display, s->back);
+        s->back = None;
+        s->back_width = 0;
+        s->back_height = 0;
+    }
+    int screen = DefaultScreen(g_display);
+    Pixmap made = XCreatePixmap(g_display, s->win, (unsigned)width, (unsigned)height,
+                                (unsigned)DefaultDepth(g_display, screen));
+    if (made == None) return "cannot create the window's back buffer";
+    s->back = made;
+    s->back_width = width;
+    s->back_height = height;
+    return NULL;
 }
 
 static const char *ensure_image(Slot *s, int width, int height) {
@@ -1238,6 +1306,12 @@ static Value native_window_close_raw(Value *args, int argc, int line, int col) {
     Slot *s = slot_of(args[0].as.i);
     if (s != NULL) {
         free_image(s);
+        if (s->back != None) {
+            XFreePixmap(g_display, s->back);
+            s->back = None;
+            s->back_width = 0;
+            s->back_height = 0;
+        }
         XFreeGC(g_display, s->gc);
         XDestroyWindow(g_display, s->win);
         XFlush(g_display);
@@ -1347,6 +1421,52 @@ static Value native_window_color_scheme_raw(Value *args, int argc, int line, int
  * may differ from `(1.0 / a) * 255.0` by an ULP, so a channel sitting precisely on a rounding
  * boundary could land a byte either side of it -- which is not worth a divide per pixel to avoid on
  * a path that discards alpha anyway, but is worth not claiming to be bit-identical. */
+#ifdef ZIMAN_X11
+/* One rectangle of premultiplied float pixels packed into `s->pixels` in the visual's own order,
+ * clipping the rectangle to the buffer first and reporting through the four pointers what was
+ * actually packed. Answers 0 when the rectangle has nothing left after clipping.
+ *
+ * **A region reaching outside the frame is clipped, not refused**, because a window manager
+ * reports damage in its own coordinates and may report some that has nothing left to cover. */
+static int pack_region(Slot *s, const double *px, int64_t width, int64_t height,
+                       int64_t *rxp, int64_t *ryp, int64_t *rwp, int64_t *rhp) {
+    int64_t rx = *rxp, ry = *ryp, rw = *rwp, rh = *rhp;
+    if (rw < 1 || rh < 1) return 0;
+    if (rx < 0) { rw += rx; rx = 0; }
+    if (ry < 0) { rh += ry; ry = 0; }
+    if (rx >= width || ry >= height) return 0;
+    if (rx + rw > width) rw = width - rx;
+    if (ry + rh > height) rh = height - ry;
+    if (rw < 1 || rh < 1) return 0;
+
+    uint32_t *out = (uint32_t *)s->pixels;
+    for (int64_t row = ry; row < ry + rh; row++) {
+    for (int64_t cx = rx; cx < rx + rw; cx++) {
+        const size_t i = (size_t)(row * width + cx);
+        const double *p = px + i * 4u;
+        const double a = p[3];
+        /* An opaque pixel needs no un-premultiplying, and a window's frame is normally opaque
+         * throughout -- a scene with an `Options.background` has alpha 1 everywhere. Measured
+         * before being kept. */
+        const double scale = a >= 1.0 ? 255.0 : (a > 0.0 ? 255.0 / a : 0.0);
+        double r = p[0] * scale + 0.5;
+        double g = p[1] * scale + 0.5;
+        double b = p[2] * scale + 0.5;
+        if (r > 255.0) r = 255.0;
+        if (g > 255.0) g = 255.0;
+        if (b > 255.0) b = 255.0;
+        if (r < 0.0) r = 0.0;
+        if (g < 0.0) g = 0.0;
+        if (b < 0.0) b = 0.0;
+        out[i] = ((uint32_t)(int64_t)r << g_red_shift) | ((uint32_t)(int64_t)g << g_green_shift)
+                 | ((uint32_t)(int64_t)b << g_blue_shift);
+    }
+    }
+    *rxp = rx; *ryp = ry; *rwp = rw; *rhp = rh;
+    return 1;
+}
+#endif
+
 static Value native_window_present_premul_raw(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     Type ok = type_scalar(TY_UNIT);
@@ -1387,41 +1507,14 @@ static Value native_window_present_premul_raw(Value *args, int argc, int line, i
         return window_err(ok, message);
     }
 
-    if (rw < 1 || rh < 1) return window_err(ok, "the region to present must be larger than nothing");
-    if (rx < 0) { rw += rx; rx = 0; }
-    if (ry < 0) { rh += ry; ry = 0; }
-    if (rx >= width || ry >= height) return window_ok(ok, value_unit());
-    if (rx + rw > width) rw = width - rx;
-    if (ry + rh > height) rh = height - ry;
-    if (rw < 1 || rh < 1) return window_ok(ok, value_unit());
-
     const char *failed = ensure_image(s, (int)width, (int)height);
     if (failed != NULL) return window_err(ok, failed);
+    failed = ensure_back(s, (int)width, (int)height);
+    if (failed != NULL) return window_err(ok, failed);
 
-    uint32_t *out = (uint32_t *)s->pixels;
-    for (int64_t row = ry; row < ry + rh; row++) {
-    for (int64_t cx = rx; cx < rx + rw; cx++) {
-        const size_t i = (size_t)(row * width + cx);
-        const double *p = px + i * 4u;
-        const double a = p[3];
-        /* An opaque pixel needs no un-premultiplying, and a window's frame is normally opaque
-         * throughout -- a scene with an `Options.background` has alpha 1 everywhere. Measured
-         * before being kept. */
-        const double scale = a >= 1.0 ? 255.0 : (a > 0.0 ? 255.0 / a : 0.0);
-        double r = p[0] * scale + 0.5;
-        double g = p[1] * scale + 0.5;
-        double b = p[2] * scale + 0.5;
-        if (r > 255.0) r = 255.0;
-        if (g > 255.0) g = 255.0;
-        if (b > 255.0) b = 255.0;
-        if (r < 0.0) r = 0.0;
-        if (g < 0.0) g = 0.0;
-        if (b < 0.0) b = 0.0;
-        out[i] = ((uint32_t)(int64_t)r << g_red_shift) | ((uint32_t)(int64_t)g << g_green_shift)
-                 | ((uint32_t)(int64_t)b << g_blue_shift);
+    if (!pack_region(s, px, width, height, &rx, &ry, &rw, &rh)) {
+        return window_ok(ok, value_unit());
     }
-    }
-
     put_image(s, (int)rx, (int)ry, (int)rw, (int)rh);
     return window_ok(ok, value_unit());
 #endif
@@ -1445,10 +1538,87 @@ static Value native_window_clipboard_get_raw(Value *args, int argc, int line, in
 }
 #endif /* !ZIMAN_X11 */
 
+/* window.present_premul_regions_raw(handle, pixels, width, height, rects): a whole frame's damage,
+ * composed into the back buffer and then shown in one batch.
+ *
+ * **This is what the back buffer is for.** `present_premul_raw` above puts one rectangle up and
+ * waits for the server; a frame that changed four distant places -- `raster.damage_regions` offers
+ * up to four -- therefore cost four round trips and appeared four rectangles at a time. Here every
+ * rectangle is packed and put into the pixmap first, then copied to the window one after another
+ * with nothing waiting in between, and the single `XSync` at the end is the one round trip the
+ * shared segment needs before the next frame packs over it.
+ *
+ * `rects` is four ints a rectangle: x, y, width, height, in device pixels. A rectangle with
+ * nothing left after clipping is skipped rather than refused, exactly as the single-region door
+ * skips it. */
+static Value native_window_present_premul_regions_raw(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    Type ok = type_scalar(TY_UNIT);
+#ifndef ZIMAN_X11
+    (void)args;
+    return window_err(ok, "this build of ziman has no window backend (build with `make gui`)");
+#else
+    Slot *s = slot_of(args[0].as.i);
+    if (s == NULL) return window_err(ok, "no such window (already closed?)");
+    int64_t width = args[2].as.i;
+    int64_t height = args[3].as.i;
+    if (width < 1 || height < 1) return window_err(ok, "the pixel buffer's width and height must be positive");
+
+    size_t n = 0;
+    const double *px = ziman_mutable_array_float_data(args[1], &n);
+    size_t needed = (size_t)width * (size_t)height * 4u;
+    if (n < needed) {
+        char message[176];
+        snprintf(message, sizeof message,
+                 "the pixel buffer is %zu floats but %lldx%lld premultiplied RGBA needs %zu", n,
+                 (long long)width, (long long)height, needed);
+        return window_err(ok, message);
+    }
+
+    const ArrayObj *rects = args[4].as.arr;
+    int64_t count = rects == NULL ? 0 : (int64_t)rects->count;
+    if (count % 4 != 0) return window_err(ok, "the regions must be four numbers each: x, y, width, height");
+    if (count == 0) return window_ok(ok, value_unit());
+
+    const char *failed = ensure_image(s, (int)width, (int)height);
+    if (failed != NULL) return window_err(ok, failed);
+    failed = ensure_back(s, (int)width, (int)height);
+    if (failed != NULL) return window_err(ok, failed);
+
+    /* Clipped bounds are kept so the copy below moves exactly what was packed; a rectangle that
+     * clipped away entirely is marked with a zero width and skipped twice. */
+    int64_t kept[WINDOW_MAX_REGIONS * 4];
+    int64_t keeping = count / 4;
+    if (keeping > WINDOW_MAX_REGIONS) keeping = WINDOW_MAX_REGIONS;
+    for (int64_t i = 0; i < keeping; i++) {
+        int64_t rx = rects->ints[i * 4 + 0];
+        int64_t ry = rects->ints[i * 4 + 1];
+        int64_t rw = rects->ints[i * 4 + 2];
+        int64_t rh = rects->ints[i * 4 + 3];
+        if (pack_region(s, px, width, height, &rx, &ry, &rw, &rh)) {
+            put_into(s, s->back, (int)rx, (int)ry, (int)rw, (int)rh);
+            kept[i * 4 + 0] = rx; kept[i * 4 + 1] = ry;
+            kept[i * 4 + 2] = rw; kept[i * 4 + 3] = rh;
+        } else {
+            kept[i * 4 + 2] = 0;
+        }
+    }
+    for (int64_t i = 0; i < keeping; i++) {
+        if (kept[i * 4 + 2] < 1) continue;
+        XCopyArea(g_display, s->back, s->win, s->gc, (int)kept[i * 4 + 0], (int)kept[i * 4 + 1],
+                  (unsigned)kept[i * 4 + 2], (unsigned)kept[i * 4 + 3],
+                  (int)kept[i * 4 + 0], (int)kept[i * 4 + 1]);
+    }
+    finish_frame(s);
+    return window_ok(ok, value_unit());
+#endif
+}
+
 void native_window_register(void) {
     native_register("window::open_raw", native_window_open_raw);
     native_register("window::present_raw", native_window_present_raw);
     native_register("window::present_premul_raw", native_window_present_premul_raw);
+    native_register("window::present_premul_regions_raw", native_window_present_premul_regions_raw);
     native_register("window::poll_raw", native_window_poll_raw);
     native_register("window::size_raw", native_window_size_raw);
     native_register("window::id_raw", native_window_id_raw);

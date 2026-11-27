@@ -8577,6 +8577,8 @@ pub struct Region {
 
 pub fn present_region(
 
+pub fn present_regions(
+
 pub fn present_bytes(w: Window, pixels: [byte], width: int, height: int) -> Result<unit, string>
 
 pub fn size(w: Window) -> Result<Size, string>
