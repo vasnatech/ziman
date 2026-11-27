@@ -1109,6 +1109,27 @@ fn a_day_cell_is_as_tall_as_it_is_wide() {
     test.assert(math.abs(cell.height - cell.width) < 0.5)
 }
 
+// **The footer's buttons are buttons**, and have to be the height of one.
+//
+// `foot_in` asked `row_height` for the band, and a row's height carries `Style.row_air` -- a
+// list's air, not a control's. The two buttons under the grid therefore stood `row_air` taller
+// than every other button in the window, which is twelve points in the health-record look.
+// Reported 2026-11-27 as "datepicker select and cancel buttons can have shorter height".
+//
+// **Measured against a real button rather than against a number**, which is
+// `a_toggle_group_is_exactly_a_button_tall`'s rule and the reason it is one: a test holding its
+// own copy of the arithmetic agrees with itself while the two drift apart.
+#[test]
+fn a_calendars_footer_buttons_are_exactly_a_button_tall() {
+    val tall = widget.measure(controls.button_widget(controls.button_of("go", "Select"), frame()), metrics()).height
+    for name in ["due/cancel", "due/select"] {
+        switch widget.node_named(calendar_laid(opened_calendar()), name) {
+            Some(n) { test.assert_near(n.bounds.height, tall, 0.001) }
+            None { test.assert(false) }
+        }
+    }
+}
+
 // **A weekday name is a label and must not do anything.** The band above the day grid is the
 // title *and* the row of weekday names, so a header press tested against the whole band meant
 // pressing "Mon" paged the month or zoomed out to the year.

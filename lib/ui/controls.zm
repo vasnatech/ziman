@@ -5746,7 +5746,23 @@ fn calendar_size(f: Frame) -> widget.Size {
 // changing their mind -- and it is the one thing the design this follows has that a drawn grid
 // alone does not. `Cancel` leaves the field as it was; `Select` writes what is highlighted.
 fn foot_in(f: Frame) -> float {
-    return row_height(f.metrics, f.style) + f.style.padding.top + f.style.padding.bottom + calendar_pad(f)
+    return button_tall(f) + calendar_pad(f)
+}
+
+// How tall a button comes out: its words, and the padding `button_inside` lays around them.
+//
+// **A button is not a row tall.** `row_height` carries `Style.row_air`, which is a *list's* air --
+// what a line of a list, a tree or a table gets so that rows of text are readable down a column.
+// A button has nothing to do with that scale, and the calendar's footer asking for a row stood its
+// two buttons `row_air` taller than every other button in the window: twelve points, in the
+// health-record look. Reported 2026-11-27 as "datepicker select and cancel buttons can have
+// shorter height".
+//
+// **The same arithmetic `button_inside` does**, so this answers what a button measures rather than
+// predicting it -- `a_calendars_footer_buttons_are_exactly_a_button_tall` holds the two together.
+fn button_tall(f: Frame) -> float {
+    val pad = padded_for(f.style)
+    return line_for(f.metrics, f.style.text.label) + pad.top + pad.bottom
 }
 
 // The footer's two boxes, asked once by the drawing and once by the press -- `head_boxes`' rule.
