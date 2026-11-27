@@ -1073,6 +1073,42 @@ fn outcome_of(d: controls.DateField, p: geom.Point) -> string {
     return concat(controls.date_text(after), " @", str(after.at.year), "-", str(after.at.month))
 }
 
+// **Every row of an open list has to be inside the popup**, because `widget.layer_at` only
+// reaches what its parent's bounds cover: a row drawn past the bottom edge is painted and not
+// clickable, and nothing on screen says which of the twelve months you cannot choose.
+//
+// **The popup is not sized for the list any more.** It was, and that made a day cell a third
+// taller than it was wide whenever the list was the taller of the two -- a square grid stretched
+// by a list that was not even showing. The list gives up a fraction of a point a row instead,
+// which is what this test is here to keep honest.
+#[test]
+fn every_row_of_an_open_list_is_inside_the_popup() {
+    val days = opened_calendar()
+    for d in [pressed_part(days, "/month"), pressed_part(days, "/year")] {
+        val popup = controls.calendar_box(d, calendar_laid(d), date_window, frame())
+        var i = 0
+        while i < 12 {
+            val at = drawn_cell(d, i)
+            test.assert(at.height > 0.0)
+            test.assert(at.y >= popup.y)
+            test.assert(at.y + at.height <= popup.y + popup.height)
+            i = i + 1
+        }
+    }
+}
+
+// **A day cell is square**, which is what a month reads as and what the design this follows
+// draws. It stopped being square when the popup took its height from the taller of the grid and
+// the open list: six rows then shared a band meant for twelve, and the week spread out under a
+// row of weekday names that stayed where they were.
+#[test]
+fn a_day_cell_is_as_tall_as_it_is_wide() {
+    val d = opened_calendar()
+    val cell = drawn_cell(d, 0)
+    test.assert(cell.width > 0.0)
+    test.assert(math.abs(cell.height - cell.width) < 0.5)
+}
+
 // **A weekday name is a label and must not do anything.** The band above the day grid is the
 // title *and* the row of weekday names, so a header press tested against the whole band meant
 // pressing "Mon" paged the month or zoomed out to the year.

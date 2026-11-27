@@ -987,17 +987,77 @@ fn chevron(down: bool) -> shape.Path {
 //
 // **A mirror of `chevron(false)` and not a fourth shape**, so the two arrows on a calendar's
 // header are the same arrow and a theme that changed one changed both.
-fn chevron_back() -> shape.Path {
+// How thick a drawn chevron's band is, measured down the box rather than across the arm: the
+// arms are at forty-five degrees, so the thickness anyone sees is this over the square root of
+// two -- about a tenth of the box, which is what a hairline chevron measures in a design at the
+// sizes a header uses one.
+val vee_band = 0.14
+
+// A chevron drawn as a **line** rather than a filled triangle: `p` and `q` are the open ends,
+// `a` is the point, and `dx`/`dy` push the band's far edge off the near one.
+//
+// **Traced as an outline, because there is no pen.** `widget.Drawn` carries a fill colour and
+// nothing else, so a stroke has to be a closed path: out along the vee and back along it offset,
+// which mitres at the point by itself because both arms meet it at the same angle.
+//
+// **Not a second look for `chevron`.** The filled triangle stays what every disclosure in this
+// library wears -- a combo box, a tree row, an expander. This is the calendar header's, where a
+// solid triangle beside a month's name reads as a sort mark on a column.
+fn stroked_vee(p: Point, a: Point, q: Point, dx: float, dy: float) -> shape.Path {
     val b = shape.path_builder()
-    shape.move_to(b, geom.point_of(0.62, 0.25))
-    shape.line_to(b, geom.point_of(0.62, 0.75))
-    shape.line_to(b, geom.point_of(0.34, 0.5))
+    shape.move_to(b, p)
+    shape.line_to(b, a)
+    shape.line_to(b, q)
+    shape.line_to(b, geom.point_of(q.x + dx, q.y + dy))
+    shape.line_to(b, geom.point_of(a.x + dx, a.y + dy))
+    shape.line_to(b, geom.point_of(p.x + dx, p.y + dy))
     shape.close_path(b)
     return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
 }
 
+// The four of them, each centred in its own box so that one swapped for another does not shift.
+fn vee_down() -> shape.Path {
+    return stroked_vee(
+        geom.point_of(0.25, 0.305),
+        geom.point_of(0.5, 0.555),
+        geom.point_of(0.75, 0.305),
+        0.0,
+        vee_band
+    )
+}
+
+fn vee_up() -> shape.Path {
+    return stroked_vee(
+        geom.point_of(0.25, 0.695),
+        geom.point_of(0.5, 0.445),
+        geom.point_of(0.75, 0.695),
+        0.0,
+        0.0 - vee_band
+    )
+}
+
+fn vee_back() -> shape.Path {
+    return stroked_vee(
+        geom.point_of(0.555, 0.25),
+        geom.point_of(0.305, 0.5),
+        geom.point_of(0.555, 0.75),
+        vee_band,
+        0.0
+    )
+}
+
+fn vee_forward() -> shape.Path {
+    return stroked_vee(
+        geom.point_of(0.445, 0.25),
+        geom.point_of(0.695, 0.5),
+        geom.point_of(0.445, 0.75),
+        0.0 - vee_band,
+        0.0
+    )
+}
+
 fn pager_widget(back: bool, ink: Color, side: float) -> widget.Widget {
-    return widget.fixed_of(side, side, widget.drawn_of(if back { chevron_back() } else { chevron(false) }, ink))
+    return widget.fixed_of(side, side, widget.drawn_of(if back { vee_back() } else { vee_forward() }, ink))
 }
 
 // The arrow at the size the text beside it is, so it grows with a theme that sets a larger type
@@ -1006,22 +1066,13 @@ fn chevron_widget(down: bool, ink: Color, side: float) -> widget.Widget {
     return widget.fixed_of(side, side, widget.drawn_of(chevron(down), ink))
 }
 
-// The downward chevron turned over: what a mark wears **while the thing it opens is open**.
+// What a header mark wears, and **turned over while the thing it opens is open**.
 //
-// **A third shape and not `chevron(false)`**, which is the *rightward* one a tree's closed row
-// uses -- a mark that turned from pointing down to pointing right would be saying "this opens
-// sideways", which nothing in this library does.
-fn chevron_up() -> shape.Path {
-    val b = shape.path_builder()
-    shape.move_to(b, geom.point_of(0.25, 0.6))
-    shape.line_to(b, geom.point_of(0.75, 0.6))
-    shape.line_to(b, geom.point_of(0.5, 0.32))
-    shape.close_path(b)
-    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
-}
-
+// **Turned over and not turned sideways.** `chevron(false)` is the *rightward* one a tree's shut
+// row uses, so a mark that swapped down for right would be saying "this opens sideways", which
+// nothing in this library does.
 fn mark_chevron(up: bool, ink: Color, side: float) -> widget.Widget {
-    return widget.fixed_of(side, side, widget.drawn_of(if up { chevron_up() } else { chevron(true) }, ink))
+    return widget.fixed_of(side, side, widget.drawn_of(if up { vee_up() } else { vee_down() }, ink))
 }
 
 // The mark on a sorted column's title: the disclosure chevron, and the same triangle turned over
@@ -5663,8 +5714,11 @@ fn title_height(f: Frame) -> float {
 // **One answer, because there is one grid.** It differed by view while the months and years were
 // grids of their own drawn where the days had been; they are lists over the days now, so the band
 // above the cells is always the title and the row of weekday names.
+// **A whole cell for the weekday names and not seven tenths of one.** They are a heading over a
+// column, which means they sit over the column rather than over the gap above it: at 0.7 the
+// names rode up under the title and left the first week floating a third of a row below them.
 fn head_in(f: Frame, v: CalendarView) -> float {
-    return title_height(f) + calendar_cell(f) * 0.7
+    return title_height(f) + calendar_cell(f)
 }
 
 // **One size for all three views**, taken from the day grid, which is the largest. A popup that
@@ -5672,24 +5726,16 @@ fn head_in(f: Frame, v: CalendarView) -> float {
 // months and the press that chose one.
 fn calendar_size(f: Frame) -> widget.Size {
     val pad = calendar_pad(f) * 2.0
+    // **The grid's own height, and the list fits itself into what that leaves.** Sizing the
+    // popup for the taller of the two made the day cells a third taller than they are wide
+    // whenever a list was the taller -- a square grid stretched into a tall one by a list that
+    // was not even showing. The cells are square now and `list_row_tall` gives up a hair a row
+    // instead, which nothing can see and which keeps every row pressable.
     val grid = calendar_cell(f) * (calendar_rows as float)
-    // **Room for the taller of the grid and the list**, so a list never has to be cut off at the
-    // foot of the popup: a row that can be read and not pressed is the layer-past-its-parent
-    // defect in another costume. The popup is one size in every view for the reason it always
-    // was -- one that resized as a list opened would move under the pointer.
-    val body = if list_body_tall(f) > grid { list_body_tall(f) } else { grid }
     return widget.size_of(
         calendar_cell(f) * (calendar_columns as float) + pad,
-        head_in(f, CalendarView.Days) + body + pad + foot_in(f)
+        head_in(f, CalendarView.Days) + grid + pad + foot_in(f)
     )
-}
-
-// How tall the taller of the two lists comes to. **Twelve either way**: twelve months in a year,
-// and `years_in_block` years chosen to match them so the popup does not change size between the
-// two marks.
-fn list_body_tall(f: Frame) -> float {
-    val style = f.style
-    return line_for(f.metrics, style.text.caption) + style.space.xs * 3.0 + list_row_tall(f) * 12.0
 }
 
 // How much of the popup's box the footer takes, under the grid.
@@ -5748,8 +5794,39 @@ val years_in_block = 12
 
 // A row of one of the lists: a line of text and a step of air, which is tighter than a day's cell
 // because a list is read down and a grid is read across.
-fn list_row_tall(f: Frame) -> float {
-    return line_for(f.metrics, f.style.text.body) + f.style.space.s
+//
+// **Unless the room says otherwise.** A list hangs from its mark down to the foot of the popup
+// and that is all the room there is -- `widget.layer_at` only reaches what its parent's bounds
+// cover, so a row past the bottom edge would be painted and not clickable. Twelve rows at the
+// height they ask for come to a few points more than the room, so the rows share what there is
+// and no row is ever given more than it wanted. **Asked here and nowhere else**, which is what
+// keeps `list_row_at` on the row that was drawn.
+fn list_row_tall(d: DateField, f: Frame) -> float {
+    val style = f.style
+    val want = line_for(f.metrics, style.text.body) + style.space.s
+    val count = list_count(d)
+    if count <= 0 {
+        return want
+    }
+    val each = (list_room(f) - list_heading_tall(f) - style.space.xs * 2.0) / (count as float)
+    if each < want {
+        return each
+    }
+    return want
+}
+
+// The band the heading over a list takes.
+fn list_heading_tall(f: Frame) -> float {
+    return line_for(f.metrics, f.style.text.caption) + f.style.space.xs
+}
+
+// How far it is from the top of a list to the foot of the popup: the list's whole allowance.
+//
+// **Measured from `calendar_size` and not from the laid box**, because they are the same number
+// -- the popup is one size in every view -- and because the panel is built without the box.
+fn list_room(f: Frame) -> float {
+    val top = calendar_pad(f) + title_height(f) + f.style.space.xs
+    return calendar_size(f).height - top - calendar_pad(f)
 }
 
 // The heading over the list -- "MONTH", "YEAR" -- which is what says *which* of the two marks
@@ -5804,8 +5881,7 @@ fn list_box(d: DateField, at: Rect, f: Frame) -> Rect {
 }
 
 fn list_tall(d: DateField, f: Frame) -> float {
-    val heading = line_for(f.metrics, f.style.text.caption) + f.style.space.xs
-    return heading + list_row_tall(f) * (list_count(d) as float) + f.style.space.xs * 2.0
+    return list_heading_tall(f) + list_row_tall(d, f) * (list_count(d) as float) + f.style.space.xs * 2.0
 }
 
 fn list_wide(d: DateField, f: Frame) -> float {
@@ -5819,8 +5895,9 @@ fn list_wide(d: DateField, f: Frame) -> float {
         }
         i = i + 1
     }
-    // **The panel's padding and the row's**, both of them: a width that counted only the first
-    // clipped "September" to "Septembe" and nothing on screen said why.
+    // **The row's own indent, twice**, which is all of it now that the panel adds none: a width
+    // that counted only the first clipped "September" to "Septembe" and nothing on screen said
+    // why.
     return widest + style.padding.left * 2.0 + style.space.xs * 2.0
 }
 
@@ -5830,12 +5907,11 @@ fn list_row_at(d: DateField, at: Rect, p: Point, f: Frame) -> int {
     if !widget.contains(box, p) {
         return 0 - 1
     }
-    val heading = line_for(f.metrics, f.style.text.caption) + f.style.space.xs
-    val top = box.y + f.style.space.xs + heading
+    val top = box.y + f.style.space.xs + list_heading_tall(f)
     if p.y < top {
         return 0 - 1
     }
-    val row = ((p.y - top) / list_row_tall(f)) as int
+    val row = ((p.y - top) / list_row_tall(d, f)) as int
     if row < 0 || row >= list_count(d) {
         return 0 - 1
     }
@@ -5848,13 +5924,22 @@ fn list_panel(d: DateField, f: Frame) -> widget.Widget {
     val rows = mutable_array_new<widget.Widget>()
     push(rows, widget.fixed_of(
         0.0,
-        line_for(f.metrics, style.text.caption) + style.space.xs,
-        widget.label_in_face(
-            list_heading(d),
-            style.text.caption.size,
-            style.states.disabled.ink,
-            style.text.caption.face
-        )
+        list_heading_tall(f),
+        // The heading carries the rows' own indent, because the panel no longer has one.
+        widget.Widget.Group(widget.Stack {
+            direction: widget.Direction.Row,
+            spacing: 0.0,
+            padding: widget.insets_of(style.padding.left, 0.0, style.padding.left, 0.0),
+            surface: widget.no_surface(),
+            align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+            children: [widget.label_in_face(
+                list_heading(d),
+                style.text.caption.size,
+                style.states.disabled.ink,
+                style.text.caption.face
+            )],
+            name: ""
+        })
     ))
     var i = 0
     while i < list_count(d) {
@@ -5864,7 +5949,10 @@ fn list_panel(d: DateField, f: Frame) -> widget.Widget {
     return widget.Widget.Group(widget.Stack {
         direction: widget.Direction.Column,
         spacing: 0.0,
-        padding: widget.insets_of(style.padding.left, style.space.xs, style.padding.left, style.space.xs),
+        // **No side padding, so a row's band runs edge to edge.** The indent moved onto the
+        // rows: with it here the lit row was a pill floating inside the panel rather than the
+        // band across it that a chosen row is everywhere else, here and in the design both.
+        padding: widget.insets_of(0.0, style.space.xs, 0.0, style.space.xs),
         surface: raised_of(style, style.panel),
         align: widget.stretched(),
         children: snapshot(rows),
@@ -5877,7 +5965,7 @@ fn list_row(d: DateField, index: int, f: Frame) -> widget.Widget {
     val name = concat(d.name, "/cell/", str(index))
     val chosen = list_is_chosen(d, index)
     val parts = parts_for(style, mood_of(false, false, chosen, hovered_in(f, name)))
-    return widget.fixed_of(0.0, list_row_tall(f), widget.part_of(
+    return widget.fixed_of(0.0, list_row_tall(d, f), widget.part_of(
         name,
         widget.Role.Button,
         list_says(d, index),
@@ -5885,7 +5973,7 @@ fn list_row(d: DateField, index: int, f: Frame) -> widget.Widget {
         widget.Widget.Group(widget.Stack {
             direction: widget.Direction.Row,
             spacing: 0.0,
-            padding: widget.insets_of(style.space.xs, 0.0, style.space.xs, 0.0),
+            padding: widget.insets_of(style.padding.left, 0.0, style.padding.left, 0.0),
             surface: if chosen || hovered_in(f, name) { surface_of(style, parts) } else { widget.no_surface() },
             align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
             children: [widget.label_in_face(
@@ -6344,11 +6432,16 @@ fn calendar_title(d: DateField, f: Frame) -> widget.Widget {
         padding: widget.no_insets(),
         surface: widget.no_surface(),
         align: widget.Alignment { across: widget.Across.Centre, along: widget.Along.Start },
+        // **The gaps are read off `head_boxes` rather than restated here.** A constant written
+        // once in the drawing and once in the press is the twenty-two point offset in `head_in`'s
+        // own note, waiting to happen again: subtracting one box from the next cannot drift.
         children: [
             widget.fixed_of(boxes.month.width, title_height(f), zoom_part(d, CalendarView.Months, f)),
+            widget.fixed_of(boxes.year.x - boxes.month.x - boxes.month.width, title_height(f), widget.flex()),
             widget.fixed_of(boxes.year.width, title_height(f), zoom_part(d, CalendarView.Years, f)),
             widget.expand(widget.flex()),
             pager_part(d, true, side, f),
+            widget.fixed_of(boxes.forward.x - boxes.back.x - boxes.back.width, title_height(f), widget.flex()),
             pager_part(d, false, side, f)
         ],
         name: ""
@@ -6374,11 +6467,15 @@ fn head_boxes(d: DateField, at: Rect, f: Frame) -> CalendarHead {
     val month_wide = mark_wide(head_says(d, CalendarView.Months), f)
     val year_wide = mark_wide(head_says(d, CalendarView.Years), f)
     val pager = side * 2.0
+    // **A step between the month and the year, and between the two arrows.** Butted together
+    // they read as one four-part control; apart, they read as two questions and a pager, which
+    // is what they are.
+    val gap = style.space.s
     val right = at.x + at.width - pad
     return CalendarHead {
         month: geom.rect_of(x, at.y + pad, month_wide, tall),
-        year: geom.rect_of(x + month_wide, at.y + pad, year_wide, tall),
-        back: geom.rect_of(right - pager * 2.0, at.y + pad, pager, tall),
+        year: geom.rect_of(x + month_wide + gap, at.y + pad, year_wide, tall),
+        back: geom.rect_of(right - pager * 2.0 - gap, at.y + pad, pager, tall),
         forward: geom.rect_of(right - pager, at.y + pad, pager, tall)
     }
 }
@@ -6439,7 +6536,9 @@ fn pager_part(d: DateField, back: bool, side: float, f: Frame) -> widget.Widget 
             padding: widget.no_insets(),
             surface: if hovered { surface_of(style, parts) } else { widget.no_surface() },
             align: widget.centred(),
-            children: [pager_widget(back, ink, side)],
+            // **Drawn larger than the words beside it**, which is what a line chevron needs to
+            // weigh the same as a solid one did: the same box, less ink in it.
+            children: [pager_widget(back, ink, side * 1.3)],
             name: ""
         })
     ))
@@ -6553,16 +6652,31 @@ fn calendar_weekdays(d: DateField, f: Frame) -> widget.Widget {
     while c < calendar_columns {
         push(cells, widget.fixed_of(
             cell_wide(f, CalendarView.Days),
-            calendar_cell(f) * 0.7,
+            calendar_cell(f),
             // **Two letters, and in the window's own ink.** Three were "Sun Mon Tue" against a
             // grid of two figures, which reads as a second row of data; the heading of a column
             // is a heading and the days under it are the content.
-            widget.label_in_face(
-                shortest_weekday(cell_date(d, c), d.locale),
-                style.text.caption.size,
-                style.ink,
-                style.text.caption.face
-            )
+            //
+            // **The size of a day and the face of a label.** At the caption's size they were a
+            // footnote over the grid rather than its seven headings -- the one thing in the
+            // design these follow that is set *heavier* than the numbers under it, not lighter.
+            // **Centred in the band, as a day is in its cell.** `fixed_of` only sizes: left to
+            // itself the name sat at the top of its row, which put the headings up against the
+            // title and left the first week looking a third of a row adrift from them.
+            widget.Widget.Group(widget.Stack {
+                direction: widget.Direction.Row,
+                spacing: 0.0,
+                padding: widget.no_insets(),
+                surface: widget.no_surface(),
+                align: widget.centred(),
+                children: [widget.label_in_face(
+                    shortest_weekday(cell_date(d, c), d.locale),
+                    style.text.body.size,
+                    style.ink,
+                    style.text.label.face
+                )],
+                name: ""
+            })
         ))
         c = c + 1
     }
