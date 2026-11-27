@@ -342,3 +342,58 @@ fn words_under_a_rectangular_clip_are_cut_where_the_rectangle_is() {
     test.assert_eq(unwrap(image.pixel_at(clipped, 2, 18)).alpha, 0.0)
     test.assert_eq(unwrap(image.pixel_at(clipped, 30, 18)).alpha, 0.0)
 }
+
+// ---- the plan, and the path that is not worth one
+
+// `worth_planning` decides whether to order a path's edges by row before scanning them, and the
+// claim it rests on is that **the plan cannot change the answer** -- `row_coverage_raw` tests
+// every edge it is handed against the row it is drawing, so the live list is a filter in front of
+// a filter. A claim like that wants a test that puts the two branches side by side on the *same*
+// geometry rather than a sentence.
+//
+// So: a rectangle whose two upright sides are cut into sixty-six pieces each. It is the same
+// rectangle, pixel for pixel -- a vertical edge's crossing is its own x whatever fraction of it a
+// sample line falls in -- but it has 134 edges instead of four, which is over
+// `plan_worth_edges`. One of these renders takes the plan and the other does not.
+fn subdivided_rect(r: geom.Rect, pieces: int) -> shape.Path {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(r.x, r.y))
+    shape.line_to(b, geom.point_of(r.x + r.width, r.y))
+    var i = 1
+    while i <= pieces {
+        val t = (i as float) / (pieces as float)
+        shape.line_to(b, geom.point_of(r.x + r.width, r.y + r.height * t))
+        i = i + 1
+    }
+    shape.line_to(b, geom.point_of(r.x, r.y + r.height))
+    i = 1
+    while i <= pieces {
+        val t = (i as float) / (pieces as float)
+        shape.line_to(b, geom.point_of(r.x, r.y + r.height * (1.0 - t)))
+        i = i + 1
+    }
+    shape.close_path(b)
+    return shape.path_of(snapshot(b.segments), shape.Winding.NonZero)
+}
+
+#[test]
+fn ordering_a_paths_edges_by_row_does_not_change_what_it_draws() {
+    val box = geom.rect_of(7.5, 5.25, 22.0, 28.5)
+    val planned = canvas_pixels(scene_with([scene.fill(subdivided_rect(box, 66), ink())]))
+    val plain = canvas_pixels(scene_with([scene.fill(shape.rect_path(box), ink())]))
+    test.assert_eq(first_difference(planned, plain, 48, 40), "")
+}
+
+#[test]
+fn a_clip_ordered_by_row_does_not_change_what_it_draws() {
+    // The same, through a clip rather than a fill: `clip_mask` makes the same choice and a path of
+    // this many edges is not a rectangle `rect_profile` can reduce to a row, so it is the mask's
+    // own scanline pass being asked the question.
+    val box = geom.rect_of(7.5, 5.25, 22.0, 28.5)
+    val planned = canvas_pixels(scene_with([scene.clipped(
+        subdivided_rect(box, 66),
+        [scene.fill(everywhere(), ink())]
+    )]))
+    val plain = canvas_pixels(scene_with([scene.fill(shape.rect_path(box), ink())]))
+    test.assert_eq(first_difference(planned, plain, 48, 40), "")
+}

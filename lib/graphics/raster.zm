@@ -1548,12 +1548,20 @@ fn rasterise_tile(outline: Path, gm: Matrix, samples: int) -> GlyphTile {
         push(row, 0.0)
         i = i + 1
     }
-    val plan = plan_of(e, top, top + height - 1)
+    // See `worth_planning`: for anything a window draws, ordering the edges by row costs more
+    // than the scan it saves, and the native is handed every edge instead.
+    val planning = worth_planning(e, top, top + height - 1)
+    val plan = if planning { plan_of(e, top, top + height - 1) } else { no_plan() }
     val live = mutable_array_new<int>()
+    if !planning {
+        all_live(e, live)
+    }
     var cursor = 0
     var y = top
     while y < top + height {
-        cursor = advance_active(plan, live, cursor, y)
+        if planning {
+            cursor = advance_active(plan, live, cursor, y)
+        }
         // The row buffer is in *tile* coordinates, so the edge list is shifted by `left` on the way
         // in and the spans come out already local.
         row_coverage_shifted(row, width, e, live, device.winding, samples, y, left)
@@ -1904,16 +1912,11 @@ fn rect_profile(t: Target, path: Path, m: Matrix, o: Options) -> Option<RectClip
     val device = shape.transform_path(path, m)
     val e = edges_of(device)
     val row = mutable_array_filled<float>(t.width, 0.0)
-    // Every edge is live: `advance_active` exists to spare a tall shape a scan of edges that
-    // cannot reach the row, and a rectangle has four. The native tests each against the row itself,
-    // so handing it all four is the same answer for less arithmetic than planning them.
+    // Every edge is live, for the reason `worth_planning` gives at length: the native tests each
+    // against the row itself, so handing it all four is the same answer and less arithmetic than
+    // planning them.
     val live = mutable_array_new<int>()
-    var i = 0
-    val edges = prelude.len(e.xy) / 4
-    while i < edges {
-        push(live, i)
-        i = i + 1
-    }
+    all_live(e, live)
     row_coverage(row, t.width, e, live, device.winding, o.samples, y0, x0, x1)
     return Option<RectClip>.Some(RectClip {
         x0: x0,
@@ -2002,12 +2005,20 @@ fn clip_mask(
         return ok(Mask { data: snapshot(mask), step: t.width })
     }
     val row = mutable_array_filled<float>(t.width, 0.0)
-    val plan = plan_of(e, lo_y, hi_y)
+    // See `worth_planning`: for anything a window draws, ordering the edges by row costs more
+    // than the scan it saves, and the native is handed every edge instead.
+    val planning = worth_planning(e, lo_y, hi_y)
+    val plan = if planning { plan_of(e, lo_y, hi_y) } else { no_plan() }
     val live = mutable_array_new<int>()
+    if !planning {
+        all_live(e, live)
+    }
     var cursor = 0
     var y = lo_y
     while y <= hi_y {
-        cursor = advance_active(plan, live, cursor, y)
+        if planning {
+            cursor = advance_active(plan, live, cursor, y)
+        }
         row_coverage(row, t.width, e, live, device.winding, o.samples, y, lo_x, hi_x)
         // The row's base, out of the inner loop: this is a multiply per pixel otherwise, and the
         // inner loop is the whole cost of a clip.
@@ -2093,8 +2104,14 @@ fn fill_shape(
     // Worth 1.33x on the same page (2253 ms to 1667 ms, interleaved), and `Solid` is the common case.
     val ready = try prepare(k, o.images)
     val row = mutable_array_filled<float>(t.width, 0.0)
-    val plan = plan_of(e, first_row, last_row)
+    // See `worth_planning`: for anything a window draws, ordering the edges by row costs more
+    // than the scan it saves, and the native is handed every edge instead.
+    val planning = worth_planning(e, first_row, last_row)
+    val plan = if planning { plan_of(e, first_row, last_row) } else { no_plan() }
     val live = mutable_array_new<int>()
+    if !planning {
+        all_live(e, live)
+    }
     var cursor = 0
     // **Both of these are decided once, not per pixel.** `clip` and `flat` are the same `Option`
     // for every pixel of the fill, and a `switch` on one inside the inner loop is an enum dispatch
@@ -2156,7 +2173,9 @@ fn fill_shape(
     }
     var y = first_row
     while y <= last_row {
-        cursor = advance_active(plan, live, cursor, y)
+        if planning {
+            cursor = advance_active(plan, live, cursor, y)
+        }
         row_coverage(row, t.width, e, live, device.winding, o.samples, y, first_col, last_col)
         val row_base = y * t.width
         // The mask's own base, which is `row_base` for a clip path and a fixed 0 for the one-row
@@ -2242,6 +2261,54 @@ struct Plan {
     // Per edge: the first row it can touch, and the largest y it reaches.
     start: [int]
     high: [float]
+}
+
+// How many edges a path needs before the plan below is worth building.
+//
+// **The plan is a filter in front of a filter.** `row_coverage_raw` tests every edge it is handed
+// against the row it is drawing (`sy >= low && sy < high`), so handing it all of them produces the
+// same crossings in the same order as handing it the live ones. `live` exists only to make that
+// scan shorter; the answer cannot change either way, which is why this is a choice about cost and
+// not about correctness.
+//
+// And for the shapes a *window* draws the trade is upside down. `plan_of`'s counting sort
+// allocates and walks a bucket **per row of the shape**, and a panel, a viewport or a background
+// is the height of the canvas: 1,440 interpreted steps to put fifty edges in order, and then
+// `advance_active` running a list down every one of those rows. The scan it saves costs about two
+// nanoseconds an edge, in C.
+//
+// Measured in the health-record window at 1960x1440 with a real record: `fill_shape`'s setup cost
+// **66-142 ms a frame over about a hundred fills**, nearly all of it this sort, and
+// `advance_active` another **17-20 ms** on top. The crossover is around a hundred edges -- below
+// it the plan cannot pay for its own bucket array -- and 128 is that rounded off rather than
+// tuned, because nothing a window draws comes near it and the paths that pass it (a chart's
+// series, a map, a long glyph outline) are well past it either way.
+val plan_worth_edges = 128
+
+fn worth_planning(e: Edges, first_row: int, last_row: int) -> bool {
+    if prelude.len(e.xy) / 4 <= plan_worth_edges {
+        return false
+    }
+    // A shape one row tall has no column of rows to skip edges down, so the sort is pure cost
+    // however many edges it has.
+    return last_row - first_row + 1 > 1
+}
+
+// The plan for a path that is not worth planning: nothing ordered, and nothing to advance.
+fn no_plan() -> Plan {
+    val none_i: [int] = []
+    val none_f: [float] = []
+    return Plan { order: none_i, start: none_i, high: none_f }
+}
+
+// Every edge, live, which is what a fill that skipped the plan hands the scanline pass.
+fn all_live(e: Edges, live: MutableArray<int>) {
+    val count = prelude.len(e.xy) / 4
+    var i = 0
+    while i < count {
+        push(live, i)
+        i = i + 1
+    }
 }
 
 fn plan_of(e: Edges, first_row: int, last_row: int) -> Plan {

@@ -86,4 +86,5 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [F354 — the same design, read again](f354.md)
 - [F355 — a button is not a row tall](f355.md)
 - [F356 — a clip that is a rectangle should not cost a canvas](f356.md)
+- [F357 — the plan is a filter in front of a filter](f357.md)
 - [Open — `api-check` fails intermittently under make, never on its own](open-api-check-flake.md)
