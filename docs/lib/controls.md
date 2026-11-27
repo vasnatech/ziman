@@ -2388,6 +2388,8 @@ means two different days on two sides of an ocean -- and this library has no sou
 locale's date *pattern*, only for its month and day names. Inventing one here would be guessing
 in a format whose whole job is to be read correctly.
 
+## The month and year lists
+
 ### `calendar_box`
 
 ```

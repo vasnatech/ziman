@@ -903,26 +903,29 @@ fn the_title_zooms_out_through_months_to_years() {
     test.assert(controls.CalendarView.is_Years(pressed_part(days, "/year").view))
     val further = pressed_part(years, "/year")
     test.assert(controls.CalendarView.is_Days(further.view))
+    // **A press anywhere else in the popup shuts the list**, as a dropdown's does, rather than
+    // reaching the grid behind it.
+    test.assert(controls.CalendarView.is_Days(date_step(
+        months,
+        controls.Input.Press(centre_of_cell(days, 8))
+    ).field.view))
 
-    // Twenty years to a block on fixed boundaries, so 2026 sits in 2020 to 2039 and the tenth
-    // cell is 2029.
-    //
-    // **Choosing a year puts the days back, not the months.** The two lists are reached
-    // independently from the header now, so finishing with one is finishing -- where a year used
-    // to be the halfway point of a drill-down and had to hand you on.
-    val picked_year = date_step(years, controls.Input.Press(centre_of_cell(years, 9)))
+    // **Choosing from a list puts the days back and writes nothing.** A month is not a date, and
+    // `Select` is what decides -- so the field still holds what it held.
+    val picked_year = date_step(years, controls.Input.Press(centre_of_row(years, 9)))
     test.assert_false(picked_year.changed)
     test.assert(controls.CalendarView.is_Days(picked_year.field.view))
-    test.assert_eq(picked_year.field.at.year, 2029)
+    // The block runs 2016 to 2027, so the tenth row is 2025.
+    test.assert_eq(picked_year.field.at.year, 2025)
     test.assert_eq(day_written(picked_year.field), "2026-11-19")
 
-    // The third cell of the months grid is March.
+    // The third row of the month list is March.
     val in_months = pressed_part(picked_year.field, "/month")
-    val picked_month = date_step(in_months, controls.Input.Press(centre_of_cell(in_months, 2)))
+    val picked_month = date_step(in_months, controls.Input.Press(centre_of_row(in_months, 2)))
     test.assert_false(picked_month.changed)
     test.assert(controls.CalendarView.is_Days(picked_month.field.view))
     test.assert_eq(picked_month.field.at.month, 3)
-    test.assert_eq(picked_month.field.at.year, 2029)
+    test.assert_eq(picked_month.field.at.year, 2025)
     test.assert_eq(day_written(picked_month.field), "2026-11-19")
 }
 
@@ -933,16 +936,23 @@ fn the_years_grid_is_a_block_of_twenty() {
     val days = opened_calendar()
     val years = pressed_part(days, "/year")
 
-    // Four columns: cell 0 and cell 4 are in the same column, one row apart.
-    test.assert_eq(drawn_cell(years, 0).x, drawn_cell(years, 4).x)
-    test.assert(drawn_cell(years, 4).y > drawn_cell(years, 0).y)
-    // Five rows: the last cell is the twentieth.
-    test.assert(drawn_cell(years, 19).width > 0.0)
-    test.assert_eq(drawn_cell(years, 19).x, drawn_cell(years, 3).x)
+    // **One column, read down.** The years were a block four across, drawn where the days had
+    // been; they are a list over them now, so each row sits under the one before it.
+    test.assert_eq(drawn_row(years, 0).x, drawn_row(years, 1).x)
+    test.assert(drawn_row(years, 1).y > drawn_row(years, 0).y)
+    test.assert(drawn_row(years, 11).width > 0.0)
 
-    // The block runs 2020 to 2039, and the first and last cells say so.
-    test.assert_eq(date_step(years, controls.Input.Press(centre_of_cell(years, 0))).field.at.year, 2020)
-    test.assert_eq(date_step(years, controls.Input.Press(centre_of_cell(years, 19))).field.at.year, 2039)
+    // Twelve years to a block on fixed boundaries, so 2026 sits in 2016 to 2027.
+    test.assert_eq(date_step(years, controls.Input.Press(centre_of_row(years, 0))).field.at.year, 2016)
+    test.assert_eq(date_step(years, controls.Input.Press(centre_of_row(years, 11))).field.at.year, 2027)
+}
+
+// The box of a list row as it was actually drawn.
+fn drawn_row(d: controls.DateField, index: int) -> geom.Rect {
+    return switch widget.node_named(calendar_laid(d), concat("due/cell/", str(index))) {
+        Some(n) { n.bounds }
+        None { geom.rect_of(0.0, 0.0, 0.0, 0.0) }
+    }
 }
 
 // **The two arrows page by whatever the view is showing**: a month of days, a year of months, a
@@ -956,8 +966,13 @@ fn the_arrows_page_by_what_is_on_screen() {
     test.assert_eq(date_step(months, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.year, 2027)
 
     val years = pressed_part(days, "/year")
-    test.assert_eq(date_step(years, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.year, 2046)
-    test.assert_eq(date_step(years, controls.Input.KeyDown(key(controls.Key.PageUp))).field.at.year, 2006)
+    test.assert_eq(date_step(years, controls.Input.KeyDown(key(controls.Key.PageDown))).field.at.year, 2038)
+    test.assert_eq(date_step(years, controls.Input.KeyDown(key(controls.Key.PageUp))).field.at.year, 2014)
+}
+
+// The centre of a list row as it was actually drawn.
+fn centre_of_row(d: controls.DateField, index: int) -> geom.Point {
+    return centre_in(calendar_laid(d), concat("due/cell/", str(index)))
 }
 
 // The centre of a cell as it was actually drawn.
@@ -979,7 +994,10 @@ fn escape_zooms_in_before_it_shuts() {
     // **From the years too**, which used to take two Escapes because the years were reached
     // through the months.
     val years = pressed_part(days, "/year")
-    test.assert(controls.CalendarView.is_Days(date_step(years, controls.Input.KeyDown(key(controls.Key.Escape))).field.view))
+    test.assert(controls.CalendarView.is_Days(date_step(
+        years,
+        controls.Input.KeyDown(key(controls.Key.Escape))
+    ).field.view))
 }
 
 // **A day is highlighted; `Select` is what writes it.**
@@ -1086,7 +1104,7 @@ fn the_calendars_header_names_its_three_buttons() {
     test.assert_eq(part_says(days, "/back"), "Previous month")
     test.assert_eq(part_says(days, "/forward"), "Next month")
     test.assert_eq(part_says(months, "/back"), "Previous year")
-    test.assert_eq(part_says(years, "/forward"), "Next 20 years")
+    test.assert_eq(part_says(years, "/forward"), "Next 12 years")
 
     // **A mark says what pressing it will do**, which changes when its own list is already up.
     test.assert_eq(part_says(days, "/month"), "Choose month")
