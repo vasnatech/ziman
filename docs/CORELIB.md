@@ -7984,6 +7984,8 @@ pub fn layer_at(where_: Rect, takes_keys: bool, content: Widget) -> Layer
 
 pub fn layered_of(layers: [Layer]) -> Widget
 
+pub fn layered_over(laid: Laid, extra: [Layer], within: Rect, m: Metrics) -> Laid
+
 pub fn keyboard_children(l: Laid) -> [Laid]
 
 pub struct Viewport {

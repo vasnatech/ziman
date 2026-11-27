@@ -1203,6 +1203,37 @@ reason rather than by convention.
 pub fn layered_of(layers: [Layer]) -> Widget
 ```
 
+### `layered_over`
+
+```
+pub fn layered_over(laid: Laid, extra: [Layer], within: Rect, m: Metrics) -> Laid
+```
+
+Lays `extra` over a tree that has **already been laid**, instead of laying all of it again.
+
+**This is the one thing an overlay costs and need not.** A layer is positioned from the laid
+bounds of what it hangs off -- a menu from its button, a tooltip from the control under the
+pointer, a pinned button from the edge of the pane it straddles -- so an application must lay the
+window out, read the anchor, and only then knows what layers to add. Laying the whole thing a
+second time is what it had to do next, because `layout` takes widgets and a widget tree knows
+nothing of what it measured to.
+
+Measured in the health-record window at 1960x1440, which adds exactly one pinned button to its
+base layer: **the second pass cost 22-40 ms against the first's 21-47** -- the same work twice,
+for one button -- out of a layout phase of about 66 ms. A screen with a dialog and a popup open
+laid it four times.
+
+**The result is the same tree, not a close one**, and that is checkable rather than asserted:
+`place` gives a layered node one child per layer, each laid into its own box, so a base layer's
+subtree is what laying that widget alone produces, down to every field but the root's `index` --
+which is its position among the layers. `tests/stdlib/widget_test.zm` holds the two forms to each
+other.
+
+Chains, which is how an application uses it: a window lays its base, adds the pinned button, then
+the dialog, then the popup that hangs off a field inside the dialog, then the tooltip. Each call
+lays **only the layers it was handed**, so a tree already layered gains its new layers at the end
+of the list and keeps the children it has.
+
 ### `keyboard_children`
 
 ```

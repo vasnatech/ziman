@@ -2840,3 +2840,117 @@ fn elided_fits_and_one_more_character_would_not() {
         room = room + 1.0
     }
 }
+
+// ---- laying layers over a tree that is already laid
+
+// `widget.layered_over` exists so that an overlay does not cost a second layout of the window
+// beneath it, and the whole of its claim is that the tree it builds is **the same tree** laying
+// everything again would have built. So that is what these assert, by structural equality of the
+// two `Laid` values rather than by sampling bounds out of them -- a comparison that catches a
+// field nobody thought to look at, which is the kind of mistake a reuse path makes.
+
+// A laid tree written out: every node's box, its index among its siblings and its name, in order.
+//
+// **A `Laid` cannot be compared with `==`** -- one of its fields is not a comparable type -- so the
+// equality these tests are really asserting is spelled this way instead. It covers what layout
+// decides; the layer list, which it does not cover, is asserted separately through
+// `keyboard_children`, where getting it wrong is invisible to any assertion about boxes.
+fn laid_text(l: widget.Laid) -> string {
+    return laid_text_at(l, "")
+}
+
+fn laid_text_at(l: widget.Laid, indent: string) -> string {
+    val out = mutable_string_new()
+    append(out, prelude.format(
+        "{}{} #{} {}\n",
+        indent,
+        rect_text(l.bounds),
+        str(l.index),
+        if l.name == "" { "-" } else { l.name }
+    ))
+    for kid in l.children {
+        append(out, laid_text_at(kid, concat(indent, "  ")))
+    }
+    return snapshot(out)
+}
+
+fn a_page() -> widget.Widget {
+    return widget.column_of(2.0, [
+        a_label("a heading"),
+        widget.row_of(4.0, [box(30.0, 12.0), a_label("beside it"), widget.flex()]),
+        widget.control_of("row", widget.Role.Unknown, widget.row_of(1.0, [a_label("one"), a_label("two")]))
+    ])
+}
+
+fn a_whole() -> geom.Rect {
+    return geom.rect_of(0.0, 0.0, 200.0, 120.0)
+}
+
+#[test]
+fn a_layer_laid_over_an_already_laid_tree_is_the_tree_laid_again() {
+    val base = a_page()
+    val pinned = widget.layer_at(geom.rect_of(150.0, 8.0, 40.0, 20.0), false, box(40.0, 20.0))
+    val incremental = widget.layered_over(
+        widget.layout(base, a_whole(), fake_metrics()),
+        [pinned],
+        a_whole(),
+        fake_metrics()
+    )
+    val wholesale = widget.layout(
+        widget.layered_of([widget.base_layer(base), pinned]),
+        a_whole(),
+        fake_metrics()
+    )
+    test.assert_eq(laid_text(incremental), laid_text(wholesale))
+}
+
+#[test]
+fn layers_added_one_at_a_time_are_the_same_as_all_at_once() {
+    // The chain an application really writes: the window, then a pinned button read off it, then a
+    // dialog, then a popup hanging off a field inside the dialog. Four layouts become one and
+    // three single layers.
+    val base = a_page()
+    val pinned = widget.layer_at(geom.rect_of(150.0, 8.0, 40.0, 20.0), false, box(40.0, 20.0))
+    val dialog = widget.modal_layer(widget.column_of(0.0, [a_label("are you sure")]))
+    val popup = widget.layer_at(geom.rect_of(20.0, 60.0, 80.0, 30.0), false, a_label("a choice"))
+    var step = widget.layout(base, a_whole(), fake_metrics())
+    step = widget.layered_over(step, [pinned], a_whole(), fake_metrics())
+    step = widget.layered_over(step, [dialog], a_whole(), fake_metrics())
+    step = widget.layered_over(step, [popup], a_whole(), fake_metrics())
+    val wholesale = widget.layout(
+        widget.layered_of([widget.base_layer(base), pinned, dialog, popup]),
+        a_whole(),
+        fake_metrics()
+    )
+    test.assert_eq(laid_text(step), laid_text(wholesale))
+}
+
+#[test]
+fn several_layers_at_once_are_the_same_as_one_at_a_time() {
+    val base = a_page()
+    val dialog = widget.modal_layer(a_label("are you sure"))
+    val popup = widget.layer_at(geom.rect_of(20.0, 60.0, 80.0, 30.0), false, a_label("a choice"))
+    val laid = widget.layout(base, a_whole(), fake_metrics())
+    val together = widget.layered_over(laid, [dialog, popup], a_whole(), fake_metrics())
+    var apart = widget.layered_over(laid, [dialog], a_whole(), fake_metrics())
+    apart = widget.layered_over(apart, [popup], a_whole(), fake_metrics())
+    test.assert_eq(laid_text(together), laid_text(apart))
+}
+
+#[test]
+fn a_dialog_laid_over_an_already_laid_tree_still_takes_the_keyboard() {
+    // `keyboard_children` reads the layer list off the laid node, so a reuse path that rebuilt the
+    // children and forgot the layers would leave a modal that traps nothing -- green under every
+    // assertion about bounds.
+    val base = a_page()
+    val dialog = widget.modal_layer(widget.control_of("ask", widget.Role.Unknown, a_label("are you sure")))
+    val laid = widget.layered_over(
+        widget.layout(base, a_whole(), fake_metrics()),
+        [dialog],
+        a_whole(),
+        fake_metrics()
+    )
+    val reachable = widget.keyboard_children(laid)
+    test.assert_eq(prelude.len(reachable), 1)
+    test.assert_eq(reachable[0].name, "ask")
+}
