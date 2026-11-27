@@ -319,9 +319,14 @@ fn main() {
         round4(unwrap(image.pixel_at(boxed, 24, 16)).alpha)
     )))
 
-    // **A rectangle between pixels keeps its soft edge**, which is why the cheap path insists on
-    // whole numbers: a window has hard edges and a mask does not, so a clip at `x = 8.5` has to
-    // go the expensive way and come out half covered.
+    // **A rectangle between pixels keeps its soft edge**, which is why `window_clip` insists on
+    // whole numbers: a window has hard edges and a mask does not, so a clip at `x = 8.5` comes out
+    // half covered.
+    //
+    // **This render takes the mask**, because `raster.options` defaults to four samples and
+    // `rect_profile` -- the path a rectangle off the grid takes in a *window*, where there is one
+    // sample -- declines above one. So this number is the mask's answer, and
+    // `tests/stdlib/raster_test.zm` is where the two paths are held to each other.
     val soft = unwrap(raster.render(
         scene.with_ops(scene.scene_of(32.0, 32.0), [scene.clipped(
             shape.rect_path(geom.rect_of(8.5, 8.0, 15.0, 16.0)),

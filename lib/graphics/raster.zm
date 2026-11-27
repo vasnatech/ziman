@@ -1063,13 +1063,13 @@ fn draw_frame(t: Target, s: Scene, o: Options) -> Result<unit, string> {
                 shape.rect_path(rect_of(0.0, 0.0, s.width, s.height)),
                 Ink.FromPaint(p),
                 root,
-                Option<[float]>.None,
+                Option<Mask>.None,
                 o
             )
         }
         None { unit }
     }
-    try draw_ops(t, s.ops, root, Option<[float]>.None, o)
+    try draw_ops(t, s.ops, root, Option<Mask>.None, o)
     return unit
 }
 
@@ -1155,7 +1155,8 @@ native fn composite_row_gradient(
     row_y: float,
     spec: [float],
     mask: [float],
-    has_mask: bool
+    has_mask: bool,
+    mask_base: int
 )
 
 // One scanline of a tiled pattern or a placed image. The spec is `composite_row_gradient`'s,
@@ -1171,7 +1172,8 @@ native fn composite_row_image(
     spec: [float],
     pixels: [byte],
     mask: [float],
-    has_mask: bool
+    has_mask: bool,
+    mask_base: int
 )
 
 native fn clear_range(row: MutableArray<float>, from_x: int, to_x: int)
@@ -1214,7 +1216,8 @@ native fn composite_span_flat(
     b: float,
     a: float,
     mask: [float],
-    has_mask: bool
+    has_mask: bool,
+    mask_at: int
 )
 
 native fn composite_row_flat(
@@ -1228,7 +1231,8 @@ native fn composite_row_flat(
     b: float,
     a: float,
     mask: [float],
-    has_mask: bool
+    has_mask: bool,
+    mask_base: int
 )
 
 fn clear_to(t: Target, c: Premul) {
@@ -1237,7 +1241,7 @@ fn clear_to(t: Target, c: Premul) {
 
 // ---- the scene walk
 
-fn draw_ops(t: Target, ops: [Op], m: Matrix, clip: Option<[float]>, o: Options) -> Result<unit, string> {
+fn draw_ops(t: Target, ops: [Op], m: Matrix, clip: Option<Mask>, o: Options) -> Result<unit, string> {
     for op in ops {
         switch op {
             Fill(f) { try fill_shape(t, f.path, Ink.FromPaint(f.fill), m, clip, o) }
@@ -1309,14 +1313,53 @@ fn draw_ops(t: Target, ops: [Op], m: Matrix, clip: Option<[float]>, o: Options) 
                                     )
                                 }
                             }
+                            // Not on whole pixels -- but still an upright rectangle, which is
+                            // every clip `lib/ui` emits. One row of coverage and a narrower
+                            // window, rather than a mask the size of the canvas: see
+                            // `rect_profile` for what that was costing.
                             None {
-                                try draw_ops(
-                                    t,
-                                    g.ops,
-                                    inner,
-                                    Option<[float]>.Some(try clip_mask(t, path, m, clip, o)),
-                                    o
-                                )
+                                switch rect_profile(t, path, m, o) {
+                                    Some(r) {
+                                        switch under_clip(clip, r.profile) {
+                                            Some(next) {
+                                                if r.x1 >= r.x0 && r.y1 >= r.y0 {
+                                                    try draw_ops(
+                                                        with t {
+                                                            win_x0: r.x0,
+                                                            win_y0: r.y0,
+                                                            win_x1: r.x1,
+                                                            win_y1: r.y1
+                                                        },
+                                                        g.ops,
+                                                        inner,
+                                                        Option<Mask>.Some(next),
+                                                        o
+                                                    )
+                                                }
+                                            }
+                                            // A rectangle inside a clip path: the two cannot be
+                                            // one row, so the pair goes the general way.
+                                            None {
+                                                try draw_ops(
+                                                    t,
+                                                    g.ops,
+                                                    inner,
+                                                    Option<Mask>.Some(try clip_mask(t, path, m, clip, o)),
+                                                    o
+                                                )
+                                            }
+                                        }
+                                    }
+                                    None {
+                                        try draw_ops(
+                                            t,
+                                            g.ops,
+                                            inner,
+                                            Option<Mask>.Some(try clip_mask(t, path, m, clip, o)),
+                                            o
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1341,7 +1384,7 @@ fn draw_text(
     t: Target,
     run: scene.TextRun,
     m: Matrix,
-    clip: Option<[float]>,
+    clip: Option<Mask>,
     o: Options
 ) -> Result<unit, string> {
     if run.font < 0 || run.font >= len(o.fonts) {
@@ -1541,9 +1584,11 @@ struct Blitter {
     flat: Option<Premul>
     clipped: bool
     mask_values: [float]
+    // The mask's row stride: see `Mask.step`. Zero for an upright rectangle's one-row profile.
+    mask_step: int
 }
 
-fn blitter_of(k: Ink, m: Matrix, clip: Option<[float]>, o: Options) -> Result<Blitter, string> {
+fn blitter_of(k: Ink, m: Matrix, clip: Option<Mask>, o: Options) -> Result<Blitter, string> {
     // Eager, as it was when it sat inside `blit`: a transform that cannot be inverted is refused
     // even when the ink is flat and would not have read the inverse. Kept that way deliberately --
     // this move is about *when* the work happens, not about which inputs are accepted, and `blit`
@@ -1567,15 +1612,20 @@ fn blitter_of(k: Ink, m: Matrix, clip: Option<[float]>, o: Options) -> Result<Bl
     }
     val no_mask: [float] = []
     val mask_values = switch clip {
-        Some(values) { values }
+        Some(mask) { mask.data }
         None { no_mask }
+    }
+    val mask_step = switch clip {
+        Some(mask) { mask.step }
+        None { 0 }
     }
     return ok(Blitter {
         inv: inv,
         ready: ready,
         flat: flat,
         clipped: clipped,
-        mask_values: mask_values
+        mask_values: mask_values,
+        mask_step: mask_step
     })
 }
 
@@ -1588,6 +1638,7 @@ fn blit(t: Target, tile: GlyphTile, ix: int, iy: int, b: Blitter) -> Result<unit
     val flat = b.flat
     val clipped = b.clipped
     val mask_values = b.mask_values
+    val mask_step = b.mask_step
     // The tile's x range that lands on the canvas, computed per blit rather than tested per pixel:
     // a glyph half off the left edge otherwise costs a bounds check for every pixel it does not
     // have. `lo`/`hi` are tile coordinates; the canvas column is `ix + tile.left + tx`.
@@ -1616,7 +1667,8 @@ fn blit(t: Target, tile: GlyphTile, ix: int, iy: int, b: Blitter) -> Result<unit
                     constant.blue,
                     constant.alpha,
                     mask_values,
-                    clipped
+                    clipped,
+                    py * mask_step + offset + lo
                 )
             } else {
                 var tx = lo
@@ -1624,7 +1676,7 @@ fn blit(t: Target, tile: GlyphTile, ix: int, iy: int, b: Blitter) -> Result<unit
                     val px = offset + tx
                     val cov = tile.cover[ty * tile.width + tx]
                     if cov > 0.002 {
-                        val through = if clipped { mask_values[py * t.width + px] } else { 1.0 }
+                        val through = if clipped { mask_values[py * mask_step + px] } else { 1.0 }
                         if through > 0.002 {
                             val c = ready_at(
                                 ready,
@@ -1718,14 +1770,41 @@ fn ceil_to_int(v: float) -> int {
 //     exactly what `shape.rect_path` builds;
 //   * the matrix neither rotates nor shears, or an upright rectangle does not stay one;
 //   * the edges land on whole device pixels, because a window has hard edges where a mask has
-//     antialiased ones -- a rectangle at `x = 10.5` must keep its soft edge, and goes the slow
-//     way.
+//     antialiased ones -- a rectangle at `x = 10.5` must keep its soft edge.
+//
+// A rectangle that fails only the third now takes `rect_profile` rather than `clip_mask`, so the
+// soft edge no longer costs a canvas. The parse the two share is `upright_rect`.
 fn window_clip(t: Target, path: Path, m: Matrix) -> Option<Rect> {
-    if m.b != 0.0 || m.c != 0.0 {
+    val box = switch upright_rect(path, m) {
+        Some(r) { r }
+        None { return Option<Rect>.None }
+    }
+    if !whole(box.lo.x) || !whole(box.lo.y) || !whole(box.hi.x) || !whole(box.hi.y) {
         return Option<Rect>.None
     }
+    return Option<Rect>.Some(rect_of(
+        box.lo.x,
+        box.lo.y,
+        box.hi.x - box.lo.x,
+        box.hi.y - box.lo.y
+    ))
+}
+
+// A clip path's two device corners when it is an upright rectangle, and `None` when it is anything
+// else. The two corners rather than a `Rect`, because a caller that has to compare the far edge
+// against a whole pixel must compare the corner the matrix produced and not a width added back on
+// to the near one.
+struct DeviceBox {
+    lo: Point
+    hi: Point
+}
+
+fn upright_rect(path: Path, m: Matrix) -> Option<DeviceBox> {
+    if m.b != 0.0 || m.c != 0.0 {
+        return Option<DeviceBox>.None
+    }
     if prelude.len(path.segments) != 5 {
-        return Option<Rect>.None
+        return Option<DeviceBox>.None
     }
     val corners = mutable_array_new<Point>()
     var i = 0
@@ -1733,18 +1812,18 @@ fn window_clip(t: Target, path: Path, m: Matrix) -> Option<Rect> {
         switch path.segments[i] {
             MoveTo(pt) { push(corners, pt) }
             LineTo(pt) { push(corners, pt) }
-            QuadTo(_) { return Option<Rect>.None }
-            CubicTo(_) { return Option<Rect>.None }
-            Close { return Option<Rect>.None }
+            QuadTo(_) { return Option<DeviceBox>.None }
+            CubicTo(_) { return Option<DeviceBox>.None }
+            Close { return Option<DeviceBox>.None }
         }
         i = i + 1
     }
     switch path.segments[4] {
         Close { unit }
-        MoveTo(_) { return Option<Rect>.None }
-        LineTo(_) { return Option<Rect>.None }
-        QuadTo(_) { return Option<Rect>.None }
-        CubicTo(_) { return Option<Rect>.None }
+        MoveTo(_) { return Option<DeviceBox>.None }
+        LineTo(_) { return Option<DeviceBox>.None }
+        QuadTo(_) { return Option<DeviceBox>.None }
+        CubicTo(_) { return Option<DeviceBox>.None }
     }
     val a = corners[0]
     val b = corners[1]
@@ -1752,27 +1831,153 @@ fn window_clip(t: Target, path: Path, m: Matrix) -> Option<Rect> {
     val d = corners[3]
     // Upright: the top edge is level, the right edge is plumb, and so on round.
     if a.y != b.y || b.x != c.x || c.y != d.y || d.x != a.x {
-        return Option<Rect>.None
+        return Option<DeviceBox>.None
     }
     val lo = transform_point(m, point_of(if a.x < c.x { a.x } else { c.x }, if a.y < c.y { a.y } else { c.y }))
     val hi = transform_point(m, point_of(if a.x > c.x { a.x } else { c.x }, if a.y > c.y { a.y } else { c.y }))
-    if !whole(lo.x) || !whole(lo.y) || !whole(hi.x) || !whole(hi.y) {
-        return Option<Rect>.None
-    }
-    return Option<Rect>.Some(rect_of(lo.x, lo.y, hi.x - lo.x, hi.y - lo.y))
+    return Option<DeviceBox>.Some(DeviceBox { lo: lo, hi: hi })
 }
 
 fn whole(v: float) -> bool {
     return v == (floor(v) as float)
 }
 
+// An upright rectangle's clip as **one row** of coverage and a narrower window, with no mask at
+// all.
+//
+// `window_clip` above takes the cheaper path still, where the rectangle's edges land on whole
+// pixels and the clip is nothing but a narrower window. This is the case it has to refuse: a
+// rectangle whose edges fall between pixels has a soft edge, and a soft edge used to mean
+// `clip_mask` -- a float per canvas pixel, filled in the interpreter and then copied.
+//
+// **The cost that is being removed is not small and it is not proportional to the clip.** Measured
+// in the health-record window at two pixels a point, 1960x1440: one scroll viewport whose
+// rectangle missed whole pixels cost **450 ms of a 700 ms frame**, and the same frame with the
+// rectangle landing on whole pixels cost 240 ms. The rectangle misses whenever the layout above it
+// measured to a half point, which is most of the time, so the window was three times slower on
+// some screens than others for a reason nothing in the screen explained.
+//
+// **Why one row is exact and not an approximation.** `row_coverage_raw` samples a row at `y + 0.5`
+// and takes each span's exact overlap horizontally. Every row whose sample line falls inside the
+// rectangle crosses the same two vertical edges at the same two x, so every one of them has the
+// same profile; every other row has no coverage at all, and is cut out of the window rather than
+// multiplied by zero. The profile here is not a second implementation of that -- it is one call to
+// the same `row_coverage`, on the same edges, for a row inside the rectangle.
+//
+// **`samples` must be 1 for that to hold**, and it is checked rather than assumed. Above 1 a row
+// is sampled several times, and the first and last rows of the rectangle catch only some of their
+// sub-scanlines, so their profiles differ from the ones between. Those go on taking `clip_mask`.
+// No window asks for more than one sample -- `raster.options` is where that default lives, and
+// anti-aliasing a glyph's outline is a separate pass -- so this restriction costs a window nothing
+// and keeps the claim above true.
+struct RectClip {
+    x0: int
+    y0: int
+    x1: int
+    y1: int
+    profile: [float]
+}
+
+fn rect_profile(t: Target, path: Path, m: Matrix, o: Options) -> Option<RectClip> {
+    if o.samples != 1 {
+        return Option<RectClip>.None
+    }
+    val box = switch upright_rect(path, m) {
+        Some(r) { r }
+        None { return Option<RectClip>.None }
+    }
+    // The rows whose sample line falls inside the rectangle: `lo.y <= y + 0.5 < hi.y`, which is
+    // `row_coverage_raw`'s own half-open test written for one sample. Half-open at the far end for
+    // the same reason it is there -- a rectangle ending exactly on `y + 0.5` does not light that
+    // row -- and getting it wrong here would show as a one-pixel seam at the bottom of every
+    // viewport.
+    val y0 = bigger(t.win_y0, ceil_to_int(box.lo.y - 0.5))
+    val y1 = smaller(t.win_y1, ceil_to_int(box.hi.y - 0.5) - 1)
+    // Horizontally the coverage is a fraction rather than a yes or no, so the window takes every
+    // column the rectangle touches at all and the profile says how much of each it covers.
+    val x0 = bigger(t.win_x0, floor_to_int(box.lo.x))
+    val x1 = smaller(t.win_x1, ceil_to_int(box.hi.x) - 1)
+    if y1 < y0 || x1 < x0 {
+        val nothing: [float] = []
+        return Option<RectClip>.Some(RectClip { x0: x0, y0: y0, x1: x1, y1: y1, profile: nothing })
+    }
+    val device = shape.transform_path(path, m)
+    val e = edges_of(device)
+    val row = mutable_array_filled<float>(t.width, 0.0)
+    // Every edge is live: `advance_active` exists to spare a tall shape a scan of edges that
+    // cannot reach the row, and a rectangle has four. The native tests each against the row itself,
+    // so handing it all four is the same answer for less arithmetic than planning them.
+    val live = mutable_array_new<int>()
+    var i = 0
+    val edges = prelude.len(e.xy) / 4
+    while i < edges {
+        push(live, i)
+        i = i + 1
+    }
+    row_coverage(row, t.width, e, live, device.winding, o.samples, y0, x0, x1)
+    return Option<RectClip>.Some(RectClip {
+        x0: x0,
+        y0: y0,
+        x1: x1,
+        y1: y1,
+        profile: snapshot(row)
+    })
+}
+
+// A rectangle's profile under whatever clip is already in force.
+//
+// Two one-row profiles are one one-row profile, because the product of two things that do not vary
+// down the page does not either. A profile under a clip *path*'s mask is not, and says so with
+// `None` rather than guessing, so the caller builds the mask the general way -- `lib/ui` emits no
+// such pair, and a renderer that met one would otherwise be silently wrong.
+fn under_clip(clip: Option<Mask>, profile: [float]) -> Option<Mask> {
+    switch clip {
+        None { return Option<Mask>.Some(Mask { data: profile, step: 0 }) }
+        Some(prev) {
+            if prev.step != 0 {
+                return Option<Mask>.None
+            }
+            val out = mutable_array_filled<float>(prelude.len(profile), 0.0)
+            var x = 0
+            while x < prelude.len(profile) {
+                // The same product `clip_mask` forms, in the same order: this row's coverage
+                // through what was already in force.
+                out[x] = profile[x] * prev.data[x]
+                x = x + 1
+            }
+            return Option<Mask>.Some(Mask { data: snapshot(out), step: 0 })
+        }
+    }
+}
+
+// A clip's coverage: a weight in 0..1 for every pixel the group it bounds may draw.
+//
+// **`step` is how far one canvas row moves in `data`, and it is the whole of this type.** A clip
+// path of any shape needs a weight per pixel, so `step` is the canvas's width and `data` is a
+// canvas. An **upright rectangle** needs one row -- every row inside it has the same horizontal
+// profile, and the rows outside it are simply not drawn -- so `step` is **zero** and `data` is
+// `width` floats that every row reads.
+//
+// That distinction is not a micro-optimisation; it is the difference between a scroll viewport
+// costing nothing and costing more than everything else in the frame put together. See
+// `rect_profile`, which carries the measurement.
+struct Mask {
+    data: [float]
+    step: int
+}
+
+// The mask's index for column 0 of canvas row `y`.
+fn mask_base_at(mask: Mask, y: int) -> int {
+    return y * mask.step
+}
+
 fn clip_mask(
     t: Target,
     path: Path,
     m: Matrix,
-    existing: Option<[float]>,
+    existing: Option<Mask>,
     o: Options
-) -> Result<[float], string> {
+) -> Result<Mask, string> {
     val device = shape.transform_path(path, m)
     val e = edges_of(device)
     // **Only where the mask can be anything but zero, and only where this pass may write.**
@@ -1794,7 +1999,7 @@ fn clip_mask(
     val lo_x = bigger(t.win_x0, floor_to_int(lowest(e, 0)))
     val hi_x = smaller(t.win_x1, ceil_to_int(highest(e, 0)))
     if hi_y < lo_y || hi_x < lo_x {
-        return ok(snapshot(mask))
+        return ok(Mask { data: snapshot(mask), step: t.width })
     }
     val row = mutable_array_filled<float>(t.width, 0.0)
     val plan = plan_of(e, lo_y, hi_y)
@@ -1811,7 +2016,7 @@ fn clip_mask(
         while x <= hi_x {
             val here = row[x]
             val before = switch existing {
-                Some(prev) { prev[base + x] }
+                Some(prev) { prev.data[mask_base_at(prev, y) + x] }
                 None { 1.0 }
             }
             mask[base + x] = here * before
@@ -1819,7 +2024,7 @@ fn clip_mask(
         }
         y = y + 1
     }
-    return ok(snapshot(mask))
+    return ok(Mask { data: snapshot(mask), step: t.width })
 }
 
 // ---- filling
@@ -1829,7 +2034,7 @@ fn fill_shape(
     path: Path,
     k: Ink,
     m: Matrix,
-    clip: Option<[float]>,
+    clip: Option<Mask>,
     o: Options
 ) -> Result<unit, string> {
     // **Asked before the path is transformed and flattened**, which is the point: `edges_of`
@@ -1901,8 +2106,12 @@ fn fill_shape(
     }
     val no_mask: [float] = []
     val mask = switch clip {
-        Some(m) { m }
+        Some(c) { c.data }
         None { no_mask }
+    }
+    val mask_step = switch clip {
+        Some(c) { c.step }
+        None { 0 }
     }
     // A solid colour is the same at every pixel, so the loop reads it rather than asking.
     val is_flat = switch ready {
@@ -1950,6 +2159,9 @@ fn fill_shape(
         cursor = advance_active(plan, live, cursor, y)
         row_coverage(row, t.width, e, live, device.winding, o.samples, y, first_col, last_col)
         val row_base = y * t.width
+        // The mask's own base, which is `row_base` for a clip path and a fixed 0 for the one-row
+        // profile of an upright rectangle. See `Mask.step`.
+        val mask_base = y * mask_step
         if is_flat {
             composite_row_flat(
                 t.data,
@@ -1962,7 +2174,8 @@ fn fill_shape(
                 flat_ink_value.blue,
                 flat_ink_value.alpha,
                 mask,
-                clipped
+                clipped,
+                mask_base
             )
         } else if is_image {
             composite_row_image(
@@ -1975,7 +2188,8 @@ fn fill_shape(
                 image_spec_values,
                 image_pixels,
                 mask,
-                clipped
+                clipped,
+                mask_base
             )
         } else if is_gradient {
             composite_row_gradient(
@@ -1987,7 +2201,8 @@ fn fill_shape(
                 (y as float) + 0.5,
                 spec_values,
                 mask,
-                clipped
+                clipped,
+                mask_base
             )
         } else {
             var x = first_col
@@ -1997,7 +2212,7 @@ fn fill_shape(
                 // it is what keeps a full-page fill from evaluating a gradient outside its own
                 // bounds. The two natives reproduce both guards and this constant.
                 if cov > 0.002 {
-                    val through = if clipped { mask[row_base + x] } else { 1.0 }
+                    val through = if clipped { mask[mask_base + x] } else { 1.0 }
                     if through > 0.002 {
                         val c = ready_at(ready, inv, point_of((x as float) + 0.5, (y as float) + 0.5))
                         composite(t, x, y, c, cov * through)

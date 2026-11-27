@@ -170,8 +170,13 @@ static Value native_raster_to_bytes_premul(Value *args, int argc, int line, int 
                         result_obj_new(1, bytes));
 }
 
+/* `mask_base` is the mask's index for this row's column 0, and it is a separate argument from the
+ * canvas's `row_base` for one reason: **a clip that is the same on every row stores one row.** An
+ * upright rectangle is such a clip, and it is every clip `lib/ui` emits, so the mask handed here is
+ * `width` doubles with `mask_base` fixed at 0 rather than `width * height` with `mask_base`
+ * walking down it. For a general clip path the caller passes `row_base` and nothing differs. */
 /* raster.composite_row_flat(canvas, coverage, row_base, first_col, last_col, r, g, b, a, mask,
- * has_mask): one scanline of a solid fill, composited.
+ * has_mask, mask_base): one scanline of a solid fill, composited.
  *
  * **The third loop, and the one left after the floor was dealt with.** `fill_shape`'s inner loop
  * runs once per pixel of a shape's bounding box and does, in the interpreter: an array index for
@@ -209,6 +214,7 @@ static Value native_raster_composite_row_flat(Value *args, int argc, int line, i
     const double *mask = mask_arr == NULL ? NULL : mask_arr->floats;
     int has_mask = args[10].as.b != 0;
     if (has_mask && mask == NULL) return value_unit();
+    int64_t mask_base = args[11].as.i;
 
     for (int64_t x = first_col; x <= last_col; x++) {
         if (x < 0 || (size_t)x >= cov_len) continue;
@@ -216,7 +222,7 @@ static Value native_raster_composite_row_flat(Value *args, int argc, int line, i
         if (cov <= 0.002) continue;
         double through = 1.0;
         if (has_mask) {
-            int64_t at = row_base + x;
+            int64_t at = mask_base + x;
             if (at < 0) continue;
             through = mask[at];
         }
@@ -269,6 +275,7 @@ static Value native_raster_composite_span_flat(Value *args, int argc, int line, 
     if (has_mask && mask == NULL) return value_unit();
     size_t mask_len = (has_mask && mask_arr != NULL && mask_arr->count > 0)
                           ? (size_t)mask_arr->count : 0;
+    int64_t mask_at = args[11].as.i;
 
     for (int64_t i = 0; i < count; i++) {
         int64_t ci = cover_at + i;
@@ -279,8 +286,9 @@ static Value native_raster_composite_span_flat(Value *args, int argc, int line, 
         if (cov <= 0.002) continue;
         double through = 1.0;
         if (has_mask) {
-            if ((size_t)pi >= mask_len) continue;
-            through = mask[pi];
+            int64_t mi = mask_at + i;
+            if (mi < 0 || (size_t)mi >= mask_len) continue;
+            through = mask[mi];
         }
         if (through <= 0.002) continue;
         double weight = cov * through;
@@ -406,6 +414,7 @@ static Value native_raster_composite_row_gradient(Value *args, int argc, int lin
     if (has_mask && mask == NULL) return value_unit();
     size_t mask_len = (has_mask && mask_arr != NULL && mask_arr->count > 0)
                           ? (size_t)mask_arr->count : 0;
+    int64_t mask_base = args[9].as.i;
 
     int radial = spec[0] != 0.0;
     double ia = spec[1], ib = spec[2], ic = spec[3], id = spec[4], ie = spec[5], iff = spec[6];
@@ -422,8 +431,9 @@ static Value native_raster_composite_row_gradient(Value *args, int argc, int lin
         int64_t pi = row_base + x;
         if (pi < 0) continue;
         if (has_mask) {
-            if ((size_t)pi >= mask_len) continue;
-            through = mask[pi];
+            int64_t mi = mask_base + x;
+            if (mi < 0 || (size_t)mi >= mask_len) continue;
+            through = mask[mi];
         }
         if (through <= 0.002) continue;
 
@@ -527,6 +537,7 @@ static Value native_raster_composite_row_image(Value *args, int argc, int line, 
     if (has_mask && mask == NULL) return value_unit();
     size_t mask_len = (has_mask && mask_arr != NULL && mask_arr->count > 0)
                           ? (size_t)mask_arr->count : 0;
+    int64_t mask_base = args[10].as.i;
 
     int placed = spec[0] == 3.0;
     double ia = spec[1], ib = spec[2], ic = spec[3], id = spec[4], ie = spec[5], iff = spec[6];
@@ -541,8 +552,9 @@ static Value native_raster_composite_row_image(Value *args, int argc, int line, 
         if (pi < 0) continue;
         double through = 1.0;
         if (has_mask) {
-            if ((size_t)pi >= mask_len) continue;
-            through = mask[pi];
+            int64_t mi = mask_base + x;
+            if (mi < 0 || (size_t)mi >= mask_len) continue;
+            through = mask[mi];
         }
         if (through <= 0.002) continue;
 

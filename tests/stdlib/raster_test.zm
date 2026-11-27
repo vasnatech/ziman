@@ -5,6 +5,8 @@
 // at a pixel's colour. These are about the *buffer*: a window being resized asks for a canvas tens
 // of times a second, and whether the old one is reused is invisible to every other test in the
 // repository, which is why `raster.surface_pixels_held` exists at all.
+use font
+use fs
 use geom
 use image
 use paint
@@ -135,4 +137,208 @@ fn a_kept_buffer_renders_the_new_size_and_not_the_old() {
     val px = unwrap(image.pixel_at(img, 89, 39))
     test.assert(px.red > 0.9)
     test.assert(px.alpha > 0.9)
+}
+
+// ---- a clip that is an upright rectangle
+
+// Everything below is about `rect_profile`, which draws a rectangular clip as one row of coverage
+// and a narrower window instead of a mask the size of the canvas. The saving is the whole point
+// -- one such clip cost 450 ms of a 700 ms frame in the health-record window -- but the saving is
+// only worth having if the pixels do not move, and a committed `.out` cannot say that on its own,
+// because regenerating one blesses whatever it was given.
+//
+// **So the oracle here is a second render rather than a recorded number.** A fill large enough to
+// cover every pixel it touches completely, clipped to a rectangle, has to come out as exactly that
+// rectangle filled on its own: the clip is then the only thing with a soft edge, and the two paths
+// through the renderer have to agree pixel for pixel.
+
+// **One sample, because that is what a window asks for** and `rect_profile` is only right there:
+// above one sample the first and last rows of a rectangle catch only some of their sub-scanlines
+// and need profiles of their own. Every window in this repository and in curly sets `samples: 1`
+// and `raster.options`'s default of 4 is for rendering to a file, so this is the path a window
+// takes and the one these tests are about. The default is covered too, further down.
+fn one_sample() -> raster.Options {
+    return with raster.options() { samples: 1 }
+}
+
+fn canvas_pixels(s: scene.Scene) -> image.Image {
+    return unwrap(raster.render(s, one_sample()))
+}
+
+fn canvas_pixels_at(s: scene.Scene, o: raster.Options) -> image.Image {
+    return unwrap(raster.render(s, o))
+}
+
+fn scene_with(ops: [scene.Op]) -> scene.Scene {
+    return scene.with_ops(scene.scene_of(48.0, 40.0), ops)
+}
+
+// The first pixel at which two renders differ, named, or `""` when they agree everywhere. A bool
+// would say that a clip is wrong without saying where, and where is the whole of the diagnosis:
+// a row out at the top is an off-by-one in the sample line, a column out is one in the profile.
+fn first_difference(a: image.Image, b: image.Image, width: int, height: int) -> string {
+    var y = 0
+    while y < height {
+        var x = 0
+        while x < width {
+            val pa = unwrap(image.pixel_at(a, x, y))
+            val pb = unwrap(image.pixel_at(b, x, y))
+            if pa.red != pb.red || pa.green != pb.green || pa.blue != pb.blue || pa.alpha != pb.alpha {
+                return concat(
+                    "(",
+                    str(x),
+                    ", ",
+                    str(y),
+                    ") is ",
+                    format("{}", pa.alpha),
+                    "a ",
+                    format("{}", pa.red),
+                    "r but should be ",
+                    format("{}", pb.alpha),
+                    "a ",
+                    format("{}", pb.red),
+                    "r"
+                )
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return ""
+}
+
+fn everywhere() -> shape.Path {
+    return shape.rect_path(geom.rect_of(0.0, 0.0, 48.0, 40.0))
+}
+
+fn ink() -> paint.Paint {
+    return paint.solid(paint.rgb(0.9, 0.2, 0.1))
+}
+
+#[test]
+fn a_rectangular_clip_between_pixels_draws_exactly_its_rectangle() {
+    // Fractional on all four edges and on both axes, so a profile that is right only for whole
+    // columns, or a row range that is right only when the top edge is whole, is caught.
+    val box = geom.rect_of(8.5, 6.25, 15.75, 17.5)
+    val clipped = canvas_pixels(scene_with([scene.clipped(
+        shape.rect_path(box),
+        [scene.fill(everywhere(), ink())]
+    )]))
+    val direct = canvas_pixels(scene_with([scene.fill(shape.rect_path(box), ink())]))
+    test.assert_eq(first_difference(clipped, direct, 48, 40), "")
+}
+
+#[test]
+fn a_rectangular_clip_inside_another_is_their_overlap() {
+    // Two one-row profiles have to multiply into one, and the window has to narrow twice. The
+    // inner rectangle hangs off the outer one on two sides, so an intersection taken wrongly shows
+    // as ink outside the overlap rather than as a rounding difference.
+    val outer = geom.rect_of(6.5, 5.25, 24.0, 20.5)
+    val inner = geom.rect_of(12.25, 2.5, 30.0, 18.75)
+    val overlap = geom.rect_of(12.25, 5.25, 24.0 - (12.25 - 6.5), 18.75 - (5.25 - 2.5))
+    val nested = canvas_pixels(scene_with([scene.clipped(
+        shape.rect_path(outer),
+        [scene.clipped(shape.rect_path(inner), [scene.fill(everywhere(), ink())])]
+    )]))
+    val direct = canvas_pixels(scene_with([scene.fill(shape.rect_path(overlap), ink())]))
+    test.assert_eq(first_difference(nested, direct, 48, 40), "")
+}
+
+#[test]
+fn a_rectangular_clip_on_whole_pixels_still_draws_exactly_its_rectangle() {
+    // The path `window_clip` takes, asserted the same way as the one `rect_profile` takes, so that
+    // the two cannot drift apart: a rectangle on the grid is the same picture either way, and this
+    // is what says so if the cheap path is ever narrowed by a pixel.
+    val box = geom.rect_of(8.0, 6.0, 16.0, 18.0)
+    val clipped = canvas_pixels(scene_with([scene.clipped(
+        shape.rect_path(box),
+        [scene.fill(everywhere(), ink())]
+    )]))
+    val direct = canvas_pixels(scene_with([scene.fill(shape.rect_path(box), ink())]))
+    test.assert_eq(first_difference(clipped, direct, 48, 40), "")
+}
+
+#[test]
+fn a_gradient_under_a_rectangular_clip_is_cut_where_the_rectangle_is() {
+    // A gradient does not reach `composite_row_flat`; it has a compositor of its own, and that one
+    // reads the mask too. Without a test here, a mask index wrong in the gradient native alone
+    // would pass every other assertion in this file.
+    val ramp = paint.linear(
+        geom.point_of(0.0, 0.0),
+        geom.point_of(48.0, 40.0),
+        [paint.stop_of(0.0, paint.rgb(1.0, 0.0, 0.0)), paint.stop_of(1.0, paint.rgb(0.0, 0.0, 1.0))]
+    )
+    val box = geom.rect_of(10.5, 8.25, 20.0, 16.5)
+    val clipped = canvas_pixels(scene_with([scene.clipped(
+        shape.rect_path(box),
+        [scene.fill(everywhere(), ramp)]
+    )]))
+    val direct = canvas_pixels(scene_with([scene.fill(shape.rect_path(box), ramp)]))
+    test.assert_eq(first_difference(clipped, direct, 48, 40), "")
+}
+
+#[test]
+fn more_than_one_sample_keeps_the_mask_and_draws_the_same_rectangle() {
+    // `rect_profile` refuses anything but one sample, so this goes through `clip_mask` -- the path
+    // that allocates a canvas. It has to reach the same picture, or the fast path and the slow one
+    // disagree and which one a caller gets depends on an option that is supposed to be about
+    // anti-aliasing alone.
+    val box = geom.rect_of(8.5, 6.25, 15.75, 17.5)
+    val four = with raster.options() { samples: 4 }
+    val clipped = canvas_pixels_at(scene_with([scene.clipped(
+        shape.rect_path(box),
+        [scene.fill(everywhere(), ink())]
+    )]), four)
+    val direct = canvas_pixels_at(scene_with([scene.fill(shape.rect_path(box), ink())]), four)
+    test.assert_eq(first_difference(clipped, direct, 48, 40), "")
+}
+
+// A glyph does not reach `composite_row_flat`: it is rasterised into a tile of its own and blitted
+// through `composite_span_flat`, which reads the clip at an index it is handed rather than one it
+// computes from a row. Nothing above exercises that, so a mask index wrong in the blitter alone
+// would pass every other assertion here -- which is precisely the kind of hole the five breaks
+// this test was watched against are meant to close.
+fn a_font() -> Option<font.FontRef> {
+    val data = switch fs.read_bytes("vendor/fonts/Caladea-Regular.ttf") {
+        Ok(d) { d }
+        Err(_) { return Option<font.FontRef>.None }
+    }
+    return switch font.load(data) {
+        Ok(f) { Option<font.FontRef>.Some(f) }
+        Err(_) { Option<font.FontRef>.None }
+    }
+}
+
+#[test]
+fn words_under_a_rectangular_clip_are_cut_where_the_rectangle_is() {
+    val f = switch a_font() {
+        Some(f) { f }
+        // The vendored font is in the repository, so this cannot normally happen; a test that
+        // quietly passed when it could not read one would be worse than one that says so.
+        None { test.assert(false) return }
+    }
+    val o = with raster.options() { fonts: [f], samples: 1 }
+    val box = geom.rect_of(6.5, 4.25, 22.0, 20.5)
+    val words = scene.text_of("Hamburgefonstiv", geom.point_of(2.0, 18.0), 14.0, 0, ink())
+    // The same words clipped by the rectangle, and clipped by the rectangle's whole-pixel inside.
+    // Every pixel the inner rectangle covers is covered by the outer one completely, so the two
+    // have to agree there -- and the blitter reading the mask one row out shows up as a line of
+    // glyph missing rather than as a soft edge.
+    val clipped = canvas_pixels_at(scene_with([scene.clipped(shape.rect_path(box), [words])]), o)
+    val inside = geom.rect_of(7.0, 5.0, 21.0, 19.0)
+    val tight = canvas_pixels_at(scene_with([scene.clipped(shape.rect_path(inside), [words])]), o)
+    var y = 5
+    while y < 24 {
+        var x = 7
+        while x < 28 {
+            val a = unwrap(image.pixel_at(clipped, x, y))
+            val b = unwrap(image.pixel_at(tight, x, y))
+            test.assert_eq(format("{} {}", a.alpha, a.red), format("{} {}", b.alpha, b.red))
+            x = x + 1
+        }
+        y = y + 1
+    }
+    // And nothing outside the rectangle at all.
+    test.assert_eq(unwrap(image.pixel_at(clipped, 2, 18)).alpha, 0.0)
+    test.assert_eq(unwrap(image.pixel_at(clipped, 30, 18)).alpha, 0.0)
 }
